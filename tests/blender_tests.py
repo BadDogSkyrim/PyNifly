@@ -393,7 +393,6 @@ def TEST_IMP_EXP_SKY(game, blendxf, pretty):
     """Can read the armor nif and spit it back out"""
     # Round trip of ordinary Skyrim armor, with and without scale factor.
 
-    TTB.clear_all()
     testfile = TTB.test_file(r"tests/Skyrim/armor_only.nif")
     outfile = TTB.test_file(f"tests/Out/TEST_IMP_EXP_SKY_{game}_{blendxf}_{pretty}.nif")
 
@@ -660,7 +659,6 @@ def TEST_ROUND_TRIP():
                   ])
 def TEST_BPY_PARENT_A(game, blendxf, pretty):
     """Maintain armature structure"""
-    TTB.clear_all()
     testfile = TTB.test_file(r"tests\Skyrim\test.nif")
 
     # Can intuit structure if it's not in the file
@@ -1265,7 +1263,6 @@ def TEST_3BBB():
 def TEST_CONNECT_SKEL(xf, bonerot):
     """Can import and export FO4 skeleton file with no shapes"""
     print(f"Can import and export FO4 skeleton file with no shapes, transform {xf}, bone rotation {bonerot}")
-    TTB.clear_all()
     testname = f"TEST_SKEL_{xf}_{bonerot}"
     testfile = TTB.test_file(r"skeletons\FO4\skeleton.nif")
     outfile = TTB.test_file(r"tests/out/" + testname + ".nif")
@@ -4851,7 +4848,6 @@ def TEST_COLLISION_MULTI():
 def TEST_COLLISION_CONVEXVERT(bx):
     """"Can read and write shape with convex verts collision shape at scale."""
     print(f"<<<Can read and write shape with convex verts collision shape at scale {bx}>>>")
-    TTB.clear_all()
 
     # ------- Load --------
     testfile = TTB.test_file(r"tests\Skyrim\cheesewedge01.nif")
@@ -4949,7 +4945,6 @@ def TEST_COLLISION_CAPSULE(bx):
     # It might even be intentional, to give the staff a more irregular roll, since 
     # they didn't do a collision for the protrusions.
     print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
-    TTB.clear_all()
 
     # ------- Load --------
     testfile = TTB.test_file(r"tests\Skyrim\staff04.nif")
@@ -5008,7 +5003,6 @@ def TEST_COLLISION_CAPSULE2(bx):
     # It might even be intentional, to give the staff a more irregular roll, since 
     # they didn't do a collision for the protrusions.
     print(f"<<<Can read and write shape with collision capsule shapes with Blender transforms {bx}>>>")
-    TTB.clear_all()
 
     # ------- Load --------
     testfile = TTB.test_file(r"tests\Skyrim\staff04-collision.nif")
@@ -5054,7 +5048,6 @@ def TEST_COLLISION_LIST(bx):
     without Blender transform.
     """
     print(f"<<<Can read and write shape with collision list and collision transform shapes with Blender transform {bx}>>>")
-    TTB.clear_all()
 
     # ------- Load --------
     testfile = TTB.test_file(r"tests\Skyrim\falmerstaff.nif")

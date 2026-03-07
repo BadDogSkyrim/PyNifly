@@ -74,7 +74,13 @@ def parameterize(names, values):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             results = []
-            for v in values:
+            for i, v in enumerate(values):
+                if i > 0:
+                    try:
+                        from . import test_tools_bpy as TTB
+                        TTB.clear_all()
+                    except ImportError:
+                        pass
                 if isinstance(v, dict):
                     call_kwargs = v
                 elif isinstance(v, tuple):
