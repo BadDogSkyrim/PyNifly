@@ -652,16 +652,38 @@ def TEST_ROUND_TRIP():
         
 
 @TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
-def TEST_BPY_PARENT_A():
+@TT.parameterize(("game",       "blendxf",  "pretty"), 
+                 [('SKYRIMSE',  "NATURAL",  "NIF"),
+                  ('SKYRIMSE',  "BLENDER",  "NIF"),
+                  ('SKYRIMSE',  "NATURAL",  "PRETTY"),
+                  ('SKYRIMSE',  "BLENDER",  "PRETTY"),
+                  ])
+def TEST_BPY_PARENT_A(game, blendxf, pretty):
     """Maintain armature structure"""
+    TTB.clear_all()
     testfile = TTB.test_file(r"tests\Skyrim\test.nif")
-    
+
     # Can intuit structure if it's not in the file
-    bpy.ops.import_scene.pynifly(filepath=testfile)
-    arma = next(x for x in bpy.data.objects 
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 blender_xf=(blendxf=="BLENDER"),
+                                 rotate_bones_pretty=(pretty=="PRETTY"),
+                                 create_bones=True,)
+    arma = next(x for x in bpy.data.objects
                 if x.type == 'ARMATURE' and 'NPC Hand.R' in x.data.bones)
     assert arma, "Found armature with hand bone"
     assert TT.is_eq(arma.data.bones['NPC Hand.R'].parent.name, 'CME Forearm.R'), f"hand parent"
+
+    # Both shapes should share one armature and have similar bounding boxes
+    armatures = [x for x in bpy.data.objects if x.type == 'ARMATURE']
+    assert TT.is_eq(len(armatures), 1, "Should have exactly one armature")
+    body = next(x for x in bpy.data.objects if x.name.startswith('MaleBody'))
+    armor = next(x for x in bpy.data.objects if x.name.startswith('Armor'))
+    body_bb = TTB.get_obj_bbox(body, worldspace=True)
+    armor_bb = TTB.get_obj_bbox(armor, worldspace=True)
+    assert NT.VNearEqual(body_bb[0], armor_bb[0], epsilon=20), \
+        f"Armor and body bounding box mins should be similar: {body_bb[0]} vs {armor_bb[0]}"
+    assert NT.VNearEqual(body_bb[1], armor_bb[1], epsilon=20), \
+        f"Armor and body bounding box maxs should be similar: {body_bb[1]} vs {armor_bb[1]}"
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')

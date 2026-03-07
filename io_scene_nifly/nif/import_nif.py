@@ -988,7 +988,7 @@ class NifImporter():
                 shape_bone_xf = (
                     obj.matrix_local @ BD.apply_scale_xf(BD.bind_position(shape, b), self.scale) )
                 arma_xf = BD.get_bone_xform(arma, blend_name, shape.file.game, False, False)
-                if not MatNearEqual(shape_bone_xf, arma_xf):
+                if not MatNearEqual(shape_bone_xf, arma_xf, epsilon=0.02):
                     is_ok = False
                     this_offset = shape_bone_xf @ arma_xf 
                     if offset_xf:

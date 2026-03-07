@@ -26,7 +26,7 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_ROTSTATIC  ],
+    target_tests=[ TEST_BPY_PARENT_A  ],
     # categories={'HKX'},
     test_all=True,
     stop_on_fail=False,
