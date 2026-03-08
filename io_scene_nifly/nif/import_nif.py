@@ -1797,6 +1797,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         self.rename_bones_niftools = pyniflyPrefs.rename_bones_niftools
         self.rotate_bones_pretty = pyniflyPrefs.rotate_bones_pretty
         self.import_tris = pyniflyPrefs.import_tris
+        self.import_shapekeys = pyniflyPrefs.import_shapekeys
 
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.

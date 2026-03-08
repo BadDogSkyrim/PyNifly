@@ -106,6 +106,12 @@ class PyNiflyPreferences(AddonPreferences):
         default=True
     ) # type: ignore
 
+    import_shapekeys: BoolProperty(
+        name="Import as shape keys",
+        description=("Import similar objects as shape keys where possible."),
+        default=True
+    ) # type: ignore
+
     blender_xf: BoolProperty(
         name="Blender-friendly scene orientation",
         description=("Rotates the scene 90 degrees around the Z axis and scale down to match Blender. " +
@@ -128,6 +134,7 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "rename_bones_niftools")
         layout.prop(self, "rotate_bones_pretty")
         layout.prop(self, "import_tris")
+        layout.prop(self, "import_shapekeys")
         layout.prop(self, "blender_xf")
 
 def register():
