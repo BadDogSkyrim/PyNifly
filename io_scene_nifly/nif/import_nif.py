@@ -262,6 +262,7 @@ class NifImporter():
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
         self.created_child_cp = None
         self.bones = set()
+        self.nif_rest_bones = set()  # Blender names of bones whose rest was set from NIF node transforms
         self.objects_created = ReprObjectCollection() # Dictionary of objects created, indexed by node handle
                                   # (or object name, if no handle)
         self.nodes_loaded = {} # Dictionary of nodes from the nif file loaded, indexed by Blender name
@@ -1061,13 +1062,14 @@ class NifImporter():
             bone = BD.create_bone(armdata, bone_name, bone_xform, 
                                self.nif.game, self.scale, 0)
         else:
-            xf = self.nif.get_node_xform_to_global(nifname) 
+            xf = self.nif.get_node_xform_to_global(nifname)
             bone_xform = BD.transform_to_matrix(xf)
-            # We have the world position of the bone, so we don't need the armature's 
-            # skin transform. (We might need the armature object's Blender transform. 
+            # We have the world position of the bone, so we don't need the armature's
+            # skin transform. (We might need the armature object's Blender transform.
             # But that's always the identity.)
-            bone = BD.create_bone(armdata, bone_name, bone_xform, 
+            bone = BD.create_bone(armdata, bone_name, bone_xform,
                                self.nif.game, self.scale, 0)
+            self.nif_rest_bones.add(bone_name)
 
         return bone
     
@@ -1078,10 +1080,26 @@ class NifImporter():
         the P.NiNode in the nif being imported.
         *   bonelist = [(nif-name, blender-name), ...]
         """
+        # Sort so parents are processed before children. Blender's pose_bone.matrix
+        # setter computes matrix_basis relative to the current parent pose, so parents
+        # must be posed first.
+        def bone_depth(item):
+            blname = item[1]
+            depth = 0
+            b = arma.data.bones.get(blname)
+            while b and b.parent:
+                depth += 1
+                b = b.parent
+            return depth
+        bonelist = sorted(bonelist, key=bone_depth)
+
         for bn, blname in bonelist:
             if bn in nif.nodes and blname in arma.pose.bones:
                 nif_bone = nif.nodes[bn]
                 if isinstance(nif_bone, P.NiNode) and nif_bone.name != nif.rootName:
+                    if blname in self.nif_rest_bones:
+                        continue
+
                     bone_xf = BD.transform_to_matrix(nif_bone.global_transform)
 
                     if self.is_facegen:
@@ -1095,7 +1113,6 @@ class NifImporter():
                         except:
                             log.exception(f"Error handling facegen bone rotations {bn}")
 
-                    pb_xf = BD.apply_scale_transl(bone_xf, self.scale)
                     pose_bone = arma.pose.bones[blname]
                     pbmx = BD.get_pose_blender_xf(bone_xf, self.nif.game, self.scale)
                     pose_bone.matrix = pbmx
@@ -1643,6 +1660,12 @@ class NifImporter():
 
         # Connect up all the children loaded in this batch with all the parents loaded in this batch
         self.connect_points.connect_all()
+
+        # Re-apply bone poses at the very end. Earlier calls to set_bone_poses
+        # get wiped whenever subsequent import steps enter edit mode. Collision
+        # constraints use influence=0 so they won't override these poses.
+        for arma in self.target_armatures:
+            self.set_all_bone_poses(arma, self.nif)
 
 
     @classmethod

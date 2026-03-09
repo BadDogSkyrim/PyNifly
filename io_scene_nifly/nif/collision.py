@@ -9,7 +9,7 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from ..pyn.nifconstants import (
     HAVOC_SCALE_FACTOR, game_collision_sf, SkyrimCollisionLayer, SkyrimHavokMaterial,
     bhkCOFlags)
-from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix, 
+from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix,
                             find_box_info, append_if_new, MatrixLocRotScale)
 from ..util.reprobj import ReprObject
 from ..pyn.pynifly import *
@@ -822,6 +822,10 @@ class CollisionHandler():
                     pb = parentObj.pose.bones[bn]
                     constr = pb.constraints.new(type='COPY_TRANSFORMS')
                     constr.target = sh
+                    # Zero influence so the constraint doesn't override the bone's
+                    # rest pose (especially with pretty rotations).  The exporter
+                    # discovers collisions by constraint type, not influence.
+                    constr.influence = 0.0
                 else:
                     importer.warn(f"Bone is missing: {bone.name}")
             else:
@@ -1055,9 +1059,11 @@ class CollisionHandler():
             targparent = targobj
         except:
             try:
-                # for pose bones
+                # for pose bones — use the collision shape's world transform
+                # in armature space. This matches what COPY_TRANSFORMS with
+                # influence=1 would give, regardless of pretty rotations.
                 targparent = targobj.id_data
-                targxf = targobj.matrix
+                targxf = targparent.matrix_world.inverted() @ coll.matrix_world
                 have_bone = True
             except:
                 # For edit bones
@@ -1135,6 +1141,8 @@ class CollisionHandler():
         targpair = self.objs_written.find_blend(targobj)
         if targpair:
             targnode = targpair.nifnode
+        elif hasattr(self, 'writtenbones') and targobj.name in self.writtenbones:
+            targnode = self.nif.nodes[self.writtenbones[targobj.name]]
         else:
             targnode = self.nif.nodes[targobj.name]
 
@@ -1257,6 +1265,7 @@ class CollisionHandler():
         exporter.objs_written = parent_handler.objs_written
         exporter.game = parent_handler.game
         exporter.export_xf = parent_handler.export_xf
+        exporter.writtenbones = parent_handler.writtenbones
 
         targobj = obj
         if obj.type == 'ARMATURE':

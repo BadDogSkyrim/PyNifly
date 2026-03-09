@@ -53,8 +53,7 @@ class HKAAnimation:
 
 
     def parse_data(self, data):
-        for i in range(0, self.transform_tracks_count):
-            
+        pass
 
     def load(self, elem):
         """Load animation data from XML element."""
@@ -82,7 +81,7 @@ class HKAAnimation:
     def find(cls, elem):
         """Find the animation element child of the XML element. Return a new HKAAnimation
         object."""
-        anim_elem = elem.find("./hkobject[@class='hkaSplineCompressedAnimation']")
+        anim_elem = elem.find(".//*[@class='hkaSplineCompressedAnimation']")
         if anim_elem:
             anim = HKAAnimation()
             anim.load(anim_elem)
@@ -91,9 +90,4 @@ class HKAAnimation:
         else:
             return None
 
-
-f = xml.parse(r"C:\Modding\Tools\HKXTools\Out\tail_sneakmtidle.xml")
-r = f.getroot()
-section = r.find("./hksection[@name='__data__']")
-anim = HKAAnimation.find(section)
 

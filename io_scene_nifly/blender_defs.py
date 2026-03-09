@@ -156,6 +156,15 @@ def transform_from_matrix(buf: TransformBuf, m: Matrix):
     buf.scale = max(s[:])
 
 
+def matrices_differ(a: Matrix, b: Matrix, tol=0.0001) -> bool:
+    """Return True if a and b differ in any element by more than tol."""
+    for i in range(4):
+        for j in range(4):
+            if abs(a[i][j] - b[i][j]) > tol:
+                return True
+    return False
+
+
 def make_transformbuf(m: Matrix) -> TransformBuf:
     """ Return a new TransformBuf filled with the data in the matrix """
     buf = TransformBuf()
@@ -264,8 +273,10 @@ def apply_scale_transl(xf:Matrix, sf:float) -> Matrix:
 
 
 def get_pose_blender_xf(node_xf: Matrix, game: str, scale_factor):
-    """Take the given bone transform and add in the transform for a blender bone"""
-    return apply_scale_transl(node_xf, scale_factor) @ game_rotations[game_axes[game]][0]
+    """Take the given bone transform and add in the transform for a blender bone.
+    Must match get_bone_blender_xf so pose position equals rest position when the
+    underlying NIF transforms are the same."""
+    return Matrix.Scale(scale_factor, 4) @ node_xf @ game_rotations[game_axes[game]][0]
 
 
 def get_bone_global_xf(arma, bone_name, game:str, use_pose) -> Matrix:

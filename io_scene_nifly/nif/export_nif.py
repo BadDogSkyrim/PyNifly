@@ -1099,16 +1099,24 @@ class NifExporter:
         if bone_parent and bone_name not in self.writtenbones:
             parname = self.write_bone(shape, arma, bone_parent.name, bones_to_write)
 
-        xf = BD.get_bone_xform(arma, bone_name, self.game, 
+        xf = BD.get_bone_xform(arma, bone_name, self.game,
                             self.settings.preserve_hierarchy,
                             self.settings.export_pose)
         tb = BD.pack_xf_to_buf(xf, self.scale)
-        
+
         if bone_name in bones_to_write and shape:
-            shape.add_bone(nifname, tb, 
+            shape.add_bone(nifname, tb,
                            (parname if self.settings.preserve_hierarchy else None))
         elif bone_name not in self.writtenbones and (self.settings.preserve_hierarchy or not shape):
-            # Not a shape bone but needed for the hierarchy
+            # NIF node transforms are parent-relative. When preserve_hierarchy
+            # is off, get_bone_xform returns the global transform; convert it
+            # to local so add_node stores the correct parent-relative values.
+            if parname and not self.settings.preserve_hierarchy and bone_parent:
+                parent_xf = BD.get_bone_global_xf(
+                    arma, bone_parent.name, self.game,
+                    self.settings.export_pose)
+                local_xf = parent_xf.inverted() @ xf
+                tb = BD.pack_xf_to_buf(local_xf, 1.0)
             self.nif.add_node(nifname, tb, parname)
 
         self.writtenbones[bone_name] = nifname

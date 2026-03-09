@@ -20,6 +20,9 @@
       "Read(//c/Modding/Tools/NifSkope/**)",
       "Read(//c/Modding/Nifly/include/**)",
       "Read(//c/Users/hughr/OneDrive/SkyrimDevOld/Collaborators/Frosferes/Havok Content Tools/hk2012_2_0_r1/Source/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\tmp"
     ]
   }
 }

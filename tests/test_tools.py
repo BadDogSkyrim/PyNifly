@@ -273,6 +273,15 @@ def is_ge(actual, expected, msg, e=0.0001):
         return False
 
 
+def is_le(actual, expected, msg, e=0.0001):
+    """Check actual is less than or equal to expected."""
+    if actual <= expected:
+        return True
+    else:
+        log.error(f"ASSERT FAIL: {msg}: {actual} <= {expected}")
+        return False
+
+
 def assert_contains(element, collection, message):
     assert element in collection, f"{message} {element} in {collection}"
 
