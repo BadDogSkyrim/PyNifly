@@ -2227,10 +2227,10 @@ def TEST_SHADER_GRAYSCALE_COLOR():
                  1.0, 
                  "UV Scale")
     
-    # Vertex alpha correct
+    # Vertex alpha correct — FO4 always uses vertex alpha with vertex colors
     alpha = bsdf.inputs['Alpha Property'].links[0].from_node
     vertalph = alpha.inputs['Vertex Alpha'].links[0].from_node
-    TT.assert_eq(vertalph.attribute_type, 'GEOMETRY', "Geometry type") 
+    TT.assert_eq(vertalph.attribute_type, 'GEOMETRY', "Geometry type")
     TT.assert_eq(vertalph.attribute_name, 'VERTEX_ALPHA', "Attribute name")
 
     # Specular texture connected
@@ -4164,14 +4164,39 @@ def TEST_TREE():
     testfile = TTB.test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_TREE.nif", output=True)
 
+    # Read expected LOD sizes from the source NIF
+    nif_in = pyn.NifFile(testfile)
+    tree_shape = nif_in.shapes[0]
+    lod0_size = tree_shape.properties.lodSize0
+    lod1_size = tree_shape.properties.lodSize1
+    lod2_size = tree_shape.properties.lodSize2
+
     bpy.ops.import_scene.pynifly(filepath=testfile)
     root = next(obj for obj in bpy.data.objects if 'pynRoot' in obj)
     assert root['pynBlockName'] == "BSLeafAnimNode", f"Have correct root type: {root['pynBlockName']}"
-    
+
     tree = next(obj for obj in bpy.data.objects if obj.name.startswith("Tree") and obj.type == 'MESH')
     assert 'TREE_ANIM' in tree.active_material['Shader_Flags_2'], f"Have shader flags"
     assert tree['pynBlockName'] == "BSMeshLODTriShape", f"Have correct block type: {tree['pynBlockName']}"
-    assert int(tree['lodSize0']) == 1126, f"Have correct LOD0 size"
+    assert TT.is_eq(lod0_size, 1126, "Have correct LOD0 size")
+
+    # LOD sizes not stored as custom properties — recovered from vertex groups
+    assert 'lodSize0' not in tree, "lodSize not stored as custom property"
+
+    # Check LOD vertex groups were created on import (LOD2 is implicit)
+    lod_groups = [g.name for g in tree.vertex_groups if g.name in BD.LOD_GROUP_NAMES]
+    assert TT.is_eq(len(lod_groups), 2, "Have 2 LOD vertex groups")
+    assert TT.is_eq(lod_groups, ["LOD0", "LOD1"], "LOD groups have correct names")
+
+    # Check Mask modifier was added
+    lod_mod = tree.modifiers.get("LOD")
+    assert lod_mod is not None, "Have LOD mask modifier"
+    assert TT.is_eq(lod_mod.type, 'MASK', "LOD modifier is a mask")
+
+    # Verify LOD sizes sum to total face count
+    total_lod = lod0_size + lod1_size + lod2_size
+    assert TT.is_eq(total_lod, len(tree.data.polygons),
+                     "LOD sizes sum to total face count")
 
     # ------- Export
     BD.ObjectSelect([tree, root], active=True)
@@ -4183,8 +4208,10 @@ def TEST_TREE():
     treecheck = nifcheck.shapes[0]
     assert treecheck.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
     assert treecheck.shader.properties.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
-    assert treecheck.properties.vertexCount == 1059, f"Have correct vertex count"
-    assert treecheck.properties.lodSize0 == 1126, f"Have correct lodSize0"
+    assert TT.is_eq(treecheck.properties.vertexCount, 1059, "Have correct vertex count")
+    assert TT.is_eq(treecheck.properties.lodSize0, lod0_size, "LOD0 size round-trips")
+    assert TT.is_eq(treecheck.properties.lodSize1, lod1_size, "LOD1 size round-trips")
+    assert TT.is_eq(treecheck.properties.lodSize2, lod2_size, "LOD2 size round-trips")
 
 
 def CheckBow(nif, nifcheck, bow):

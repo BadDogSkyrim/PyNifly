@@ -74,6 +74,9 @@ NISHAPE_IGNORE = [
     "flags",
     "vertexFlags",
     "pynValueNodeFlags",
+    "lodSize0",
+    "lodSize1",
+    "lodSize2",
     ]
 
 
@@ -170,6 +173,52 @@ def mesh_create_partition_groups(the_shape, the_object):
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
 
+def mesh_create_lod_groups(the_shape, the_object):
+    """Create cumulative vertex groups for BSMeshLODTriShape LOD levels.
+
+    Triangles are stored sorted by LOD: first lodSize0 are LOD0 (coarsest),
+    next lodSize1 are LOD1, remaining lodSize2 are LOD2 (finest).
+    Groups are cumulative: LOD0 contains LOD0 tris, LOD1 contains LOD0+LOD1
+    tris. LOD2 is implicit (everything). A Mask modifier with no vertex group
+    is added so the user can select LOD0 or LOD1 to view coarser levels.
+    """
+    props = the_shape.properties
+    if not hasattr(props, 'lodSize0'):
+        return
+
+    lod_sizes = [props.lodSize0, props.lodSize1, props.lodSize2]
+    if sum(lod_sizes) == 0:
+        return
+
+    mesh = the_object.data
+    vg = the_object.vertex_groups
+
+    lod_groups = []
+    for name in BD.LOD_GROUP_NAMES:
+        if name in vg:
+            lod_groups.append(vg[name])
+        else:
+            lod_groups.append(vg.new(name=name))
+
+    # LOD0 and LOD1 are cumulative: LOD1 includes LOD0's tris too.
+    # LOD2 is implicit — everything not masked.
+    tri_idx = 0
+    for lod_level in range(2):
+        for _ in range(lod_sizes[lod_level]):
+            if tri_idx >= len(mesh.polygons):
+                break
+            face = mesh.polygons[tri_idx]
+            for lp in face.loop_indices:
+                vi = mesh.loops[lp].vertex_index
+                for g in range(lod_level, 2):
+                    lod_groups[g].add((vi,), 1.0, 'ADD')
+            tri_idx += 1
+
+    # Mask modifier with no vertex group — shows everything (LOD2).
+    # User can switch to LOD0 or LOD1 to see coarser levels.
+    the_object.modifiers.new(name="LOD", type='MASK')
+
+
 def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
     try:
         use_vertex_colors = False
@@ -179,13 +228,13 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
             use_vertex_alpha = shape.shader.properties.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA)
         else:
             if shape.properties.hasVertexColors or shape.shader.blockname == 'BSEffectShaderProperty':
-                # FO4 appears to combine vertex alpha with vertex color, so always provide alpha.
-                # or ((shape.shader_block_name == 'BSEffectShaderProperty' and shape.file.game == 'FO4'))
-                # If we have a BSEffectShaderProperty in FO4 we assume the alpha channel
-                # is used whether or not VERTEX_ALPHA is set. Some FO4 meshes seem to work
-                # this way. 
                 use_vertex_colors = True
-                use_vertex_alpha = True
+                # FO4 uses vertex alpha when greyscale-to-palette is active
+                # or with effect shaders, but not for all vertex-colored meshes.
+                use_vertex_alpha = (
+                    shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR)
+                    or shape.shader.blockname == 'BSEffectShaderProperty'
+                )
         if use_vertex_colors \
             and shape.colors and len(shape.colors) > 0:
             clayer = None
@@ -888,6 +937,7 @@ class NifImporter():
                 BD.mesh_create_uv(new_object.data, the_shape.uvs)
                 self.mesh_create_bone_groups(the_shape, new_object)
                 mesh_create_partition_groups(the_shape, new_object)
+                mesh_create_lod_groups(the_shape, new_object)
                 for f in new_mesh.polygons:
                     f.use_smooth = True
 

@@ -227,6 +227,92 @@ def all_vertex_groups(weightdict):
     return val
 
 
+def get_lod_groups(obj):
+    """Return a dict mapping vertex index to LOD level (0, 1, or 2) from LOD vertex groups.
+
+    LOD groups are cumulative: LOD0 has coarsest tris, LOD1 has LOD0+LOD1,
+    LOD2 has all. A vertex's exclusive LOD level is the lowest-numbered group
+    it belongs to. Vertices not in LOD0 or LOD1 default to LOD2.
+
+    Returns None if the object has no LOD vertex groups.
+    """
+    # Only need to check LOD0 and LOD1 — LOD2 is everything else
+    lod_vg_indices = {}
+    for level, name in enumerate(BD.LOD_GROUP_NAMES[:2]):
+        if name in obj.vertex_groups:
+            lod_vg_indices[obj.vertex_groups[name].index] = level
+
+    if not lod_vg_indices:
+        return None
+
+    vert_lod = {}
+    for v in obj.data.vertices:
+        best_level = 2  # default: finest LOD
+        for g in v.groups:
+            if g.group in lod_vg_indices and g.weight > 0.5:
+                level = lod_vg_indices[g.group]
+                if level < best_level:
+                    best_level = level
+        vert_lod[v.index] = best_level
+    return vert_lod
+
+
+def get_face_lod(face, loops, vert_lod):
+    """Determine a face's LOD level from its vertices' LOD assignments.
+
+    All verts of a face should be in the same LOD group. If they disagree,
+    use the lowest (coarsest) LOD level present.
+    Returns the LOD level (0, 1, or 2), or 2 if no assignment found.
+    """
+    levels = set()
+    for i in range(face.loop_start, face.loop_start + face.loop_total):
+        vi = loops[i].vertex_index
+        if vi in vert_lod:
+            levels.add(vert_lod[vi])
+    if not levels:
+        return 2  # Default: finest LOD
+    return min(levels)
+
+
+def sort_tris_by_lod(obj, tris, partition_map):
+    """Sort triangles by LOD level and return (sorted_tris, sorted_partition_map, lod_sizes).
+
+    Returns (tris, partition_map, None) unchanged if the object has no LOD groups.
+    """
+    vert_lod = get_lod_groups(obj)
+    if vert_lod is None:
+        return tris, partition_map, None
+
+    # Determine each tri's LOD level from its vertices
+    tri_lods = []
+    for tri in tris:
+        levels = set()
+        for vi in tri:
+            if vi in vert_lod:
+                levels.add(vert_lod[vi])
+        tri_lods.append(min(levels) if levels else 2)
+
+    # Sort tris (and partition_map if present) by LOD level
+    if partition_map:
+        combined = sorted(zip(tri_lods, tris, partition_map), key=lambda x: x[0])
+        tri_lods_sorted, tris_sorted, pmap_sorted = zip(*combined) if combined else ([], [], [])
+        tris_sorted = list(tris_sorted)
+        pmap_sorted = list(pmap_sorted)
+    else:
+        combined = sorted(zip(tri_lods, tris), key=lambda x: x[0])
+        tri_lods_sorted, tris_sorted = zip(*combined) if combined else ([], [])
+        tris_sorted = list(tris_sorted)
+        pmap_sorted = partition_map
+
+    # Compute LOD sizes
+    lod_sizes = [0, 0, 0]
+    for lod in tri_lods_sorted:
+        if lod < 3:
+            lod_sizes[lod] += 1
+
+    return tris_sorted, pmap_sorted, lod_sizes
+
+
 def get_loop_color(mesh, loopindex, cm, am):
     """ Return the color of the vertex-in-loop at given loop index using
         cm = color map to use
@@ -1212,9 +1298,12 @@ class NifExporter:
                     log.warning(f"Exporting to game that doesn't match armature: game={self.nif.game}, armature={arma.name}")
                     retval.add('GAME')
 
-            # Collect key info about the mesh 
+            # Collect key info about the mesh
             verts, norms_new, uvmap_new, colors_new, tris, weights_by_vert, morphdict, partitions, partition_map = \
                 self.extract_mesh_data(self.active_obj, arma, target_key)
+
+            # Sort triangles by LOD level if LOD vertex groups exist
+            tris, partition_map, lod_sizes = sort_tris_by_lod(obj, tris, partition_map)
 
             is_headpart = obj.data.shape_keys \
                     and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
@@ -1242,6 +1331,11 @@ class NifExporter:
             
             blockclass = pynifly.NiObject.block_types[blocktype]
             props = blockclass.getbuf(obj)
+
+            if lod_sizes is not None and hasattr(props, 'lodSize0'):
+                props.lodSize0 = lod_sizes[0]
+                props.lodSize1 = lod_sizes[1]
+                props.lodSize2 = lod_sizes[2]
 
             # If we're exporting a mesh that is a connect point, export the mesh as the 
             # editor marker for that point. Exported editor markers are always parented
