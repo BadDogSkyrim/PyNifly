@@ -7523,16 +7523,17 @@ def TEST_KF_RENAME():
 
 @TT.category('SKYRIM', 'HKX')
 @TT.expect_errors(("Controller target not found",))
-def TEST_HKX():
+@TT.parameterize(("blender_xf", "pretty"), [(True, False), (False, False), (True, True)])
+def TEST_HKX(blender_xf, pretty):
     """Can import and export a HKX animation."""
     if bpy.app.version < (3, 5, 0): return
 
+    label = ("blender_xf" if blender_xf else "no_blender_xf") + ("_pretty" if pretty else "")
     # Check that this works when there are spaces in the path name
     testfile = TTB.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
-    # testfile2 = TTB.test_file(r"tests\Skyrim\1hm_attackpowerright.hkx")
     skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
-    outfile = TTB.test_file(r"tests/Out/created animations/TEST_HKX.hkx")
+    outfile = TTB.test_file(rf"tests/Out/created animations/TEST_HKX_{label}.hkx")
 
     Path(outfile).parent.mkdir(parents=True, exist_ok=True)
 
@@ -7540,22 +7541,23 @@ def TEST_HKX():
 
     # Animations are loaded into a skeleton
     bpy.ops.import_scene.pynifly(filepath=skelfile,
-                                 create_bones=False, 
+                                 create_bones=False,
                                  rename_bones=True,
                                  import_collisions=False,
                                  import_animations=False,
-                                 blender_xf=True)
-    
+                                 blender_xf=blender_xf,
+                                 rotate_bones_pretty=pretty)
+
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     BD.ObjectSelect([arma], active=True)
-    
-    bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
+
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
                                      reference_skel=hkx_skel)
 
     TT.assert_gt(len([fc for fc in BD.action_fcurves(arma.animation_data.action)
                       if 'NPC Pelvis' in fc.data_path]),
                  0,
-                 "Pelvis animated")
+                 f"{label}: Pelvis animated")
 
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
 
@@ -7569,20 +7571,41 @@ def TEST_HKX():
     output_xml = XMLFile(outfile)
     input_anim = HKAAnimation.find(input_xml.root)
     output_anim = HKAAnimation.find(output_xml.root)
-    assert input_anim is not None, "Input HKX has animation data"
-    assert output_anim is not None, "Output HKX has animation data"
+    assert input_anim is not None, f"{label}: Input HKX has animation data"
+    assert output_anim is not None, f"{label}: Output HKX has animation data"
 
     # hkxcmd may round numFrames differently (off by 1), so check duration instead.
-    assert TT.is_equiv(output_anim.duration, input_anim.duration, "Duration matches")
+    assert TT.is_equiv(output_anim.duration, input_anim.duration, f"{label}: Duration matches")
 
     # Some input tracks target bones not in the skeleton ("Controller target not found"),
     # so they are dropped on import and won't be re-exported.
-    assert TT.is_gt(output_anim.transform_tracks_count, 20, "Have at least 20 output tracks")
-    assert TT.is_le(output_anim.transform_tracks_count, input_anim.transform_tracks_count,  
-        f"Output vs input track count")
+    assert TT.is_gt(output_anim.transform_tracks_count, 20, f"{label}: Have at least 20 output tracks")
+    assert TT.is_le(output_anim.transform_tracks_count, input_anim.transform_tracks_count,
+        f"{label}: Output vs input track count")
 
-    # Compare bone transforms at first, last, and mid-time frames.
-    # Use time-based midpoint so it's valid regardless of frame count differences.
+    # Verify rest bone world positions match the original NIF skeleton.
+    nif_orig = pyn.NifFile(skelfile)
+    check_blender_bones = ['NPC Pelvis', 'NPC Spine2', 'NPC Head']
+    checked = 0
+    for bname in check_blender_bones:
+        if bname not in arma.data.bones:
+            continue
+        nifname = nif_orig.nif_name(bname)
+        if nifname not in nif_orig.nodes:
+            continue
+        nif_xf = BD.transform_to_matrix(
+            nif_orig.get_node_xform_to_global(nifname))
+        bone_xf = BD.get_bone_global_xf(arma, bname, 'SKYRIMSE', use_pose=False)
+        for r in range(4):
+            for c in range(4):
+                assert TT.is_equiv(bone_xf[r][c], nif_xf[r][c],
+                    f"{label}: Rest bone {bname} world mat[{r}][{c}]",
+                    e=0.01)
+        checked += 1
+    assert TT.is_eq(checked, len(check_blender_bones),
+        f"{label}: Checked all target bones")
+
+    # Compare bone transforms at first frame and time-based midpoint.
     fps = bpy.context.scene.render.fps
     input_action = arma.animation_data.action
     input_start = int(input_action.frame_range[0])
@@ -7614,9 +7637,8 @@ def TEST_HKX():
     output_start = int(output_action.frame_range[0])
     output_mid = round(mid_time * fps) + 1
 
-    # Compare poses: tight tolerance for first/last, looser for midpoint
+    # Compare poses: tight tolerance for first frame, looser for midpoint
     # (spline recompression by hkxcmd causes interior interpolation drift).
-    # Skip input's last frame — hkxcmd may round numFrames down by 1.
     check_frames = [
         (input_start, output_start, 0.1),
         (input_mid, output_mid, 1.0),
@@ -7631,7 +7653,7 @@ def TEST_HKX():
                 for r in range(4):
                     for c in range(4):
                         assert TT.is_equiv(out_mat[r][c], in_mat[r][c],
-                            f"Bone {bname} frame {in_frame} mat[{r}][{c}]",
+                            f"{label}: Bone {bname} frame {in_frame} mat[{r}][{c}]",
                             e=tol)
 
 

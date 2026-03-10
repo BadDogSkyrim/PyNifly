@@ -15,6 +15,7 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from ..pyn.pynifly import *
 from .. import blender_defs as BD
 from ..util.reprobj import ReprObject, ReprObjectCollection
+from ..util.settings import PYN_ROTATE_BONES_PRETTY_PROP
 import re
 import json
 
@@ -1429,7 +1430,24 @@ def _import_transform_data(td:NiTransformData,
 
     targ = importer.bone_target if importer.bone_target else importer.action_target
     # Action group is the bone name if animating an armature, otherwise just "Object Transforms"
-    if  not importer.action_group: importer.action_group = "Object Transforms" 
+    if  not importer.action_group: importer.action_group = "Object Transforms"
+
+    # Pretty bone rotations add R to bone.matrix_local, so NIF-space animation
+    # deltas need to be conjugated into bone-space for correct visual bone positions.
+    pretty_R_q = None
+    pretty_R_q_inv = None
+    pretty_R_inv_3x3 = None
+    if importer.bone_target and importer.animation_target:
+        arma = importer.animation_target
+        if arma.get(PYN_ROTATE_BONES_PRETTY_PROP, False):
+            game = importer.nif.game
+            axis = BD.game_axes.get(game)
+            if axis:
+                R_mat = BD.game_rotations_pretty[axis][0]
+                R_inv_mat = BD.game_rotations_pretty[axis][1]
+                pretty_R_q = R_mat.to_quaternion()
+                pretty_R_q_inv = R_inv_mat.to_quaternion()
+                pretty_R_inv_3x3 = R_inv_mat.to_3x3()
     
     targ.rotation_mode = "QUATERNION"
     if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
@@ -1461,10 +1479,11 @@ def _import_transform_data(td:NiTransformData,
                     # for animations. So only apply the parent rotation if there is
                     # one; in those cases we're just hoping it comes out right.
                     ve = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
-                    if have_parent_rotation:
-                        ke = ve.copy()
-                        kq = ke.to_quaternion()
+                    if have_parent_rotation or pretty_R_q:
+                        kq = ve.to_quaternion()
                         vq = qinv @ kq
+                        if pretty_R_q:
+                            vq = pretty_R_q_inv @ vq @ pretty_R_q
                         ve = vq.to_euler()
                     kx = curveX.keyframe_points.insert(x.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[0])
                     kx.interpolation = x_rot
@@ -1517,9 +1536,11 @@ def _import_transform_data(td:NiTransformData,
             # Auxbones animations are not correct yet, but they seem to need something
             # different from animations on the full skeleton.
             if importer.auxbones:
-                vq = kq 
+                vq = kq
             else:
-                vq = qinv @ kq 
+                vq = qinv @ kq
+            if pretty_R_q:
+                vq = pretty_R_q_inv @ vq @ pretty_R_q
 
             kw = curveW.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, vq[0])
             kw.interpolation = key_type
@@ -1550,9 +1571,11 @@ def _import_transform_data(td:NiTransformData,
             v = Vector(k.value)
 
             if importer.auxbones:
-                pass 
+                pass
             else:
                 v = v - tiv
+            if pretty_R_inv_3x3:
+                v = pretty_R_inv_3x3 @ v
             k1 = curveLocX.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, v[0])
             k1.interpolation = xlate_interp
             k2 = curveLocY.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, v[1])
@@ -2057,14 +2080,16 @@ def _parse_transform_curves(exporter:ControllerHandler, curve_list):
     return props, loc, eu, quat, scale
 
 
-def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q):
+def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q,
+                             R_q=None, R_q_inv=None):
     """
-    Export quaternion fcurves. 
+    Export quaternion fcurves.
 
     td = NiTransformData object
     quat = list of 4 fcurves containing quaternion values
     rot_type = Indicates whether bezier or linear curves are used
     targ_q = rotation of the target bone, if any
+    R_q, R_q_inv = pretty bone rotation quaternions (None if not pretty)
     """
     # Can't do quadratic interpolation with quaternions, so if the rot_type is QUADRATIC
     # export keys using the current fps.
@@ -2074,10 +2099,12 @@ def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q):
 
         while timesig < exporter.stop_time + 0.0001:
             fr = timesig * (exporter.fps * ANIMATION_TIME_ADJUST) + 1
-            tdq = Quaternion([quat[0].evaluate(fr), 
-                                quat[1].evaluate(fr), 
-                                quat[2].evaluate(fr), 
+            tdq = Quaternion([quat[0].evaluate(fr),
+                                quat[1].evaluate(fr),
+                                quat[2].evaluate(fr),
                                 quat[3].evaluate(fr)])
+            if R_q:
+                tdq = R_q @ tdq @ R_q_inv
             kq = targ_q  @ tdq
             td.add_qrotation_key(timesig, kq)
             timesig += timestep
@@ -2086,28 +2113,31 @@ def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q):
         # The curve uses linear interpolation, so it's fine to export just keyframes. Each
         # fcurve of the quaternion could have different keyframes but it's not likely and
         # nifs don't support it, so don't allow it.
-        if not all_equal([len(quat[0].keyframe_points), len(quat[1].keyframe_points), 
+        if not all_equal([len(quat[0].keyframe_points), len(quat[1].keyframe_points),
                           len(quat[2].keyframe_points), len(quat[3].keyframe_points)]):
             raise Exception(f"Different number of quaternion keyframes")
-        
-        for k1, k2, k3, k4 in zip(quat[0].keyframe_points, quat[1].keyframe_points, 
+
+        for k1, k2, k3, k4 in zip(quat[0].keyframe_points, quat[1].keyframe_points,
                                 quat[2].keyframe_points, quat[3].keyframe_points):
             if not all_NearEqual([k1.co[0], k2.co[0], k3.co[0], k4.co[0]]):
                 raise Exception (f"Quaternion keyframes not at matching times")
-            
+
             tdq = Quaternion([k1.co[1], k2.co[1], k3.co[1], k4.co[1]])
+            if R_q:
+                tdq = R_q @ tdq @ R_q_inv
             timesig = (k1.co[0]-1)/(exporter.fps * ANIMATION_TIME_ADJUST)
             kq = targ_q  @ tdq
             td.add_qrotation_key(timesig, kq)
 
 
-def _export_euler_curves(exporter, td, eu, targ_q):
+def _export_euler_curves(exporter, td, eu, targ_q, R_q=None, R_q_inv=None):
     """
-    Export Euler fcurves. 
+    Export Euler fcurves.
 
     td = NiTransformData object
     eu = list of 3 fcurves containing Euler x/y/z values
     targ_q = rotation of the target bone, if any
+    R_q, R_q_inv = pretty bone rotation quaternions (None if not pretty)
     """
     if td.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY:
         xkeys = exporter._get_curve_quad_values(eu[0])
@@ -2123,8 +2153,9 @@ def _export_euler_curves(exporter, td, eu, targ_q):
         zkeys = exporter._get_curve_linear_values(eu[2])
 
     # Bone fcurve rotations are relative to the bone, but nif keyframes are absolute. So
-    # make the conversion if necessary.
-    if targ_q and not NearEqual(targ_q.angle, 0, epsilon=0.01):
+    # make the conversion if necessary. Also needed to un-conjugate pretty bone R.
+    need_conversion = (targ_q and not NearEqual(targ_q.angle, 0, epsilon=0.01)) or R_q
+    if need_conversion:
         if not (len(xkeys) == len(ykeys) == len(zkeys)):
             raise Exception("NYI: Euler bone rotations when different number of fcurve keyframes")
         for xk, yk, zk in zip(xkeys, ykeys, zkeys):
@@ -2132,8 +2163,11 @@ def _export_euler_curves(exporter, td, eu, targ_q):
                 raise Exception("NYI: Euler bone rotations when fcurve keyframes at different times")
             euk = Euler([xk.value, yk.value, zk.value])
             quatk = euk.to_quaternion()
-            quatk1 = targ_q @ quatk
-            euk1 = quatk1.to_euler()
+            if R_q:
+                quatk = R_q @ quatk @ R_q_inv
+            if targ_q:
+                quatk = targ_q @ quatk
+            euk1 = quatk.to_euler()
             xk.value = euk1[0]
             yk.value = euk1[1]
             zk.value = euk1[2]
@@ -2174,28 +2208,47 @@ def _next_keyframe_index(curve_list):
         yield kfindex, matches
 
 
-def _export_loc_curves(exporter, td, loc, targ_xf):
+def _export_loc_curves(exporter, td, loc, targ_xf, R_3x3=None):
     """
-    Export location fcurves. 
+    Export location fcurves.
 
     td = NiTransformData object
     loc = list of 3 fcurves containing location x/y/z values
+    R_3x3 = pretty bone R rotation matrix (None if not pretty)
     """
     if exporter.export_each_frame:
         timesig = exporter.start_time
         timestep = 1/(exporter.fps * ANIMATION_TIME_ADJUST)
         while timesig < exporter.stop_time + 0.0001:
             fr = timesig * (exporter.fps * ANIMATION_TIME_ADJUST) + 1
-            kv =Vector([loc[0].evaluate(fr), 
-                            loc[1].evaluate(fr), 
+            kv =Vector([loc[0].evaluate(fr),
+                            loc[1].evaluate(fr),
                             loc[2].evaluate(fr)])
+            if R_3x3:
+                kv = R_3x3 @ kv
             rv = kv + targ_xf.translation
             td.add_translation_key(timesig, rv)
             timesig += timestep
 
     else:
         if td.properties.translations.interpolation == NiKeyType.QUADRATIC_KEY:
-            td.add_quad_translation_keys(exporter._get_curve_quad_vector(loc, targ_xf))
+            if R_3x3:
+                # Get keys without base translation, rotate values and tangents,
+                # then add translation back.
+                keys = exporter._get_curve_quad_vector(loc)
+                for k in keys:
+                    v = R_3x3 @ Vector(k.value[:3])
+                    k.value[0] = v.x + targ_xf.translation.x
+                    k.value[1] = v.y + targ_xf.translation.y
+                    k.value[2] = v.z + targ_xf.translation.z
+                    if hasattr(k, 'forward'):
+                        fwd = R_3x3 @ Vector(k.forward[:3])
+                        k.forward[0], k.forward[1], k.forward[2] = fwd.x, fwd.y, fwd.z
+                        bwd = R_3x3 @ Vector(k.backward[:3])
+                        k.backward[0], k.backward[1], k.backward[2] = bwd.x, bwd.y, bwd.z
+            else:
+                keys = exporter._get_curve_quad_vector(loc, targ_xf)
+            td.add_quad_translation_keys(keys)
         else:
             if not (len(loc[0].keyframe_points) == len(loc[1].keyframe_points) == len(loc[2].keyframe_points)):
                 raise Exception("NYI: Euler bone rotations when different number of fcurve keyframes")
@@ -2205,6 +2258,8 @@ def _export_loc_curves(exporter, td, loc, targ_xf):
 
                 timesig = (k0.co.x-1)/(exporter.fps * ANIMATION_TIME_ADJUST)
                 kv = Vector([k0.co.y, k1.co.y, k2.co.y])
+                if R_3x3:
+                    kv = R_3x3 @ kv
                 rv = kv + targ_xf.translation
                 td.add_translation_key(timesig, rv)
 
@@ -2222,17 +2277,31 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     # Bone target implies targetobj is an armature containing that bone. Else targetobj is
     # a ReprObject for a node being manipulated.
     targetname, curve_type = curve_bone_target(curve_list[0])
+    export_R_q = None
+    export_R_q_inv = None
+    export_R_3x3 = None
     if targetobj.type == 'ARMATURE':
         if not targetname in targetobj.data.bones:
             log.warning(f"Target of fcurve not found in armature: {curve_list[0].data_path}")
             curve_list.pop(0)
             targ_xf = None
         else:
-            targ = targetobj.data.bones[targetname]
-            if targ.parent:
-                targ_xf = targ.parent.matrix_local.inverted() @ targ.matrix_local
+            # Use get_bone_xform to get the NIF-space local transform,
+            # with pretty rotation R stripped out. With pretty bones,
+            # fcurve deltas are in bone-space (conjugated by R on import),
+            # so we un-conjugate them on export to get back NIF-space values.
+            if targetobj.get(PYN_ROTATE_BONES_PRETTY_PROP, False):
+                BD.game_rotations = BD.game_rotations_pretty
+                axis = BD.game_axes.get(exporter.nif.game)
+                if axis:
+                    export_R_q = BD.game_rotations_pretty[axis][0].to_quaternion()
+                    export_R_q_inv = BD.game_rotations_pretty[axis][1].to_quaternion()
+                    export_R_3x3 = BD.game_rotations_pretty[axis][0].to_3x3()
             else:
-                targ_xf = targ.matrix_local
+                BD.game_rotations = BD.game_rotations_none
+            targ_xf = BD.get_bone_xform(
+                targetobj, targetname, exporter.nif.game,
+                preserve_hierarchy=True, use_pose=False)
     else:
         # Exported interpolator needs to reflect the transform on the target object.
         # Dwechest01 has nodes with rotations that trigger this.
@@ -2278,13 +2347,15 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
         )
 
         if len(quat) == 4:
-            _export_quaterion_curves(exporter, td, quat, props.rotationType, targ_q)
+            _export_quaterion_curves(exporter, td, quat, props.rotationType, targ_q,
+                                     export_R_q, export_R_q_inv)
 
         if len(eu) == 3:
-            _export_euler_curves(exporter, td, eu, (targ_q if targetname else None))
-                
+            _export_euler_curves(exporter, td, eu, (targ_q if targetname else None),
+                                 export_R_q, export_R_q_inv)
+
         if len(loc) == 3:
-            _export_loc_curves(exporter, td, loc, targ_xf)
+            _export_loc_curves(exporter, td, loc, targ_xf, export_R_3x3)
 
     return (targetname if targetname else targetobj.name), ti
 
