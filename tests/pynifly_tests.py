@@ -3103,6 +3103,84 @@ def TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP():
     assert TT.is_eq(reimported[1].shape_type, 'polytope', "Reimported shape 1 is polytope")
 
 
+def TEST_TRIANGULATE():
+    """Test minimum-angle ear clipping triangulation, writing each result to a NIF."""
+    from pyn.triangulate import triangulate
+
+    def write_polygon_nif(name, coords, tris, filepath):
+        """Write a triangulated polygon to a NIF so we can visually inspect it."""
+        uvs = [(0.0, 0.0)] * len(coords)
+        norms = [(0.0, 0.0, 1.0)] * len(coords)
+        nif = NifFile()
+        nif.initialize("SKYRIM", filepath)
+        shape = nif.createShapeFromData(name, coords, tris, uvs, norms)
+        shape.transform = TransformBuf().set_identity()
+        nif.save()
+
+    # Triangle passthrough
+    tri = [(0,0,0), (100,0,0), (0,100,0)]
+    result = triangulate(tri)
+    assert TT.is_eq(len(result), 1, "Triangle produces 1 tri")
+    assert TT.is_eq(result[0], (0, 1, 2), "Triangle passthrough indices")
+    write_polygon_nif("Triangle", tri, result,
+                      _test_file("tests/out/triangulate_tri.nif"))
+
+    # Quad — should produce 2 triangles covering all 4 verts
+    quad = [(0,0,0), (100,0,0), (100,100,0), (0,100,0)]
+    result = triangulate(quad)
+    assert TT.is_eq(len(result), 2, "Quad produces 2 tris")
+    all_verts = set()
+    for t in result:
+        all_verts.update(t)
+    assert TT.is_eq(all_verts, {0, 1, 2, 3}, "Quad tris use all verts")
+    write_polygon_nif("Quad", quad, result,
+                      _test_file("tests/out/triangulate_quad.nif"))
+
+    # Long skinny hexagon — should NOT produce fan-style slivers.
+    hex_coords = [
+        (0, 0, 0), (100, -2, 0), (200, 0, 0),
+        (200, 10, 0), (100, 12, 0), (0, 10, 0),
+    ]
+    result = triangulate(hex_coords)
+    assert TT.is_eq(len(result), 4, "Hexagon produces 4 tris")
+    # The first ear clipped should be one of the sharp ends (vert 0 or 3),
+    # NOT a wide-angle middle vert which would create a sliver.
+    first_tri_verts = set(result[0])
+    assert TT.is_eq(
+        True,
+        (0 in first_tri_verts) or (3 in first_tri_verts),
+        "First clipped ear is at a sharp corner, not a wide middle vert"
+    )
+    write_polygon_nif("SkinnyHex", hex_coords, result,
+                      _test_file("tests/out/triangulate_skinny_hex.nif"))
+
+    # Concave L-shape
+    concave = [
+        (0, 0, 0), (200, 0, 0), (200, 100, 0),
+        (100, 100, 0), (100, 200, 0), (0, 200, 0),
+    ]
+    result = triangulate(concave)
+    assert TT.is_eq(len(result), 4, "Concave hexagon produces 4 tris")
+    all_verts = set()
+    for t in result:
+        all_verts.update(t)
+    assert TT.is_eq(all_verts, {0, 1, 2, 3, 4, 5}, "Concave tris use all verts")
+    write_polygon_nif("ConcaveL", concave, result,
+                      _test_file("tests/out/triangulate_concave_L.nif"))
+
+    # Pentagon
+    import math as _math
+    pent = [(100*_math.cos(2*_math.pi*i/5), 100*_math.sin(2*_math.pi*i/5), 0) for i in range(5)]
+    result = triangulate(pent)
+    assert TT.is_eq(len(result), 3, "Pentagon produces 3 tris")
+    write_polygon_nif("Pentagon", pent, result,
+                      _test_file("tests/out/triangulate_pentagon.nif"))
+
+    # Degenerate: fewer than 3 verts
+    assert TT.is_eq(triangulate([]), [], "Empty returns empty")
+    assert TT.is_eq(triangulate([(0,0,0), (1,0,0)]), [], "2 verts returns empty")
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

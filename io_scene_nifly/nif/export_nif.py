@@ -35,7 +35,8 @@ from .. import bl_info
 from . import shader_io 
 from . import controller 
 from . import collision 
-from . import connectpoint 
+from . import connectpoint
+from ..pyn.triangulate import triangulate
 
 log = logging.getLogger("pynifly")
 
@@ -808,26 +809,23 @@ class NifExporter:
         partition_err = False
         for f in mesh.polygons:
             if f.loop_total < 3:
-                log.warning(f"Degenerate polygons on {mesh.name}: 0={l0}, 1={l1}")
+                log.warning(f"Degenerate polygon on {mesh.name} with {f.loop_total} verts")
             else:
                 if obj_partitions and len(obj_partitions) > 0:
                     loop_partition = self.get_loop_partitions(f, mesh.loops, weights)
                     if not loop_partition: partition_err = True
-                l0 = mesh.loops[f.loop_start]
-                l1 = mesh.loops[f.loop_start+1]
-                for i in range(f.loop_start+2, f.loop_start+f.loop_total):
-                    loopseg = mesh.loops[i]
-
-                    write_loop_vert(l0)
-                    write_loop_vert(l1)
-                    write_loop_vert(loopseg)
+                face_loops = [mesh.loops[f.loop_start + j] for j in range(f.loop_total)]
+                coords = [mesh.vertices[lp.vertex_index].co[:] for lp in face_loops]
+                for i, j, k in triangulate(coords):
+                    write_loop_vert(face_loops[i])
+                    write_loop_vert(face_loops[j])
+                    write_loop_vert(face_loops[k])
                     if obj_partitions and len(obj_partitions) > 0:
                         if loop_partition:
                             partition_map.append(obj_partitions[loop_partition].id)
                         else:
                             have_partitions = False
                             partition_map.append(next(iter(obj_partitions.values())).id)
-                    l1 = loopseg
 
         if not have_partitions:
             log.warning(f"Wrote faces without partitions on {mesh}")

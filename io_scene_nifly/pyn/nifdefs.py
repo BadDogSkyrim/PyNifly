@@ -982,6 +982,7 @@ class NiShapeBuf(pynStructure):
     def __init__(self, values=None):
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
         self.skinInstanceID = self.shaderPropertyID = self.alphaPropertyID = NODEID_NONE
+        self.transform.set_identity()
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiShapeBufType
 
@@ -1050,6 +1051,7 @@ class BSMeshLODTriShapeBuf(pynStructure):
     def __init__(self, values=None):
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
         self.skinInstanceID = self.shaderPropertyID = self.alphaPropertyID = NODEID_NONE
+        self.transform.set_identity()
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSMeshLODTriShapeBufType
 
@@ -1086,6 +1088,7 @@ class BSLODTriShapeBuf(pynStructure):
     def __init__(self, values=None):
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
         self.skinInstanceID = self.shaderPropertyID = self.alphaPropertyID = NODEID_NONE
+        self.transform.set_identity()
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSLODTriShapeBufType
         

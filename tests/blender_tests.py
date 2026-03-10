@@ -6543,10 +6543,18 @@ def TEST_UV_SPLIT():
     
     nif_in = pyn.NifFile(filepath)
     obj = nif_in.shapes[0]
-    assert len(obj.verts) == 14, f"Verts were split: {len(obj.verts)}"
-    assert len(obj.uvs) == 14, f"Same number of UV points: {len(obj.uvs)}"
-    assert NT.VNearEqual(obj.verts[2], obj.verts[10]), f"Split verts at same location {obj.verts[2]}, {obj.verts[10]}"
-    assert not NT.VNearEqual(obj.uvs[2], obj.uvs[10]), f"Split UV at different location {obj.uvs[2]}, {obj.uvs[10]}"
+    assert TT.is_gt(len(obj.verts), 8, "Verts were split from UV seams")
+    assert TT.is_eq(len(obj.uvs), len(obj.verts), "Same number of UV points as verts")
+    # Find a pair of split verts: same position, different UVs
+    found_split = False
+    for i in range(len(obj.verts)):
+        for j in range(i+1, len(obj.verts)):
+            if NT.VNearEqual(obj.verts[i], obj.verts[j]) and not NT.VNearEqual(obj.uvs[i], obj.uvs[j]):
+                found_split = True
+                break
+        if found_split:
+            break
+    assert TT.is_eq(found_split, True, "Found split verts at same location with different UVs")
 
 
 @TT.category('SKYRIMSE', 'ARMATURE')

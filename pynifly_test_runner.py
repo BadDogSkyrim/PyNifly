@@ -27,7 +27,7 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 execute(
-    testlist=[TEST_FO4_CAPSULE_PHYSICS],
+    testlist=[TEST_TRIANGULATE],
     stop_on_fail=True,
     )
 execute()
