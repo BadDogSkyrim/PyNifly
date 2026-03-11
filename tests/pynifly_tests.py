@@ -3181,6 +3181,86 @@ def TEST_TRIANGULATE():
     assert TT.is_eq(triangulate([(0,0,0), (1,0,0)]), [], "2 verts returns empty")
 
 
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_GEARDOOR_KEYSUPPORT():
+    """VltGearDoor01: per-body collision placement in multi-body physics system.
+
+    Body 0 (GearDoor): non-identity body rotation, body transform == node world
+    transform.  Applying body xf to body-local verts gives world-space coords.
+    Body 1 (VltGearKeySupport): identity body rotation, verts in node-local
+    space.  Node's global_transform positions them correctly.
+    """
+    nif = NifFile(_test_file("tests/FO4/Meshes/VltGearDoor01.nif"))
+    sf = HAVOC_SCALE_FACTOR
+    tol = 15.0
+
+    def _is_ident_rot(rot, tol=1e-4):
+        return all(abs(rot[i][j] - (1 if i == j else 0)) < tol
+                   for i in range(3) for j in range(3))
+
+    def node_mesh_world_bounds(node_name):
+        """World-space mesh bounds (NIF units) using parent node's global_transform."""
+        node = nif.nodes[node_name]
+        nxf = node.global_transform
+        rot, sc, t = nxf.rotation, nxf.scale, nxf.translation
+        xs, ys, zs = [], [], []
+        for sname, shape in nif.shape_dict.items():
+            parent = sname.rsplit(':', 1)[0] if ':' in sname else sname
+            if parent != node_name:
+                continue
+            for v in shape.verts:
+                xs.append((rot[0][0]*v[0]+rot[0][1]*v[1]+rot[0][2]*v[2])*sc + t[0])
+                ys.append((rot[1][0]*v[0]+rot[1][1]*v[1]+rot[1][2]*v[2])*sc + t[1])
+                zs.append((rot[2][0]*v[0]+rot[2][1]*v[1]+rot[2][2]*v[2])*sc + t[2])
+        return xs, ys, zs
+
+    def coll_world_bounds(node_name):
+        """World-space collision bounds (NIF units) for a node's body."""
+        node = nif.nodes[node_name]
+        co = node.collision_object
+        ps = co.physics_system
+        shapes = ps.geometry
+        body_shape = shapes[co.body_id]
+        body_xf = body_shape.transform
+        body_has_rot = (body_xf is not None
+                        and not _is_ident_rot(body_xf.rotation))
+        verts = list(body_shape.verts)
+
+        if body_has_rot:
+            # Body transform applied -> world Havok space -> scale to NIF
+            p, r = body_xf.position, body_xf.rotation
+            wv = [(r[0][0]*v[0]+r[0][1]*v[1]+r[0][2]*v[2]+p[0],
+                   r[1][0]*v[0]+r[1][1]*v[1]+r[1][2]*v[2]+p[1],
+                   r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+p[2])
+                  for v in verts]
+            return ([v[0]*sf for v in wv],
+                    [v[1]*sf for v in wv],
+                    [v[2]*sf for v in wv])
+        else:
+            # Verts in node-local Havok space -> NIF local -> node xf -> world
+            nxf = node.global_transform
+            rot, sc, t = nxf.rotation, nxf.scale, nxf.translation
+            xs, ys, zs = [], [], []
+            for v in verts:
+                lx, ly, lz = v[0]*sf, v[1]*sf, v[2]*sf
+                xs.append((rot[0][0]*lx+rot[0][1]*ly+rot[0][2]*lz)*sc + t[0])
+                ys.append((rot[1][0]*lx+rot[1][1]*ly+rot[1][2]*lz)*sc + t[1])
+                zs.append((rot[2][0]*lx+rot[2][1]*ly+rot[2][2]*lz)*sc + t[2])
+            return xs, ys, zs
+
+    for name in ["GearDoor", "VltGearKeySupport"]:
+        mxs, mys, mzs = node_mesh_world_bounds(name)
+        assert mzs, f"{name} has child meshes"
+        cxs, cys, czs = coll_world_bounds(name)
+        assert cxs, f"{name} has collision verts"
+        assert min(cxs) <= min(mxs)+tol and max(cxs) >= max(mxs)-tol, \
+            f"{name} x: coll {min(cxs):.0f}..{max(cxs):.0f} vs mesh {min(mxs):.0f}..{max(mxs):.0f}"
+        assert min(cys) <= min(mys)+tol and max(cys) >= max(mys)-tol, \
+            f"{name} y: coll {min(cys):.0f}..{max(cys):.0f} vs mesh {min(mys):.0f}..{max(mys):.0f}"
+        assert min(czs) <= min(mzs)+tol and max(czs) >= max(mzs)-tol, \
+            f"{name} z: coll {min(czs):.0f}..{max(czs):.0f} vs mesh {min(mzs):.0f}..{max(mzs):.0f}"
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

@@ -282,6 +282,7 @@ class CollisionShape:
     children: List['CollisionShape']        # non-empty only for compound
     sphere_radius: float = 0.0             # Havok-space radius for sphere shapes
     physics: Optional[PhysicsProps] = None  # per-body physics data
+    body_index: Optional[int] = None        # index into PSD body array
 
 
 def parse_body_transforms(
@@ -342,6 +343,54 @@ def parse_body_transforms(
                 sub_gf = gfixups.get(shape_rel + sub_off)
                 if sub_gf is not None and sub_gf[1] != shape_rel:
                     result[sub_gf[1]] = bt
+
+    return result
+
+
+def parse_body_order(
+        data: bytes, data_start: int,
+        fixups: Dict[int, int],
+        gfixups: Dict[int, Tuple[int, int]],
+        objects: List[Tuple[int, str]],
+) -> Dict[int, int]:
+    """Return a mapping from shape-object relative offset to body index.
+
+    Body N in the PSD BodyCInfo array points (via global fixup at body+0x00) to
+    its shape object.  This function walks the bodies in order and records which
+    object-relative offset belongs to each body index.  For shapes that have
+    sub-objects (e.g. CompressedMeshShape → CompressedMeshShapeData), the
+    sub-object offsets are also mapped to the same body index.
+    """
+    result: Dict[int, int] = {}
+
+    psd_list = [(rel, cls) for rel, cls in objects if "hknpPhysicsSystemData" in cls]
+    if not psd_list:
+        return result
+
+    for psd_rel, _ in psd_list:
+        psd_abs = data_start + psd_rel
+
+        body_count = u32(data, psd_abs + 0x40 + 8) & 0x3FFFFFFF
+        body_arr_dst = fixups.get(psd_rel + 0x40)
+        if body_arr_dst is None or body_count == 0:
+            continue
+
+        BODY_STRIDE = 0x60
+
+        for i in range(body_count):
+            body_rel = body_arr_dst + i * BODY_STRIDE
+
+            gf = gfixups.get(body_rel + 0x00)
+            if gf is None:
+                continue
+            shape_rel = gf[1]
+            result[shape_rel] = i
+
+            # Also map sub-objects (e.g. CompressedMeshShape -> ShapeData)
+            for sub_off in range(0, 0x100, 8):
+                sub_gf = gfixups.get(shape_rel + sub_off)
+                if sub_gf is not None and sub_gf[1] != shape_rel:
+                    result[sub_gf[1]] = i
 
     return result
 
@@ -693,6 +742,7 @@ def extract_compound_polytopes(
         gfixups: Dict[int, Tuple[int, int]],
         objects: List[Tuple[int, str]],
         body_transforms: Dict[int, BodyTransform],
+        body_order: Optional[Dict[int, int]] = None,
 ) -> List[CollisionShape]:
     """Extract convex polytope shapes from hknpDynamicCompoundShape instances.
 
@@ -733,6 +783,7 @@ def extract_compound_polytopes(
             faces=[],
             convex_radius=0.0,
             children=[],
+            body_index=body_order.get(comp_rel) if body_order else None,
         )
 
         for i in range(inst_count):
@@ -808,6 +859,7 @@ def extract_compound_polytopes(
             faces=local_tris,
             convex_radius=convex_radius,
             children=[],
+            body_index=body_order.get(shape_rel) if body_order else None,
         ))
 
     return result
@@ -852,8 +904,9 @@ def extract_bhk_physics_system(
     gfixups = parse_global_fixups(data, data_hdr)
     objects = parse_virtual_fixups(data, data_hdr, cn_start)
 
-    # ── parse body transforms and physics properties from PhysicsSystemData ──
+    # ── parse body transforms, body order, and physics properties from PSD ──
     body_transforms = parse_body_transforms(data, data_start, fixups, gfixups, objects)
+    body_order = parse_body_order(data, data_start, fixups, gfixups, objects)
     physics_props = parse_physics_props(data, data_start, fixups, objects)
 
     # ── propagate compound instance transforms to child mesh data objects ──
@@ -1038,11 +1091,12 @@ def extract_bhk_physics_system(
                 faces=shape_faces,
                 convex_radius=0.0,
                 children=[],
+                body_index=body_order.get(obj_rel),
             ))
 
     # ── extract convex polytope shapes ──
     all_shapes.extend(extract_compound_polytopes(
-        data, data_start, fixups, gfixups, objects, body_transforms))
+        data, data_start, fixups, gfixups, objects, body_transforms, body_order))
 
     # ── extract sphere shapes ──
     sphere_objects = [(rel, cls) for rel, cls in objects
@@ -1061,10 +1115,15 @@ def extract_bhk_physics_system(
             convex_radius=0.0,
             children=[],
             sphere_radius=radius,
+            body_index=body_order.get(obj_rel),
         ))
 
     if not all_shapes:
         raise RuntimeError("No geometry decoded.")
+
+    # Sort shapes by body index so sequential assignment matches PSD body order.
+    # Shapes without a body_index (shouldn't normally happen) go to the end.
+    all_shapes.sort(key=lambda s: s.body_index if s.body_index is not None else 999999)
 
     # Attach physics properties to all top-level shapes
     if physics_props is not None:

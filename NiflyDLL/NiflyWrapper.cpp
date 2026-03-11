@@ -2275,6 +2275,7 @@ int setbhkNPCollisionObject(void* nifref, uint32_t blockID, void* buffer) {
     co->targetRef.index = buf->targetID;
     co->flags = buf->flags;
     co->bodyRef.index = buf->dataID;  // In bhkNPCollisionObject, bodyRef points to bhkPhysicsSystem
+    co->bodyID = buf->bodyID;
 
     return 0;
 }
@@ -2301,6 +2302,7 @@ int addbhkNPCollisionObject(void* nifref, const char* name, void* buffer, uint32
     c->targetRef.index = targetIndex;
     c->flags = buf->flags;
     c->bodyRef.index = buf->dataID;
+    c->bodyID = buf->bodyID;
 
     uint32_t newid = hdr->AddBlock(std::move(c));
 
@@ -3544,6 +3546,7 @@ int getbhkNPCollisionObject(void* nifref, uint32_t blockID, void* inbuf) {
     coBuf->targetID = node->targetRef.index;
     coBuf->flags = node->flags;
     coBuf->dataID = node->bodyRef.index;  // In bhkNPCollisionObject, bodyRef actually points to bhkPhysicsSystem data
+    coBuf->bodyID = node->bodyID;
 
     return 0;
 }

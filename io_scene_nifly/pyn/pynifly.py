@@ -976,6 +976,11 @@ class bhkNPCollisionObject(NiCollisionObject):
             return None
         return self.file.read_node(id=data_id)
 
+    @property
+    def body_id(self) -> int:
+        """Return the body index within the physics system."""
+        return self.properties.bodyID
+
 
 class bhkNiCollisionObject(NiCollisionObject):
     buffer_type = PynBufferTypes.bhkNiCollisionObjectBufType

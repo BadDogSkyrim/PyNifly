@@ -5513,6 +5513,83 @@ def TEST_COLLISION_FO4_BOSRADARDISH():
 
 
 @TT.category('FO4', 'PHYSICS')
+@TT.expect_errors( ("Target of controller not found", 
+                    "Unknown block type: NiBoolData",
+                    "Unknown block type: BSPositionData") ) # We don't yet handle particle systems
+def TEST_COLLISION_FO4_GEARDOOR():
+    """FO4 bhkPhysicsSystem shared by 24 NIF nodes — per-body collision import.
+
+    VltGearDoor01.nif has one bhkPhysicsSystem with 24 bodies shared across 24
+    NIF nodes.  Each node's bhkNPCollisionObject has a bodyID selecting which
+    body to import.
+
+    We verify:
+      - Collision shapes were imported for nodes whose collisions are processed
+      - Each collision-bearing node has its own constraint target
+      - The GearDoor gear shape is correctly positioned (non-identity body rotation)
+      - VltGearKeySupport collision is correctly positioned (identity body rotation,
+        uses node world transform)
+    """
+    testfile = TTB.test_file(r"tests\FO4\Meshes\VltGearDoor01.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    coll_shapes = [o for o in bpy.data.objects
+                   if o.get('pynCollisionShapeType') in ('polytope', 'compressed_mesh')]
+    assert TT.is_gt(len(coll_shapes), 3, "Collision shapes imported")
+
+    # Each collision-bearing node should have its own constraint target.
+    for node_name in ["GearDoor", "VltGearKeySupport"]:
+        node_obj = bpy.data.objects[node_name]
+        targets = [con.target for con in node_obj.constraints
+                   if con.name == 'bhkCollisionConstraint' and con.target]
+        assert TT.is_gt(len(targets), 0,
+                         f"{node_name} has collision constraint")
+
+    # Helper: get world-space vertex bounds for all child meshes of a node.
+    def mesh_bounds(node_name):
+        xs, ys, zs = [], [], []
+        for obj in bpy.data.objects:
+            if obj.type != 'MESH' or obj.parent is None:
+                continue
+            if obj.parent.name != node_name:
+                continue
+            if obj.get('pynRigidBody'):
+                continue  # skip collision objects
+            for v in obj.data.vertices:
+                wv = obj.matrix_world @ v.co
+                xs.append(wv.x); ys.append(wv.y); zs.append(wv.z)
+        return xs, ys, zs
+
+    # Helper: check if any collision shape covers the given bounds on all 3 axes.
+    def find_covering_collision(mesh_xs, mesh_ys, mesh_zs, tol=15.0):
+        for obj in coll_shapes:
+            vs = [obj.matrix_world @ v.co for v in obj.data.vertices]
+            if not vs:
+                continue
+            cxs = [v.x for v in vs]
+            cys = [v.y for v in vs]
+            czs = [v.z for v in vs]
+            if (min(cxs) <= min(mesh_xs) + tol and max(cxs) >= max(mesh_xs) - tol
+                    and min(cys) <= min(mesh_ys) + tol and max(cys) >= max(mesh_ys) - tol
+                    and min(czs) <= min(mesh_zs) + tol and max(czs) >= max(mesh_zs) - tol):
+                return True
+        return False
+
+    # GearDoor: collision should cover child mesh bounds.
+    gxs, gys, gzs = mesh_bounds("GearDoor")
+    assert gzs, "GearDoor has child meshes"
+    assert find_covering_collision(gxs, gys, gzs), \
+        f"No collision covers GearDoor mesh z={min(gzs):.0f}..{max(gzs):.0f}"
+
+    # VltGearKeySupport: collision should cover child mesh bounds.
+    kxs, kys, kzs = mesh_bounds("VltGearKeySupport")
+    assert kzs, "VltGearKeySupport has child meshes"
+    assert find_covering_collision(kxs, kys, kzs), \
+        f"No collision covers VltGearKeySupport mesh z={min(kzs):.0f}..{max(kzs):.0f}"
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors( ("Target of controller not found", ) ) # We don't yet handle particle systems
 def TEST_COLLISION_FO4_VAULT_SHELF():
     """FO4 bhkPhysicsSystem: single compressed_mesh whose bounds match the visual mesh.
 
@@ -8274,7 +8351,8 @@ def execute_test(t, executed_tests, stop_on_fail=True):
             if stop_on_fail:
                 try:
                     t()
-                except AssertionError:
+                except (AssertionError, Exception):
+                    breakpoint()
                     raise
                 test_loghandler.finish()
                 executed_tests[t.__name__] = 'PASS'
@@ -8461,6 +8539,7 @@ if __name__ == "__main__":
         print(f"Test categories: {sorted(test_categories)}")
 
         do_tests(
+            # target_tests=[ TEST_COLLISION_FO4_GEARDOOR, TEST_COLLISION_FO4_VAULT_SHELF, TEST_COLLISION_FO4_PHYSICS_SYSTEM ], stop_on_fail=True,
             # target_tests=[ TEST_PRETTY_BONE_POSITIONS ], run_all=False, stop_on_fail=True,
             # target_tests=[t for t in alltests if 'HKX' in t.__name__], run_all=False, stop_on_fail=True,
             )

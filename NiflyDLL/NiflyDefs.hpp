@@ -594,7 +594,8 @@ struct bhkNPCollisionObjectBuf {
 	uint32_t targetID;
 	uint16_t flags;
 	uint32_t dataID;     // ID of the bhkPhysicsSystem block
-}; 
+	uint32_t bodyID;     // Index into the physics system's body array
+};
 
 struct bhkPhysicsSystemBuf {
 	uint16_t bufSize = sizeof(bhkPhysicsSystemBuf);

@@ -465,6 +465,7 @@ class bhkNPCollisionObjectBuf(pynStructure):
         ('targetID', c_uint32),
         ('flags', c_uint16),
         ('dataID', c_uint32),     # ID of the bhkPhysicsSystem block
+        ('bodyID', c_uint32),     # Index into the physics system's body array
     ]
     def __init__(self, values=None):
         super().__init__(values=values)
