@@ -4213,6 +4213,24 @@ def TEST_TREE():
     assert TT.is_eq(treecheck.properties.lodSize1, lod1_size, "LOD1 size round-trips")
     assert TT.is_eq(treecheck.properties.lodSize2, lod2_size, "LOD2 size round-trips")
 
+    # Verify LOD2 triangles reference the same vertices as in the source NIF.
+    # LOD2 tris are the last lodSize2 entries in the triangle list.
+    lod2_start = lod0_size + lod1_size
+    src_lod2_vert_indices = set()
+    for tri in tree_shape.tris[lod2_start:]:
+        src_lod2_vert_indices.update(tri)
+    src_lod2_verts = sorted(tuple(round(c, 3) for c in tree_shape.verts[vi])
+                            for vi in src_lod2_vert_indices)
+
+    exp_lod2_vert_indices = set()
+    for tri in treecheck.tris[lod2_start:]:
+        exp_lod2_vert_indices.update(tri)
+    exp_lod2_verts = sorted(tuple(round(c, 3) for c in treecheck.verts[vi])
+                            for vi in exp_lod2_vert_indices)
+
+    assert TT.is_eq(exp_lod2_verts, src_lod2_verts,
+                     "LOD2 triangles reference the same vertices after round-trip")
+
 
 def CheckBow(nif, nifcheck, bow):
     """Check that the glass bow nif is correct."""
