@@ -8585,6 +8585,82 @@ def TEST_PRETTY_BONE_POSITIONS():
                 f"Bone '{bone_name}' transform preserved:\n{xf_out}\n!=\n{xf_orig}"
 
 
+@TT.category('SKYRIMSE')
+def TEST_COLLISION_TAIL():
+    """Tail collision mesh cap faces should round-trip without gaps."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\Tail Collision.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_TAIL.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    tail = TTB.find_shape("CollisionTail")
+
+    # Find verts near y=-30.2653 and add cap faces to close the gap at the
+    # end of the mesh where the positive-x and negative-x halves are open.
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(tail.data)
+    bm.verts.ensure_lookup_table()
+
+    # Merge coincident verts (the mesh has duplicates at seams).
+    bmesh.ops.remove_doubles(bm, verts=list(bm.verts), dist=0.01)
+    bm.verts.ensure_lookup_table()
+
+    near_verts = [v for v in bm.verts if abs(v.co.y - (-30.2653)) < 1.0]
+    assert TT.is_gt(len(near_verts), 4, "Found enough verts near y=-30.2653")
+
+    # Sort in circular order around centroid (in the xz plane) so we can
+    # create a well-formed face.
+    cx = sum(v.co.x for v in near_verts) / len(near_verts)
+    cz = sum(v.co.z for v in near_verts) / len(near_verts)
+    near_verts.sort(key=lambda v: math.atan2(v.co.z - cz, v.co.x - cx))
+
+    # Create a cap face (ngon) connecting all the near verts.
+    try:
+        bm.faces.new(near_verts)
+    except ValueError:
+        pass  # degenerate or already exists
+
+    bm.to_mesh(tail.data)
+    bm.free()
+    tail.data.update()
+
+    # Export
+    BD.ObjectSelect([tail], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # Validate: in the exported NIF, verts near y=-30.2653 should have no
+    # geometric gaps in the cap.  UV splitting may duplicate verts at the
+    # same position, so we check by position rather than by vertex index.
+    nif_out = pyn.NifFile(outfile)
+    shape = nif_out.shapes[0]
+    verts_out = shape.verts
+    tris_out = shape.tris
+
+    near_out = {i for i in range(len(verts_out))
+                if abs(verts_out[i][1] - (-30.2653)) < 1.0}
+    assert TT.is_gt(len(near_out), 4, "Exported file has verts near y=-30.2653")
+
+    # Round positions so coincident verts (from UV splits) map to the same key.
+    def pos_key(vi):
+        v = verts_out[vi]
+        return (round(v[0], 2), round(v[1], 2), round(v[2], 2))
+
+    from collections import Counter
+    edge_count = Counter()
+    for tri in tris_out:
+        for a, b in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[0], tri[2])]:
+            ek = tuple(sorted([pos_key(a), pos_key(b)]))
+            edge_count[ek] += 1
+
+    # A boundary edge (count==1) between two near-y positions is a gap.
+    near_positions = {pos_key(i) for i in near_out}
+    gaps = [(e, c) for e, c in edge_count.items()
+            if c == 1 and e[0] in near_positions and e[1] in near_positions]
+    assert TT.is_eq(len(gaps), 0,
+                     f"No gaps among cap verts ({len(gaps)} boundary edges)")
+
+
 def show_all_tests():
     for t in [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]:
         print(f"{t.__name__:25}{t.__doc__}")

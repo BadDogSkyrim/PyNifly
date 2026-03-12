@@ -175,33 +175,29 @@ def _flip_edges(coords, triangles, normal):
             if not _is_convex_quad(coords, *quad, normal):
                 continue
 
-            # Flip: replace both triangles
-            new_t0 = (opp0, opp1, s0)
-            new_t1 = (opp0, s1, opp1)
+            # Flip: replace both triangles, preserving the quad's winding.
+            # For CCW quad [q0, q1, q2, q3], diagonal q1-q3 gives
+            # (q0, q1, q3) and (q1, q2, q3).
+            new_t0 = (quad[0], quad[1], quad[3])
+            new_t1 = (quad[1], quad[2], quad[3])
             triangles[ti0] = new_t0
             triangles[ti1] = new_t1
 
-            # Rebuild adjacency for affected edges
-            old_edges = [(min(e), max(e)) for e in [(s0, s1)]]
-            for oe in old_edges:
-                if oe in edge_to_tris:
-                    del edge_to_tris[oe]
+            # Rebuild adjacency: remove old triangle edges, add new ones.
+            def _tri_edges(tri):
+                return [(min(tri[i], tri[j]), max(tri[i], tri[j]))
+                        for i, j in ((0,1), (1,2), (0,2))]
 
-            # Remove old tri references and add new ones
-            for e in [(s0, opp0), (s0, s1), (opp0, s1)]:
-                key = (min(e), max(e))
+            for key in _tri_edges(t0):
                 if key in edge_to_tris and ti0 in edge_to_tris[key]:
                     edge_to_tris[key].remove(ti0)
-            for e in [(s0, s1), (s1, opp1), (s0, opp1)]:
-                key = (min(e), max(e))
+            for key in _tri_edges(t1):
                 if key in edge_to_tris and ti1 in edge_to_tris[key]:
                     edge_to_tris[key].remove(ti1)
 
-            for e in [(opp0, opp1), (opp0, s0), (opp1, s0)]:
-                key = (min(e), max(e))
+            for key in _tri_edges(new_t0):
                 edge_to_tris.setdefault(key, []).append(ti0)
-            for e in [(opp0, s1), (s1, opp1), (opp0, opp1)]:
-                key = (min(e), max(e))
+            for key in _tri_edges(new_t1):
                 edge_to_tris.setdefault(key, []).append(ti1)
 
             changed = True
@@ -274,7 +270,34 @@ def triangulate(coords):
                     best_pos = pos
 
         if best_pos is None:
-            # Degenerate polygon — fall back to fan
+            # No ear found — the polygon normal may be flipped (inward-facing
+            # face).  Reverse it and retry before falling back to fan.
+            normal = (-normal[0], -normal[1], -normal[2])
+            for pos in range(m):
+                prev_i = indices[(pos - 1) % m]
+                cur_i = indices[pos]
+                nxt_i = indices[(pos + 1) % m]
+
+                if not _is_convex(coords, prev_i, cur_i, nxt_i, normal):
+                    continue
+
+                is_ear = True
+                for j in range(m):
+                    vi = indices[j]
+                    if vi == prev_i or vi == cur_i or vi == nxt_i:
+                        continue
+                    if _point_in_triangle_3d(coords[vi], coords[prev_i], coords[cur_i], coords[nxt_i]):
+                        is_ear = False
+                        break
+
+                if is_ear:
+                    angle = _angle_at(coords, prev_i, cur_i, nxt_i)
+                    if angle < best_angle:
+                        best_angle = angle
+                        best_pos = pos
+
+        if best_pos is None:
+            # Truly degenerate polygon — fall back to fan
             for i in range(1, m - 1):
                 triangles.append((indices[0], indices[i], indices[i + 1]))
             break
