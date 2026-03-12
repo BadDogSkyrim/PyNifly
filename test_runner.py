@@ -28,6 +28,6 @@ from tests.blender_tests import *
 tests.blender_tests.do_tests(
     target_tests=[ TEST_COLLISION_TAIL  , ], 
     # categories={'HKX'},
-    test_all=False,
-    stop_on_fail=True,
+    test_all=1,
+    stop_on_fail=0,
     )
