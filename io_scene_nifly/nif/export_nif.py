@@ -15,7 +15,7 @@ from ..tri.trifile import TriFile
 from ..tri.tripfile import TripFile
 from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict, 
                               truncate_filename)
-from ..pyn.nifdefs import (BSXFlagsValues, NiAVFlags, VertexFlags)
+from ..pyn.nifdefs import (BSXFlagsValues, NiAVFlags, VertexFlags, NO_SHADER_REF)
 from .. import blender_defs as BD
 from ..blender_defs import ObjectSelect, ObjectActive
 from ..util.settings import (ExportSettings,
@@ -1337,7 +1337,10 @@ class NifExporter:
                 props.lodSize1 = lod_sizes[1]
                 props.lodSize2 = lod_sizes[2]
 
-            # If we're exporting a mesh that is a connect point, export the mesh as the 
+            if not obj.active_material:
+                props.shaderPropertyID = NO_SHADER_REF
+
+            # If we're exporting a mesh that is a connect point, export the mesh as the
             # editor marker for that point. Exported editor markers are always parented
             # to the root regardless of the connect point's target.
             if connectpoint.is_connectpoint(obj):

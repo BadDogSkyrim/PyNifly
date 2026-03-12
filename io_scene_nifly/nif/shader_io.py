@@ -10,7 +10,7 @@ from contextlib import suppress
 import bpy
 from mathutils import Vector
 from .. import blender_defs as BD
-from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2
+from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2, NODEID_NONE
 from ..pyn.niflytools import find_referenced_file, texture_path
 from ..pyn.pynifly import NiShape, NiShader, AlphaPropertyBuf, BSLSPShaderType, PynBufferTypes
 from .. import gamefinder
@@ -1374,7 +1374,8 @@ class ShaderImporter:
         * logger: Implemenets the "warn" function to report errors.
         """
         try:
-            if obj.type == 'EMPTY': return 
+            if obj.type == 'EMPTY': return
+            if shape.properties.shaderPropertyID == NODEID_NONE: return
 
             self.shape = shape
             self.game = shape.file.game

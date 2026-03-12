@@ -41,10 +41,10 @@ When writing tests for PyNifly, always use the check routines provided in `tests
 - `is_ge(actual, expected, message)` - Check greater than or equal
 
 #### Container Checks
-- `is_contains(element, collection, message)` - Check if element is in collection
-- `is_notcontains(element, collection, message)` - Check if element is not in collection
-- `is_seteq(actual, expected, message)` - Check if two collections have same members
-- `is_samemembers(actual, expected, message)` - Check same members and length
+- `is_contains(element, collection, message)` - Check whether element is in collection
+- `is_notcontains(element, collection, message)` - Check whether element is not in collection
+- `is_seteq(actual, expected, message)` - Check whether two collections have same members
+- `is_samemembers(actual, expected, message)` - Check whether the two are set-equal--same members and length
 
 #### Specialized Checks
 - `is_patheq(actual, expected, message)` - Check path equality
@@ -79,10 +79,11 @@ def TEST_EXAMPLE():
 
 1. **Always use test_tools check routines** instead of raw `assert` statements
 2. **Provide descriptive messages** for all checks to aid debugging
-3. **Use appropriate categories** with the `@TT.category()` decorator
-4. **Clean up after tests** - remove created objects and files
+3. **Use appropriate categories** with the `@TT.category()` decorator. This allows tests for the same functionality to be identified and run.
+4. **Clean up after tests** - mostly not necessary--the test harness will clean up Blender between tests. Preserve nif outputs for later review.
 5. **Test both import and export** when possible
 6. **Use consistent naming** - test functions should start with `TEST_`
+7. **Check warnings** - Importer and exporter are designed to give a warning and continue rather than failing completely. These warnings will cause the test to fail (as they generally should). Use `@TT.expect_errors()` to cause the harness to ignore them.
 
 ### Test Categories
 
@@ -164,7 +165,13 @@ except (OverflowError, TypeError) as e:
 
 ## Building and Testing
 
-### Running Tests
+## Testing the pynifly layer
+
+The `\pyn' module is a self-contained python module for manipulating nif files. It has its own set of tests that run independently of Blender. Where feasible, functionality should be tested at this level (because running and debugging tests is simpler).
+
+Tests are run with `pynifly_test_runner.py`.
+
+### Testing the Blender layer.
 
 Tests are executed within Blender itself:
 

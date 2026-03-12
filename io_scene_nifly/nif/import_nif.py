@@ -947,6 +947,8 @@ class NifImporter():
                     mesh_create_normals(new_object.data, the_shape.normals)
 
                 shader_io.ShaderImporter().import_material(new_object, the_shape, BD.asset_path)
+                if not new_object.active_material:
+                    new_object.display_type = 'WIRE'
 
                 if the_shape.collision_object and self.settings.import_collisions:
                     collision.CollisionHandler.import_collision_obj(

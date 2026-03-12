@@ -310,14 +310,16 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 		triShape->SetSkinned(isSkinned);
 		shapeResult = triShape.get();
 
-		auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
-		auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
-		nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
-		nifShader->SetSkinned(isSkinned);
-		int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+		if (buf->shaderPropertyID != NO_SHADER_REF) {
+			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
+			auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
+			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+			nifShader->SetSkinned(isSkinned);
+			int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+			shapeResult->ShaderPropertyRef()->index = shaderID;
+		}
 
 		shapeResult->name.get() = shapeName;
-		shapeResult->ShaderPropertyRef()->index = shaderID;
 
 		int shapeID;
 		shapeID = nif->GetHeader().AddBlock(std::move(triShape));
@@ -340,24 +342,26 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 		triShape->SetSkinned(false);
 		triShape->name.get() = shapeName;
 
-		std::unique_ptr<BSShaderProperty> nifShader;
-		if (0) { // (options & 4) {
-			// Make a BSEffectShader
-			nifShader = std::make_unique<BSEffectShaderProperty>();
-		}
-		else {
-			// Make a BSLightingShader
-			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
-			nifShader = std::make_unique<BSLightingShaderProperty>(version);
-			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+		if (buf->shaderPropertyID != NO_SHADER_REF) {
+			std::unique_ptr<BSShaderProperty> nifShader;
+			if (0) { // (options & 4) {
+				// Make a BSEffectShader
+				nifShader = std::make_unique<BSEffectShaderProperty>();
+			}
+			else {
+				// Make a BSLightingShader
+				auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
+				nifShader = std::make_unique<BSLightingShaderProperty>(version);
+				nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
 
-			std::string wetShaderName = "template/OutfitTemplate_Wet.bgsm";
-			nifShader->SetWetMaterialName(wetShaderName);
-		}
-		nifShader->SetSkinned(false);
+				std::string wetShaderName = "template/OutfitTemplate_Wet.bgsm";
+				nifShader->SetWetMaterialName(wetShaderName);
+			}
+			nifShader->SetSkinned(false);
 
-		int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
-		triShape->ShaderPropertyRef()->index = shaderID;
+			int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+			triShape->ShaderPropertyRef()->index = shaderID;
+		}
 
 		shapeResult = triShape.get();
 
@@ -366,29 +370,33 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 	}
 	else {
 		/* Skyrim LE and friends. */
-		auto nifTexset = std::make_unique<BSShaderTextureSet>(nif->GetHeader().GetVersion());
+		int shaderID = -1;
 
-		int shaderID{};
-		std::unique_ptr<BSLightingShaderProperty> nifShader = nullptr;
-		std::unique_ptr<BSShaderPPLightingProperty> nifShaderPP = nullptr;
+		if (buf->shaderPropertyID != NO_SHADER_REF) {
+			auto nifTexset = std::make_unique<BSShaderTextureSet>(nif->GetHeader().GetVersion());
 
-		if (version.IsSK()) {
-			nifShader = std::make_unique<BSLightingShaderProperty>(nif->GetHeader().GetVersion());
-			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
-			nifShader->SetSkinned(false);
-			shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
-		}
-		else {
-			nifShaderPP = std::make_unique<BSShaderPPLightingProperty>();
-			nifShaderPP->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
-			nifShaderPP->SetSkinned(false);
-			shaderID = nif->GetHeader().AddBlock(std::move(nifShaderPP));
+			std::unique_ptr<BSLightingShaderProperty> nifShader = nullptr;
+			std::unique_ptr<BSShaderPPLightingProperty> nifShaderPP = nullptr;
+
+			if (version.IsSK()) {
+				nifShader = std::make_unique<BSLightingShaderProperty>(nif->GetHeader().GetVersion());
+				nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+				nifShader->SetSkinned(false);
+				shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+			}
+			else {
+				nifShaderPP = std::make_unique<BSShaderPPLightingProperty>();
+				nifShaderPP->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+				nifShaderPP->SetSkinned(false);
+				shaderID = nif->GetHeader().AddBlock(std::move(nifShaderPP));
+			}
 		}
 
 		if (buf->bufType == BUFFER_TYPES::BSLODTriShapeBufType) {
 			// Special handling because BSLODTriShape is not a subclass of BSTriShape.
 			auto shape = std::make_unique<BSLODTriShape>();
-			shape->ShaderPropertyRef()->index = shaderID;
+			if (shaderID >= 0)
+				shape->ShaderPropertyRef()->index = shaderID;
 			shape->name.get() = shapeName;
 			auto shapeData = std::make_unique<NiTriShapeData>();
 			shapeData->Create(nif->GetHeader().GetVersion(), v, t, uv, norms);
@@ -402,10 +410,12 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 		}
 		else {
 			auto nifTriShape = std::make_unique<NiTriShape>();
-			if (version.IsSK())
-				nifTriShape->ShaderPropertyRef()->index = shaderID;
-			else
-				nifTriShape->propertyRefs.AddBlockRef(shaderID);
+			if (shaderID >= 0) {
+				if (version.IsSK())
+					nifTriShape->ShaderPropertyRef()->index = shaderID;
+				else
+					nifTriShape->propertyRefs.AddBlockRef(shaderID);
+			}
 
 			nifTriShape->name.get() = shapeName;
 

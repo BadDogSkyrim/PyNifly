@@ -26,7 +26,7 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_COLLISION_FO4_GEARDOOR, ], 
+    target_tests=[ TEST_NO_SHADER , ], 
     # categories={'HKX'},
     test_all=False,
     stop_on_fail=False,

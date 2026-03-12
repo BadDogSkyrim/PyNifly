@@ -471,6 +471,8 @@ struct BSClothExtraDataBuf {
 	// Note: The actual binary data is stored separately and accessed via functions
 };
 
+const uint32_t NO_SHADER_REF = 0xFFFFFFFE;
+
 struct NiShapeBuf {
 	uint16_t bufSize = sizeof(NiShapeBuf);
 	uint16_t bufType = BUFFER_TYPES::NiShapeBufType;

@@ -12,7 +12,7 @@ from . import bgsmaterial
 from .pynmathutils import (CHAR256, VECTOR2, VECTOR3, VECTOR4, VECTOR12, MATRIX3, MATRIX4)
 from .structs import (pynStructure, TransformBuf)
 from .nifconstants import (
-    PynIntFlag, PynIntEnum, NODEID_NONE,
+    PynIntFlag, PynIntEnum, NODEID_NONE, NO_SHADER_REF,
     NiAVFlags, BSXFlagsValues, BSValueNodeFlags, VertexFlags, EffectShaderControlledVariable,
     SkyrimCollisionLayer, BroadPhaseType, hkResponseType, hkMotionType, hkDeactivatorType,
     hkSolverDeactivation, hkQualityType, ShaderFlags1, ShaderFlags2, ShaderFlags1FO4,

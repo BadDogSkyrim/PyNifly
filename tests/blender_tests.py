@@ -8370,6 +8370,62 @@ def execute_test(t, executed_tests, stop_on_fail=True):
         print (f"------------------------------ {t.__name__} ------------------------------\n")
 
 
+@TT.category('SKYRIM')
+def TEST_NO_SHADER():
+    """Shapes with no shader import with no material and export with no shader."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\loincloth_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_NO_SHADER.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Check which shapes have shaders in the source NIF
+    nifin = pyn.NifFile(testfile)
+    shapes_without_shader = []
+    shapes_with_shader = []
+    for s in nifin.shapes:
+        if s.properties.shaderPropertyID == pyn.NODEID_NONE:
+            shapes_without_shader.append(s.name)
+        else:
+            shapes_with_shader.append(s.name)
+
+    assert TT.is_gt(len(shapes_without_shader), 0,
+                     "Source NIF has shapes without shaders")
+    assert TT.is_gt(len(shapes_with_shader), 0,
+                     "Source NIF has shapes with shaders")
+
+    # Shapes without shader should have no Blender material and display as wireframe
+    for name in shapes_without_shader:
+        obj = TTB.find_shape(name)
+        assert TT.is_eq(obj.active_material, None,
+                         f"Shape '{name}' has no material")
+        assert TT.is_eq(obj.display_type, 'WIRE',
+                         f"Shape '{name}' displays as wireframe")
+
+    # Shapes with shader should have a material
+    for name in shapes_with_shader:
+        obj = TTB.find_shape(name)
+        assert obj.active_material is not None, f"Shape '{name}' has a material"
+
+    # Export all shapes
+    bpy.ops.object.select_all(action='DESELECT')
+    for name in shapes_without_shader + shapes_with_shader:
+        TTB.find_shape(name).select_set(True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
+
+    # Verify roundtrip: shapes without shader should still have no shader
+    nifout = pyn.NifFile(outfile)
+    for name in shapes_without_shader:
+        shape_out = nifout.shape_dict[name]
+        assert TT.is_eq(shape_out.properties.shaderPropertyID, pyn.NODEID_NONE,
+                         f"Exported shape '{name}' has no shader")
+
+    # Shapes with shader should still have a shader
+    for name in shapes_with_shader:
+        shape_out = nifout.shape_dict[name]
+        assert shape_out.properties.shaderPropertyID != pyn.NODEID_NONE, \
+            f"Exported shape '{name}' has a shader"
+
+
 def do_tests(
         target_tests=None,
         categories=None,

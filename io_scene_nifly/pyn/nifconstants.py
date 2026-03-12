@@ -5,6 +5,7 @@ from .pynenum import PynIntFlag, PynIntEnum
 
 
 NODEID_NONE = 4294967295
+NO_SHADER_REF = 4294967294  # Signals DLL to not create a shader for the shape
 
 # There are 64 Skyrim units in a yard and havok works in metres, so:
 HAVOC_SCALE_FACTOR = HSF = 69.99125
