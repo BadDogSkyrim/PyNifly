@@ -325,6 +325,12 @@ nifly.setTransform.restype = None
 nifly.skinShape.argtypes = [c_void_p, c_void_p]
 nifly.skinShape.restype = None
 
+try:
+    nifly.demoteSkinInstance.argtypes = [c_void_p, c_void_p]
+    nifly.demoteSkinInstance.restype = c_int
+except AttributeError:
+    nifly.demoteSkinInstance = None
+
 # Set up pynStructure globals
 pynStructure.nifly = nifly
 pynStructure.logger = logging.getLogger("pynifly")

@@ -3713,6 +3713,16 @@ class NiShape(NiNode):
         return self._uvs
 
     @property
+    def skin_instance_name(self):
+        """Return the block name of the skin instance, or '' if none."""
+        sid = self.properties.skinInstanceID
+        if sid == NODEID_NONE:
+            return ''
+        buf = create_string_buffer(128)
+        nifly.getBlockname(self.file._handle, sid, buf, 128)
+        return buf.value.decode('utf-8')
+
+    @property
     def shader_block_name(self):
         buf = create_string_buffer(128)
         nifly.getBlockname(self.file._handle, self.properties.shaderPropertyID, buf, 128)
@@ -3899,6 +3909,11 @@ class NiShape(NiNode):
     def skin(self):
         nifly.skinShape(self.file._handle, self._handle)
         self._is_skinned = True
+
+    def demote_skin_instance(self):
+        """Replace BSDismemberSkinInstance with plain NiSkinInstance on this shape."""
+        if nifly.demoteSkinInstance:
+            nifly.demoteSkinInstance(self.file._handle, self._handle)
 
     def set_global_to_skin(self, transform):
         """ Sets the skin transform which offsets the vert locations. This allows a head

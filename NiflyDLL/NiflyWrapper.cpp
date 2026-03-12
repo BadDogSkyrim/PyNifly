@@ -1268,6 +1268,26 @@ NIFLY_API void skinShape(void* nif, void* shapeRef)
     static_cast<NifFile*>(nif)->CreateSkinning(static_cast<nifly::NiShape*>(shapeRef));
 }
 
+NIFLY_API int demoteSkinInstance(void* nifref, void* shaperef)
+/* Replace a BSDismemberSkinInstance with a plain NiSkinInstance on the given shape.
+   Returns 0 on success, non-zero if the shape doesn't have a BSDismemberSkinInstance.
+*/
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader& hdr = nif->GetHeader();
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+
+    auto bsdSkinInst = hdr.GetBlock<BSDismemberSkinInstance>(shape->SkinInstanceRef());
+    if (!bsdSkinInst)
+        return 1;
+
+    auto newSkinInst = std::make_unique<NiSkinInstance>();
+    *newSkinInst = *static_cast<NiSkinInstance*>(bsdSkinInst);
+
+    hdr.ReplaceBlock(shape->SkinInstanceRef()->index, std::move(newSkinInst));
+    return 0;
+}
+
 NIFLY_API void setShapeGlobalToSkin(void* nifref, void* shaperef, MatTransform* xformBuf) {
     NifFile* nif = static_cast<nifly::NifFile*>(nifref);
     NiShape* shape = static_cast<nifly::NiShape*>(shaperef);

@@ -917,6 +917,9 @@ class NifImporter():
                 new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
                 if the_shape.properties.vertexDesc:
                     new_object["pynVertexDesc"] = VertexFlags(the_shape.properties.vertexDesc).fullname
+                skin_name = the_shape.skin_instance_name
+                if skin_name and skin_name != 'BSDismemberSkinInstance':
+                    new_object["pynSkinInstanceType"] = skin_name
             except Exception as e:
                 log.warn(f"Error setting pynVertexDesc for {new_object.name}: {e}")
             self.loaded_meshes.append(new_object)

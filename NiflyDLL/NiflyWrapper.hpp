@@ -75,6 +75,7 @@ extern "C" NIFLY_API int getMaxStringLen(void* nifref);
 extern "C" NIFLY_API int getString(void* nifref, int strid, int buflen, char* buf);
 extern "C" NIFLY_API int addString(void* nifref, const char* buf);
 extern "C" NIFLY_API void skinShape(void* f, void* shapeRef);
+extern "C" NIFLY_API int demoteSkinInstance(void* nifref, void* shaperef);
 extern "C" NIFLY_API void setShapeBoneWeights(void* theFile, void* theShape, const char* boneName, VertexWeightPair * weights, int weightsLen);
 extern "C" NIFLY_API void setShapeBoneIDList(void* f, void* shapeRef, int* boneIDList, int listLen);
 extern "C" NIFLY_API int saveNif(void* the_nif, const char8_t* filename);

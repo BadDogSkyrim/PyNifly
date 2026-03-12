@@ -1397,8 +1397,13 @@ class NifExporter:
                         new_shape.segment_file = obj['FO4_SEGMENT_FILE']
 
                     new_shape.set_partitions(
-                        [p for p in partitions.values() if p.id in partition_map], 
+                        [p for p in partitions.values() if p.id in partition_map],
                         partition_map)
+
+                skin_type = obj.get("pynSkinInstanceType", "")
+                if skin_type == "NiSkinInstance" or \
+                        (not skin_type and len(partitions) == 0):
+                    new_shape.demote_skin_instance()
 
                 collision.CollisionHandler.export_collisions(self, arma)
             else:

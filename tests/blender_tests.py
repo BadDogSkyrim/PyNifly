@@ -8412,6 +8412,13 @@ def TEST_NO_SHADER():
         TTB.find_shape(name).select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
 
+    # Check skin instance types on import
+    # VirtualGround has NiSkinInstance in the source NIF
+    vg = TTB.find_shape("VirtualGround")
+    if vg:
+        assert TT.is_eq(vg.get("pynSkinInstanceType", ""), "NiSkinInstance",
+                         "VirtualGround has NiSkinInstance custom property")
+
     # Verify roundtrip: shapes without shader should still have no shader
     nifout = pyn.NifFile(outfile)
     for name in shapes_without_shader:
@@ -8424,6 +8431,19 @@ def TEST_NO_SHADER():
         shape_out = nifout.shape_dict[name]
         assert shape_out.properties.shaderPropertyID != pyn.NODEID_NONE, \
             f"Exported shape '{name}' has a shader"
+
+    # VirtualGround should roundtrip as NiSkinInstance (no partitions)
+    if 'VirtualGround' in nifout.shape_dict:
+        vg_out = nifout.shape_dict['VirtualGround']
+        assert TT.is_eq(vg_out.skin_instance_name, "NiSkinInstance",
+                         "VirtualGround exports with NiSkinInstance")
+
+    # Shapes with partitions should still have BSDismemberSkinInstance
+    for name in shapes_with_shader:
+        shape_out = nifout.shape_dict[name]
+        if shape_out.skin_instance_name:
+            assert TT.is_eq(shape_out.skin_instance_name, "BSDismemberSkinInstance",
+                             f"Shape '{name}' keeps BSDismemberSkinInstance")
 
 
 def do_tests(
