@@ -8446,6 +8446,100 @@ def TEST_NO_SHADER():
                              f"Shape '{name}' keeps BSDismemberSkinInstance")
 
 
+@TT.category('FO4', 'HKX')
+def TEST_FO4_ANIM_IMPORT():
+    """Can import FO4 HKX animation onto skeleton imported from HKX."""
+    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\FO4\Animations\Death1.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    # Import the HKX skeleton — creates armature with stored bone list
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=False,
+                                      blender_xf=False)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert TT.is_gt(len(arma.data.bones), 90, "Skeleton has bones")
+    assert 'PYN_HKX_BONES' in arma, "Armature has stored HKX bone list"
+
+    BD.ObjectSelect([arma], active=True)
+
+    # Import FO4 animation — no skeleton reference needed
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                      rename_bones=False,
+                                      blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation data"
+    assert arma.animation_data.action is not None, "Armature has an action"
+
+    act = arma.animation_data.action
+    fcurves = list(BD.action_fcurves(act))
+    assert TT.is_gt(len(fcurves), 0, "Action has fcurves")
+
+    # Check that COM bone has animation
+    com_curves = [c for c in fcurves if 'COM' in c.data_path]
+    assert TT.is_gt(len(com_curves), 0, "COM bone is animated")
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_ANIM_EXPORT():
+    """Can export FO4 HKX animation and re-import with matching tracks."""
+    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\FO4\Animations\Death1.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_ANIM_EXPORT.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    # Import skeleton + animation
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=False,
+                                      blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                      rename_bones=False,
+                                      blender_xf=False)
+
+    orig_action = arma.animation_data.action
+    orig_frame_end = int(orig_action.frame_end)
+
+    # Export
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+
+    # Clear and re-import to verify roundtrip
+    bpy.ops.object.mode_set(mode='OBJECT')
+    for a in bpy.data.actions:
+        bpy.data.actions.remove(a)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
+                                      rename_bones=False,
+                                      blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation after re-import"
+    assert arma.animation_data.action is not None, "Armature has action after re-import"
+
+    reimported = arma.animation_data.action
+    assert TT.is_eq(int(reimported.frame_end), orig_frame_end, "Frame count preserved")
+
+    # Check fcurves exist
+    fcurves = list(BD.action_fcurves(reimported))
+    assert TT.is_gt(len(fcurves), 0, "Re-imported action has fcurves")
+
+    # Check COM bone is still animated
+    com_curves = [c for c in fcurves if 'COM' in c.data_path]
+    assert TT.is_gt(len(com_curves), 0, "COM bone still animated after roundtrip")
+
+    # Verify death pose: COM should be near the floor at last frame
+    bpy.context.scene.frame_set(orig_frame_end)
+    bpy.context.view_layer.update()
+    com_bone = arma.pose.bones.get('COM')
+    assert com_bone is not None, "COM bone exists"
+    com_z = (arma.matrix_world @ com_bone.matrix).translation.z
+    assert TT.is_lt(com_z, 20.0, "COM z near floor at end of death anim")
+
+
 def do_tests(
         target_tests=None,
         categories=None,

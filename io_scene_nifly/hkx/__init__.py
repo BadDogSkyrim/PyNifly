@@ -8,13 +8,15 @@ import importlib
 from contextlib import suppress
 import logging
 import bpy
-from . import import_hkx 
+from . import import_hkx
 from . import export_hkx
 from . import skeleton_hkx
+from . import anim_fo4
 
 
 def reload_all():
     if 'PYNIFLY_DEV_ROOT' in os.environ:
+        importlib.reload(anim_fo4)
         importlib.reload(import_hkx)
         importlib.reload(export_hkx)
         importlib.reload(skeleton_hkx)

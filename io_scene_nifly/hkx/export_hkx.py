@@ -21,6 +21,8 @@ from .. import bl_info
 from . import skeleton_hkx
 from ..pyn.xmltools import XMLFile
 from ..kf.export_kf import KFExporter
+from . import anim_fo4
+from .import_hkx import PYN_HKX_BONES_PROP, extract_fo4_animation
 
 
 hkxcmd_path = None
@@ -69,12 +71,14 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
     @classmethod
     def poll(cls, context):
         if (not context.object) or context.object.type != 'ARMATURE':
-            # log.error("Must select an armature to export animations.")
             return False
 
         if (not context.object.animation_data) or (not context.object.animation_data.action):
-            # log.error("Active object must have an animation associated with it.")
             return False
+
+        # FO4 armatures (with PYN_HKX_BONES) don't need hkxcmd
+        if context.object.get(PYN_HKX_BONES_PROP):
+            return True
 
         if not hkxcmd_path:
             log.error("hkxcmd.exe not found--animation I/O not available.")
@@ -190,6 +194,37 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     def execute(self, context):
         res = set()
+
+        if not self.poll(context):
+            log.error(f"Cannot run exporter--see system console for details")
+            return {'CANCELLED'}
+
+        self.context = context
+        self.fps = context.scene.render.fps
+        self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
+        NifFile.clear_log()
+
+        # ── FO4 native path ──
+        if context.object.get(PYN_HKX_BONES_PROP):
+            try:
+                anim_data = extract_fo4_animation(context.object)
+                if anim_data is None:
+                    log.error("Failed to extract animation data from armature.")
+                    res.add('CANCELLED')
+                else:
+                    anim_fo4.write_fo4_animation(self.filepath, anim_data)
+                    log.info(f"Exported FO4 animation: {self.filepath}")
+                    res.add('FINISHED')
+            except:
+                log.exception("FO4 HKX export failed")
+                res.add('CANCELLED')
+
+            self.log_handler.finish("EXPORT", self.filepath)
+            wm = context.window_manager
+            wm.pynifly_last_export_path_hkx = self.filepath
+            return res.intersection({'CANCELLED'}, {'FINISHED'})
+
+        # ── Skyrim path (via hkxcmd) ──
         refskelpath = Path(self.reference_skel.strip('"'))
         self.reference_skel_short = nospace_filepath(refskelpath)
         if refskelpath != self.reference_skel_short:
@@ -198,19 +233,10 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         if self.reference_skel:
             context.object['PYN_SKELETON_FILE'] = self.reference_skel
 
-        if not self.poll(context):
-            log.error(f"Cannot run exporter--see system console for details")
-            return {'CANCELLED'} 
-
-        self.context = context
-        self.fps = context.scene.render.fps
         self.has_markers = (len(context.scene.timeline_markers) > 0)
         self.hkx_tmp_filepath = tmp_filepath(Path(self.filepath), ext=".hkx")
         self.xml_filepath = None
         self.xml_filepath_out = None
-        self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
-        # No need to call NifFile.Load() anymore
-        NifFile.clear_log()
 
         # Export whatever animation is attached to the active object.
         self.kf_filepath = Path(tmp_filepath(Path(self.filepath), ext=".kf"))
