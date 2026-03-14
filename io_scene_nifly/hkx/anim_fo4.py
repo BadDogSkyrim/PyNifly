@@ -420,13 +420,20 @@ class _TrackMask:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _decompress_spline(data_bytes, num_tracks, num_frames, num_blocks,
-                       max_frames_per_block, block_offsets):
+                       max_frames_per_block, block_offsets,
+                       mask_and_quant_size=0):
     """Decompress hkaSplineCompressedAnimation data blob.
 
     Returns list of TrackData (one per track), with per-frame translations,
     rotations, and scales fully evaluated.
+
+    mask_and_quant_size: total size of the mask+quantization block at the start
+    of each data block (includes transform masks + float track quantization bytes).
+    If 0, computed as _align(4 * num_tracks, 4).
     """
     all_tracks = [TrackData() for _ in range(num_tracks)]
+    if not mask_and_quant_size:
+        mask_and_quant_size = _align(4 * num_tracks, 4)
 
     for block_idx in range(num_blocks):
         block_start = block_offsets[block_idx]
@@ -443,7 +450,8 @@ def _decompress_spline(data_bytes, num_tracks, num_frames, num_blocks,
             masks.append(_TrackMask(data_bytes[off], data_bytes[off + 1],
                                     data_bytes[off + 2], data_bytes[off + 3]))
             off += 4
-        off = _align(off, 4)
+        # Skip past float track quantization bytes and any padding
+        off = block_start + mask_and_quant_size
 
         # ── Per-track data ──
         for track_idx in range(num_tracks):
@@ -812,6 +820,7 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     anim.num_frames = _u32(data, a + 0x38)
     anim.num_blocks = _u32(data, a + 0x3C)
     anim.max_frames_per_block = _u32(data, a + 0x40)
+    mask_and_quant_size = _u32(data, a + 0x44)
     anim.block_duration = _f32(data, a + 0x48)
     anim.frame_duration = _f32(data, a + 0x50)
 
@@ -878,7 +887,8 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     # ── Decompress spline data ──
     anim.tracks = _decompress_spline(
         data_blob, anim.num_tracks, anim.num_frames,
-        anim.num_blocks, anim.max_frames_per_block, block_offsets
+        anim.num_blocks, anim.max_frames_per_block, block_offsets,
+        mask_and_quant_size
     )
 
     return anim

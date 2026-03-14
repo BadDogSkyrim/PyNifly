@@ -12,17 +12,20 @@ import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 from ..pyn.nifdefs import PynIntFlag
-from ..pyn.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath, fo4Dict
+from ..pyn.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath, fo4Dict, skyrimDict
 from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
 from ..pyn.pynifly import NifFile
 from .. import blender_defs as bdefs
 from .. import bl_info
-from ..util.settings import ImportSettings, PYN_RENAME_BONES_PROP, PYN_RENAME_BONES_NIFTOOLS_PROP, PYN_BLENDER_XF_PROP
+from ..util.settings import ImportSettings, PYN_RENAME_BONES_PROP, PYN_RENAME_BONES_NIFTOOLS_PROP, PYN_BLENDER_XF_PROP, PYN_ROTATE_BONES_PRETTY_PROP
 from ..pyn.xmltools import XMLFile
 from ..nif.import_nif import NifImporter
 from . import anim_fo4
+from . import anim_skyrim
 
 PYN_HKX_BONES_PROP = 'PYN_HKX_BONES'
+PYN_HKX_GAME_PROP = 'PYN_HKX_GAME'
+PYN_HKX_PTR_SIZE_PROP = 'PYN_HKX_PTR_SIZE'
 
 
 hkxcmd_path = None
@@ -144,10 +147,15 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                 stat = self.import_fo4(context)
                 res.add(stat)
 
-            # ── Skyrim path (hk_2010, via hkxcmd) ──
+            # ── Skyrim native path (hk_2010) ──
+            elif anim_skyrim.is_skyrim_hkx(self.filepath):
+                stat = self.import_skyrim(context)
+                res.add(stat)
+
+            # ── Legacy hkxcmd path (XML skeletons, etc.) ──
             else:
                 if not hkxcmd_path:
-                    log.error("hkxcmd.exe not found — required for Skyrim HKX files.")
+                    log.error("hkxcmd.exe not found — required for this HKX file type.")
                     return {'CANCELLED'}
                 XMLFile.SetPath(hkxcmd_path)
                 self.xmlfile = XMLFile(self.filepath, self)
@@ -315,7 +323,12 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         """Create a Blender armature from an HKX skeleton."""
         from mathutils import Matrix, Quaternion, Vector
 
-        arm_name = skel.name or self.hkx_filepath.stem
+        # HKX animation import computes deltas as rest_q_inv @ q_anim where q_anim
+        # is a raw bone-local quaternion (no game rotation).  The rest transform must
+        # be in the same space, so build bones WITHOUT pretty rotation.
+        bdefs.game_rotations = bdefs.game_rotations_none
+
+        arm_name = bdefs.arma_name(skel.name or self.hkx_filepath.stem)
         arm_data = bpy.data.armatures.new(arm_name)
         arma = bpy.data.objects.new(arm_name, arm_data)
 
@@ -324,13 +337,15 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         context.view_layer.objects.active = arma
         arma.select_set(True)
 
-        # Store import settings on the armature
+        # Store import settings on the armature (match NIF importer properties)
         arma[PYN_RENAME_BONES_PROP] = self.rename_bones
         arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.rename_bones_niftools
+        arma[PYN_ROTATE_BONES_PRETTY_PROP] = False
         arma[PYN_BLENDER_XF_PROP] = self.blender_xf
 
         # Store the HKX bone name list (NIF names) for animation import
         arma[PYN_HKX_BONES_PROP] = ";".join(skel.bones)
+        arma[PYN_HKX_GAME_PROP] = 'FO4'
 
         # Compute global transforms from local reference poses
         global_xfs = []  # one 4x4 Matrix per bone
@@ -486,6 +501,193 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         return None
 
 
+    def import_skyrim(self, context):
+        """Import a Skyrim (hk_2010) HKX file — either a skeleton or an animation."""
+        skel = anim_skyrim.load_skyrim_skeleton(self.filepath)
+        if skel and skel.bones:
+            return self._import_skyrim_skeleton(context, skel)
+
+        return self._import_skyrim_animation(context)
+
+
+    def _import_skyrim_skeleton(self, context, skel):
+        """Create a Blender armature from a Skyrim HKX skeleton."""
+        from mathutils import Matrix, Quaternion, Vector
+
+        # HKX animation import computes deltas as rest_q_inv @ q_anim where q_anim
+        # is a raw bone-local quaternion (no game rotation).  The rest transform must
+        # be in the same space, so build bones WITHOUT pretty rotation.
+        bdefs.game_rotations = bdefs.game_rotations_none
+
+        arm_name = bdefs.arma_name(skel.name or self.hkx_filepath.stem)
+        arm_data = bpy.data.armatures.new(arm_name)
+        arma = bpy.data.objects.new(arm_name, arm_data)
+
+        coll = context.view_layer.active_layer_collection.collection
+        coll.objects.link(arma)
+        context.view_layer.objects.active = arma
+        arma.select_set(True)
+
+        arma[PYN_RENAME_BONES_PROP] = self.rename_bones
+        arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.rename_bones_niftools
+        arma[PYN_ROTATE_BONES_PRETTY_PROP] = False
+        arma[PYN_BLENDER_XF_PROP] = self.blender_xf
+        arma[PYN_HKX_BONES_PROP] = ";".join(skel.bones)
+        arma[PYN_HKX_GAME_PROP] = 'SKYRIM'
+
+        # Store ptr_size from the skeleton file (4=LE, 8=SE)
+        with open(str(self.hkx_filepath), 'rb') as f:
+            hdr = f.read(0x11)
+        if len(hdr) >= 0x11 and hdr[:4] == b'\x57\xE0\xE0\x57':
+            arma[PYN_HKX_PTR_SIZE_PROP] = hdr[0x10]
+        else:
+            arma[PYN_HKX_PTR_SIZE_PROP] = 4  # default LE
+
+        # Compute global transforms from local reference poses
+        global_xfs = []
+        for i, pose in enumerate(skel.reference_pose):
+            q = Quaternion((pose.rotation[3], pose.rotation[0],
+                            pose.rotation[1], pose.rotation[2]))
+            t = Vector(pose.translation)
+            s = Vector(pose.scale)
+
+            local_mx = Matrix.Translation(t) @ q.to_matrix().to_4x4()
+            for axis in range(3):
+                local_mx[axis][0] *= s[axis]
+                local_mx[axis][1] *= s[axis]
+                local_mx[axis][2] *= s[axis]
+
+            parent_idx = skel.parents[i] if i < len(skel.parents) else -1
+            if parent_idx >= 0 and parent_idx < len(global_xfs):
+                global_mx = global_xfs[parent_idx] @ local_mx
+            else:
+                global_mx = local_mx
+            global_xfs.append(global_mx)
+
+        if self.rename_bones or self.rename_bones_niftools:
+            skyrimDict.use_niftools = self.rename_bones_niftools
+
+        bpy.ops.object.mode_set(mode='EDIT')
+        try:
+            for i, name in enumerate(skel.bones):
+                if not name:
+                    continue
+                if self.rename_bones or self.rename_bones_niftools:
+                    bl_name = skyrimDict.blender_name(name)
+                else:
+                    bl_name = name
+
+                if i < len(global_xfs):
+                    bdefs.create_bone(arm_data, bl_name, global_xfs[i], 'SKYRIM', 1.0, 0)
+
+            for i, name in enumerate(skel.bones):
+                if not name:
+                    continue
+                if self.rename_bones or self.rename_bones_niftools:
+                    bl_name = skyrimDict.blender_name(name)
+                else:
+                    bl_name = name
+
+                parent_idx = skel.parents[i] if i < len(skel.parents) else -1
+                if parent_idx >= 0 and parent_idx < len(skel.bones):
+                    parent_nif = skel.bones[parent_idx]
+                    if self.rename_bones or self.rename_bones_niftools:
+                        parent_bl = skyrimDict.blender_name(parent_nif)
+                    else:
+                        parent_bl = parent_nif
+
+                    bone = arm_data.edit_bones.get(bl_name)
+                    parent_bone = arm_data.edit_bones.get(parent_bl)
+                    if bone and parent_bone:
+                        bone.parent = parent_bone
+        finally:
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        bdefs.highlight_objects([arma], context)
+        log.info(f"Imported Skyrim HKX skeleton: {arm_name} ({len(skel.bones)} bones)")
+        return 'FINISHED'
+
+
+    def _import_skyrim_animation(self, context):
+        """Import a Skyrim HKX animation onto the selected armature."""
+        anim_data = anim_skyrim.load_skyrim_animation(self.filepath)
+
+        armature = context.object
+        if not armature or armature.type != 'ARMATURE':
+            log.error("Must select an armature to import Skyrim animation.")
+            return 'CANCELLED'
+
+        bone_names = self._resolve_skyrim_bone_names(anim_data, armature)
+        if not bone_names:
+            log.error("Cannot determine bone names for animation tracks. "
+                      "Import the skeleton HKX first to create the armature.")
+            return 'CANCELLED'
+
+        anim_name = self.hkx_filepath.stem
+        apply_fo4_animation(armature, anim_data, bone_names, anim_name,
+                            self.fps, self.rename_bones, self.rename_bones_niftools,
+                            bone_dict=skyrimDict)
+
+        context.scene.frame_start = 1
+        context.scene.frame_end = anim_data.num_frames
+        context.scene.frame_set(1)
+
+        for ann in anim_data.annotations:
+            if ann.text:
+                context.scene.timeline_markers.new(
+                    ann.text, frame=int(ann.time * self.fps) + 1)
+
+        bdefs.highlight_objects([armature], context)
+        log.info(f"Import of Skyrim HKX animation completed: {anim_name}")
+        return 'FINISHED'
+
+
+    def _resolve_skyrim_bone_names(self, anim_data, armature):
+        """Build bone name list for Skyrim animation tracks.
+
+        Priority:
+        1. Binding indices + stored/reference skeleton bone list
+        2. Direct 1:1 mapping (only when track count == skeleton bone count)
+        3. Annotation track names (for partial-skeleton animations like SOS)
+        """
+        indices = anim_data.track_to_bone_indices if anim_data.track_to_bone_indices else None
+
+        # Gather skeleton bone list from armature or reference file
+        skel_bones = None
+        hkx_bones_str = armature.get(PYN_HKX_BONES_PROP)
+        if hkx_bones_str:
+            skel_bones = hkx_bones_str.split(";")
+        elif self.reference_skel:
+            skel_path = self.reference_skel.strip('"')
+            skel = anim_skyrim.load_skyrim_skeleton(skel_path)
+            if skel and skel.bones:
+                skel_bones = skel.bones
+
+        if skel_bones:
+            # 1. Binding indices → remap
+            if indices:
+                names = [skel_bones[idx] if 0 <= idx < len(skel_bones) else ''
+                         for idx in indices]
+                log.info(f"Skyrim bone mapping: skeleton + binding ({len(names)} tracks)")
+                return names
+            # 2. Direct 1:1 mapping (exact match only)
+            if len(skel_bones) == anim_data.num_tracks:
+                log.info(f"Skyrim bone mapping: direct 1:1 ({anim_data.num_tracks} tracks)")
+                return skel_bones[:anim_data.num_tracks]
+
+        # 3. Annotation track names (partial-skeleton animations)
+        if anim_data.bone_names and any(n for n in anim_data.bone_names):
+            log.info(f"Skyrim bone mapping: annotation track names ({len(anim_data.bone_names)} tracks)")
+            return anim_data.bone_names
+
+        # 4. Last resort: direct mapping even if counts differ
+        if skel_bones and len(skel_bones) >= anim_data.num_tracks:
+            log.info(f"Skyrim bone mapping: direct (first {anim_data.num_tracks} of {len(skel_bones)} bones)")
+            return skel_bones[:anim_data.num_tracks]
+
+        return None
+
+
 def _bone_rest_local(bone):
     """Return the bone's rest-pose local rotation and translation (relative to parent).
 
@@ -500,8 +702,9 @@ def _bone_rest_local(bone):
 
 
 def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
-                        rename_bones=False, rename_bones_niftools=False):
-    """Apply decompressed FO4 animation data to a Blender armature.
+                        rename_bones=False, rename_bones_niftools=False,
+                        bone_dict=None):
+    """Apply decompressed FO4/Skyrim animation data to a Blender armature.
 
     HKX animation quaternions/translations are bone-local transforms (relative
     to parent bone).  Blender pose bone values are *deltas* from the rest pose.
@@ -510,6 +713,17 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
     """
     import bpy
     from mathutils import Quaternion, Vector
+
+    if bone_dict is None:
+        bone_dict = fo4Dict
+
+    # Clear any residual pose transforms (e.g. from NIF import) so animation
+    # keyframes are the sole source of pose data.
+    for pb in armature.pose.bones:
+        pb.rotation_quaternion = (1, 0, 0, 0)
+        pb.rotation_euler = (0, 0, 0)
+        pb.location = (0, 0, 0)
+        pb.scale = (1, 1, 1)
 
     # Create action
     action = bpy.data.actions.new(anim_name)
@@ -527,7 +741,7 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
 
     # Set up bone name conversion to match how the armature was imported
     if rename_bones or rename_bones_niftools:
-        fo4Dict.use_niftools = rename_bones_niftools
+        bone_dict.use_niftools = rename_bones_niftools
 
     # Build a lookup from lowercase bone name to actual pose bone name
     pose_bones = armature.pose.bones
@@ -541,12 +755,12 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
             continue
 
         # Find the bone in the armature.
-        # Try: exact NIF name, fo4Dict-renamed name, case-insensitive match.
+        # Try: exact NIF name, renamed name, case-insensitive match.
         bl_name = None
         if nif_name in pose_bones:
             bl_name = nif_name
         elif rename_bones or rename_bones_niftools:
-            renamed = fo4Dict.blender_name(nif_name)
+            renamed = bone_dict.blender_name(nif_name)
             if renamed in pose_bones:
                 bl_name = renamed
         if bl_name is None:
@@ -644,13 +858,17 @@ def extract_fo4_animation(armature):
 
     fps = bpy.context.scene.render.fps
 
+    # Select the correct bone dictionary based on game
+    game = armature.get(PYN_HKX_GAME_PROP, 'FO4')
+    bone_dict = skyrimDict if game == 'SKYRIM' else fo4Dict
+
     # Resolve bone list — use stored HKX bone names if available
     hkx_bones_str = armature.get(PYN_HKX_BONES_PROP)
     rename_bones = armature.get(PYN_RENAME_BONES_PROP, False)
     rename_bones_niftools = armature.get(PYN_RENAME_BONES_NIFTOOLS_PROP, False)
 
     if rename_bones or rename_bones_niftools:
-        fo4Dict.use_niftools = rename_bones_niftools
+        bone_dict.use_niftools = rename_bones_niftools
 
     if hkx_bones_str:
         nif_bone_names = hkx_bones_str.split(";")
@@ -658,7 +876,7 @@ def extract_fo4_animation(armature):
         # Fall back to pose bone names, converting back to NIF names
         nif_bone_names = []
         for pb in armature.pose.bones:
-            nif_bone_names.append(fo4Dict.nif_name(pb.name)
+            nif_bone_names.append(bone_dict.nif_name(pb.name)
                                   if (rename_bones or rename_bones_niftools)
                                   else pb.name)
 
@@ -670,7 +888,7 @@ def extract_fo4_animation(armature):
         if nif_name in pose_bones:
             return pose_bones[nif_name]
         if rename_bones or rename_bones_niftools:
-            renamed = fo4Dict.blender_name(nif_name)
+            renamed = bone_dict.blender_name(nif_name)
             if renamed in pose_bones:
                 return pose_bones[renamed]
         bl = _pb_lower.get(nif_name.lower())

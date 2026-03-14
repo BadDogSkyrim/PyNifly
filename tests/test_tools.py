@@ -193,6 +193,14 @@ def assert_eq(*args):
     # assert actual == expected, f"{msg} not the same: {actual} = {expected}"
 
 
+def is_true(value, msg=""):
+    """Check that value is truthy."""
+    if value:
+        return True
+    else:
+        log.error(f"ASSERT FAIL: {msg} (got {value!r})")
+
+
 def is_eq(*args):
     """Check all elements but the last are equal. The last is the message to use (optional)."""
     if len(args) > 2:

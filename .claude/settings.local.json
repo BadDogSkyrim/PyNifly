@@ -23,10 +23,13 @@
       "Read(//c/Modding/**)",
       "Read(//tmp/**)",
       "Read(//c/tmp/**)",
-      "WebSearch"
+      "WebSearch",
+      "Read(//c/Steam/steamapps/common/Skyrim Special Edition/Data/SKSE/Plugins/hdtSkinnedMeshConfigs/**)",
+      "WebFetch(domain:github.com)"
     ],
     "additionalDirectories": [
-      "C:\\tmp"
+      "C:\\tmp",
+      "C:\\Steam\\steamapps\\common\\Skyrim Special Edition\\Data\\SKSE\\Plugins\\hdtSkinnedMeshConfigs"
     ]
   }
 }

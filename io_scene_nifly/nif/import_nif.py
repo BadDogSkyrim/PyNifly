@@ -294,6 +294,7 @@ class NifImporter():
         
         self.filename_list = filename_list
         self.target_armatures = set(target_armatures) if target_armatures else set()
+        self.preexisting_armatures = set(self.target_armatures)  # armatures that existed before import
         self.collection = collection
         self.settings = import_settings
         self.reference_skel = reference_skel
@@ -306,12 +307,17 @@ class NifImporter():
 
         self.armature = None # Armature used for current shape import
         if target_armatures: self.armature = next(iter(target_armatures))
-        self.context = bpy.context 
+        self.context = bpy.context
         self.is_facegen = False
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
         self.created_child_cp = None
         self.bones = set()
-        self.nif_rest_bones = set()  # Blender names of bones whose rest was set from NIF node transforms
+        # Blender names of bones whose rest was set from NIF node transforms.
+        # Pre-existing bones (e.g. from HKX skeleton import) are included so
+        # set_bone_poses won't overwrite their pose.
+        self.nif_rest_bones = set()
+        if self.armature and self.armature.data.bones:
+            self.nif_rest_bones = {b.name for b in self.armature.data.bones}
         self.objects_created = ReprObjectCollection() # Dictionary of objects created, indexed by node handle
                                   # (or object name, if no handle)
         self.nodes_loaded = {} # Dictionary of nodes from the nif file loaded, indexed by Blender name
@@ -1210,7 +1216,7 @@ class NifImporter():
             if arma_bone.parent is None:
                 parentname = None
                 parentnifname = None
-                
+
                 # look for a parent in the nif
                 nifname = self.nif_name(bonename)
                 if nifname in self.nif.nodes:
@@ -1422,37 +1428,48 @@ class NifImporter():
 
         # Create bones. If import_pose, positions are the P.NiNode positions of the
         # bone. Otherwise, they are the skin-to-bone transforms (bind position).
-        BD.ObjectSelect([arma])
-        new_bones = []
-        bpy.ops.object.mode_set(mode = 'EDIT')
-
+        # Check which bones need creating before entering edit mode — the edit mode
+        # round-trip can alter bone rest transforms (lossy Bone↔EditBone conversion),
+        # so we avoid it when no new bones are needed.
+        existing_bones = {b.name for b in arma.data.bones}
+        missing_bones = []
         for bn in nif_shape.bone_names:
             blname = self.blender_name(bn)
-            if blname not in arma.data.edit_bones:
-                if False: ### self.is_facegen and self.reference_skel: 
-                    ### This gives a reasonable skeleton but the head parts are still rotated 
-                    ### and off.
-                    # FO4 facegen files have wonky bind transforms. Use the reference
-                    # skeleton instead.
-                    bone_node = self.reference_skel.nodes['HEAD' if bn=='Head' else bn]
-                    xf = BD.transform_to_matrix(bone_node.global_transform)
-                elif self.settings.import_pose: ### and not self.is_facegen:
-                    # Using nif locations of bones. 
-                    bone_node = nif_shape.file.nodes[bn]
-                    xf = BD.transform_to_matrix(bone_node.global_transform)
-                else:
-                    # Have to trust the bind position in the nif.
-                    # Facegen nifs always use the bind position.
-                    bone_shape_xf = BD.transform_to_matrix(nif_shape.get_shape_skin_to_bone(bn)).inverted()
-                    xf = skin_xf @ bone_shape_xf
-                BD.create_bone(arma.data, blname, xf, self.nif.game, 1.0, 0)
-                new_bones.append((bn, blname))
+            if blname not in existing_bones:
+                missing_bones.append(bn)
 
-        # Do the pose in a separate pass so we don't have to flip between modes.
-        if not self.settings.import_pose:
+        new_bones = []
+        if missing_bones:
+            BD.ObjectSelect([arma])
+            bpy.ops.object.mode_set(mode = 'EDIT')
+
+            for bn in missing_bones:
+                blname = self.blender_name(bn)
+                if blname not in arma.data.edit_bones:
+                    if False: ### self.is_facegen and self.reference_skel:
+                        ### This gives a reasonable skeleton but the head parts are still rotated
+                        ### and off.
+                        # FO4 facegen files have wonky bind transforms. Use the reference
+                        # skeleton instead.
+                        bone_node = self.reference_skel.nodes['HEAD' if bn=='Head' else bn]
+                        xf = BD.transform_to_matrix(bone_node.global_transform)
+                    elif self.settings.import_pose: ### and not self.is_facegen:
+                        # Using nif locations of bones.
+                        bone_node = nif_shape.file.nodes[bn]
+                        xf = BD.transform_to_matrix(bone_node.global_transform)
+                    else:
+                        # Have to trust the bind position in the nif.
+                        # Facegen nifs always use the bind position.
+                        bone_shape_xf = BD.transform_to_matrix(nif_shape.get_shape_skin_to_bone(bn)).inverted()
+                        xf = skin_xf @ bone_shape_xf
+                    BD.create_bone(arma.data, blname, xf, self.nif.game, 1.0, 0)
+                    new_bones.append((bn, blname))
+
+            # Do the pose in a separate pass so we don't have to flip between modes.
+            if not self.settings.import_pose:
+                bpy.ops.object.mode_set(mode = 'OBJECT')
+                self.set_bone_poses(arma, self.nif, new_bones)
             bpy.ops.object.mode_set(mode = 'OBJECT')
-            self.set_bone_poses(arma, self.nif, new_bones)
-        bpy.ops.object.mode_set(mode = 'OBJECT')
 
         BD.ObjectSelect([obj])
         mod = obj.modifiers.new("Armature", "ARMATURE")
@@ -1566,14 +1583,20 @@ class NifImporter():
                             orphan_shapes.discard(obj)
 
                 for arma in self.target_armatures:
-                    if self.settings.create_bones:
-                        bonenames = [n.name for n in self.nif.nodes.values()
-                                     if n.blockname == 'P.NiNode']
-                        self.add_bones_to_arma(arma, self.nif, bonenames)
-                    self.connect_armature(arma)
-                    self.group_bones(arma)
-                    if self.controller_mgr:
-                        self.controller_mgr.import_bone_animations(self.armature)
+                    if arma in self.preexisting_armatures:
+                        # Pre-existing armature (e.g. from HKX skeleton import) — don't
+                        # add bones or reparent.  The armature is already fully connected
+                        # and modifying it would corrupt animation rest transforms.
+                        self.group_bones(arma)
+                    else:
+                        if self.settings.create_bones:
+                            bonenames = [n.name for n in self.nif.nodes.values()
+                                         if n.blockname == 'P.NiNode']
+                            self.add_bones_to_arma(arma, self.nif, bonenames)
+                        self.connect_armature(arma)
+                        self.group_bones(arma)
+                        if self.controller_mgr:
+                            self.controller_mgr.import_bone_animations(self.armature)
     
             # Gather up any NiNodes that weren't captured any other way 
             self.import_loose_ninodes(self.nif)

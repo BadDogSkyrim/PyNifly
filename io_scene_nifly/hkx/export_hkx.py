@@ -22,7 +22,8 @@ from . import skeleton_hkx
 from ..pyn.xmltools import XMLFile
 from ..kf.export_kf import KFExporter
 from . import anim_fo4
-from .import_hkx import PYN_HKX_BONES_PROP, extract_fo4_animation
+from . import anim_skyrim
+from .import_hkx import PYN_HKX_BONES_PROP, PYN_HKX_GAME_PROP, PYN_HKX_PTR_SIZE_PROP, extract_fo4_animation
 
 
 hkxcmd_path = None
@@ -50,6 +51,16 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     filename_ext = ".hkx"
 
+    game: bpy.props.EnumProperty(
+        name="Game",
+        description="Target game format for the exported HKX file",
+        items=[
+            ('FO4', "Fallout 4", "Fallout 4 (hk_2014, 64-bit)"),
+            ('SKYRIM_LE', "Skyrim LE", "Skyrim Legendary Edition (hk_2010, 32-bit pointers)"),
+            ('SKYRIM_SE', "Skyrim SE", "Skyrim Special Edition (hk_2010, 64-bit pointers)"),
+        ],
+        default='FO4') # type: ignore
+
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
         description="HKX reference skeleton to use for animation binding",
@@ -66,6 +77,13 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         if obj and obj.type == 'ARMATURE':
             if 'PYN_SKELETON_FILE'in obj:
                 self.reference_skel = obj['PYN_SKELETON_FILE']
+            # Default game from armature properties
+            arm_game = obj.get(PYN_HKX_GAME_PROP, '')
+            if arm_game == 'SKYRIM':
+                ptr_size = obj.get(PYN_HKX_PTR_SIZE_PROP, 4)
+                self.game = 'SKYRIM_SE' if ptr_size == 8 else 'SKYRIM_LE'
+            elif arm_game == 'FO4':
+                self.game = 'FO4'
 
 
     @classmethod
@@ -76,7 +94,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         if (not context.object.animation_data) or (not context.object.animation_data.action):
             return False
 
-        # FO4 armatures (with PYN_HKX_BONES) don't need hkxcmd
+        # FO4/Skyrim armatures (with PYN_HKX_BONES) don't need hkxcmd
         if context.object.get(PYN_HKX_BONES_PROP):
             return True
 
@@ -161,7 +179,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
             textparam =xml.SubElement(markobj, 'hkparam', {'name': 'text'})
             textparam.text = m.name
         
-        self.xml_filepath_out = tmp_filepath(self.filepath, ext='.xml')
+        self.xml_filepath_out = tmp_filepath(Path(self.filepath), ext='.xml')
         xmlfile.write(self.xml_filepath_out)
         log.info(f"Created final XML file: {self.xml_filepath_out}")
         
@@ -204,19 +222,26 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
         NifFile.clear_log()
 
-        # ── FO4 native path ──
+        # ── FO4 / Skyrim native path ──
         if context.object.get(PYN_HKX_BONES_PROP):
+            game = self.game
             try:
                 anim_data = extract_fo4_animation(context.object)
                 if anim_data is None:
                     log.error("Failed to extract animation data from armature.")
                     res.add('CANCELLED')
+                elif game in ('SKYRIM_LE', 'SKYRIM_SE'):
+                    ptr_size = 8 if game == 'SKYRIM_SE' else 4
+                    anim_skyrim.write_skyrim_animation(self.filepath, anim_data, ptr_size=ptr_size)
+                    fmt = "SE" if ptr_size == 8 else "LE"
+                    log.info(f"Exported Skyrim {fmt} animation: {self.filepath}")
+                    res.add('FINISHED')
                 else:
                     anim_fo4.write_fo4_animation(self.filepath, anim_data)
                     log.info(f"Exported FO4 animation: {self.filepath}")
                     res.add('FINISHED')
             except:
-                log.exception("FO4 HKX export failed")
+                log.exception("HKX export failed")
                 res.add('CANCELLED')
 
             self.log_handler.finish("EXPORT", self.filepath)
@@ -249,7 +274,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         if self.log_handler.max_error <= logging.WARNING:
             try:
                 if self.has_markers:
-                    self.xml_filepath = tmp_filepath(self.filepath, ext=".xml")
+                    self.xml_filepath = tmp_filepath(Path(self.filepath), ext=".xml")
                     self.generate_hkx(self.hkx_tmp_filepath)
                     self.write_annotations()
                     self.generate_final_hkx()

@@ -26,8 +26,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_FO4_ANIM_EXPORT, ], 
+    target_tests=[ TEST_SKEL_HKX_IMPORT , ],
     # categories={'HKX'},
-    test_all=0,
-    stop_on_fail=0,
+    test_all=False,
+    stop_on_fail=True,
     )

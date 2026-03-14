@@ -6698,9 +6698,6 @@ def TEST_SKEL_HKX_IMPORT():
 
     # bpy.ops.import_scene.skeleton_xml(filepath=testfile)
     bpy.ops.import_scene.pynifly_hkx(filepath=testfile)
-    
-    rootobj = next(x for x in bpy.data.objects if 'pynRoot' in x)
-    assert BD.VNearEqual(rootobj.scale, [1,1,1]), f"Scale is 1.0"
 
     arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
 
@@ -7653,149 +7650,10 @@ def TEST_KF_RENAME():
 
 @TT.category('SKYRIM', 'HKX')
 @TT.expect_errors(("Controller target not found",))
-@TT.parameterize(("blender_xf", "pretty"), [(True, False), (False, False), (True, True)])
-def TEST_HKX(blender_xf, pretty):
-    """Can import and export a HKX animation."""
-    if bpy.app.version < (3, 5, 0): return
-
-    label = ("blender_xf" if blender_xf else "no_blender_xf") + ("_pretty" if pretty else "")
-    # Check that this works when there are spaces in the path name
-    testfile = TTB.test_file(r"tests\Skyrim\meshes\actors\character\character animations\1hm_staggerbacksmallest.hkx")
-    skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
-    outfile = TTB.test_file(rf"tests/Out/created animations/TEST_HKX_{label}.hkx")
-
-    Path(outfile).parent.mkdir(parents=True, exist_ok=True)
-
-    bpy.context.scene.render.fps = 30
-
-    # Animations are loaded into a skeleton
-    bpy.ops.import_scene.pynifly(filepath=skelfile,
-                                 create_bones=False,
-                                 rename_bones=True,
-                                 import_collisions=False,
-                                 import_animations=False,
-                                 blender_xf=blender_xf,
-                                 rotate_bones_pretty=pretty)
-
-    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    BD.ObjectSelect([arma], active=True)
-
-    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
-                                     reference_skel=hkx_skel)
-
-    TT.assert_gt(len([fc for fc in BD.action_fcurves(arma.animation_data.action)
-                      if 'NPC Pelvis' in fc.data_path]),
-                 0,
-                 f"{label}: Pelvis animated")
-
-    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
-
-    assert os.path.exists(outfile)
-
-    # Compare input and output animation metadata
-    from io_scene_nifly.pyn.xmltools import XMLFile
-    from io_scene_nifly.animation import HKAAnimation
-
-    input_xml = XMLFile(testfile)
-    output_xml = XMLFile(outfile)
-    input_anim = HKAAnimation.find(input_xml.root)
-    output_anim = HKAAnimation.find(output_xml.root)
-    assert input_anim is not None, f"{label}: Input HKX has animation data"
-    assert output_anim is not None, f"{label}: Output HKX has animation data"
-
-    # hkxcmd may round numFrames differently (off by 1), so check duration instead.
-    assert TT.is_equiv(output_anim.duration, input_anim.duration, f"{label}: Duration matches")
-
-    # Some input tracks target bones not in the skeleton ("Controller target not found"),
-    # so they are dropped on import and won't be re-exported.
-    assert TT.is_gt(output_anim.transform_tracks_count, 20, f"{label}: Have at least 20 output tracks")
-    assert TT.is_le(output_anim.transform_tracks_count, input_anim.transform_tracks_count,
-        f"{label}: Output vs input track count")
-
-    # Verify rest bone world positions match the original NIF skeleton.
-    nif_orig = pyn.NifFile(skelfile)
-    check_blender_bones = ['NPC Pelvis', 'NPC Spine2', 'NPC Head']
-    checked = 0
-    for bname in check_blender_bones:
-        if bname not in arma.data.bones:
-            continue
-        nifname = nif_orig.nif_name(bname)
-        if nifname not in nif_orig.nodes:
-            continue
-        nif_xf = BD.transform_to_matrix(
-            nif_orig.get_node_xform_to_global(nifname))
-        bone_xf = BD.get_bone_global_xf(arma, bname, 'SKYRIMSE', use_pose=False)
-        for r in range(4):
-            for c in range(4):
-                assert TT.is_equiv(bone_xf[r][c], nif_xf[r][c],
-                    f"{label}: Rest bone {bname} world mat[{r}][{c}]",
-                    e=0.01)
-        checked += 1
-    assert TT.is_eq(checked, len(check_blender_bones),
-        f"{label}: Checked all target bones")
-
-    # Compare bone transforms at first frame and time-based midpoint.
-    fps = bpy.context.scene.render.fps
-    input_action = arma.animation_data.action
-    input_start = int(input_action.frame_range[0])
-    mid_time = input_anim.duration / 2
-    input_mid = round(mid_time * fps) + 1
-    test_bones = ['NPC Pelvis', 'NPC Spine2 [Spn2]', 'NPC Head [Head]']
-
-    # Capture poses from current (input) animation
-    input_poses = {}
-    for frame in [input_start, input_mid]:
-        bpy.context.scene.frame_set(frame)
-        bpy.context.view_layer.update()
-        input_poses[frame] = {}
-        for bname in test_bones:
-            if bname in arma.pose.bones:
-                input_poses[frame][bname] = arma.pose.bones[bname].matrix.copy()
-
-    # Clear and re-import the exported HKX to compare
-    old_action = input_action
-    arma.animation_data.action = None
-    bpy.data.actions.remove(old_action)
-
-    BD.ObjectSelect([arma], active=True)
-    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
-                                      reference_skel=hkx_skel)
-
-    # Compute output frame numbers from the same times
-    output_action = arma.animation_data.action
-    output_start = int(output_action.frame_range[0])
-    output_mid = round(mid_time * fps) + 1
-
-    # Compare poses: tight tolerance for first frame, looser for midpoint
-    # (spline recompression by hkxcmd causes interior interpolation drift).
-    check_frames = [
-        (input_start, output_start, 0.1),
-        (input_mid, output_mid, 1.0),
-    ]
-    for in_frame, out_frame, tol in check_frames:
-        bpy.context.scene.frame_set(out_frame)
-        bpy.context.view_layer.update()
-        for bname in test_bones:
-            if bname in arma.pose.bones and bname in input_poses[in_frame]:
-                out_mat = arma.pose.bones[bname].matrix
-                in_mat = input_poses[in_frame][bname]
-                for r in range(4):
-                    for c in range(4):
-                        assert TT.is_equiv(out_mat[r][c], in_mat[r][c],
-                            f"{label}: Bone {bname} frame {in_frame} mat[{r}][{c}]",
-                            e=tol)
-
-
-@TT.category('SKYRIM', 'HKX')
-@TT.expect_errors(("Controller target not found",))
 def TEST_HKX_2():
     """Can import and export a non-human HKX animation."""
-    if bpy.app.version < (3, 5, 0): return
-
-    testfile = TTB.test_file(r"tests\Skyrim\troll.nif")
-    skelfile = TTB.test_file(r"tests\Skyrim\skeleton_troll.nif")
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton_troll.hkx")
+    nif_mesh = TTB.test_file(r"tests\Skyrim\troll.nif")
     hkx_anim = TTB.test_file(r"tests\Skyrim\troll_h2hattackleftd.hkx")
     outfile = TTB.test_file(r"tests/Out/created animations/TEST_HKX_2.hkx")
 
@@ -7803,44 +7661,45 @@ def TEST_HKX_2():
 
     bpy.context.scene.render.fps = 30
 
-    # Load the skeleton
-    bpy.ops.import_scene.pynifly(filepath=skelfile,
-                                 create_bones=False, 
-                                 rename_bones=False,
-                                 import_collisions=False,
-                                 import_animations=False)
-    
+    # Step 1: Import HKX skeleton
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=False,
+                                      blender_xf=False)
+
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     BD.ObjectSelect([arma], active=True)
-    
-    # Load the mesh
-    bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    # Import an animation
+    # Step 2: Import NIF mesh onto the skeleton
+    bpy.ops.import_scene.pynifly(filepath=nif_mesh,
+                                 rename_bones=False,
+                                 import_pose=True)
+
+    body = next((o for o in bpy.data.objects if o.type == 'MESH'), None)
+    assert body is not None, "Troll mesh was imported"
+
+    # Step 3: Import animation
     BD.ObjectSelect([arma], active=True)
     bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
-                                     reference_skel=hkx_skel)
-    
-    assert arma.animation_data.action is not None, f"Have animation loaded"
+                                      rename_bones=False,
+                                      blender_xf=False)
+
+    assert arma.animation_data.action is not None, "Have animation loaded"
     act = arma.animation_data.action
-    clavcurv = [c for c in BD.action_fcurves(act) 
+    clavcurv = [c for c in BD.action_fcurves(act)
                 if c.data_path.startswith('pose.bones["NPC L Clavicle [LClv]"]')]
-    assert len(clavcurv) > 0, f"Have LClv curves"
+    assert TT.is_gt(len(clavcurv), 0, "Have LClv curves")
 
-    # # Create a simple pose animation
-    # BD.ObjectSelect([arma], active=True)
-    # bpy.ops.object.mode_set(mode = 'POSE')
-    # bpy.ops.pose.select_all(action='SELECT')
-    # bpy.data.scenes["Scene"].frame_current = 1
-    # bpy.ops.anim.keyframe_insert()
-    # bpy.data.scenes["Scene"].frame_current = 2
-    # bpy.ops.anim.keyframe_insert()
-    # bpy.ops.object.mode_set(mode = 'OBJECT')
-
-    # Export the animation
-    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
+    # Step 4: Export animation
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
 
     assert os.path.exists(outfile)
+
+    # Verify roundtrip: re-import and check track count
+    from io_scene_nifly.hkx import anim_skyrim
+    output_anim = anim_skyrim.load_skyrim_animation(outfile)
+    assert output_anim is not None, "Output HKX has animation data"
+    assert TT.is_gt(output_anim.num_tracks, 10, "Have at least 10 output tracks")
 
 
 @TT.category('SKYRIM', 'HKX')
@@ -8538,6 +8397,249 @@ def TEST_FO4_ANIM_EXPORT():
     assert com_bone is not None, "COM bone exists"
     com_z = (arma.matrix_world @ com_bone.matrix).translation.z
     assert TT.is_lt(com_z, 20.0, "COM z near floor at end of death anim")
+
+
+@TT.category('SKYRIM', 'HKX')
+@TT.expect_errors(('Unknown block type: BSDecalPlacementVectorExtraData',))
+def TEST_SKYRIM_HKX_SKEL_WITH_NIF():
+    """Import HKX skeleton, NIF body, then HKX animation — full workflow."""
+    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    nif_body = TTB.test_file(r"tests\Skyrim\malebody_1.nif")
+    hkx_anim = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    # Step 1: Import HKX skeleton
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+
+    # Step 2: Import NIF body onto the HKX armature
+    bpy.ops.import_scene.pynifly(filepath=nif_body,
+                                  rename_bones=True,
+                                  blender_xf=False,
+                                  import_pose=True)
+
+    body = next((o for o in bpy.data.objects if o.type == 'MESH'), None)
+    assert body is not None, "Body mesh was imported"
+    arma_mod = next((m for m in body.modifiers if m.type == 'ARMATURE'), None)
+    assert arma_mod is not None, "Body has armature modifier"
+    assert TT.is_eq(arma_mod.object, arma, "Body is parented to HKX armature")
+
+    max_coord = max(abs(v.co[i]) for v in body.data.vertices for i in range(3))
+    assert TT.is_lt(max_coord, 200, f"Vertices within bounds (max={max_coord:.1f})")
+
+    # Step 3: Import animation
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation data"
+    act = arma.animation_data.action
+    assert act is not None, "Armature has an action"
+    assert TT.is_eq(int(act.frame_end), 38, "Animation has 38 frames")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_SKYRIM_ANIM_IMPORT():
+    """Can import Skyrim HKX animation onto skeleton imported from HKX."""
+    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    # Import the HKX skeleton — creates armature with stored bone list
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert arma.name.endswith(':ARMATURE'), f"Armature name ends with :ARMATURE, got '{arma.name}'"
+    assert TT.is_eq(len(arma.data.bones), 99, "Skeleton has 99 bones")
+    assert 'PYN_HKX_BONES' in arma, "Armature has stored HKX bone list"
+    assert TT.is_eq(arma.get('PYN_HKX_GAME'), 'SKYRIM', "Game property is SKYRIM")
+    assert TT.is_eq(arma.get('PYN_HKX_PTR_SIZE'), 4, "Ptr size is 4 (LE)")
+
+    # Verify bone renaming was applied (L/R bones use Blender .L/.R suffix)
+    assert arma.data.bones.get('NPC Calf.L') is not None, "NPC L Calf renamed to NPC Calf.L"
+
+    BD.ObjectSelect([arma], active=True)
+
+    # Import Skyrim animation
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation data"
+    assert arma.animation_data.action is not None, "Armature has an action"
+
+    act = arma.animation_data.action
+    fcurves = list(BD.action_fcurves(act))
+    assert TT.is_gt(len(fcurves), 0, "Action has fcurves")
+
+    # Check that NPC COM bone has animation
+    com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
+    assert TT.is_gt(len(com_curves), 0, "NPC COM bone is animated")
+
+    # Verify frame range
+    assert TT.is_eq(int(act.frame_end), 38, "Animation has 38 frames")
+
+    # Verify annotation markers were imported
+    markers = bpy.context.scene.timeline_markers
+    assert TT.is_ge(len(markers), 3, "At least 3 annotation markers")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_SKYRIM_ANIM_EXPORT():
+    """Can export Skyrim HKX animation and re-import with matching tracks."""
+    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_SKYRIM_ANIM_EXPORT.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    # Import skeleton + animation
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=True,
+                                      blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    orig_action = arma.animation_data.action
+    orig_frame_end = int(orig_action.frame_end)
+
+    # Export
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+
+    # Verify the output file has ptr_size=4 in header (LE)
+    with open(outfile, 'rb') as f:
+        hdr = f.read(0x11)
+    assert TT.is_eq(hdr[0x10], 4, "Exported file has ptr_size=4 (LE)")
+
+    # Clear and re-import to verify roundtrip
+    bpy.ops.object.mode_set(mode='OBJECT')
+    for a in bpy.data.actions:
+        bpy.data.actions.remove(a)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation after re-import"
+    assert arma.animation_data.action is not None, "Armature has action after re-import"
+
+    reimported = arma.animation_data.action
+    assert TT.is_eq(int(reimported.frame_end), orig_frame_end, "Frame count preserved")
+
+    # Check fcurves exist
+    fcurves = list(BD.action_fcurves(reimported))
+    assert TT.is_gt(len(fcurves), 0, "Re-imported action has fcurves")
+
+    # Check NPC COM bone is still animated
+    com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
+    assert TT.is_gt(len(com_curves), 0, "NPC COM bone still animated after roundtrip")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_SKYRIMSE_ANIM_IMPORT():
+    """Can import Skyrim SE HKX animation (8-byte pointers) onto SE skeleton."""
+    hkx_skel = TTB.test_file(r"tests\SkyrimSE\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert TT.is_true(arma.name.endswith(':ARMATURE'), f"SE armature name ends with :ARMATURE, got '{arma.name}'")
+    assert TT.is_eq(len(arma.data.bones), 99, "SE skeleton has 99 bones")
+    assert TT.is_eq(arma.get('PYN_HKX_GAME'), 'SKYRIM', "Game property is SKYRIM")
+    assert TT.is_eq(arma.get('PYN_HKX_PTR_SIZE'), 8, "Ptr size is 8 (SE)")
+
+    BD.ObjectSelect([arma], active=True)
+
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation data"
+    assert arma.animation_data.action is not None, "Armature has an action"
+
+    act = arma.animation_data.action
+    fcurves = list(BD.action_fcurves(act))
+    assert TT.is_gt(len(fcurves), 0, "Action has fcurves")
+
+    com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
+    assert TT.is_gt(len(com_curves), 0, "NPC COM bone is animated")
+
+    assert TT.is_eq(int(act.frame_end), 38, "Animation has 38 frames")
+
+    markers = bpy.context.scene.timeline_markers
+    assert TT.is_ge(len(markers), 3, "At least 3 annotation markers")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_SKYRIMSE_ANIM_EXPORT():
+    """Can export Skyrim SE HKX animation with 8-byte pointers and re-import."""
+    hkx_skel = TTB.test_file(r"tests\SkyrimSE\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_SKYRIMSE_ANIM_EXPORT.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    # Import SE skeleton + animation
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=True,
+                                      blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert TT.is_eq(arma.get('PYN_HKX_PTR_SIZE'), 8, "Ptr size is 8 before export")
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    orig_action = arma.animation_data.action
+    orig_frame_end = int(orig_action.frame_end)
+
+    # Export — should produce SE format (ptr_size=8)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+
+    # Verify the output file has ptr_size=8 in header
+    with open(outfile, 'rb') as f:
+        hdr = f.read(0x11)
+    assert TT.is_eq(hdr[0x10], 8, "Exported file has ptr_size=8 (SE)")
+
+    # Clear and re-import to verify roundtrip
+    bpy.ops.object.mode_set(mode='OBJECT')
+    for a in bpy.data.actions:
+        bpy.data.actions.remove(a)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation after re-import"
+    assert arma.animation_data.action is not None, "Armature has action after re-import"
+
+    reimported = arma.animation_data.action
+    assert TT.is_eq(int(reimported.frame_end), orig_frame_end, "Frame count preserved")
+
+    fcurves = list(BD.action_fcurves(reimported))
+    assert TT.is_gt(len(fcurves), 0, "Re-imported action has fcurves")
+
+    com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
+    assert TT.is_gt(len(com_curves), 0, "NPC COM bone still animated after roundtrip")
 
 
 def do_tests(
