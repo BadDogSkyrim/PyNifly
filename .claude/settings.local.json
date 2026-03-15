@@ -25,7 +25,8 @@
       "Read(//c/tmp/**)",
       "WebSearch",
       "Read(//c/Steam/steamapps/common/Skyrim Special Edition/Data/SKSE/Plugins/hdtSkinnedMeshConfigs/**)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Read(//c/Users/hughr/OneDrive/SkyrimDev/**)"
     ],
     "additionalDirectories": [
       "C:\\tmp",

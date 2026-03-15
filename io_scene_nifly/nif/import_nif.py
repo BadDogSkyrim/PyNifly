@@ -1052,7 +1052,10 @@ class NifImporter():
                 arma_xf = BD.get_bone_xform(arma, blend_name, shape.file.game, False, False)
                 if not MatNearEqual(shape_bone_xf, arma_xf, epsilon=0.02):
                     is_ok = False
-                    this_offset = shape_bone_xf @ arma_xf 
+                    log.debug(f"check_armature mismatch: bone '{blend_name}' "
+                              f"shape_xf translation={shape_bone_xf.translation[:]} "
+                              f"arma_xf translation={arma_xf.translation[:]}")
+                    this_offset = shape_bone_xf @ arma_xf
                     if offset_xf:
                         if not MatNearEqual(this_offset, offset_xf):
                             offset_consistent = False
@@ -1094,7 +1097,11 @@ class NifImporter():
         if self.settings.import_pose:
             return self.armature, None
         else:
+            # Pre-existing armatures (user-selected before import) are always
+            # compatible — the user chose them deliberately.
             for arma in armatures:
+                if arma in self.preexisting_armatures:
+                    return arma, None
                 is_ok, offset, offset_consistent = self.check_armature(obj, shape, arma)
                 if is_ok:
                     return arma, offset
@@ -1232,7 +1239,7 @@ class NifImporter():
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
 
-                if (parentname is None and self.settings.create_bones
+                if (parentname is None
                         and not BD.is_facebone(bonename)):
                     if self.reference_skel and \
                         nifname in self.reference_skel.nodes and \
@@ -1241,15 +1248,25 @@ class NifImporter():
                         if p and p.name != self.reference_skel.rootName:
                             parentname = self.blender_name(p.name)
                             parentnifname = p.name
-            
+
+                # FO4 skin bones (e.g. Pelvis_skin) are parented to their
+                # corresponding armature bone (Pelvis). They may not appear
+                # in the NIF node tree or reference skeleton.
+                if parentname is None and nifname.endswith('_skin'):
+                    base = nifname[:-5]  # strip '_skin'
+                    basename = self.blender_name(base)
+                    if basename in arm_data.edit_bones:
+                        parentname = basename
+
                 # if we got a parent from somewhere, hook it up
                 if parentname:
                     if parentname not in arm_data.edit_bones:
-                        # Add parent bones and put on our list so we can get its parent
-                        new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
-                        bones_to_parent.append(parentname)  
-                        arm_data.edit_bones[bonename].parent = new_parent
-                        new_bones.append((parentnifname, parentname))
+                        if self.settings.create_bones:
+                            # Add parent bones and put on our list so we can get its parent
+                            new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
+                            bones_to_parent.append(parentname)
+                            arm_data.edit_bones[bonename].parent = new_parent
+                            new_bones.append((parentnifname, parentname))
                     else:
                         arm_data.edit_bones[bonename].parent = arm_data.edit_bones[parentname]
 
@@ -1584,9 +1601,14 @@ class NifImporter():
 
                 for arma in self.target_armatures:
                     if arma in self.preexisting_armatures:
-                        # Pre-existing armature (e.g. from HKX skeleton import) — don't
-                        # add bones or reparent.  The armature is already fully connected
-                        # and modifying it would corrupt animation rest transforms.
+                        # Pre-existing armature (e.g. from HKX skeleton import) — connect
+                        # new bones (e.g. skin bones from body NIF) to existing parents,
+                        # but don't create additional ancestor bones that weren't in the
+                        # HKX skeleton.
+                        saved_create_bones = self.settings.create_bones
+                        self.settings.create_bones = False
+                        self.connect_armature(arma)
+                        self.settings.create_bones = saved_create_bones
                         self.group_bones(arma)
                     else:
                         if self.settings.create_bones:

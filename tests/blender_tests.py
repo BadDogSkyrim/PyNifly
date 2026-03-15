@@ -8444,6 +8444,50 @@ def TEST_SKYRIM_HKX_SKEL_WITH_NIF():
     assert TT.is_eq(int(act.frame_end), 38, "Animation has 38 frames")
 
 
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_SKEL_WITH_NIF():
+    """Import FO4 HKX skeleton then NIF body — skin bones should be parented to armature bones."""
+    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+    nif_body = TTB.test_file(r"tests\FO4\BTMaleBody.nif")
+
+    # Step 1: Import HKX skeleton
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                      rename_bones=True,
+                                      blender_xf=False)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    hkx_bone_count = len(arma.data.bones)
+    BD.ObjectSelect([arma], active=True)
+
+    # Step 2: Import NIF body onto the HKX armature (no import_pose — armature
+    # compatibility check should pass since HKX and NIF describe the same skeleton)
+    bpy.ops.import_scene.pynifly(filepath=nif_body,
+                                  rename_bones=True,
+                                  blender_xf=False)
+
+    body = next((o for o in bpy.data.objects if o.type == 'MESH'), None)
+    assert body is not None, "Body mesh was imported"
+    arma_mod = next((m for m in body.modifiers if m.type == 'ARMATURE'), None)
+    assert arma_mod is not None, "Body has armature modifier"
+    assert TT.is_eq(arma_mod.object, arma, "Body is parented to HKX armature")
+
+    # Should have more bones now (skin bones added from body NIF)
+    assert TT.is_gt(len(arma.data.bones), hkx_bone_count,
+                     "Body NIF added skin bones to armature")
+
+    # Check that skin bones are parented to their corresponding armature bones
+    pelvis_skin = arma.data.bones.get('Pelvis_skin')
+    assert pelvis_skin is not None, "Pelvis_skin bone exists"
+    assert pelvis_skin.parent is not None, "Pelvis_skin has a parent"
+    assert TT.is_eq(pelvis_skin.parent.name, 'Pelvis', "Pelvis_skin parented to Pelvis")
+
+    # Check a renamed skin bone too
+    chest_skin = arma.data.bones.get('Chest_skin')
+    assert chest_skin is not None, "Chest_skin bone exists"
+    assert chest_skin.parent is not None, "Chest_skin has a parent"
+    assert TT.is_eq(chest_skin.parent.name, 'Chest', "Chest_skin parented to Chest")
+
+
 @TT.category('SKYRIM', 'HKX')
 def TEST_SKYRIM_ANIM_IMPORT():
     """Can import Skyrim HKX animation onto skeleton imported from HKX."""
