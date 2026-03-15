@@ -4,12 +4,6 @@ Ideas, reminders, wish list, and open questions.
 
 ## Open Issues
 
-### Armature compatibility check (`find_compatible_arma`)
-- Currently skips compatibility check entirely for pre-existing (user-selected) armatures
-- Original purpose: reject incompatible armatures when a NIF combines parts from different skeletons (e.g. human hood + draugr helmet with different bind positions)
-- Problem: HKX skeleton and NIF body describe the same skeleton but have tiny floating point differences (~0.02) from different transform computation paths, causing false rejection
-- Need a better solution — maybe larger epsilon, or only reject on large mismatches, or let the user override
-
 ## Wish List
 
 ### Rig support
@@ -21,12 +15,14 @@ Ideas, reminders, wish list, and open questions.
 
 - Check import of loadscreen NIFs with poses
 - Import the full ZeX skeleton into our bone lists
+- Import of full FO4 animatron with animations
+- Correct handling of Dwemer chest
 
 ## Reminders
 
 ### FO4 skin bones
 - Body NIFs have `_skin` bones parented to armature bones (e.g. `Pelvis_skin` -> `Pelvis`)
-- Skin bones aren't in the NIF node tree or reference skeleton — parenting is by naming convention
+- Skin bone parenting information is not 
 - Custom skeleton bones (e.g. Anus_01 from ZeX skeleton) won't be parented without a matching reference skeleton
 
 ## Done

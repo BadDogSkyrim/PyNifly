@@ -1239,7 +1239,7 @@ class NifImporter():
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
 
-                if (parentname is None
+                if (parentname is None and self.settings.create_bones
                         and not BD.is_facebone(bonename)):
                     if self.reference_skel and \
                         nifname in self.reference_skel.nodes and \
@@ -1249,26 +1249,26 @@ class NifImporter():
                             parentname = self.blender_name(p.name)
                             parentnifname = p.name
 
-                # FO4 skin bones (e.g. Pelvis_skin) are parented to their
-                # corresponding armature bone (Pelvis). They may not appear
-                # in the NIF node tree or reference skeleton.
-                if parentname is None and nifname.endswith('_skin'):
-                    base = nifname[:-5]  # strip '_skin'
-                    basename = self.blender_name(base)
-                    if basename in arm_data.edit_bones:
-                        parentname = basename
-
-                # if we got a parent from somewhere, hook it up
+                # if we got a parent from the nif or reference skeleton, hook it up
+                # (creating the parent bone if needed)
                 if parentname:
                     if parentname not in arm_data.edit_bones:
-                        if self.settings.create_bones:
-                            # Add parent bones and put on our list so we can get its parent
-                            new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
-                            bones_to_parent.append(parentname)
-                            arm_data.edit_bones[bonename].parent = new_parent
-                            new_bones.append((parentnifname, parentname))
+                        new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
+                        bones_to_parent.append(parentname)
+                        arm_data.edit_bones[bonename].parent = new_parent
+                        new_bones.append((parentnifname, parentname))
                     else:
                         arm_data.edit_bones[bonename].parent = arm_data.edit_bones[parentname]
+
+                # Fallback: look up parent from the game's bone dictionary
+                # (covers skin bones and other bones not in the NIF node tree).
+                # Only parent to existing bones — don't create new ones.
+                if arma_bone.parent is None and nifname in self.nif.dict.byNif:
+                    sb = self.nif.dict.byNif[nifname]
+                    if sb.parent:
+                        dict_parent = self.blender_name(sb.parent.nif)
+                        if dict_parent in arm_data.edit_bones:
+                            arm_data.edit_bones[bonename].parent = arm_data.edit_bones[dict_parent]
 
             i += 1
 
