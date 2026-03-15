@@ -17,6 +17,7 @@ Ideas, reminders, wish list, and open questions.
 - Import the full ZeX skeleton into our bone lists
 - Import of full FO4 animatron with animations
 - Correct handling of Dwemer chest
+- Creating an auxbones skeleton from scratch (workflow TBD)
 
 ## Reminders
 

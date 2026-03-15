@@ -1,0 +1,18 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Open Tests in Blender",
+            "type": "process",
+            "command": "C:/Program Files/Blender Foundation/Blender 5.0/blender.exe",
+            "args": [
+                "--python-expr",
+                "exec(open('${workspaceFolder}/test_runner.py').read())"
+            ],
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

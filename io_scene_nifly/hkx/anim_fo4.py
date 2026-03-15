@@ -92,6 +92,7 @@ class AnimationData:
     # Binding info (from hkaAnimationBinding)
     track_to_bone_indices: List[int] = field(default_factory=list)
     original_skeleton_name: str = ""
+    blend_hint: int = 0  # 0=NORMAL, 1=ADDITIVE
 
     # Skeleton (if present in the same file)
     skeleton: Optional[Skeleton] = None

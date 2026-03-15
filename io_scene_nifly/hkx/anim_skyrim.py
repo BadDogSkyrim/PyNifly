@@ -374,6 +374,10 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
                     struct.unpack_from('<h', data, idx_abs + i * 2)[0]
                     for i in range(idx_count)
                 ]
+            # blendHint follows the two hkArray fields
+            arr_sz = ptr_size + 4 + 4  # hkArray: ptr + size + capacityAndFlags
+            blend_hint_off = bind_idx_off + 2 * arr_sz
+            anim.blend_hint = _u32(data, data_abs + rel + blend_hint_off)
             break
 
     # ── Decompress spline data ──
@@ -951,6 +955,7 @@ def _build_anim_data_section(anim: AnimationData,
 
     bind_hdr = bytearray(bind_struct_size)
     pack_arr_at(bind_hdr, o_bind_idx, len(binding_indices))
+    struct.pack_into('<I', bind_hdr, o_bind_hint, anim.blend_hint)
     write(bytes(bind_hdr))
 
     # Skeleton name string

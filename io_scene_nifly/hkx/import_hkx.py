@@ -26,6 +26,7 @@ from . import anim_skyrim
 PYN_HKX_BONES_PROP = 'PYN_HKX_BONES'
 PYN_HKX_GAME_PROP = 'PYN_HKX_GAME'
 PYN_HKX_PTR_SIZE_PROP = 'PYN_HKX_PTR_SIZE'
+PYN_HKX_ADDITIVE_PROP = 'PYN_HKX_ADDITIVE'
 
 
 hkxcmd_path = None
@@ -628,6 +629,9 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                             self.fps, self.rename_bones, self.rename_bones_niftools,
                             bone_dict=skyrimDict)
 
+        if anim_data.blend_hint == 1:
+            armature[PYN_HKX_ADDITIVE_PROP] = True
+
         context.scene.frame_start = 1
         context.scene.frame_end = anim_data.num_frames
         context.scene.frame_set(1)
@@ -706,10 +710,13 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
                         bone_dict=None):
     """Apply decompressed FO4/Skyrim animation data to a Blender armature.
 
-    HKX animation quaternions/translations are bone-local transforms (relative
-    to parent bone).  Blender pose bone values are *deltas* from the rest pose.
-    We convert:  q_pose = q_rest_inv @ q_anim
-                 t_pose = q_rest_inv @ (t_anim - t_rest)
+    For NORMAL animations (blend_hint=0), HKX values are absolute bone-local
+    transforms.  Blender pose values are deltas from rest:
+        q_pose = q_rest_inv @ q_anim
+        t_pose = q_rest_inv @ (t_anim - t_rest)
+
+    For ADDITIVE animations (blend_hint=1), HKX values are already deltas
+    from rest pose.  They are applied directly as pose bone transforms.
     """
     import bpy
     from mathutils import Quaternion, Vector
@@ -717,13 +724,35 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
     if bone_dict is None:
         bone_dict = fo4Dict
 
-    # Clear any residual pose transforms (e.g. from NIF import) so animation
-    # keyframes are the sole source of pose data.
+    additive = getattr(anim_data, 'blend_hint', 0) == 1
+    if additive:
+        log.info("Animation is ADDITIVE (blend_hint=1)")
+
+    # Clear residual pose transforms only for bones that will be animated,
+    # so partial animations (e.g. auxbones) don't reset unrelated bones.
+    animated_names = set()
+    if rename_bones or rename_bones_niftools:
+        bone_dict.use_niftools = rename_bones_niftools
+    _pb_lookup = {pb.name.lower(): pb for pb in armature.pose.bones}
+    for i, nif_name in enumerate(bone_names):
+        if not nif_name:
+            continue
+        if nif_name in armature.pose.bones:
+            animated_names.add(nif_name)
+        elif rename_bones or rename_bones_niftools:
+            renamed = bone_dict.blender_name(nif_name)
+            if renamed in armature.pose.bones:
+                animated_names.add(renamed)
+        else:
+            match = _pb_lookup.get(nif_name.lower())
+            if match:
+                animated_names.add(match.name)
     for pb in armature.pose.bones:
-        pb.rotation_quaternion = (1, 0, 0, 0)
-        pb.rotation_euler = (0, 0, 0)
-        pb.location = (0, 0, 0)
-        pb.scale = (1, 1, 1)
+        if pb.name in animated_names:
+            pb.rotation_quaternion = (1, 0, 0, 0)
+            pb.rotation_euler = (0, 0, 0)
+            pb.location = (0, 0, 0)
+            pb.scale = (1, 1, 1)
 
     # Create action
     action = bpy.data.actions.new(anim_name)
@@ -788,8 +817,11 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
                 frame = f + 1  # Blender frames are 1-based
                 # HKX quat is [x, y, z, w]; convert to Blender Quaternion (w, x, y, z)
                 q_anim = Quaternion((quat[3], quat[0], quat[1], quat[2]))
-                # Delta from rest pose
-                q_delta = rest_q_inv @ q_anim
+                if additive:
+                    q_delta = q_anim
+                else:
+                    # Delta from rest pose
+                    q_delta = rest_q_inv @ q_anim
                 for j in range(4):
                     kfp = rot_curves[j].keyframe_points.insert(frame, q_delta[j])
                     kfp.interpolation = 'LINEAR'
@@ -802,9 +834,12 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
             ]
             for f, loc in enumerate(track.translations):
                 frame = f + 1
-                # Delta from rest pose, rotated into bone-local space
                 v_anim = Vector(loc)
-                v_delta = rest_q_inv @ (v_anim - rest_t)
+                if additive:
+                    v_delta = v_anim
+                else:
+                    # Delta from rest pose, rotated into bone-local space
+                    v_delta = rest_q_inv @ (v_anim - rest_t)
                 for j in range(3):
                     kfp = loc_curves[j].keyframe_points.insert(frame, v_delta[j])
                     kfp.interpolation = 'LINEAR'
@@ -861,6 +896,7 @@ def extract_fo4_animation(armature):
     # Select the correct bone dictionary based on game
     game = armature.get(PYN_HKX_GAME_PROP, 'FO4')
     bone_dict = skyrimDict if game == 'SKYRIM' else fo4Dict
+    additive = armature.get(PYN_HKX_ADDITIVE_PROP, False)
 
     # Resolve bone list — use stored HKX bone names if available
     hkx_bones_str = armature.get(PYN_HKX_BONES_PROP)
@@ -944,24 +980,30 @@ def extract_fo4_animation(armature):
         for f in range(num_frames):
             frame = frame_start + f
 
-            # Rotation: q_anim = q_rest @ q_pose
+            # Rotation
             q_pose = Quaternion((
                 rot_fcs[0].evaluate(frame) if 0 in rot_fcs else 1.0,
                 rot_fcs[1].evaluate(frame) if 1 in rot_fcs else 0.0,
                 rot_fcs[2].evaluate(frame) if 2 in rot_fcs else 0.0,
                 rot_fcs[3].evaluate(frame) if 3 in rot_fcs else 0.0,
             ))
-            q_anim = rest_q @ q_pose
+            if additive:
+                q_anim = q_pose
+            else:
+                q_anim = rest_q @ q_pose
             # HKX format: [x, y, z, w]
             td.rotations.append([q_anim.x, q_anim.y, q_anim.z, q_anim.w])
 
-            # Translation: v_anim = q_rest @ v_delta + v_rest
+            # Translation
             v_delta = Vector((
                 loc_fcs[0].evaluate(frame) if 0 in loc_fcs else 0.0,
                 loc_fcs[1].evaluate(frame) if 1 in loc_fcs else 0.0,
                 loc_fcs[2].evaluate(frame) if 2 in loc_fcs else 0.0,
             ))
-            v_anim = rest_q @ v_delta + rest_t
+            if additive:
+                v_anim = v_delta
+            else:
+                v_anim = rest_q @ v_delta + rest_t
             td.translations.append([v_anim.x, v_anim.y, v_anim.z])
 
             # Scale
@@ -987,5 +1029,6 @@ def extract_fo4_animation(armature):
         bone_names=bone_names_out,
         track_to_bone_indices=binding_indices,
         original_skeleton_name="Root",
+        blend_hint=1 if additive else 0,
     )
     return anim_out

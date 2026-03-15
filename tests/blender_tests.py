@@ -7703,38 +7703,63 @@ def TEST_HKX_2():
 
 
 @TT.category('SKYRIM', 'HKX')
-@TT.skip_test
 def TEST_AUXBONES():
     """Can import and export an animation on an auxbones skeleton."""
-    # SKIPPING
-    print("Skipping TEST_AUXBONES")
-    # testfile = TTB.test_file(r"tests\Skyrim\SOSFastErect.hkx")
-    # skelfile = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
-    # hkx_skel = TTB.test_file(r"tests\Skyrim\SOSskeleton.hkx")
-    # outfile = TTB.test_file(r"tests/Out/created animations/TEST_AUXBONES.hkx")
+    testfile = TTB.test_file(r"tests\Skyrim\SOSFastErect.hkx")
+    hkx_skel = TTB.test_file(r"tests\Skyrim\SOSskeleton.hkx")
+    outfile = TTB.test_file(r"tests/Out/created animations/TEST_AUXBONES.hkx")
 
-    # bpy.context.scene.render.fps = 60
+    bpy.context.scene.render.fps = 60
 
-    # # Animations are loaded into a skeleton
-    # bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
-    #                                  rename_bones=False,
-    #                                  import_collisions=False,
-    #                                  import_animations=False,
-    #                                  blender_xf=False)
-    
-    # arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    # BD.ObjectSelect([arma], active=True)
-    
-    # bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
-    #                                  reference_skel=hkx_skel)
+    # Import the auxbones HKX skeleton
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
+                                     rename_bones=False,
+                                     blender_xf=False)
 
-    # baseb = arma.data.bones['NPC GenitalsBase [GenBase]']
-    # poseb = arma.pose.bones['NPC GenitalsBase [GenBase]']
-    # assert TTB.MatNearEqual(baseb.matrix_local, poseb.matrix), f"Starting from base bone position"
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
 
-    # bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=hkx_skel)
+    # Import the animation
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
+                                     rename_bones=False,
+                                     blender_xf=False)
 
-    # assert os.path.exists(outfile)
+    assert 'NPC GenitalsBase [GenBase]' in arma.data.bones, "Auxbone exists in skeleton"
+    assert arma.animation_data is not None, "Armature has animation data"
+    assert arma.animation_data.action is not None, "Armature has an action"
+
+    # This additive animation starts from rest (frame 1) and moves bones.
+    # Check Gen06 has moved from rest by the last frame.
+    baseb = arma.data.bones['NPC Genitals06 [Gen06]']
+    poseb = arma.pose.bones['NPC Genitals06 [Gen06]']
+    bpy.context.scene.frame_set(1)
+    assert TTB.MatNearEqual(baseb.matrix_local, poseb.matrix, epsilon=0.1), \
+        f"Gen06 at rest on frame 1"
+    bpy.context.scene.frame_set(int(arma.animation_data.action.frame_end))
+    assert not TTB.MatNearEqual(baseb.matrix_local, poseb.matrix, epsilon=0.1), \
+        f"Gen06 has moved by last frame"
+
+    orig_frame_end = int(arma.animation_data.action.frame_end)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    assert os.path.exists(outfile)
+
+    # Re-import and verify roundtrip
+    for a in bpy.data.actions:
+        bpy.data.actions.remove(a)
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
+                                     rename_bones=False,
+                                     blender_xf=False)
+
+    assert arma.animation_data is not None, "Armature has animation after re-import"
+    assert arma.animation_data.action is not None, "Armature has action after re-import"
+    reimported = arma.animation_data.action
+    assert TT.is_eq(int(reimported.frame_end), orig_frame_end, "Frame count preserved")
+
+    # Re-imported animation should also show movement on Gen06
+    bpy.context.scene.frame_set(int(reimported.frame_end))
+    assert not TTB.MatNearEqual(baseb.matrix_local, poseb.matrix, epsilon=0.1), \
+        f"Gen06 has moved after re-import"
 
 
 @TT.category('SKYRIM', 'HKX')
