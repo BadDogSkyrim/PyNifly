@@ -157,18 +157,27 @@ def create_trip_shape_keys(obj, trip:TripFile):
     obj.active_shape_key_index = 0
 
 
+def _strip_blender_suffix(name):
+    """Strip Blender's .001/.002/etc suffix from a name."""
+    import re
+    return re.sub(r'\.\d{3}$', '', name)
+
+
 def import_trip(trip:TripFile, target_objs):
     """
-    Import a BS Tri file. 
-    These TRI files do not have full shape data so they have to be matched to one of the 
-    objects in target_objs.
+    Import a BS Tri file.
+    These TRI files do not have full shape data so they have to be matched to one of the
+    objects in target_objs. Blender's .001 suffixes are stripped for matching.
     """
+    obj_by_base = {_strip_blender_suffix(o.name): o for o in target_objs}
     for shapename, offsetmorphs in trip.shapes.items():
-        matchlist = [o for o in target_objs if o.name == shapename]
-        if len(matchlist) == 0:
+        obj = obj_by_base.get(shapename)
+        if obj is None:
+            obj = obj_by_base.get(_strip_blender_suffix(shapename))
+        if obj is None:
             log.warning(f"BS Tri file shape does not match any selected object: {shapename}")
         else:
-            create_trip_shape_keys(matchlist[0], trip)
+            create_trip_shape_keys(obj, trip)
 
 
 class ImportTRI(bpy.types.Operator, ImportHelper):

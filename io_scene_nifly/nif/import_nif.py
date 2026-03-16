@@ -1649,19 +1649,29 @@ class NifImporter():
 
 
     def import_tris(self):
-        """Import any tri files associated with the nif."""
+        """Import any tri/osd files associated with the nif."""
         imported_meshes = [x for x in self.objects_created.blender_objects() if x.type == 'MESH']
         tpf = find_trip(self.nif)
         if tpf:
             import_trip(tpf, imported_meshes)
         elif len(imported_meshes) == 1:
-            # No tri files if there's a trip file; 
+            # No tri files if there's a trip file;
             # must be only a single mesh to have a tri file.
             trifiles = find_tris(self.nif)
             for tf in trifiles:
                 tf = open_tri(tf)
                 if tf and isinstance(tf, TriFile):
                     import_tri(tf, imported_meshes[0])
+
+        # Also import OSD if present
+        osd_path = Path(self.nif.filepath).with_suffix('.osd')
+        if osd_path.exists():
+            from ..osd.osdfile import OSDFile
+            from ..osd.import_osd import import_osd
+            osd = OSDFile.from_file(osd_path)
+            if osd.is_valid:
+                import_osd(osd, imported_meshes)
+                log.info(f"Imported OSD file: {osd_path.name}")
 
 
     def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):

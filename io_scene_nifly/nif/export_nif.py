@@ -13,6 +13,7 @@ import bpy
 from bpy_extras.io_utils import ExportHelper
 from ..tri.trifile import TriFile
 from ..tri.tripfile import TripFile
+from ..osd.osdfile import OSDFile
 from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict, 
                               truncate_filename)
 from ..pyn.nifdefs import (BSXFlagsValues, NiAVFlags, VertexFlags, NO_SHADER_REF)
@@ -660,7 +661,8 @@ class NifExporter:
                     n = k[1:]
                     expdict[n] = v
             self.trip.set_morphs(robj.nifnode.name, expdict, verts)
-            
+            self.osd.set_morphs(robj.nifnode.name, expdict, verts)
+
         return result
 
 
@@ -1570,10 +1572,13 @@ class NifExporter:
         else:
             shape_keys = self.file_keys
 
-        # One TRIP file is written even if we have variants of the mesh ("_" prefix)
+        # One TRIP file and one OSD file are written even if we have variants
+        # of the mesh ("_" prefix)
         fname_ext = os.path.splitext(os.path.basename(self.filepath))
         self.trip = TripFile()
+        self.osd = OSDFile()
         self.trippath = os.path.join(os.path.dirname(self.filepath), fname_ext[0]) + ".tri"
+        self.osdpath = os.path.join(os.path.dirname(self.filepath), fname_ext[0]) + ".osd"
 
         for sk in shape_keys:
             fbasename = fname_ext[0] + sk + suffix
@@ -1585,6 +1590,9 @@ class NifExporter:
         if len(self.trip.shapes) > 0:
             self.trip.write(self.trippath)
             log.info(f"Wrote {self.trippath}")
+        if len(self.osd.shapes) > 0:
+            self.osd.write(self.osdpath)
+            log.info(f"Wrote {self.osdpath}")
 
 
     def execute(self):

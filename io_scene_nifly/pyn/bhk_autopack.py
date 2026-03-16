@@ -351,13 +351,20 @@ _BODY_CINFO = bytes([
 ])
 assert len(_BODY_CINFO) == 0x60
 
-# dyn_motion (0x40 bytes) — identical engine defaults for all dynamic bodies.
+# dyn_motion (0x40 bytes) — per-body motion properties for dynamic bodies.
+# Fields at known offsets:
+#   +0x08: gravityFactor (float32), +0x0C: 1.0 (constant)
+#   +0x10: maxLinearVelocity (truncated float16 in upper 2 bytes)
+#   +0x14: maxAngularVelocity (truncated float16 in upper 2 bytes)
+#   +0x18: linearDamping (truncated float16 in upper 2 bytes)
+#   +0x1C: angularDamping (truncated float16 in upper 2 bytes)
+#   +0x20-+0x24: solver deactivation params (computed, left as defaults)
 _DYN_MOTION = bytes([
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x00: zeros
-    0x00,0x00,0x80,0x3F, 0x00,0x00,0x80,0x3F,  # +0x08: 1.0, 1.0
-    0x00,0xC0,0xD0,0x42, 0x00,0x90,0xFC,0x41,  # +0x10: 104.375, 31.570
-    0x00,0x00,0xCD,0x3D, 0x00,0x00,0x4D,0x3D,  # +0x18: 0.100, 0.050
-    0x7B,0x14,0x2E,0x3E, 0xD2,0x22,0xFB,0x3E,  # +0x20: 0.170, 0.4905
+    0x00,0x00,0x80,0x3F, 0x00,0x00,0x80,0x3F,  # +0x08: gravityFactor=1.0, 1.0
+    0x00,0xC0,0xD0,0x42, 0x00,0x90,0xFC,0x41,  # +0x10: maxLinVel=104.375, maxAngVel=31.570
+    0x00,0x00,0xCD,0x3D, 0x00,0x00,0x4D,0x3D,  # +0x18: linDamp=0.100, angDamp=0.050
+    0x7B,0x14,0x2E,0x3E, 0xD2,0x22,0xFB,0x3E,  # +0x20: solver params (0.170, 0.4905)
     0x0B,0xD7,0x23,0x3B, 0x0B,0xD7,0x23,0x3B,  # +0x28: 0.0025, 0.0025
     0x00,0x00,0x80,0x3F, 0x00,0x00,0x00,0x00,  # +0x30: 1.0, pad
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x38: pad
@@ -384,10 +391,32 @@ assert len(_DYN_INERTIA_TEMPLATE) == 0x40
 
 
 def _build_body_props(physics) -> bytes:
-    """Build 0x50 bytes of body_props, patching material from PhysicsProps."""
+    """Build 0x50 bytes of body_props, encoding friction and restitution.
+
+    Friction and restitution are stored as truncated float16 (upper 16 bits
+    of float32) within the body_props material region at +0x10.
+    Other physics fields (damping, gravity, velocity) are in BodyCInfo.
+    """
+    from .bhk_autounpack import trunc_f16_encode
     buf = bytearray(_BODY_PROPS)
-    if physics is not None and physics.body_props_raw and len(physics.body_props_raw) == 16:
-        buf[0x10:0x20] = physics.body_props_raw
+    if physics is not None:
+        fric_u16 = trunc_f16_encode(physics.friction)
+        rest_u16 = trunc_f16_encode(physics.restitution)
+        struct.pack_into('<H', buf, 0x12, fric_u16)
+        struct.pack_into('<H', buf, 0x14, fric_u16)  # duplicate
+        struct.pack_into('<H', buf, 0x16, rest_u16)
+    return bytes(buf)
+
+
+def _build_dyn_motion(physics) -> bytes:
+    """Build 0x40 bytes of dyn_motion, patching gravity/damping/velocity fields."""
+    buf = bytearray(_DYN_MOTION)
+    if physics is not None:
+        struct.pack_into('<f', buf, 0x08, physics.gravity_factor)
+        struct.pack_into('<f', buf, 0x10, physics.max_linear_velocity)
+        struct.pack_into('<f', buf, 0x14, physics.max_angular_velocity)
+        struct.pack_into('<f', buf, 0x18, physics.linear_damping)
+        struct.pack_into('<f', buf, 0x1c, physics.angular_damping)
     return bytes(buf)
 
 
@@ -443,7 +472,7 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
     # ── dyn_motion (0x40, dynamic only) ──
     if is_dyn:
         dyn_motion_rel = rel()
-        write(_DYN_MOTION)
+        write(_build_dyn_motion(physics))
         fx.add_local(arr20_off, dyn_motion_rel)
 
     # ── dyn_inertia (0x40, dynamic only) ──

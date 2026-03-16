@@ -631,11 +631,18 @@ class CollisionHandler():
             obj['pynCollisionShapeType'] = s.shape_type
 
             if s.physics is not None:
-                obj['pynPhysDynamic'] = s.physics.is_dynamic
                 if s.physics.is_dynamic:
-                    obj['pynPhysMass'] = s.physics.mass
+                    obj.rigid_body.type = 'ACTIVE'
+                    obj.rigid_body.mass = s.physics.mass
                     obj['pynPhysInertia'] = list(s.physics.inertia)
+                obj.rigid_body.friction = s.physics.friction
+                obj.rigid_body.restitution = s.physics.restitution
+                obj.rigid_body.linear_damping = s.physics.linear_damping
+                obj.rigid_body.angular_damping = s.physics.angular_damping
                 obj['pynPhysMaterial'] = s.physics.body_props_raw.hex()
+                obj['pynPhysGravityFactor'] = s.physics.gravity_factor
+                obj['pynPhysMaxLinVel'] = s.physics.max_linear_velocity
+                obj['pynPhysMaxAngVel'] = s.physics.max_angular_velocity
 
             if s.shape_type == 'polytope' and s.convex_radius > 0.0:
                 radius_bl = s.convex_radius * sf
@@ -839,10 +846,9 @@ class CollisionHandler():
             else:
                 constr = parentObj.constraints.new('COPY_TRANSFORMS')
                 constr.target = sh
-                # For bhkNPCollisionObject the physics mesh sits at world origin
-                # and is independent of the target node.  Keep the constraint so
-                # the exporter can discover the collision, but zero its influence
-                # so it does not pull parentObj to origin.
+                # For bone collisions and bhkNP multi-body systems, zero
+                # influence to avoid moving the parent. The exporter discovers
+                # collisions by constraint type, not influence.
                 if c.blockname == "bhkNPCollisionObject":
                     constr.influence = 0.0
             constr.name = 'bhkCollisionConstraint'
@@ -1176,19 +1182,29 @@ class CollisionHandler():
                 # Build physics properties from the first shape object's
                 # custom properties (all shapes in one system share the same body).
                 ref = shape_objs[0]
-                is_dyn = ref.get('pynPhysDynamic', False)
+                rb = ref.rigid_body
+                is_dyn = (rb is not None and rb.type == 'ACTIVE')
+                common_props = dict(
+                    body_props_raw=bytes.fromhex(ref.get('pynPhysMaterial', '00ff003f003fcd3e01024c3deeff7f7f')),
+                    friction=rb.friction if rb else 0.5,
+                    restitution=rb.restitution if rb else 0.4,
+                    linear_damping=rb.linear_damping if rb else 0.1,
+                    angular_damping=rb.angular_damping if rb else 0.05,
+                    gravity_factor=ref.get('pynPhysGravityFactor', 1.0),
+                    max_linear_velocity=ref.get('pynPhysMaxLinVel', 104.4),
+                    max_angular_velocity=ref.get('pynPhysMaxAngVel', 31.57),
+                )
                 if is_dyn:
                     physics = PhysicsProps(
                         is_dynamic=True,
-                        mass=ref.get('pynPhysMass', 0.0),
+                        mass=rb.mass,
                         inertia=tuple(ref.get('pynPhysInertia', [0.0, 0.0, 0.0])),
-                        body_props_raw=bytes.fromhex(ref.get('pynPhysMaterial', '00ff003f003fcd3e01024c3deeff7f7f')),
+                        **common_props,
                     )
                 else:
-                    mat_hex = ref.get('pynPhysMaterial', '00ff003f003fcd3e01024c3deeff7f7f')
                     physics = PhysicsProps(
                         is_dynamic=False,
-                        body_props_raw=bytes.fromhex(mat_hex),
+                        **common_props,
                     )
 
                 # Build CollisionShape objects from Blender mesh data and pack

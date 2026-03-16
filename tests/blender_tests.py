@@ -3428,6 +3428,43 @@ def TEST_TRIP():
     assert TT.is_contains("BTShoulders", bodymorphs.keys(), f"morphs")
 
 
+@TT.category('SKYRIM', 'OSD')
+def TEST_OSD_IMPORT():
+    """Can import a BodySlide OSD file as shape keys."""
+    niffile = TTB.test_file(r"tests\SkyrimSE\Bodyslide\BD HIMBO Bandit 3.nif")
+    osdfile = TTB.test_file(r"tests\SkyrimSE\Bodyslide\BD HIMBO Bandit 3.osd")
+
+    # Import the NIF to get the mesh
+    bpy.ops.import_scene.pynifly(filepath=niffile,
+                                 rename_bones=False,
+                                 blender_xf=False)
+
+    # Select all mesh objects for OSD import
+    meshes = [o for o in bpy.data.objects if o.type == 'MESH']
+    assert len(meshes) > 0, "NIF has mesh objects"
+    log.debug(f"Mesh objects for OSD: {[m.name for m in meshes]}")
+    bpy.ops.object.select_all(action='DESELECT')
+    for m in meshes:
+        m.select_set(True)
+    bpy.context.view_layer.objects.active = meshes[0]
+
+    # Import OSD
+    bpy.ops.import_scene.pynifly_osd(filepath=osdfile)
+
+    # Find the shape that got shape keys
+    obj = next((o for o in meshes if o.data.shape_keys is not None), None)
+    assert obj is not None, "At least one mesh got shape keys from OSD"
+    keys = obj.data.shape_keys.key_blocks
+    assert TT.is_gt(len(keys), 10, f"Got multiple shape keys: {len(keys)}")
+
+    # Check that Basis exists and a known slider is present
+    assert 'Basis' in keys, "Has Basis shape key"
+    slider_names = [k.name for k in keys]
+    log.debug(f"Shape keys: {slider_names[:10]}...")
+    assert any('Biceps' in n for n in slider_names), \
+        f"Has a Biceps slider, got: {slider_names[:5]}..."
+
+
 @TT.category('FO4', 'SHADER')
 def TEST_COLORS():
     """Can read & write vertex colors"""

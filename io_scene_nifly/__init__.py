@@ -144,6 +144,7 @@ def register():
     from . import tri
     from . import hkx
     from . import kf
+    from . import osd
 
     if DEBUGGING:
         log.setLevel(logging.DEBUG)
@@ -151,11 +152,13 @@ def register():
         reload(tri)
         reload(hkx)
         reload(kf)
+        reload(osd)
 
     hkx.register()
     kf.register()
     nif.register()
     tri.register()
+    osd.register()
 
     log.info(f"PyNifly {'.'.join(map(str, bl_info['version']))} registered")
 
@@ -164,11 +167,13 @@ def unregister():
     from . import tri
     from . import hkx
     from . import kf
+    from . import osd
 
     hkx.unregister()
     kf.unregister()
     nif.unregister()
     tri.unregister()
+    osd.unregister()
 
     with suppress(RuntimeError):
         bpy.utils.unregister_class(PyNiflyPreferences)

@@ -88,6 +88,14 @@ def vec3(data: bytes, off: int) -> Tuple[float, float, float]:
 def vec4(data: bytes, off: int) -> Tuple[float, float, float, float]:
     return struct.unpack_from("<ffff", data, off)
 
+def trunc_f16_decode(data: bytes, off: int) -> float:
+    """Decode a truncated float16 (upper 16 bits of float32) at offset."""
+    return struct.unpack('<f', struct.pack('<I', u16(data, off) << 16))[0]
+
+def trunc_f16_encode(value: float) -> int:
+    """Encode a float as truncated float16 (upper 16 bits of float32)."""
+    return struct.unpack('<I', struct.pack('<f', value))[0] >> 16
+
 Vert3 = Tuple[float, float, float]
 Tri = Tuple[int, int, int]
 Face = Tuple[int, ...]
@@ -254,7 +262,14 @@ class PhysicsProps:
     mass: float = 0.0                       # from dyn_inertia +0x04 (stored as 1/mass)
     density: float = 0.0                    # from dyn_inertia +0x08 (mass / collision_volume)
     inertia: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # (Ixx, Iyy, Izz) from +0x20..+0x28
-    body_props_raw: bytes = b""             # 16 bytes of body_props +0x10..+0x1F (material)
+    body_props_raw: bytes = b""             # 16 bytes of body_props +0x10..+0x1F
+    friction: float = 0.5                   # body_props +0x00 (truncated float16)
+    restitution: float = 0.4               # body_props +0x04 (truncated float16)
+    gravity_factor: float = 1.0            # body_props +0x48
+    max_linear_velocity: float = 104.4     # body_props +0x50 (truncated float16)
+    max_angular_velocity: float = 31.57    # body_props +0x54 (truncated float16)
+    linear_damping: float = 0.1            # body_props +0x58 (truncated float16)
+    angular_damping: float = 0.05          # body_props +0x5c (truncated float16)
 
 
 @dataclass
@@ -415,9 +430,32 @@ def parse_physics_props(
     # body_props at PSD+0x10
     bp_dst = fixups.get(psd_rel + 0x10)
     body_props_raw = b"\x00" * 16
+    # Base offset for BodyCInfo fields (bp_abs + 0x10 is where the 16-byte
+    # body_props_raw starts; all decoded field offsets are relative to this).
+    bp_base = 0
     if bp_dst is not None:
         bp_abs = data_start + bp_dst
-        body_props_raw = bytes(data[bp_abs + 0x10 : bp_abs + 0x20])
+        bp_base = bp_abs + 0x10
+        body_props_raw = bytes(data[bp_base : bp_base + 0x10])
+
+    # Decode physics fields from BodyCInfo region
+    friction = 0.5
+    restitution = 0.4
+    gravity_factor = 1.0
+    max_linear_velocity = 104.4
+    max_angular_velocity = 31.57
+    linear_damping = 0.1
+    angular_damping = 0.05
+    if bp_base and bp_base + 0x60 <= len(data):
+        friction = trunc_f16_decode(data, bp_base + 0x02)
+        restitution = trunc_f16_decode(data, bp_base + 0x06)
+        # Fields at +0x48 onward are in the dyn_motion array (next structure
+        # after body_props). Offsets from bp_base account for body_props size.
+        gravity_factor = f32(data, bp_base + 0x48)
+        max_linear_velocity = f32(data, bp_base + 0x50)
+        max_angular_velocity = f32(data, bp_base + 0x54)
+        linear_damping = f32(data, bp_base + 0x58)
+        angular_damping = f32(data, bp_base + 0x5c)
 
     # Check for dynamic arrays (dyn_motion at +0x20, dyn_inertia at +0x30)
     has_dyn = fixups.get(psd_rel + 0x20) is not None
@@ -425,12 +463,25 @@ def parse_physics_props(
         return PhysicsProps(
             is_dynamic=False,
             body_props_raw=body_props_raw,
+            friction=friction,
+            restitution=restitution,
+            gravity_factor=gravity_factor,
+            max_linear_velocity=max_linear_velocity,
+            max_angular_velocity=max_angular_velocity,
+            linear_damping=linear_damping,
+            angular_damping=angular_damping,
         )
 
     # dyn_inertia at PSD+0x30
     di_dst = fixups.get(psd_rel + 0x30)
     if di_dst is None:
-        return PhysicsProps(is_dynamic=True, body_props_raw=body_props_raw)
+        return PhysicsProps(is_dynamic=True, body_props_raw=body_props_raw,
+                            friction=friction, restitution=restitution,
+                            gravity_factor=gravity_factor,
+                            max_linear_velocity=max_linear_velocity,
+                            max_angular_velocity=max_angular_velocity,
+                            linear_damping=linear_damping,
+                            angular_damping=angular_damping)
 
     di_abs = data_start + di_dst
     inv_mass = f32(data, di_abs + 0x04)
@@ -446,6 +497,13 @@ def parse_physics_props(
         density=density,
         inertia=(ixx, iyy, izz),
         body_props_raw=body_props_raw,
+        friction=friction,
+        restitution=restitution,
+        gravity_factor=gravity_factor,
+        max_linear_velocity=max_linear_velocity,
+        max_angular_velocity=max_angular_velocity,
+        linear_damping=linear_damping,
+        angular_damping=angular_damping,
     )
 
 
