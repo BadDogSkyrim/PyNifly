@@ -9102,6 +9102,49 @@ def TEST_COLLISION_TAIL():
                      f"No gaps among cap verts ({len(gaps)} boundary edges)")
 
 
+@TT.category('SKYRIM', 'MOPP')
+def TEST_COLLISION_MOPP_LE_ROUNDTRIP():
+    """Skyrim LE MOPP collision round-trip: import noblecrate01, export, reimport, verify geometry."""
+    testfile = TTB.test_file(r"tests\Skyrim\noblecrate01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_LE_ROUNDTRIP.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Find the collision shape (named after the child shape type)
+    coll_objs = [o for o in bpy.data.objects
+                 if o.name.startswith("bhkPackedNiTriStripsShape")
+                 or o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "Found MOPP collision object")
+    coll_obj = coll_objs[0]
+
+    orig_vert_count = len(coll_obj.data.vertices)
+    orig_tri_count = len(coll_obj.data.polygons)
+    assert TT.is_gt(orig_vert_count, 0, f"Collision has {orig_vert_count} verts")
+    assert TT.is_gt(orig_tri_count, 0, f"Collision has {orig_tri_count} tris")
+
+    # Select all objects and export
+    BD.ObjectSelect(list(bpy.data.objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
+
+    # Clear and reimport
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    # Find collision again
+    coll_objs2 = [o for o in bpy.data.objects
+                  if o.name.startswith("bhkPackedNiTriStripsShape")
+                  or o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs2), 0, "Reimported MOPP collision found")
+    coll_obj2 = coll_objs2[0]
+
+    reimport_vert_count = len(coll_obj2.data.vertices)
+    reimport_tri_count = len(coll_obj2.data.polygons)
+    assert TT.is_eq(reimport_vert_count, orig_vert_count,
+                     f"Vertex count preserved: {reimport_vert_count}")
+    assert TT.is_eq(reimport_tri_count, orig_tri_count,
+                     f"Triangle count preserved: {reimport_tri_count}")
+
+
 def show_all_tests():
     for t in [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]:
         print(f"{t.__name__:25}{t.__doc__}")

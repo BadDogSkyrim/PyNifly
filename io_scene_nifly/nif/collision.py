@@ -1025,17 +1025,62 @@ class CollisionHandler():
         return cshape, s.matrix_local.translation, Quaternion()
 
 
+    def export_bhkMoppBvTreeShape(self, s, xform, child_type="compressed"):
+        """Export a MOPP collision from a Blender mesh object.
+
+        Extracts mesh geometry, converts to Havok space, creates the full
+        bhkMoppBvTreeShape → child shape → data chain.
+
+        Args:
+            s: Blender mesh object.
+            xform: Transform to apply (from export_collision_shape).
+            child_type: 'compressed' for SE, 'packed' for LE.
+        """
+        bm = bmesh.new()
+        bm.from_mesh(s.data)
+        bmesh.ops.triangulate(bm, faces=bm.faces)
+
+        # Get verts in world/export coordinates, scaled to Havok space
+        myscale = (self.export_xf @ s.matrix_world).to_scale()
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        verts = [(myscale * v.co / sf) for v in bm.verts]
+        havok_verts = [(v.x, v.y, v.z) for v in verts]
+
+        # Get triangle indices
+        tris = [(f.verts[0].index, f.verts[1].index, f.verts[2].index) for f in bm.faces]
+        bm.free()
+
+        if not tris:
+            self.warn("bhkMoppBvTreeShape: no triangles to export")
+            return None, None, Quaternion()
+
+        # Determine game and radius
+        game = self.nif.game
+        radius = 0.005 if game != 'SKYRIM' else 0.1
+
+        # Get material from custom property
+        material = s.get('bhkMaterial', 0)
+
+        # Create the shape hierarchy via high-level API
+        # We need a parent ID — this will be set by export_collision_body via addCollisionChild
+        # So we create a temporary parent context
+        mopp_shape = bhkMoppBvTreeShape.Create(
+            self.nif, havok_verts, tris, game,
+            radius=radius, material=material, parent=None)
+
+        return mopp_shape, Vector(), Quaternion()
+
     def export_collision_shape(self, shape_list, xform=Matrix()):
         """
-        Export the first collision shape in shape_list. 
+        Export the first collision shape in shape_list.
         * shape_list = list of bhk*Shape objects. Should only be one.
         * xform = additional transform to apply. Shapes that position their verts
           explicitly must apply this transform. (Shapes that don't get their position set
           by the RigidBody.)
-        
-        Returns (shape, coordinates) 
-        * shape = collision shape in the nif object 
-        * coordinates = center of the shape (in Blender world coordinates) 
+
+        Returns (shape, coordinates)
+        * shape = collision shape in the nif object
+        * coordinates = center of the shape (in Blender world coordinates)
         * rotation = rotation to apply to the shape
         """
         for cs in shape_list:
@@ -1049,6 +1094,10 @@ class CollisionHandler():
                 return self.export_bhkCapsuleShape(cs, xform)
             elif cs.name.startswith("bhkConvexTransformShape"):
                 return self.export_bhkConvexTransformShape(cs, xform)
+            elif cs.name.startswith("bhkCompressedMeshShape"):
+                return self.export_bhkMoppBvTreeShape(cs, xform, child_type="compressed")
+            elif cs.name.startswith("bhkPackedNiTriStripsShape"):
+                return self.export_bhkMoppBvTreeShape(cs, xform, child_type="packed")
             # TODO: Add bhkSphereShape
         return None, None, Quaternion()
 

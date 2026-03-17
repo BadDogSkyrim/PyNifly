@@ -473,3 +473,19 @@ extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const u
 extern "C" NIFLY_API int getCollCapsuleShapeProps(void* nifref, int nodeIndex, BHKCapsuleShapeBuf* buf);
 
 extern "C" NIFLY_API int addCollCapsuleShape(void* nifref, const BHKCapsuleShapeBuf* buf);
+
+// MOPP bytecode read
+extern "C" NIFLY_API int getCollMoppCodeLen(void* nifref, int blockID);
+extern "C" NIFLY_API int getCollMoppCode(void* nifref, int blockID, float* originXYZ, float* scaleOut, uint8_t* moppBuf, int bufLen);
+
+// MOPP / CompressedMesh / PackedStrips creation
+extern "C" NIFLY_API int setCollMoppCode(void* nifref, int blockID, float* originXYZ, float scale, uint8_t* moppBytes, int moppLen);
+extern "C" NIFLY_API int getCollCompressedMeshShapeDataID(void* nifref, int shapeID);
+extern "C" NIFLY_API int setCollCompressedMeshParams(void* nifref, int dataID, uint32_t bitsPerIndex, uint32_t bitsPerWIndex, uint32_t maskIndex, uint32_t maskWIndex);
+extern "C" NIFLY_API int setCollCompressedMeshBigVerts(void* nifref, int dataID, float* verts, int vertCount);
+extern "C" NIFLY_API int setCollCompressedMeshBigTris(void* nifref, int dataID, uint16_t* tris, uint32_t* materials, int triCount);
+extern "C" NIFLY_API int addCollCompressedMeshChunk(void* nifref, int dataID, float* translation, uint16_t* chunkVerts, int numVerts, uint16_t* indices, int numIndices, uint16_t* stripLengths, int numStrips, uint32_t matIndex);
+extern "C" NIFLY_API int setCollCompressedMeshAABB(void* nifref, int dataID, float* bmin, float* bmax);
+extern "C" NIFLY_API int getCollPackedStripsDataID(void* nifref, int shapeID);
+extern "C" NIFLY_API int setCollPackedStripsVerts(void* nifref, int dataID, float* verts, int vertCount);
+extern "C" NIFLY_API int setCollPackedStripsTris(void* nifref, int dataID, uint16_t* tris, int triCount, float* normals);

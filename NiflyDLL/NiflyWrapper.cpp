@@ -3837,6 +3837,41 @@ int getCollMoppShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf) {
     return 0;
 }
 
+NIFLY_API int getCollMoppCodeLen(void* nifref, int blockID) {
+    /* Return the MOPP bytecode length. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    auto* sh = nif->GetHeader().GetBlock<bhkMoppBvTreeShape>(blockID);
+    if (!sh) return 0;
+    return (int)sh->data.size();
+}
+
+NIFLY_API int getCollMoppCode(void* nifref, int blockID,
+                               float* originXYZ, float* scaleOut,
+                               uint8_t* moppBuf, int bufLen) {
+    /* Read MOPP bytecode, origin and scale from a bhkMoppBvTreeShape.
+       Returns number of bytes copied. originXYZ must hold 3 floats.
+       moppBuf may be null (just returns length). */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    auto* sh = nif->GetHeader().GetBlock<bhkMoppBvTreeShape>(blockID);
+    if (!sh) return 0;
+
+    if (originXYZ) {
+        originXYZ[0] = sh->offset.x;
+        originXYZ[1] = sh->offset.y;
+        originXYZ[2] = sh->offset.z;
+    }
+    if (scaleOut) {
+        *scaleOut = sh->scale;
+    }
+    int len = (int)sh->data.size();
+    if (moppBuf) {
+        int toCopy = (len < bufLen) ? len : bufLen;
+        for (int i = 0; i < toCopy; i++)
+            moppBuf[i] = sh->data[i];
+    }
+    return len;
+}
+
 // ── bhkPackedNiTriStripsShape ───────────────────────────────────────────────
 
 int getCollPackedStripsShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf) {
@@ -4033,6 +4068,282 @@ NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint16
     }
     return total;
 }
+
+// ── MOPP / CompressedMesh / PackedStrips CREATORS ──────────────────────────
+
+int addCollMoppShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    /* Create a bhkMoppBvTreeShape. buf->shapeID is the child shape block ID. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BHKMoppBvTreeShapeBuf* buf = static_cast<BHKMoppBvTreeShapeBuf*>(buffer);
+
+    auto sh = std::make_unique<bhkMoppBvTreeShape>();
+    sh->shapeRef.index = buf->shapeID;
+    int newid = hdr->AddBlock(std::move(sh));
+    addCollisionChild(nif, parent, newid);
+    return newid;
+}
+
+NIFLY_API int setCollMoppCode(void* nifref, int blockID,
+                               float* originXYZ, float scale,
+                               uint8_t* moppBytes, int moppLen) {
+    /* Set MOPP bytecode, origin and scale on an existing bhkMoppBvTreeShape. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* sh = hdr->GetBlock<bhkMoppBvTreeShape>(blockID);
+    CheckID(sh);
+
+    sh->offset = Vector4(originXYZ[0], originXYZ[1], originXYZ[2], 0.0f);
+    sh->scale = scale;
+    sh->data.clear();
+    sh->data.resize(moppLen);
+    for (int i = 0; i < moppLen; i++)
+        sh->data[i] = moppBytes[i];
+    return 0;
+}
+
+int addCollCompressedMeshShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    /* Create a bhkCompressedMeshShape. Links to parent (rigid body). */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BHKCompressedMeshShapeBuf* buf = static_cast<BHKCompressedMeshShapeBuf*>(buffer);
+
+    auto sh = std::make_unique<bhkCompressedMeshShape>();
+    sh->radius = buf->radius;
+    sh->radius2 = buf->radius;
+
+    // Create the data block and link it
+    auto dataBlock = std::make_unique<bhkCompressedMeshShapeData>();
+    int dataID = hdr->AddBlock(std::move(dataBlock));
+    sh->dataRef.index = dataID;
+
+    int newid = hdr->AddBlock(std::move(sh));
+    // For MOPP shapes, the parent links to MOPP, MOPP links to this shape.
+    // If parent is a MOPP, set its shapeRef. Otherwise use addCollisionChild.
+    auto* moppParent = hdr->GetBlock<bhkMoppBvTreeShape>(parent);
+    if (moppParent) {
+        moppParent->shapeRef.index = newid;
+    } else {
+        addCollisionChild(nif, parent, newid);
+    }
+    return newid;
+}
+
+NIFLY_API int getCollCompressedMeshShapeDataID(void* nifref, int shapeID) {
+    /* Return the data block ID for a bhkCompressedMeshShape. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* sh = hdr->GetBlock<bhkCompressedMeshShape>(shapeID);
+    if (!sh) return NIF_NPOS;
+    return sh->dataRef.index;
+}
+
+NIFLY_API int setCollCompressedMeshParams(void* nifref, int dataID,
+                                           uint32_t bitsPerIndex, uint32_t bitsPerWIndex,
+                                           uint32_t maskIndex, uint32_t maskWIndex) {
+    /* Set the MOPP indexing parameters on a bhkCompressedMeshShapeData. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(dataID);
+    CheckID(data);
+
+    data->bitsPerIndex = bitsPerIndex;
+    data->bitsPerWIndex = bitsPerWIndex;
+    data->maskIndex = maskIndex;
+    data->maskWIndex = maskWIndex;
+    return 0;
+}
+
+NIFLY_API int setCollCompressedMeshBigVerts(void* nifref, int dataID,
+                                             float* verts, int vertCount) {
+    /* Set the bigVerts array. verts is xyz triples (3 floats per vert). */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(dataID);
+    CheckID(data);
+
+    data->bigVerts.clear();
+    for (int i = 0; i < vertCount; i++) {
+        Vector4 v(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2], 0.0f);
+        data->bigVerts.push_back(v);
+    }
+    return 0;
+}
+
+NIFLY_API int setCollCompressedMeshBigTris(void* nifref, int dataID,
+                                            uint16_t* tris, uint32_t* materials,
+                                            int triCount) {
+    /* Set the bigTris array. tris is index triples, materials is per-tri material. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(dataID);
+    CheckID(data);
+
+    data->bigTris.clear();
+    for (int i = 0; i < triCount; i++) {
+        bhkCMSDBigTris bt;
+        bt.triangle1 = tris[i * 3];
+        bt.triangle2 = tris[i * 3 + 1];
+        bt.triangle3 = tris[i * 3 + 2];
+        bt.material = materials ? materials[i] : 0;
+        bt.weldingInfo = 0;
+        data->bigTris.push_back(bt);
+    }
+    return 0;
+}
+
+NIFLY_API int addCollCompressedMeshChunk(void* nifref, int dataID,
+                                          float* translation,
+                                          uint16_t* chunkVerts, int numVerts,
+                                          uint16_t* indices, int numIndices,
+                                          uint16_t* stripLengths, int numStrips,
+                                          uint32_t matIndex) {
+    /* Add one chunk to the bhkCompressedMeshShapeData.
+       chunkVerts: uint16 xyz triples (3 * numVerts entries).
+       indices: triangle strip + flat indices (numIndices entries).
+       stripLengths: length of each strip (numStrips entries).
+       Returns chunk index. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(dataID);
+    CheckID(data);
+
+    bhkCMSDChunk chunk;
+    chunk.translation = Vector4(translation[0], translation[1], translation[2], translation[3]);
+    chunk.matIndex = matIndex;
+    chunk.reference = 65535;
+    chunk.transformIndex = 65535;
+
+    for (int i = 0; i < numVerts * 3; i++) {
+        uint16_t v = chunkVerts[i];
+        chunk.verts.push_back(v);
+    }
+    for (int i = 0; i < numIndices; i++) {
+        uint16_t idx = indices[i];
+        chunk.indices.push_back(idx);
+    }
+    for (int i = 0; i < numStrips; i++) {
+        uint16_t sl = stripLengths[i];
+        chunk.strips.push_back(sl);
+    }
+
+    int chunkIdx = (int)data->chunks.size();
+    data->chunks.push_back(chunk);
+    return chunkIdx;
+}
+
+NIFLY_API int setCollCompressedMeshAABB(void* nifref, int dataID,
+                                         float* bmin, float* bmax) {
+    /* Set the AABB bounds on a bhkCompressedMeshShapeData. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(dataID);
+    CheckID(data);
+
+    data->aabbBoundMin = Vector4(bmin[0], bmin[1], bmin[2], 0.0f);
+    data->aabbBoundMax = Vector4(bmax[0], bmax[1], bmax[2], 0.0f);
+    return 0;
+}
+
+// ── bhkPackedNiTriStripsShape creators ──
+
+int addCollPackedStripsShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    /* Create a bhkPackedNiTriStripsShape with its data block. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BHKPackedNiTriStripsShapeBuf* buf = static_cast<BHKPackedNiTriStripsShapeBuf*>(buffer);
+
+    auto sh = std::make_unique<bhkPackedNiTriStripsShape>();
+    sh->radius = buf->radius;
+
+    // Create the data block and link it
+    auto dataBlock = std::make_unique<hkPackedNiTriStripsData>();
+    int dataID = hdr->AddBlock(std::move(dataBlock));
+    sh->dataRef.index = dataID;
+
+    // Set subPartData with one entry
+    hkSubPartData spd;
+    spd.material = buf->material;
+    spd.numVerts = 0; // will be set by setCollPackedStripsVerts
+    sh->subPartData.push_back(spd);
+
+    int newid = hdr->AddBlock(std::move(sh));
+    // Link to parent (MOPP or rigid body)
+    auto* moppParent = hdr->GetBlock<bhkMoppBvTreeShape>(parent);
+    if (moppParent) {
+        moppParent->shapeRef.index = newid;
+    } else {
+        addCollisionChild(nif, parent, newid);
+    }
+    return newid;
+}
+
+NIFLY_API int getCollPackedStripsDataID(void* nifref, int shapeID) {
+    /* Return the data block ID for a bhkPackedNiTriStripsShape. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* sh = hdr->GetBlock<bhkPackedNiTriStripsShape>(shapeID);
+    if (!sh) return NIF_NPOS;
+    return sh->dataRef.index;
+}
+
+NIFLY_API int setCollPackedStripsVerts(void* nifref, int dataID,
+                                        float* verts, int vertCount) {
+    /* Set vertices on hkPackedNiTriStripsData. verts is xyz triples. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<hkPackedNiTriStripsData>(dataID);
+    CheckID(data);
+
+    data->compressedVertData.clear();
+    for (int i = 0; i < vertCount; i++) {
+        Vector3 v(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]);
+        data->compressedVertData.push_back(v);
+    }
+    data->numVerts = vertCount;
+    return 0;
+}
+
+NIFLY_API int setCollPackedStripsTris(void* nifref, int dataID,
+                                       uint16_t* tris, int triCount,
+                                       float* normals) {
+    /* Set triangles on hkPackedNiTriStripsData.
+       tris: index triples (3 * triCount entries).
+       normals: optional per-tri normal xyz triples (3 * triCount), or null. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<hkPackedNiTriStripsData>(dataID);
+    CheckID(data);
+
+    data->triData.clear();
+    data->triNormData.clear();
+
+    if (normals) {
+        for (int i = 0; i < triCount; i++) {
+            hkTriangleNormalData tnd;
+            tnd.tri.p1 = tris[i * 3];
+            tnd.tri.p2 = tris[i * 3 + 1];
+            tnd.tri.p3 = tris[i * 3 + 2];
+            tnd.weldingInfo = 0;
+            tnd.normal = Vector3(normals[i * 3], normals[i * 3 + 1], normals[i * 3 + 2]);
+            data->triNormData.push_back(tnd);
+        }
+        data->keyCount = triCount;
+    } else {
+        for (int i = 0; i < triCount; i++) {
+            hkTriangleData td;
+            td.tri.p1 = tris[i * 3];
+            td.tri.p2 = tris[i * 3 + 1];
+            td.tri.p3 = tris[i * 3 + 2];
+            td.weldingInfo = 0;
+            data->triData.push_back(td);
+        }
+        data->keyCount = triCount;
+    }
+    return 0;
+}
+
+// ── End MOPP/CompressedMesh/PackedStrips creators ──────────────────────────
 
 int getCollBoxShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf)
 /*
@@ -5993,9 +6304,9 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSFurnitureMarkerNodeBufType
     setbhkNPCollisionObject,
     setbhkPhysicsSystem,
-    nullptr, //bhkMoppBvTreeShapeBufType
-    nullptr, //bhkPackedNiTriStripsShapeBufType
-    nullptr, //bhkCompressedMeshShapeBufType
+    nullptr, //bhkMoppBvTreeShapeBufType (set via setCollMoppCode)
+    nullptr, //bhkPackedNiTriStripsShapeBufType (set via setCollPackedStrips*)
+    nullptr, //bhkCompressedMeshShapeBufType (set via setCollCompressedMesh*)
     nullptr //END
 };
 
@@ -6086,9 +6397,9 @@ BlockCreatorFunction creatorFunctions[] = {
     addBSFurnitureMarkerNode,
     addbhkNPCollisionObject,
     addbhkPhysicsSystem,
-    nullptr, //bhkMoppBvTreeShapeBufType
-    nullptr, //bhkPackedNiTriStripsShapeBufType
-    nullptr, //bhkCompressedMeshShapeBufType
+    addCollMoppShape, //bhkMoppBvTreeShapeBufType
+    addCollPackedStripsShape, //bhkPackedNiTriStripsShapeBufType
+    addCollCompressedMeshShape, //bhkCompressedMeshShapeBufType
     nullptr //end
 };
 

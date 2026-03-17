@@ -605,6 +605,70 @@ class bhkMoppBvTreeShape(bhkShape):
                 id=self.properties.shapeID, file=self.file, parent=self)
         return self._child
 
+    @property
+    def mopp_data(self):
+        """Return (mopp_bytes, origin, scale) or (b'', (0,0,0), 0) if unavailable."""
+        if nifly.getCollMoppCodeLen is None:
+            return b"", (0.0, 0.0, 0.0), 0.0
+        length = nifly.getCollMoppCodeLen(self.file._handle, self.id)
+        if length <= 0:
+            return b"", (0.0, 0.0, 0.0), 0.0
+        origin_buf = (c_float * 3)()
+        scale_buf = c_float()
+        mopp_buf = (c_uint8 * length)()
+        nifly.getCollMoppCode(self.file._handle, self.id,
+                              origin_buf, byref(scale_buf), mopp_buf, length)
+        origin = (origin_buf[0], origin_buf[1], origin_buf[2])
+        return bytes(mopp_buf), origin, scale_buf.value
+
+    @classmethod
+    def Create(cls, file, verts, tris, game, radius=0.005, material=0, parent=None):
+        """Create a bhkMoppBvTreeShape with child shape and MOPP bytecode.
+
+        Args:
+            file: NifFile to add blocks to.
+            verts: List of (x,y,z) in Havok space.
+            tris: List of (i,j,k) triangle indices.
+            game: Game name string ('SKYRIMSE', 'SKYRIM', etc.).
+            radius: Collision radius.
+            material: Havok material ID.
+            parent: Parent block (bhkRigidBody).
+
+        Returns:
+            bhkMoppBvTreeShape instance.
+        """
+        from .mopp_compiler import compile_mopp
+
+        # Create MOPP block (child shape ID will be set by child creation)
+        buf = bhkMoppBvTreeShapeBuf()
+        buf.shapeID = NODEID_NONE
+        mopp_id = check_msg(nifly.addBlock, file._handle, None, byref(buf),
+                            parent.id if parent else NODEID_NONE)
+        mopp_shape = cls(file=file, id=mopp_id, properties=buf, parent=parent)
+
+        # Create the appropriate child shape
+        if game in ('SKYRIM',):
+            child = bhkPackedNiTriStripsShape.Create(
+                file, verts, tris, radius=radius, material=material,
+                parent=mopp_shape)
+            output_ids = list(range(len(tris)))
+        else:
+            child, output_ids = bhkCompressedMeshShape.Create(
+                file, verts, tris, radius=radius, parent=mopp_shape)
+
+        # Compile MOPP bytecode
+        mopp_bytes, origin, scale = compile_mopp(verts, tris, radius=radius,
+                                                  output_ids=output_ids)
+
+        # Set MOPP code on the block
+        if nifly.setCollMoppCode is not None:
+            origin_buf = (c_float * 3)(*origin)
+            mopp_buf = (c_uint8 * len(mopp_bytes))(*mopp_bytes)
+            check_msg(nifly.setCollMoppCode, file._handle, mopp_id,
+                      origin_buf, c_float(scale), mopp_buf, len(mopp_bytes))
+
+        return mopp_shape
+
 
 class bhkPackedNiTriStripsShape(bhkShape):
     """Packed triangle strips shape (Skyrim LE). Child of bhkMoppBvTreeShape."""
@@ -619,6 +683,53 @@ class bhkPackedNiTriStripsShape(bhkShape):
         super().__init__(handle=handle, id=id, file=file, parent=parent, properties=properties)
         self._vertices = None
         self._triangles = None
+
+    @classmethod
+    def Create(cls, file, verts, tris, radius=0.005, material=0, parent=None):
+        """Create a bhkPackedNiTriStripsShape with geometry data.
+
+        Args:
+            file: NifFile to add blocks to.
+            verts: List of (x,y,z) in Havok space.
+            tris: List of (i,j,k) triangle indices.
+            radius: Collision radius.
+            material: Havok material ID.
+            parent: Parent block (bhkMoppBvTreeShape).
+
+        Returns:
+            bhkPackedNiTriStripsShape instance.
+        """
+        buf = bhkPackedNiTriStripsShapeBuf()
+        buf.radius = radius
+        buf.material = material
+        shape_id = check_msg(nifly.addBlock, file._handle, None, byref(buf),
+                             parent.id if parent else NODEID_NONE)
+
+        if nifly.getCollPackedStripsDataID is not None:
+            data_id = nifly.getCollPackedStripsDataID(file._handle, shape_id)
+
+            if data_id >= 0 and nifly.setCollPackedStripsVerts is not None:
+                # Set vertices
+                flat_verts = (c_float * (len(verts) * 3))()
+                for i, (x, y, z) in enumerate(verts):
+                    flat_verts[i*3] = x
+                    flat_verts[i*3+1] = y
+                    flat_verts[i*3+2] = z
+                check_msg(nifly.setCollPackedStripsVerts, file._handle,
+                          data_id, flat_verts, len(verts))
+
+            if data_id >= 0 and nifly.setCollPackedStripsTris is not None:
+                # Set triangles (no normals for now)
+                flat_tris = (c_uint16 * (len(tris) * 3))()
+                for i, (a, b, c) in enumerate(tris):
+                    flat_tris[i*3] = a
+                    flat_tris[i*3+1] = b
+                    flat_tris[i*3+2] = c
+                check_msg(nifly.setCollPackedStripsTris, file._handle,
+                          data_id, flat_tris, len(tris), None)
+
+        shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
+        return shape
 
     @property
     def vertices(self):
@@ -670,6 +781,162 @@ class bhkCompressedMeshShape(bhkShape):
         super().__init__(handle=handle, id=id, file=file, parent=parent, properties=properties)
         self._vertices = None
         self._triangles = None
+
+    @classmethod
+    def Create(cls, file, verts, tris, radius=0.005, parent=None):
+        """Create a bhkCompressedMeshShape with chunked geometry data.
+
+        Segments the mesh into chunks (<=255 verts, <=255 tris each),
+        quantizes vertices, builds triangle strips, and creates all DLL blocks.
+
+        Args:
+            file: NifFile to add blocks to.
+            verts: List of (x,y,z) in Havok space.
+            tris: List of (i,j,k) triangle indices.
+            radius: Collision radius.
+            parent: Parent block (bhkMoppBvTreeShape).
+
+        Returns:
+            (bhkCompressedMeshShape, output_ids)
+            output_ids: List of MOPP output IDs per input triangle.
+        """
+        from .mesh_segment import segment_mesh
+        from .tri_strip import stripify
+        import math
+
+        buf = bhkCompressedMeshShapeBuf()
+        buf.radius = radius
+        shape_id = check_msg(nifly.addBlock, file._handle, None, byref(buf),
+                             parent.id if parent else NODEID_NONE)
+
+        if nifly.getCollCompressedMeshShapeDataID is None:
+            shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
+            return shape, list(range(len(tris)))
+
+        data_id = nifly.getCollCompressedMeshShapeDataID(file._handle, shape_id)
+        if data_id < 0:
+            shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
+            return shape, list(range(len(tris)))
+
+        # Segment mesh into chunks
+        groups = segment_mesh(verts, tris)
+
+        # Compute bitsPerIndex and related params from chunk sizes
+        max_tri_in_chunk = max(
+            (len(g) for g in groups), default=0)
+        bits_per_index = max(1, math.ceil(math.log2(max(max_tri_in_chunk, 1) + 1)))
+        bits_per_w_index = bits_per_index + 1  # +1 for winding bit
+        mask_index = (1 << bits_per_index) - 1
+        mask_w_index = (1 << bits_per_w_index) - 1
+
+        if nifly.setCollCompressedMeshParams is not None:
+            check_msg(nifly.setCollCompressedMeshParams, file._handle,
+                      data_id, bits_per_index, bits_per_w_index,
+                      mask_index, mask_w_index)
+
+        # Build MOPP output IDs per input triangle
+        output_ids = [0] * len(tris)
+
+        # Set AABB
+        all_x = [verts[i][0] for tri in tris for i in tri]
+        all_y = [verts[i][1] for tri in tris for i in tri]
+        all_z = [verts[i][2] for tri in tris for i in tri]
+        if nifly.setCollCompressedMeshAABB is not None:
+            bmin = (c_float * 3)(min(all_x), min(all_y), min(all_z))
+            bmax = (c_float * 3)(max(all_x), max(all_y), max(all_z))
+            check_msg(nifly.setCollCompressedMeshAABB, file._handle,
+                      data_id, bmin, bmax)
+
+        # Process each chunk
+        for chunk_idx, face_group in enumerate(groups):
+            chunk_tris = [tris[fi] for fi in face_group]
+
+            # Collect unique vertices used by this chunk
+            used_vert_set = set()
+            for a, b, c in chunk_tris:
+                used_vert_set.update((a, b, c))
+            used_verts = sorted(used_vert_set)
+            global_to_local = {g: l for l, g in enumerate(used_verts)}
+
+            # Remap tris to local indices
+            local_tris = [(global_to_local[a], global_to_local[b], global_to_local[c])
+                          for a, b, c in chunk_tris]
+
+            # Quantize vertices
+            local_verts = [verts[g] for g in used_verts]
+            if local_verts:
+                tx = min(v[0] for v in local_verts)
+                ty = min(v[1] for v in local_verts)
+                tz = min(v[2] for v in local_verts)
+            else:
+                tx = ty = tz = 0.0
+
+            quant_verts = []
+            for x, y, z in local_verts:
+                qx = max(0, min(65535, round((x - tx) * 1000.0)))
+                qy = max(0, min(65535, round((y - ty) * 1000.0)))
+                qz = max(0, min(65535, round((z - tz) * 1000.0)))
+                quant_verts.extend([qx, qy, qz])
+
+            # Build triangle strips
+            strips, leftovers = stripify(local_tris)
+
+            # Build indices array: strip indices first, then flat leftover indices
+            indices = []
+            strip_lengths = []
+            for strip in strips:
+                strip_lengths.append(len(strip))
+                indices.extend(strip)
+            for a, b, c in leftovers:
+                indices.extend([a, b, c])
+
+            # Add chunk via DLL
+            if nifly.addCollCompressedMeshChunk is not None:
+                translation_buf = (c_float * 4)(tx, ty, tz, 0.0)
+                vert_buf = (c_uint16 * len(quant_verts))(*quant_verts)
+                idx_buf = (c_uint16 * len(indices))(*indices)
+                strip_buf = (c_uint16 * len(strip_lengths))(*strip_lengths) if strip_lengths else None
+                check_msg(nifly.addCollCompressedMeshChunk,
+                          file._handle, data_id,
+                          translation_buf,
+                          vert_buf, len(local_verts),
+                          idx_buf, len(indices),
+                          strip_buf, len(strip_lengths),
+                          0)  # matIndex
+
+            # Compute output IDs for MOPP.
+            # chunk_index is 1-based (0 is for bigTris).
+            # output = ((chunk_idx + 1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
+            # Decompose strips back into triangle order to map output IDs.
+            tri_in_chunk = 0
+            for strip in strips:
+                for k in range(len(strip) - 2):
+                    # winding = 0 for even, 1 for odd
+                    winding = k & 1
+                    oid = ((chunk_idx + 1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
+                    # Map back to input face index
+                    if k % 2 == 0:
+                        local_tri = (strip[k], strip[k+1], strip[k+2])
+                    else:
+                        local_tri = (strip[k], strip[k+2], strip[k+1])
+                    # Find the original face index for this local tri
+                    for gi, fi in enumerate(face_group):
+                        lt = local_tris[gi]
+                        if lt == local_tri:
+                            output_ids[fi] = oid
+                            break
+                    tri_in_chunk += 1
+            for a, b, c in leftovers:
+                oid = ((chunk_idx + 1) << bits_per_w_index) | (0 << bits_per_index) | tri_in_chunk
+                for gi, fi in enumerate(face_group):
+                    lt = local_tris[gi]
+                    if lt == (a, b, c):
+                        output_ids[fi] = oid
+                        break
+                tri_in_chunk += 1
+
+        shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
+        return shape, output_ids
 
     @property
     def vertices(self):

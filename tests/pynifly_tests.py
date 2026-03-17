@@ -3261,6 +3261,286 @@ def TEST_FO4_GEARDOOR_KEYSUPPORT():
             f"{name} z: coll {min(czs):.0f}..{max(czs):.0f} vs mesh {min(mzs):.0f}..{max(mzs):.0f}"
 
 
+###################### MOPP collision tests #############################
+
+def TEST_MOPP_COMPILER_BASIC():
+    """MOPP compiler produces valid bytecode for a simple plane."""
+    from pyn.mopp_compiler import compile_mopp, disassemble_mopp
+
+    verts = [(0, 0, 0), (0, 1, 0), (2, 0, 0), (2, 1, 0)]
+    tris = [(0, 3, 1), (0, 2, 3)]
+
+    code, origin, scale = compile_mopp(verts, tris, radius=0.1)
+
+    assert TT.is_gt(len(code), 0, "MOPP bytecode is non-empty")
+    assert TT.is_gt(scale, 0, "MOPP scale is positive")
+
+    # Origin should be min vertex - radius
+    assert TT.is_equiv(origin[0], -0.1, "Origin X = min_x - radius", e=0.01)
+    assert TT.is_equiv(origin[1], -0.1, "Origin Y = min_y - radius", e=0.01)
+    assert TT.is_equiv(origin[2], -0.1, "Origin Z = min_z - radius", e=0.01)
+
+    # Disassemble should produce readable output
+    lines = disassemble_mopp(code, origin, scale)
+    assert TT.is_gt(len(lines), 0, "Disassembly produces lines")
+
+    # Should have FILTER nodes and LEAF nodes
+    has_filter = any("FILTER" in line for line in lines)
+    has_leaf = any("LEAF" in line for line in lines)
+    assert has_filter, "Disassembly contains FILTER nodes"
+    assert has_leaf, "Disassembly contains LEAF nodes"
+    log.debug("Disassembly:\n" + "\n".join(lines))
+
+
+def TEST_MOPP_COMPILER_BOX():
+    """MOPP compiler handles a box mesh (12 triangles) correctly."""
+    from pyn.mopp_compiler import compile_mopp, disassemble_mopp
+
+    verts = [
+        (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+        (-1, -1,  1), (1, -1,  1), (1, 1,  1), (-1, 1,  1),
+    ]
+    tris = [
+        (0,1,2), (0,2,3), (4,6,5), (4,7,6),
+        (0,4,5), (0,5,1), (2,6,7), (2,7,3),
+        (0,3,7), (0,7,4), (1,5,6), (1,6,2),
+    ]
+
+    code, origin, scale = compile_mopp(verts, tris, radius=0.005)
+    assert TT.is_gt(len(code), 0, "Box MOPP bytecode is non-empty")
+
+    # Should reference all 12 triangles via LEAF nodes
+    lines = disassemble_mopp(code, origin, scale)
+    leaf_lines = [l for l in lines if "LEAF" in l]
+    assert TT.is_eq(len(leaf_lines), 12, "Box MOPP has 12 leaf nodes")
+    log.debug("Box disassembly:\n" + "\n".join(lines))
+
+
+def TEST_MOPP_COMPILER_CUSTOM_IDS():
+    """MOPP compiler uses custom output IDs when provided."""
+    from pyn.mopp_compiler import compile_mopp, disassemble_mopp
+
+    verts = [(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)]
+    tris = [(0, 1, 2), (1, 3, 2)]
+    output_ids = [0x00040000, 0x00060001]
+
+    code, origin, scale = compile_mopp(verts, tris, radius=0.005,
+                                        output_ids=output_ids)
+    lines = disassemble_mopp(code)
+
+    # LEAF nodes should reference our custom output IDs
+    has_040000 = any("00040000" in l for l in lines)
+    has_060001 = any("00060001" in l for l in lines)
+    assert has_040000, "MOPP references output ID 0x00040000"
+    assert has_060001, "MOPP references output ID 0x00060001"
+    log.debug("Custom ID disassembly:\n" + "\n".join(lines))
+
+
+def TEST_MOPP_DISASSEMBLE_WIKI_EXAMPLE():
+    """MOPP disassembler correctly decodes the wiki example bytecode."""
+    from pyn.mopp_compiler import disassemble_mopp
+
+    # Wiki DoublePlane MOPP data
+    mopp_hex = "28002627 00FF2600 9211926B 0C188D72 04520600 05520400 04185738 04520400 00520600 01"
+    mopp_bytes = bytes.fromhex(mopp_hex.replace(' ', ''))
+
+    lines = disassemble_mopp(mopp_bytes)
+    # 3 filters + 3 splits (each with 2 "if" lines) + 4 leaves = 16 lines
+    assert TT.is_gt(len(lines), 10, f"Wiki example has {len(lines)} lines (tree format)")
+
+    # First instruction should be FILTER Z
+    assert "FILTER Z" in lines[0], f"First instruction is FILTER Z: {lines[0]}"
+    # Should have SPLIT nodes with indented children
+    split_lines = [l for l in lines if "SPLIT " in l and "if " not in l]
+    assert TT.is_eq(len(split_lines), 3, "Wiki example has 3 split nodes")
+    log.debug("Wiki example:\n" + "\n".join(lines))
+
+
+def TEST_TRI_STRIP_BASIC():
+    """Triangle stripification produces valid strips."""
+    from pyn.tri_strip import stripify
+
+    # Quad: two triangles sharing an edge
+    tris = [(0, 1, 2), (2, 1, 3)]
+    strips, leftovers = stripify(tris)
+
+    total = sum(len(s) - 2 for s in strips) + len(leftovers)
+    assert TT.is_eq(total, 2, "All 2 triangles accounted for")
+    assert TT.is_eq(len(leftovers), 0, "No leftovers for a quad")
+    assert TT.is_gt(len(strips), 0, "At least one strip")
+    assert TT.is_gt(len(strips[0]), 3, "Strip has at least 4 verts (2 tris)")
+
+
+@test_category("SKYRIM", "MOPP")
+def TEST_SKYRIM_LE_MOPP_IMPORT():
+    """Import a Skyrim LE MOPP collision (bhkPackedNiTriStripsShape)."""
+    nif = NifFile(r"tests/Skyrim/noblecrate01.nif")
+    root = nif.root
+    c = root.collision_object
+    assert c is not None, "Root has collision object"
+
+    cb = c.body
+    assert cb is not None, "Collision object has a body"
+
+    cs = cb.shape
+    assert cs is not None, "Rigid body has a shape"
+    assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape", "Shape is MOPP")
+
+    child = cs.child
+    assert child is not None, "MOPP has child shape"
+    assert child.blockname in ("bhkPackedNiTriStripsShape", "bhkCompressedMeshShape"), \
+        f"Child is a known MOPP child type, got {child.blockname}"
+
+    verts = child.vertices
+    tris = child.triangles
+    assert TT.is_gt(len(verts), 0, "MOPP child shape has vertices")
+    assert TT.is_gt(len(tris), 0, "MOPP child shape has triangles")
+    log.debug(f"Skyrim LE noblecrate01: {child.blockname}, {len(verts)} verts, {len(tris)} tris")
+
+
+@test_category("SKYRIM", "MOPP")
+def TEST_MOPP_ROUNDTRIP_LE():
+    """Round-trip MOPP write for Skyrim LE: create NIF with MOPP, read it back."""
+    # Simple box in Havok space
+    havok_verts = [
+        (-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
+        (-0.5, -0.5,  0.5), (0.5, -0.5,  0.5), (0.5, 0.5,  0.5), (-0.5, 0.5,  0.5),
+    ]
+    tris = [
+        (0,1,2), (0,2,3), (4,6,5), (4,7,6),
+        (0,4,5), (0,5,1), (2,6,7), (2,7,3),
+        (0,3,7), (0,7,4), (1,5,6), (1,6,2),
+    ]
+
+    outfile = _test_file(r"tests/Out/TEST_MOPP_ROUNDTRIP_LE.nif")
+    outnif = NifFile()
+    outnif.initialize("SKYRIM", outfile)
+
+    # Create a dummy shape so the root node exists
+    out_shape = outnif.createShapeFromData(
+        "TestCube",
+        [(v[0]*70, v[1]*70, v[2]*70) for v in havok_verts],
+        tris,
+        [[0.0, 0.0]] * len(havok_verts),
+        [(0, 0, 1)] * len(havok_verts),
+        parent=outnif.root)
+
+    # Add collision: collision object → rigid body → MOPP shape
+    coll = outnif.root.add_collision(None)
+    rb_props = bhkWorldObject.get_buffer('bhkRigidBody')
+    rb = coll.add_body(rb_props)
+    mopp = bhkMoppBvTreeShape.Create(
+        outnif, havok_verts, tris, "SKYRIM", radius=0.1, parent=rb)
+
+    outnif.save()
+
+    # Read back
+    check = NifFile(outfile)
+    c = check.root.collision_object
+    assert c is not None, "Reloaded nif has collision object"
+    cb = c.body
+    assert cb is not None, "Collision object has body"
+    cs = cb.shape
+    assert cs is not None, "Body has shape"
+    assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape", "Shape is MOPP")
+
+    child = cs.child
+    assert child is not None, "MOPP has child"
+    assert child.blockname in ("bhkPackedNiTriStripsShape", "bhkCompressedMeshShape"), \
+        f"Child is a known MOPP child type, got {child.blockname}"
+
+    verts_back = child.vertices
+    tris_back = child.triangles
+    assert TT.is_eq(len(verts_back), len(havok_verts),
+                    f"Vertex count preserved: {len(verts_back)}")
+    assert TT.is_eq(len(tris_back), len(tris),
+                    f"Triangle count preserved: {len(tris_back)}")
+    log.debug(f"Round-trip LE: {len(verts_back)} verts, {len(tris_back)} tris")
+
+
+@test_category("SKYRIM", "MOPP")
+def TEST_MOPP_DUMP_NOBLECRATE():
+    """Dump and compare MOPP bytecode from LE and SE noblecrate01 files."""
+    from pyn.mopp_compiler import disassemble_mopp
+
+    for label, path in [("LE", r"tests/Skyrim/noblecrate01.nif"),
+                         ("SE", r"tests/SkyrimSE/noblecrate01.nif")]:
+        nif = NifFile(path)
+        root = nif.root
+        c = root.collision_object
+        assert c is not None, f"{label}: Root has collision object"
+        cb = c.body
+        cs = cb.shape
+        assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape",
+                        f"{label}: Shape is MOPP")
+
+        mopp_bytes, origin, scale = cs.mopp_data
+        assert TT.is_gt(len(mopp_bytes), 0, f"{label}: MOPP bytecode non-empty")
+
+        print(f"\n=== {label} noblecrate01 MOPP ({len(mopp_bytes)} bytes) ===")
+        print(f"Origin: ({origin[0]:.4f}, {origin[1]:.4f}, {origin[2]:.4f})")
+        print(f"Scale: {scale:.2f}")
+        lines = disassemble_mopp(mopp_bytes, origin, scale)
+        for line in lines:
+            print(f"  {line}")
+
+
+def TEST_MOPP_VERIFY_COMPILER():
+    """Verify our MOPP compiler produces correct trees via walk-based testing."""
+    from pyn.mopp_compiler import compile_mopp
+    from .mopp_verifier import verify_all
+
+    # Box mesh
+    verts = [
+        (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+        (-1, -1,  1), (1, -1,  1), (1, 1,  1), (-1, 1,  1),
+    ]
+    tris = [
+        (0,1,2), (0,2,3), (4,6,5), (4,7,6),
+        (0,4,5), (0,5,1), (2,6,7), (2,7,3),
+        (0,3,7), (0,7,4), (1,5,6), (1,6,2),
+    ]
+    radius = 0.005
+    output_ids = list(range(len(tris)))
+
+    code, origin, scale = compile_mopp(verts, tris, radius=radius,
+                                        output_ids=output_ids)
+
+    # Derive largest_dim the same way the compiler does
+    xs = [v[0] for tri in tris for i in tri for v in [verts[i]]]
+    ys = [v[1] for tri in tris for i in tri for v in [verts[i]]]
+    zs = [v[2] for tri in tris for i in tri for v in [verts[i]]]
+    largest_dim = max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs)) + 2*radius
+
+    passed, messages = verify_all(code, origin, largest_dim,
+                                   verts, tris, output_ids, radius)
+    for m in messages:
+        log.debug(m)
+    assert passed, "MOPP compiler correctness check failed:\n" + "\n".join(messages)
+
+
+def TEST_MOPP_VERIFY_PLANE():
+    """Verify MOPP compiler on a 2-triangle plane."""
+    from pyn.mopp_compiler import compile_mopp
+    from .mopp_verifier import verify_correctness
+
+    verts = [(0, 0, 0), (0, 1, 0), (2, 0, 0), (2, 1, 0)]
+    tris = [(0, 3, 1), (0, 2, 3)]
+    radius = 0.1
+    output_ids = [0, 1]
+
+    code, origin, scale = compile_mopp(verts, tris, radius=radius,
+                                        output_ids=output_ids)
+    largest_dim = max(2, 1, 0) + 2 * radius  # X is largest = 2.2
+
+    passed, messages = verify_correctness(code, origin, largest_dim,
+                                           verts, tris, output_ids, radius,
+                                           samples_per_tri=50)
+    for m in messages:
+        log.debug(m)
+    assert passed, "Plane MOPP correctness failed:\n" + "\n".join(messages)
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
