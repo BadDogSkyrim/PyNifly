@@ -5877,6 +5877,80 @@ def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     assert TT.is_equiv(max(chk_zs), max(orig_zs), "Z max preserved", e=0.1)
 
 
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_SHOTGUN_BARREL():
+    """FO4 bhkPhysicsSystem: shotgun barrel collision sits near the visual mesh.
+
+    CombatShotgunBarrel_1.nif has a collision that should align with the barrel
+    visual mesh (~21 BU long along Y).  Import, verify the collision bounds are
+    close to the visual mesh, export, reimport and check the round-trip.
+    """
+    testfile = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgunBarrel_1.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 create_bones=False,
+                                 rename_bones=False)
+
+    # Find the visual meshes (the NIF has two: barrel body and a smaller part)
+    barrel_meshes = [o for o in bpy.data.objects
+                     if o.type == 'MESH' and o.name.startswith('CombatShotgunBarrel:')]
+    assert TT.is_gt(len(barrel_meshes), 0, "Barrel visual meshes exist")
+
+    # Find the collision shape
+    physics_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_gt(len(physics_shapes), 0, "bhkPhysicsSystem collision imported")
+
+    coll_obj = physics_shapes[0]
+    assert TT.is_eq(coll_obj.type, 'MESH', "Collision object is a mesh")
+    assert TT.is_gt(len(coll_obj.data.vertices), 0, "Collision mesh has vertices")
+
+    def world_bounds(ob):
+        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
+        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
+        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+
+    def combined_bounds(objs):
+        all_vs = []
+        for ob in objs:
+            all_vs.extend(ob.matrix_world @ v.co for v in ob.data.vertices)
+        xs = [v.x for v in all_vs]; ys = [v.y for v in all_vs]; zs = [v.z for v in all_vs]
+        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+
+    mx0, mx1, my0, my1, mz0, mz1 = combined_bounds(barrel_meshes)
+    cx0, cx1, cy0, cy1, cz0, cz1 = world_bounds(coll_obj)
+
+    tol = 5.0
+    assert TT.is_lt(abs(cx0 - mx0), tol, "Collision x-min near mesh x-min")
+    assert TT.is_lt(abs(cx1 - mx1), tol, "Collision x-max near mesh x-max")
+    assert TT.is_lt(abs(cy0 - my0), tol, "Collision y-min near mesh y-min")
+    assert TT.is_lt(abs(cy1 - my1), tol, "Collision y-max near mesh y-max")
+    assert TT.is_lt(abs(cz0 - mz0), tol, "Collision z-min near mesh z-min")
+    assert TT.is_lt(abs(cz1 - mz1), tol, "Collision z-max near mesh z-max")
+
+    # Barrel NIF has child connect points, so collision uses pynCollisionTarget
+    # (custom property) rather than a constraint.
+    coll_targets = [obj for obj in bpy.data.objects
+                    if obj.get('pynCollisionTarget') == coll_obj.name]
+    assert TT.is_gt(len(coll_targets), 0, "pynCollisionTarget set for collision")
+
+    # ---- Export and round-trip verify ----------------------------------------
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_SHOTGUN_BARREL.nif")
+    orig_nvert = len(coll_obj.data.vertices)
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+
+    bpy.ops.import_scene.pynifly(filepath=outfile, create_collection=True)
+
+    chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_gt(len(chk_shapes), 0, "Round-trip preserves collision shape")
+
+    chk = chk_shapes[0]
+    assert TT.is_eq(len(chk.data.vertices), orig_nvert, "Vertex count preserved")
+
+
 @TT.category('FO4', 'CONNECTPOINT')
 def TEST_CONNECT_POINT():
     """Connect points import/export correctly"""
@@ -6029,6 +6103,45 @@ def TEST_CONNECT_WEAPON_PART():
     assert TT.is_equiv(barrel_min_y, barrelpcp.location.y+0.5, "Barrel location", e=0.5)
     assert TT.is_equiv(barrel_max_y-barrel_min_y, 21, "Barrel length", e=1.0)
 
+    # Barrel collision follows the barrel, not left behind at the origin.
+    # The barrel NIF has two meshes; the collision covers both, so compare
+    # against combined bounds of all barrel meshes.
+    barrel_meshes = [o for o in bpy.data.objects
+                     if o.type == 'MESH' and o.name.startswith('CombatShotgunBarrel:')]
+    all_barrel_ys = []
+    for m in barrel_meshes:
+        all_barrel_ys.extend((m.matrix_world @ v.co).y for v in m.data.vertices)
+    all_min_y = min(all_barrel_ys)
+    all_max_y = max(all_barrel_ys)
+
+    # The barrel is in a constrained system (C-Barrel constrained to P-Barrel),
+    # so the collision should be parented to C-Barrel and discovered via
+    # custom property rather than a constraint.
+    barrel_coll = TTB.find_object('bhkPhysicsSystem.001')
+    assert TT.is_neq(barrel_coll, None, "Barrel collision exists")
+    assert TT.is_eq(barrel_coll.parent, barrelccp,
+                     "Barrel collision parented to child connect point")
+
+    # Barrel root should have pynCollisionTarget instead of constraint
+    barrel_root = TTB.find_object('CombatShotgunBarrel:ROOT')
+    barrel_constrs = [c for c in barrel_root.constraints
+                      if c.name == 'bhkCollisionConstraint']
+    assert TT.is_eq(len(barrel_constrs), 0,
+                     "No bhkCollisionConstraint in constrained system")
+    assert TT.is_neq(barrel_root.get('pynCollisionTarget'), None,
+                      "pynCollisionTarget property set")
+
+    coll_min_y = min((barrel_coll.matrix_world @ v.co).y
+                     for v in barrel_coll.data.vertices)
+    coll_max_y = max((barrel_coll.matrix_world @ v.co).y
+                     for v in barrel_coll.data.vertices)
+    log.debug(f"Barrel meshes y=[{all_min_y:.2f}, {all_max_y:.2f}], "
+              f"collision y=[{coll_min_y:.2f}, {coll_max_y:.2f}]")
+    assert TT.is_lt(abs(coll_min_y - all_min_y), 5.0,
+                     "Collision y-min near barrel meshes y-min")
+    assert TT.is_lt(abs(coll_max_y - all_max_y), 5.0,
+                     "Collision y-max near barrel meshes y-max")
+
     BD.ObjectSelect([barrelpcp, magpcp, scopepcp], active=True)
     bpy.ops.import_scene.pynifly(filepath=partfile2, 
                                  create_bones=False, 
@@ -6036,10 +6149,36 @@ def TEST_CONNECT_WEAPON_PART():
                                  create_collection=True)
     
     scopeccp = TTB.find_object('BSConnectPointChildren::C-Scope')
-    assert scopeccp, f"Scope's child connect point found {scopeccp}"
-    assert scopeccp.constraints['Copy Transforms'].target == scopepcp, \
-        f"Child connect point connected to parent connect point: {scopeccp.constraints['Copy Transforms'].target}"
-    
+    assert TT.is_neq(scopeccp, None, "Scope child connect point found")
+    assert TT.is_eq(scopeccp.constraints['Copy Transforms'].target, scopepcp,
+                     "Scope child CP connected to parent CP")
+
+    # Sight collision covers the FrontSight005:0 mesh
+    frontsight = TTB.find_object('FrontSight005:0')
+    assert TT.is_neq(frontsight, None, "FrontSight005:0 mesh exists")
+    sight_colls = [o for o in bpy.data.objects
+                   if o.name.startswith('bhkPhysicsSystem')
+                   and o.get('pynCollisionShapeType')
+                   and o.parent == scopeccp]
+    assert TT.is_gt(len(sight_colls), 0, "Sight has collision under scope CP")
+    sight_coll = sight_colls[0]
+
+    def world_bounds_y(ob):
+        ys = [(ob.matrix_world @ v.co).y for v in ob.data.vertices]
+        return min(ys), max(ys)
+
+    fs_min_y, fs_max_y = world_bounds_y(frontsight)
+    sc_min_y, sc_max_y = world_bounds_y(sight_coll)
+    log.debug(f"FrontSight005 y=[{fs_min_y:.2f}, {fs_max_y:.2f}], "
+              f"sight collision y=[{sc_min_y:.2f}, {sc_max_y:.2f}], "
+              f"shape_type={sight_coll.get('pynCollisionShapeType')}, "
+              f"parent={sight_coll.parent}, "
+              f"matrix_world={sight_coll.matrix_world}")
+    assert TT.is_lt(abs(sc_min_y - fs_min_y), 5.0,
+                     "Sight collision y-min near FrontSight005 y-min")
+    assert TT.is_lt(abs(sc_max_y - fs_max_y), 5.0,
+                     "Sight collision y-max near FrontSight005 y-max")
+
 
 @TT.category('FO4', 'CONNECTPOINT')
 def TEST_CONNECT_IMPORT_MULT():

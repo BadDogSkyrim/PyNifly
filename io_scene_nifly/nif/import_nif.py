@@ -1639,9 +1639,17 @@ class NifImporter():
                 self.controller_mgr.import_controller(
                     self.nif.rootNode.controller, self.root_object, self.root_object)
 
+        if not imp_mesh_only:
             cp = self.connect_points.child_in_nif(self.nif)
             if cp:
                 self.root_object.parent = cp.blender_obj
+
+                # Parent collision objects under the child connect point.
+                # The collision already has the NIF node's world transform
+                # as its matrix_world (set via body_xf = node_xf).
+                for o in getattr(self, '_collision_objects', []):
+                    if o.parent is None:
+                        o.parent = cp.blender_obj
 
         # Anything not yet parented gets put under the root.
         for o in orphan_shapes:
@@ -1772,10 +1780,21 @@ class NifImporter():
         self.connect_points.connect_all()
 
         # Re-apply bone poses at the very end. Earlier calls to set_bone_poses
-        # get wiped whenever subsequent import steps enter edit mode. Collision
-        # constraints use influence=0 so they won't override these poses.
+        # get wiped whenever subsequent import steps enter edit mode.
+
         for arma in self.target_armatures:
             self.set_all_bone_poses(arma, self.nif)
+
+        # Enable influence on standard bone collision constraints.
+        # Only bhkCollisionObject drives the bone; blend, SP, and other
+        # collision types stay at influence=0.
+        for arma in self.target_armatures:
+            for pb in arma.pose.bones:
+                for c in pb.constraints:
+                    if (c.name == 'bhkCollisionConstraint'
+                            and c.target
+                            and c.target.get('pynCollisionBlockname') == 'bhkCollisionObject'):
+                        c.influence = 1.0
 
 
     @classmethod

@@ -26,8 +26,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_COLLISION_FO4_DRUMAG, ],
+    target_tests=[ TEST_COLLISION_BOW, ], # TEST_PRETTY_BONE_POSITIONS, TEST_COLLISION_BOW, TEST_COLLISION_BOW2, TEST_COLLISION_BOW3,  
     # categories={'FO4'},
     test_all=True,
-    stop_on_fail=True,
+    stop_on_fail=False,
     )

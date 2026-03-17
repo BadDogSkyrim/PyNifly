@@ -46,15 +46,6 @@ CAPSULE_SHAPE_IGNORE = ['point1', 'point2']
 COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5) # Default color
 
 
-def _is_identity_rotation(rot, tol=1e-4):
-    """Return True if the 3x3 rotation matrix is close to identity."""
-    for i in range(3):
-        for j in range(3):
-            expected = 1.0 if i == j else 0.0
-            if abs(rot[i][j] - expected) > tol:
-                return False
-    return True
-
 
 def _get_or_create_push_nodegroup():
     """Return a Geometry Nodes group that expands a convex hull by Radius.
@@ -565,15 +556,14 @@ class CollisionHandler():
         leaf_entries = []  # list of (leaf_shape, parentxf, apply_transform)
         for body_shape in bodies_to_import:
             is_compound = body_shape.shape_type == 'compound'
-            body_transform = body_shape.transform
-            body_has_rotation = (body_transform is not None
-                                 and not _is_identity_rotation(
-                                     body_transform.rotation))
-
             if single_body:
-                # Per-body mode: use node_xf for identity-rotation bodies.
-                body_xf = import_xf if body_has_rotation else node_xf
-                apply_body = is_compound or body_has_rotation
+                # Per-body mode.  Use node_xf to position the collision
+                # at the NIF node's world location.  Standalone shape
+                # verts don't get the body rotation applied (it's Havok
+                # simulation metadata).  Compound children carry instance
+                # transforms that DO need applying.
+                body_xf = node_xf
+                apply_body = is_compound
             else:
                 # Bulk mode: always apply body transform (we don't have each
                 # node's world matrix, so use import_xf for all shapes).
@@ -829,6 +819,13 @@ class CollisionHandler():
                 return
         
         sh['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
+        sh['pynCollisionBlockname'] = c.blockname
+
+        # Track collision objects so they can be reparented when the root
+        # is connected via weapon-part connect points.
+        if not hasattr(parent_handler, '_collision_objects'):
+            parent_handler._collision_objects = []
+        parent_handler._collision_objects.append(sh)
 
         if parentObj:
             if parentObj.type == 'ARMATURE' and bone:
@@ -837,21 +834,28 @@ class CollisionHandler():
                     pb = parentObj.pose.bones[bn]
                     constr = pb.constraints.new(type='COPY_TRANSFORMS')
                     constr.target = sh
-                    # Zero influence so the constraint doesn't override the bone's
-                    # rest pose (especially with pretty rotations).  The exporter
-                    # discovers collisions by constraint type, not influence.
+                    constr.name = 'bhkCollisionConstraint'
+                    # Blend collisions are additive and don't reposition
+                    # bones.  Regular collisions start at 0 and get
+                    # enabled to 1 after bone poses are finalized.
                     constr.influence = 0.0
                 else:
                     importer.warn(f"Bone is missing: {bone.name}")
             else:
-                constr = parentObj.constraints.new('COPY_TRANSFORMS')
-                constr.target = sh
-                # For bone collisions and bhkNP multi-body systems, zero
-                # influence to avoid moving the parent. The exporter discovers
-                # collisions by constraint type, not influence.
-                if c.blockname == "bhkNPCollisionObject":
-                    constr.influence = 0.0
-            constr.name = 'bhkCollisionConstraint'
+                if importer.nif.connect_points_child:
+                    # NIF has child connect points — it's a weapon part
+                    # that will join a constrained system.  Use a custom
+                    # property instead of a constraint to avoid dep cycles
+                    # through the rigid body sim.
+                    parentObj['pynCollisionTarget'] = sh.name
+                else:
+                    constr = parentObj.constraints.new('COPY_TRANSFORMS')
+                    constr.target = sh
+                    # Multi-shape physics containers are too complex for
+                    # a single constraint to drive the mesh.
+                    if sh.type == 'EMPTY':
+                        constr.influence = 0.0
+                    constr.name = 'bhkCollisionConstraint'
 
         return sh
     
@@ -1294,14 +1298,18 @@ class CollisionHandler():
         targobj = obj
         if obj.type == 'ARMATURE':
             # For an armature, find collisions on the bones.
-            # collisions = []
             for pb in obj.pose.bones:
                 for c in pb.constraints:
                     if c.type == 'COPY_TRANSFORMS':
                         exporter.export_collision_object(pb, c.target)
         else:
-            # For a regular object, find collisions on the object itself.
+            # For a regular object, find collisions via constraint or
+            # custom property (used when part of a constrained system
+            # like weapon connect points, to avoid dep cycles).
             for c in obj.constraints:
                 if c.type == 'COPY_TRANSFORMS' and c.target:
                     exporter.export_collision_object(targobj, c.target)
+            coll_name = obj.get('pynCollisionTarget')
+            if coll_name and coll_name in bpy.data.objects:
+                exporter.export_collision_object(targobj, bpy.data.objects[coll_name])
 
