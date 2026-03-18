@@ -1671,15 +1671,16 @@ class NifImporter():
                 if tf and isinstance(tf, TriFile):
                     import_tri(tf, imported_meshes[0])
 
-        # Also import OSD if present
-        osd_path = Path(self.nif.filepath).with_suffix('.osd')
-        if osd_path.exists():
-            from ..osd.osdfile import OSDFile
-            from ..osd.import_osd import import_osd
-            osd = OSDFile.from_file(osd_path)
-            if osd.is_valid:
-                import_osd(osd, imported_meshes)
-                log.info(f"Imported OSD file: {osd_path.name}")
+        # Also import OSD if present (debug mode only)
+        if 'PYNIFLY_DEV_ROOT' in os.environ:
+            osd_path = Path(self.nif.filepath).with_suffix('.osd')
+            if osd_path.exists():
+                from ..osd.osdfile import OSDFile
+                from ..osd.import_osd import import_osd
+                osd = OSDFile.from_file(osd_path)
+                if osd.is_valid:
+                    import_osd(osd, imported_meshes)
+                    log.info(f"Imported OSD file: {osd_path.name}")
 
 
     def merge_shapes(self, filename, obj_list, new_filename, new_obj_list):

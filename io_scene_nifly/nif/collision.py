@@ -454,6 +454,15 @@ class CollisionHandler():
             obj = bpy.context.object
             obj.name = name
             obj.data.name = name
+            # Offset vertices by the body center rather than the object transform
+            # — a COPY_TRANSFORMS constraint links the parent node to this object,
+            # so matrix_world must stay at parentxf to avoid displacing the parent.
+            if s.transform is not None:
+                p = s.transform.position
+                offset = Vector((p[0]*sf, p[1]*sf, p[2]*sf))
+                if offset.length > 0.001:
+                    for v in obj.data.vertices:
+                        v.co += offset
             obj.matrix_world = parentxf.copy()
             for p in obj.data.polygons:
                 p.use_smooth = True
@@ -1273,7 +1282,7 @@ class CollisionHandler():
             targnode = self.nif.nodes[targobj.name]
 
         if coll.get('pynRigidBody') == 'bhkPhysicsSystem':
-            from ..pyn.bhk_autounpack import CollisionShape, PhysicsProps
+            from ..pyn.bhk_autounpack import CollisionShape, PhysicsProps, BodyTransform
             sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
 
             _SHAPE_TYPES = ('compressed_mesh', 'polytope', 'sphere')
@@ -1327,10 +1336,20 @@ class CollisionHandler():
                     if shape_type == 'sphere':
                         # Derive Havok radius from the Blender mesh dimensions.
                         sphere_r = max(obj.dimensions) / 2.0 / sf
+                        # The sphere center is baked into vertex positions;
+                        # recover it as the vertex centroid in Havok space.
+                        world_mat = self.export_xf @ obj.matrix_world
+                        vsum = Vector((0, 0, 0))
+                        for v in obj.data.vertices:
+                            vsum += world_mat @ v.co
+                        centroid = vsum / len(obj.data.vertices) / sf
+                        sphere_xf = BodyTransform(
+                            position=tuple(centroid),
+                            rotation=((1,0,0),(0,1,0),(0,0,1)))
                         shapes.append(CollisionShape(
                             shape_type='sphere',
                             name=obj.name,
-                            transform=None,
+                            transform=sphere_xf,
                             verts=[],
                             faces=[],
                             convex_radius=0.0,

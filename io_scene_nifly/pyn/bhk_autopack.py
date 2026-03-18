@@ -1564,7 +1564,9 @@ def pack_shapes(shapes) -> bytes:
         if s.shape_type == "polytope":
             return pack_convex_polytope(s.verts, s.faces, physics=physics)
         if s.shape_type == "sphere":
-            return pack_sphere(s.sphere_radius, physics=physics)
+            xf = s.transform
+            position = xf.position if xf is not None else (0, 0, 0)
+            return pack_sphere(s.sphere_radius, position=position, physics=physics)
 
     cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
     poly_list = [s for s in shapes if s.shape_type == "polytope"]
@@ -1582,7 +1584,7 @@ def pack_shapes(shapes) -> bytes:
     )
 
 
-def pack_sphere(radius: float, physics=None) -> bytes:
+def pack_sphere(radius: float, position=(0, 0, 0), physics=None) -> bytes:
     """Build Havok packfile bytes for a single hknpSphereShape.
 
     The sphere packfile is simpler than polytope — it has no
@@ -1590,6 +1592,7 @@ def pack_sphere(radius: float, physics=None) -> bytes:
 
     Args:
         radius: Sphere radius in Havok space.
+        position: (x, y, z) body center in Havok space.
         physics: Optional PhysicsProps for mass/inertia/material.
 
     Returns:
@@ -1614,6 +1617,11 @@ def pack_sphere(radius: float, physics=None) -> bytes:
     # ── PSD prefix: PSD + body_props + [dyn arrays] + BodyCInfo + ShapeEntry
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
+
+    # Patch BodyCInfo position (+0x30) with sphere center.
+    if position != (0, 0, 0):
+        struct.pack_into('<fff', data, body_cinfo_rel + 0x30,
+                         position[0], position[1], position[2])
 
     # ── hknpSphereShape (0x50 bytes) ──
     # Layout from reference (Poolball_Cue.nif):

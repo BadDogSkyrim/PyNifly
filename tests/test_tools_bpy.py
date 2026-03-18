@@ -172,6 +172,43 @@ def find_shape(name_prefix, collection=None, type='MESH'):
     return None
 
 
+def world_bounds(ob):
+    """Return world-space axis bounds as (xmin, xmax, ymin, ymax, zmin, zmax)."""
+    vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
+    xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
+    return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+
+
+def combined_world_bounds(objs):
+    """Return combined world-space axis bounds for multiple objects."""
+    all_vs = []
+    for ob in objs:
+        all_vs.extend(ob.matrix_world @ v.co for v in ob.data.vertices)
+    xs = [v.x for v in all_vs]; ys = [v.y for v in all_vs]; zs = [v.z for v in all_vs]
+    return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
+
+
+def assert_bounds_close(bounds_a, bounds_b, tol, label):
+    """Assert each of 6 axis bounds are within tol of each other.
+    bounds_a/b: (xmin, xmax, ymin, ymax, zmin, zmax).
+    """
+    names = ('x-min', 'x-max', 'y-min', 'y-max', 'z-min', 'z-max')
+    for i, name in enumerate(names):
+        assert abs(bounds_a[i] - bounds_b[i]) < tol, \
+            f"{label} {name}: {bounds_a[i]:.2f} vs {bounds_b[i]:.2f} (tol={tol})"
+
+
+def assert_bounds_overlap(bounds_a, bounds_b, tol, label):
+    """Assert bounds_a overlaps bounds_b on all 3 axes (with tolerance).
+    bounds_a/b: (xmin, xmax, ymin, ymax, zmin, zmax).
+    """
+    for axis, lo, hi in [('X', 0, 1), ('Y', 2, 3), ('Z', 4, 5)]:
+        assert bounds_a[hi] > bounds_b[lo] - tol, \
+            f"{label} {axis} max {bounds_a[hi]:.2f} should overlap {axis} min {bounds_b[lo]:.2f}"
+        assert bounds_a[lo] < bounds_b[hi] + tol, \
+            f"{label} {axis} min {bounds_a[lo]:.2f} should overlap {axis} max {bounds_b[hi]:.2f}"
+
+
 def get_obj_bbox(obj, worldspace=False, scale=1.0):
     """Return diagonal forming bounding box of Blender object"""
     if worldspace:

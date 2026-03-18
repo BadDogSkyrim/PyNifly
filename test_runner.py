@@ -26,8 +26,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_EMPTY_NODES , ], 
+    target_tests=[ TEST_HIGHTECH_FLOORLIGHT , ], 
     # categories={'FO4'},
-    test_all=False,
+    test_all=True,
     stop_on_fail=False,
     )

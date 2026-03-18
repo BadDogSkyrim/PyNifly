@@ -2382,8 +2382,7 @@ def TEST_ANIM_SHADER_GLOW():
     CHK.CheckNif(nout, source=testfile)
 
 
-@TT.category('ANIMATION', 'FO4')
-@TT.expect_errors( ('bhkPhysicsSystem decode failed: No geometry decoded',) )
+@TT.category('ANIMATION', 'FO4', 'PHYSICS')
 def TEST_HIGHTECH_FLOORLIGHT():
     testfile = TTB.test_file(r"tests\FO4\Workshop_HighTechLightFloor05_On.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_HIGHTECH_FLOORLIGHT.nif")
@@ -2398,25 +2397,38 @@ def TEST_HIGHTECH_FLOORLIGHT():
     assert 'Workshop_HighTechLightFloor05_On:0' in bpy.context.scene.objects
     light = bpy.context.scene.objects['Workshop_HighTechLightFloor05_On:0']
 
-    TT.assert_samemembers(bpy.data.actions.keys(), 
+    TT.assert_samemembers(bpy.data.actions.keys(),
                           ("On", "Off", "UnpoweredOn", "UnpoweredOff",),
                           "Sequences")
-    
+
 
     assert 'AddOnNode211' in bpy.context.scene.objects
     addon = bpy.context.scene.objects['AddOnNode211']
     TT.assert_eq(addon['pynBlockName'], 'BSValueNode', "Addon block name")
     TT.assert_eq(addon['value'], 211, "Addon value")
     TT.assert_eq(addon['pynValueNodeFlags'], '', "Addon flags")
-    TT.assert_eq(json.loads(addon['pynActionSlots']), 
+    TT.assert_eq(json.loads(addon['pynActionSlots']),
                  json.loads('{"UnpoweredOn": "AddOnNode211", "On": "AddOnNode211", '
                  '"Off": "AddOnNode211", "UnpoweredOff": "AddOnNode211"}'),
                  "Addon action slots")
 
+    # Sphere collision should be centered on the visual mesh, not at the origin.
+    coll_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
+    assert TT.is_eq(len(coll_shapes), 1, "One collision shape imported")
+    coll_obj = coll_shapes[0]
+    assert TT.is_eq(coll_obj.get('pynCollisionShapeType'), 'sphere',
+                     "Collision shape is a sphere")
+    mesh_bounds = TTB.world_bounds(light)
+    coll_bounds = TTB.world_bounds(coll_obj)
+    TTB.assert_bounds_overlap(coll_bounds, mesh_bounds, 5, "Sphere collision vs visual mesh")
+    # The mesh sits on the z=0 floor plane in NIF space; if both the mesh and
+    # collision are displaced upward by the body offset, this catches it.
+    assert TT.is_lt(mesh_bounds[4], 2.0, "Visual mesh z-min near floor (z≈0)")
+
 
     ### EXPORT ###
 
-    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if obj.get('pynRoot', False)], 
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if obj.get('pynRoot', False)],
                     active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile,
                                  export_animations=True)
@@ -5365,24 +5377,9 @@ def TEST_COLLISION_FO4_CAPSULE_STAIRS():
 
     # Combined bounds of all shapes must overlap the visual mesh on every axis.
     mesh_obj = bpy.data.objects["CapsuleExtStairsFree01:1"]
-    mxf = mesh_obj.matrix_world
-    mesh_xs = [(mxf @ v.co).x for v in mesh_obj.data.vertices]
-    mesh_ys = [(mxf @ v.co).y for v in mesh_obj.data.vertices]
-    mesh_zs = [(mxf @ v.co).z for v in mesh_obj.data.vertices]
-
-    all_cxs, all_cys, all_czs = [], [], []
-    for ps_obj in cm_shapes + poly_shapes:
-        pxf = ps_obj.matrix_world
-        all_cxs.extend((pxf @ v.co).x for v in ps_obj.data.vertices)
-        all_cys.extend((pxf @ v.co).y for v in ps_obj.data.vertices)
-        all_czs.extend((pxf @ v.co).z for v in ps_obj.data.vertices)
-
-    assert TT.is_gt(max(all_cxs), min(mesh_xs) - 5, "Collision X max overlaps mesh X min")
-    assert TT.is_lt(min(all_cxs), max(mesh_xs) + 5, "Collision X min overlaps mesh X max")
-    assert TT.is_gt(max(all_cys), min(mesh_ys) - 5, "Collision Y max overlaps mesh Y min")
-    assert TT.is_lt(min(all_cys), max(mesh_ys) + 5, "Collision Y min overlaps mesh Y max")
-    assert TT.is_gt(max(all_czs), min(mesh_zs) - 5, "Collision Z max overlaps mesh Z min")
-    assert TT.is_lt(min(all_czs), max(mesh_zs) + 5, "Collision Z min overlaps mesh Z max")
+    mesh_bounds = TTB.world_bounds(mesh_obj)
+    coll_bounds = TTB.combined_world_bounds(cm_shapes + poly_shapes)
+    TTB.assert_bounds_overlap(coll_bounds, mesh_bounds, 5, "Collision vs mesh")
 
     # ---- Export and round-trip verify ----------------------------------------
     bpy.ops.object.select_all(action='SELECT')
@@ -5440,21 +5437,16 @@ def TEST_COLLISION_FO4_DRUMAG():
     shell_obj = bpy.data.objects.get('ShotgunShell004:0')
     assert TT.is_neq(shell_obj, None, "ShotgunShell004:0 mesh exists")
 
-    def obj_world_bounds(ob):
-        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
-        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
-        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
-
-    sx0, sx1, sy0, sy1, sz0, sz1 = obj_world_bounds(shell_obj)
+    sx0, sx1, sy0, sy1, sz0, sz1 = TTB.world_bounds(shell_obj)
     sy_span = sy1 - sy0  # ≈ 6.148 Blender units
 
     # The shell-matching polytope is the smaller one (shell collision << drum magazine collision).
     def bbox_volume(ob):
-        b = obj_world_bounds(ob)
+        b = TTB.world_bounds(ob)
         return (b[1]-b[0]) * (b[3]-b[2]) * (b[5]-b[4])
 
     shell_poly = min(poly_shapes, key=bbox_volume)
-    px0, px1, py0, py1, pz0, pz1 = obj_world_bounds(shell_poly)
+    px0, px1, py0, py1, pz0, pz1 = TTB.world_bounds(shell_poly)
 
     # y-span should be within 2 Blender units of the shell mesh y-span (≈6.15 vs ≈5.47).
     assert TT.is_lt(abs((py1 - py0) - sy_span), 2.0,
@@ -5599,16 +5591,15 @@ def TEST_COLLISION_FO4_GEARDOOR():
 
     # Helper: check if any collision shape covers the given bounds on all 3 axes.
     def find_covering_collision(mesh_xs, mesh_ys, mesh_zs, tol=15.0):
+        mbounds = (min(mesh_xs), max(mesh_xs), min(mesh_ys), max(mesh_ys),
+                   min(mesh_zs), max(mesh_zs))
         for obj in coll_shapes:
-            vs = [obj.matrix_world @ v.co for v in obj.data.vertices]
-            if not vs:
+            if not obj.data.vertices:
                 continue
-            cxs = [v.x for v in vs]
-            cys = [v.y for v in vs]
-            czs = [v.z for v in vs]
-            if (min(cxs) <= min(mesh_xs) + tol and max(cxs) >= max(mesh_xs) - tol
-                    and min(cys) <= min(mesh_ys) + tol and max(cys) >= max(mesh_ys) - tol
-                    and min(czs) <= min(mesh_zs) + tol and max(czs) >= max(mesh_zs) - tol):
+            cb = TTB.world_bounds(obj)
+            if (cb[0] <= mbounds[1] + tol and cb[1] >= mbounds[0] - tol
+                    and cb[2] <= mbounds[3] + tol and cb[3] >= mbounds[2] - tol
+                    and cb[4] <= mbounds[5] + tol and cb[5] >= mbounds[4] - tol):
                 return True
         return False
 
@@ -5659,21 +5650,9 @@ def TEST_COLLISION_FO4_VAULT_SHELF():
     mesh_obj = bpy.data.objects.get('Vault_Shelf_02:1 - L2_Vault_Shelf_02:1')
     assert TT.is_neq(mesh_obj, None, "Visual mesh Vault_Shelf_02:1 - L2_Vault_Shelf_02:1 exists")
 
-    def world_bounds(ob):
-        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
-        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
-        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
-
-    mx0, mx1, my0, my1, mz0, mz1 = world_bounds(mesh_obj)
-    cx0, cx1, cy0, cy1, cz0, cz1 = world_bounds(coll_obj)
-
-    tol = 5.0  # Blender units
-    assert TT.is_lt(abs(cx0 - mx0), tol, "Collision x-min close to mesh x-min")
-    assert TT.is_lt(abs(cx1 - mx1), tol, "Collision x-max close to mesh x-max")
-    assert TT.is_lt(abs(cy0 - my0), tol, "Collision y-min close to mesh y-min")
-    assert TT.is_lt(abs(cy1 - my1), tol, "Collision y-max close to mesh y-max")
-    assert TT.is_lt(abs(cz0 - mz0), tol, "Collision z-min close to mesh z-min")
-    assert TT.is_lt(abs(cz1 - mz1), tol, "Collision z-max close to mesh z-max")
+    mesh_bounds = TTB.world_bounds(mesh_obj)
+    coll_bounds = TTB.world_bounds(coll_obj)
+    TTB.assert_bounds_close(coll_bounds, mesh_bounds, 5.0, "Collision vs mesh")
 
     # ---- Export and round-trip verify ----------------------------------------
     bpy.ops.object.select_all(action='SELECT')
@@ -5694,10 +5673,10 @@ def TEST_COLLISION_FO4_VAULT_SHELF():
 
     rt_coll = chk_cm[0]
     rt_mesh = max(chk_mesh, key=lambda o: len(o.data.vertices))
-    *_, rc_zmin, rc_zmax = world_bounds(rt_coll)
-    *_, rm_zmin, rm_zmax = world_bounds(rt_mesh)
-    assert TT.is_lt(abs(rc_zmin - rm_zmin), tol, "Round-trip collision z-min close to mesh z-min")
-    assert TT.is_lt(abs(rc_zmax - rm_zmax), tol, "Round-trip collision z-max close to mesh z-max")
+    *_, rc_zmin, rc_zmax = TTB.world_bounds(rt_coll)
+    *_, rm_zmin, rm_zmax = TTB.world_bounds(rt_mesh)
+    assert TT.is_lt(abs(rc_zmin - rm_zmin), 5.0, "Round-trip collision z-min close to mesh z-min")
+    assert TT.is_lt(abs(rc_zmax - rm_zmax), 5.0, "Round-trip collision z-max close to mesh z-max")
 
 
 @TT.category('FO4', 'PHYSICS')
@@ -5728,13 +5707,8 @@ def TEST_COLLISION_FO4_CANDLE_BOTTLE():
     mesh_obj = bpy.data.objects.get('CandleBottle01:0')
     assert TT.is_neq(mesh_obj, None, "Visual mesh CandleBottle01:0 exists")
 
-    def world_bounds(ob):
-        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
-        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
-        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
-
-    _, _, _, _, mz0, mz1 = world_bounds(mesh_obj)
-    _, _, _, _, cz0, cz1 = world_bounds(coll_obj)
+    _, _, _, _, mz0, mz1 = TTB.world_bounds(mesh_obj)
+    _, _, _, _, cz0, cz1 = TTB.world_bounds(coll_obj)
 
     # Collision z-min must be near the mesh z-min (both near z=0).
     assert TT.is_lt(abs(cz0 - mz0), 5.0, "Collision z-min near mesh z-min")
@@ -5760,7 +5734,7 @@ def TEST_COLLISION_FO4_CANDLE_BOTTLE():
 
     chk_shapes = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')]
     assert TT.is_gt(len(chk_shapes), 0, "Round-trip preserves collision shape")
-    _, _, _, _, rz0, rz1 = world_bounds(chk_shapes[0])
+    _, _, _, _, rz0, rz1 = TTB.world_bounds(chk_shapes[0])
     assert TT.is_lt(abs(rz0 - mz0), 5.0, "Round-trip collision z-min near mesh z-min")
 
     # Check Flame:0 alpha threshold survived the round-trip.
@@ -5903,28 +5877,9 @@ def TEST_COLLISION_FO4_SHOTGUN_BARREL():
     assert TT.is_eq(coll_obj.type, 'MESH', "Collision object is a mesh")
     assert TT.is_gt(len(coll_obj.data.vertices), 0, "Collision mesh has vertices")
 
-    def world_bounds(ob):
-        vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
-        xs = [v.x for v in vs]; ys = [v.y for v in vs]; zs = [v.z for v in vs]
-        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
-
-    def combined_bounds(objs):
-        all_vs = []
-        for ob in objs:
-            all_vs.extend(ob.matrix_world @ v.co for v in ob.data.vertices)
-        xs = [v.x for v in all_vs]; ys = [v.y for v in all_vs]; zs = [v.z for v in all_vs]
-        return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
-
-    mx0, mx1, my0, my1, mz0, mz1 = combined_bounds(barrel_meshes)
-    cx0, cx1, cy0, cy1, cz0, cz1 = world_bounds(coll_obj)
-
-    tol = 5.0
-    assert TT.is_lt(abs(cx0 - mx0), tol, "Collision x-min near mesh x-min")
-    assert TT.is_lt(abs(cx1 - mx1), tol, "Collision x-max near mesh x-max")
-    assert TT.is_lt(abs(cy0 - my0), tol, "Collision y-min near mesh y-min")
-    assert TT.is_lt(abs(cy1 - my1), tol, "Collision y-max near mesh y-max")
-    assert TT.is_lt(abs(cz0 - mz0), tol, "Collision z-min near mesh z-min")
-    assert TT.is_lt(abs(cz1 - mz1), tol, "Collision z-max near mesh z-max")
+    mesh_bounds = TTB.combined_world_bounds(barrel_meshes)
+    coll_bounds = TTB.world_bounds(coll_obj)
+    TTB.assert_bounds_close(coll_bounds, mesh_bounds, 5.0, "Collision vs barrel mesh")
 
     # Barrel NIF has child connect points, so collision uses pynCollisionTarget
     # (custom property) rather than a constraint.
@@ -6163,12 +6118,8 @@ def TEST_CONNECT_WEAPON_PART():
     assert TT.is_gt(len(sight_colls), 0, "Sight has collision under scope CP")
     sight_coll = sight_colls[0]
 
-    def world_bounds_y(ob):
-        ys = [(ob.matrix_world @ v.co).y for v in ob.data.vertices]
-        return min(ys), max(ys)
-
-    fs_min_y, fs_max_y = world_bounds_y(frontsight)
-    sc_min_y, sc_max_y = world_bounds_y(sight_coll)
+    _, _, fs_min_y, fs_max_y, _, _ = TTB.world_bounds(frontsight)
+    _, _, sc_min_y, sc_max_y, _, _ = TTB.world_bounds(sight_coll)
     log.debug(f"FrontSight005 y=[{fs_min_y:.2f}, {fs_max_y:.2f}], "
               f"sight collision y=[{sc_min_y:.2f}, {sc_max_y:.2f}], "
               f"shape_type={sight_coll.get('pynCollisionShapeType')}, "
