@@ -1067,23 +1067,14 @@ class CollisionHandler():
 
         # Triangulate using ear-clipping (preserves original vertex indices)
         tris = []
-        tri_to_poly = []  # map each output tri to its source polygon index
-        for pi, poly in enumerate(mesh.polygons):
+        for poly in mesh.polygons:
             if len(poly.vertices) == 3:
                 tris.append(tuple(poly.vertices))
-                tri_to_poly.append(pi)
-            elif len(poly.vertices) == 4:
+            else:
                 vi = list(poly.vertices)
                 coords = [mesh.vertices[i].co for i in vi]
                 for a, b, c in triangulate(coords):
                     tris.append((vi[a], vi[b], vi[c]))
-                    tri_to_poly.append(pi)
-            elif len(poly.vertices) > 4:
-                vi = list(poly.vertices)
-                coords = [mesh.vertices[i].co for i in vi]
-                for a, b, c in triangulate(coords):
-                    tris.append((vi[a], vi[b], vi[c]))
-                    tri_to_poly.append(pi)
 
         if not tris:
             self.warn("bhkMoppBvTreeShape: no triangles to export")
