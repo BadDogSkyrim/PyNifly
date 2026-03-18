@@ -16,8 +16,10 @@ Full documentation in the wiki.
 * Handles Skyrim and FO4 partitions and FO4 segments
 * Handles skinned and unskinned meshes correctly. Exports head parts to SE correctly.
 * Handles shaders correctly. Set them up in Blender and export.
+* Handles collisions. Represents them as meshes in Blender.
+* Handles animations. Direct import/export to hkx files for FO4, SE, and LE.
 * Special handling for FO4 connect points on weapons, armor, and workshop parts.
-* Some support for animations in nifs.
+* Handles animated nifs.
 * Import-and-forget. What you import will behave correctly on export without fiddling.
 
 **Background**
@@ -28,10 +30,24 @@ BS/OS has separated much of their code to deal with nif files into a separate li
 
 My interest is primarily Skyrim, Skyrim SE, and Fallout 4 so I'll be focusing on supporting those games. 
 
-**Status**
+**Credits**
 
-Import/Export of most nifs is complete works well. 
+_Core technology_
 
-Import/Export of animations is currently under development.
+- Ousnius for the nifly layer PyNifly is based on
 
-Import/Export of Skyrim collisions is complete except for MOPP collisions. Those may never happen. Fallout 4 collisions are not implemented but there's a tool that ships with Fallout to help with that. Check the Collisions page of the wiki (https://github.com/BadDogSkyrim/PyNifly/wiki/Collisions) for more.
+_Critical information on nif/HKX encoding_
+
+- Candoran2 
+- DagobaKing
+- Nikolivanov
+- Nitaigao
+- PredatorCZ
+
+_Contributions to the tool_
+
+- bitbanger
+- jgernandt 
+- Reddraconi
+- ShroomTip
+- ZenithVal
