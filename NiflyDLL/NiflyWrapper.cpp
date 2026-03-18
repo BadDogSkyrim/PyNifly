@@ -4098,7 +4098,11 @@ NIFLY_API int getCollCompressedMeshTriMaterials(void* nifref, int dataIndex, uin
     int j = 0;
     for (auto& bt : data->bigTris) {
         if (j >= buflen) break;
-        buf[j++] = bt.material;
+        // bt.material is an index into the materials array
+        uint32_t mat = 0;
+        if (bt.material < data->materials.size())
+            mat = data->materials[bt.material].material;
+        buf[j++] = mat;
     }
     for (auto& chunk : data->chunks) {
         uint32_t mat = 0;

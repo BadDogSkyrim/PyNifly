@@ -650,6 +650,9 @@ class bhkMoppBvTreeShape(bhkShape):
 
         # Create the appropriate child shape
         if game in ('SKYRIM',):
+            if face_materials and len(set(face_materials)) > 1:
+                log.warning("Skyrim LE does not support per-chunk materials; "
+                            "using default material")
             child = bhkPackedNiTriStripsShape.Create(
                 file, verts, tris, radius=radius, material=material,
                 parent=mopp_shape)
@@ -905,6 +908,16 @@ class bhkCompressedMeshShape(bhkShape):
                 tz = min(v[2] for v in local_verts)
             else:
                 tx = ty = tz = 0.0
+
+            # Check spatial extent fits in uint16 quantization (max 65.535 units)
+            if local_verts:
+                extent = max(
+                    max(v[a] for v in local_verts) - min(v[a] for v in local_verts)
+                    for a in range(3))
+                if extent > 65.535:
+                    log.warning(
+                        f"Collision chunk {chunk_idx} spans {extent:.1f} Havok units "
+                        f"(max 65.535); vertices will be clamped")
 
             quant_verts = []
             for x, y, z in local_verts:

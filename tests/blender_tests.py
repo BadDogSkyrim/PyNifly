@@ -8125,6 +8125,7 @@ def TEST_FULL_PRECISION():
 
 
 @TT.category('SKYRIM')
+@TT.expect_errors(("Skyrim LE does not support per-chunk materials",))
 def TEST_EMPTY_NODES():
     """Empty nodes export with the rest."""
     testfile = TTB.test_file(r"tests\Skyrim\farmhouse01.nif")
@@ -9205,6 +9206,53 @@ def TEST_COLLISION_MOPP_MATERIALS():
     mat_names2 = sorted(vg.name for vg in mat_groups2)
     assert TT.is_eq(mat_names2, mat_names,
                      f"Material group names preserved: {mat_names2}")
+
+
+@TT.category('SKYRIM', 'MOPP')
+def TEST_COLLISION_MOPP_MULTICHUNK():
+    """Multi-chunk MOPP round-trip: dockstepsdown01 (923 verts, 550 tris, 5+ chunks, 4 materials)."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\dockstepsdown01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_MULTICHUNK.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    coll_objs = [o for o in bpy.data.objects
+                 if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "Found compressed mesh collision")
+    coll_obj = coll_objs[0]
+
+    orig_vert_count = len(coll_obj.data.vertices)
+    orig_tri_count = len(coll_obj.data.polygons)
+    assert TT.is_gt(orig_vert_count, 255, f"Mesh needs multiple chunks: {orig_vert_count} verts")
+
+    mat_groups = [vg for vg in coll_obj.vertex_groups
+                  if vg.name.startswith("SKY_HAV_MAT_")]
+    mat_names = sorted(vg.name for vg in mat_groups)
+    log.info(f"Import: {orig_vert_count} verts, {orig_tri_count} tris, materials: {mat_names}")
+
+    # Export
+    BD.ObjectSelect(list(bpy.data.objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # Reimport
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    coll_objs2 = [o for o in bpy.data.objects
+                  if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs2), 0, "Reimported collision found")
+    coll_obj2 = coll_objs2[0]
+
+    reimport_tri_count = len(coll_obj2.data.polygons)
+    assert TT.is_eq(reimport_tri_count, orig_tri_count,
+                     f"Triangle count preserved: {reimport_tri_count}")
+
+    # Material groups preserved
+    mat_groups2 = [vg for vg in coll_obj2.vertex_groups
+                   if vg.name.startswith("SKY_HAV_MAT_")]
+    mat_names2 = sorted(vg.name for vg in mat_groups2)
+    assert TT.is_eq(mat_names2, mat_names,
+                     f"Material groups preserved: {mat_names2}")
 
 
 def show_all_tests():

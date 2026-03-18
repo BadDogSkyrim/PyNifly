@@ -3539,6 +3539,85 @@ def TEST_MOPP_ROUNDTRIP_SE():
 
 
 @test_category("SKYRIM", "MOPP")
+def TEST_MOPP_MULTICHUNK_ROUNDTRIP():
+    """Round-trip a large multi-chunk compressed mesh (dockstepsdown01: 923 verts, 550 tris, 5+ chunks)."""
+    nif = NifFile(r"tests/SkyrimSE/dockstepsdown01.nif")
+    child = nif.root.collision_object.body.shape.child
+    orig_verts = child.vertices
+    orig_tris = child.triangles
+    orig_mats = child.material_ids
+    assert TT.is_gt(len(orig_verts), 255, f"Mesh needs multiple chunks: {len(orig_verts)} verts")
+    assert TT.is_gt(len(set(orig_mats)), 1, f"Multiple materials: {len(set(orig_mats))}")
+
+    # Write a new NIF with this geometry
+    outfile = _test_file(r"tests/Out/TEST_MOPP_MULTICHUNK_ROUNDTRIP.nif")
+    outnif = NifFile()
+    outnif.initialize("SKYRIMSE", outfile)
+    out_shape = outnif.createShapeFromData(
+        "TestDock",
+        [(v[0]*70, v[1]*70, v[2]*70) for v in orig_verts],
+        orig_tris,
+        [[0.0, 0.0]] * len(orig_verts),
+        [(0, 0, 1)] * len(orig_verts),
+        parent=outnif.root)
+    coll = outnif.root.add_collision(None)
+    rb_props = bhkWorldObject.get_buffer('bhkRigidBody')
+    rb = coll.add_body(rb_props)
+    mopp = bhkMoppBvTreeShape.Create(
+        outnif, orig_verts, orig_tris, "SKYRIMSE", radius=0.005,
+        face_materials=orig_mats, parent=rb)
+    outnif.save()
+
+    # Read back
+    check = NifFile(outfile)
+    cs = check.root.collision_object.body.shape
+    assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape", "Shape is MOPP")
+    child2 = cs.child
+    assert TT.is_eq(child2.blockname, "bhkCompressedMeshShape", "Child is compressed mesh")
+
+    verts_back = child2.vertices
+    tris_back = child2.triangles
+    mats_back = child2.material_ids
+
+    # Triangle count must be preserved exactly
+    assert TT.is_eq(len(tris_back), len(orig_tris),
+                    f"Triangle count: {len(tris_back)} vs {len(orig_tris)}")
+    # Vertex count may differ slightly due to chunk boundaries duplicating verts
+    assert TT.is_gt(len(verts_back), 0, f"Vertices recovered: {len(verts_back)}")
+
+    # Material set must be preserved
+    assert TT.is_eq(set(mats_back), set(orig_mats),
+                    f"Material set preserved: {set(mats_back)}")
+
+    # Per-material triangle counts should match
+    for m in set(orig_mats):
+        orig_count = orig_mats.count(m)
+        back_count = mats_back.count(m)
+        assert TT.is_eq(back_count, orig_count,
+                        f"Material 0x{m:08X} tri count: {back_count} vs {orig_count}")
+
+    # MOPP bytecode was written
+    mopp_bytes, _, _ = cs.mopp_data
+    assert TT.is_gt(len(mopp_bytes), 0, "MOPP bytecode written")
+
+    # Verify MOPP correctness on the read-back geometry
+    from pyn.mopp_compiler import compile_mopp
+    from .mopp_verifier import verify_correctness
+    output_ids = list(range(len(tris_back)))
+    code, orig, _ = compile_mopp(verts_back, tris_back, radius=0.005, output_ids=output_ids)
+    largest_dim = max(
+        max(verts_back[i][a] for tri in tris_back for i in tri) - min(verts_back[i][a] for tri in tris_back for i in tri)
+        for a in range(3)
+    ) + 2 * 0.005
+    ok, msgs = verify_correctness(code, orig, largest_dim, verts_back, tris_back, output_ids, 0.005)
+    for m in msgs: log.debug(m)
+    assert ok, "MOPP correctness check on multi-chunk read-back"
+
+    log.debug(f"Multi-chunk roundtrip: {len(verts_back)} verts, {len(tris_back)} tris, "
+              f"{len(set(mats_back))} materials, {len(mopp_bytes)} MOPP bytes")
+
+
+@test_category("SKYRIM", "MOPP")
 def TEST_COMPRESSED_MESH_MATERIALS():
     """Read per-triangle materials from a multi-material compressed mesh (dockcorsol01)."""
     nif = NifFile(r"tests/SkyrimSE/dockcorsol01.nif")

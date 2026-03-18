@@ -1054,19 +1054,36 @@ class CollisionHandler():
             xform: Transform to apply (from export_collision_shape).
             child_type: 'compressed' for SE, 'packed' for LE.
         """
-        bm = bmesh.new()
-        bm.from_mesh(s.data)
-        bmesh.ops.triangulate(bm, faces=bm.faces)
+        from pyn.triangulate import triangulate
 
         # Get verts in world/export coordinates, scaled to Havok space
         myscale = (self.export_xf @ s.matrix_world).to_scale()
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
-        verts = [(myscale * v.co / sf) for v in bm.verts]
-        havok_verts = [(v.x, v.y, v.z) for v in verts]
+        mesh = s.data
+        havok_verts = []
+        for v in mesh.vertices:
+            hv = myscale * v.co / sf
+            havok_verts.append((hv.x, hv.y, hv.z))
 
-        # Get triangle indices
-        tris = [(f.verts[0].index, f.verts[1].index, f.verts[2].index) for f in bm.faces]
-        bm.free()
+        # Triangulate using ear-clipping (preserves original vertex indices)
+        tris = []
+        tri_to_poly = []  # map each output tri to its source polygon index
+        for pi, poly in enumerate(mesh.polygons):
+            if len(poly.vertices) == 3:
+                tris.append(tuple(poly.vertices))
+                tri_to_poly.append(pi)
+            elif len(poly.vertices) == 4:
+                vi = list(poly.vertices)
+                coords = [mesh.vertices[i].co for i in vi]
+                for a, b, c in triangulate(coords):
+                    tris.append((vi[a], vi[b], vi[c]))
+                    tri_to_poly.append(pi)
+            elif len(poly.vertices) > 4:
+                vi = list(poly.vertices)
+                coords = [mesh.vertices[i].co for i in vi]
+                for a, b, c in triangulate(coords):
+                    tris.append((vi[a], vi[b], vi[c]))
+                    tri_to_poly.append(pi)
 
         if not tris:
             self.warn("bhkMoppBvTreeShape: no triangles to export")
@@ -1104,7 +1121,6 @@ class CollisionHandler():
                 face_mat = default_material
                 # Check first vertex of face — all verts should be in the same group
                 vi = tri[0]
-                # Use the original mesh vertex (before bmesh), mapping through bmesh indices
                 for vgi, mat_val in mat_vgroups.items():
                     try:
                         if s.vertex_groups[vgi].weight(vi) > 0.5:

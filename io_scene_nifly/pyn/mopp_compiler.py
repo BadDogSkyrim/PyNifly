@@ -471,9 +471,19 @@ def _encode_node(node: _BVHNode, origin, largest_dim) -> bytearray:
         code.append((right_offset >> 8) & 0xFF)
         code.append(right_offset & 0xFF)
     else:
-        # Tree too large for even 2-byte jump — shouldn't happen with
-        # reasonable meshes. Fall back to emitting both children as leaves.
-        for tri in node.tris or []:
+        # Tree too large for even 2-byte jump — collect all leaf tris from both subtrees.
+        import logging
+        logging.getLogger("pynifly").warning(
+            f"MOPP subtree exceeds 64K bytes ({right_offset}); "
+            f"collision tree may be degraded")
+        def _collect_leaves(n):
+            if n.left is None and n.right is None:
+                return list(n.tris)
+            result = []
+            if n.left: result.extend(_collect_leaves(n.left))
+            if n.right: result.extend(_collect_leaves(n.right))
+            return result
+        for tri in _collect_leaves(node):
             code.extend(_emit_leaf(tri.output_id))
         return code
 
