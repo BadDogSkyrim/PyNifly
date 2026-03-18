@@ -60,10 +60,12 @@ def _walk_recursive(data, pos, end, sx, sy, sz, output_base, results):
         elif op == 0x05:
             cc = data[pos+1]
             pos = pos + 2 + cc
+            end = len(data)  # JUMP is a goto — may leave current subtree
 
         elif op == 0x06:
             cc = (data[pos+1] << 8) | data[pos+2]
             pos = pos + 3 + cc
+            end = len(data)  # JUMP is a goto — may leave current subtree
 
         elif op == 0x09:
             output_base += data[pos+1]

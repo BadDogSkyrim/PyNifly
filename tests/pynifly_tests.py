@@ -3459,6 +3459,86 @@ def TEST_MOPP_ROUNDTRIP_LE():
 
 
 @test_category("SKYRIM", "MOPP")
+def TEST_MOPP_ROUNDTRIP_SE():
+    """Round-trip MOPP write for Skyrim SE: create NIF with bhkCompressedMeshShape, read it back."""
+    # Simple box in Havok space
+    havok_verts = [
+        (-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
+        (-0.5, -0.5,  0.5), (0.5, -0.5,  0.5), (0.5, 0.5,  0.5), (-0.5, 0.5,  0.5),
+    ]
+    tris = [
+        (0,1,2), (0,2,3), (4,6,5), (4,7,6),
+        (0,4,5), (0,5,1), (2,6,7), (2,7,3),
+        (0,3,7), (0,7,4), (1,5,6), (1,6,2),
+    ]
+
+    outfile = _test_file(r"tests/Out/TEST_MOPP_ROUNDTRIP_SE.nif")
+    outnif = NifFile()
+    outnif.initialize("SKYRIMSE", outfile)
+
+    out_shape = outnif.createShapeFromData(
+        "TestCube",
+        [(v[0]*70, v[1]*70, v[2]*70) for v in havok_verts],
+        tris,
+        [[0.0, 0.0]] * len(havok_verts),
+        [(0, 0, 1)] * len(havok_verts),
+        parent=outnif.root)
+
+    # Add collision: collision object → rigid body → MOPP shape
+    coll = outnif.root.add_collision(None)
+    rb_props = bhkWorldObject.get_buffer('bhkRigidBody')
+    rb = coll.add_body(rb_props)
+    mopp = bhkMoppBvTreeShape.Create(
+        outnif, havok_verts, tris, "SKYRIMSE", radius=0.005, parent=rb)
+
+    outnif.save()
+
+    # Read back
+    check = NifFile(outfile)
+    c = check.root.collision_object
+    assert c is not None, "Reloaded nif has collision object"
+    cb = c.body
+    assert cb is not None, "Collision object has body"
+    cs = cb.shape
+    assert cs is not None, "Body has shape"
+    assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape", "Shape is MOPP")
+
+    child = cs.child
+    assert child is not None, "MOPP has child"
+    assert TT.is_eq(child.blockname, "bhkCompressedMeshShape",
+                    "SE child is bhkCompressedMeshShape")
+
+    verts_back = child.vertices
+    tris_back = child.triangles
+    # Compressed mesh may have slightly different vert count due to quantization
+    # but triangle count should be preserved
+    assert TT.is_eq(len(tris_back), len(tris),
+                    f"Triangle count preserved: {len(tris_back)}")
+    assert TT.is_gt(len(verts_back), 0,
+                    f"Vertices recovered: {len(verts_back)}")
+
+    # Verify MOPP bytecode was written
+    mopp_bytes, _, _ = cs.mopp_data
+    assert TT.is_gt(len(mopp_bytes), 0, "MOPP bytecode written")
+
+    # Verify geometry is close to original (within quantization tolerance)
+    from pyn.mopp_compiler import compile_mopp
+    from .mopp_verifier import verify_correctness
+    output_ids = list(range(len(tris_back)))
+    code, orig, _ = compile_mopp(verts_back, tris_back, radius=0.005, output_ids=output_ids)
+    largest_dim = max(
+        max(verts_back[i][a] for tri in tris_back for i in tri) - min(verts_back[i][a] for tri in tris_back for i in tri)
+        for a in range(3)
+    ) + 2 * 0.005
+    ok, msgs = verify_correctness(code, orig, largest_dim, verts_back, tris_back, output_ids, 0.005)
+    for m in msgs: log.debug(m)
+    assert ok, "Re-compiled MOPP from read-back geometry is correct"
+
+    log.debug(f"Round-trip SE: {len(verts_back)} verts, {len(tris_back)} tris, "
+              f"{len(mopp_bytes)} MOPP bytes")
+
+
+@test_category("SKYRIM", "MOPP")
 def TEST_MOPP_DUMP_NOBLECRATE():
     """Dump and compare MOPP bytecode from LE and SE noblecrate01 files."""
     from pyn.mopp_compiler import disassemble_mopp
@@ -3483,6 +3563,33 @@ def TEST_MOPP_DUMP_NOBLECRATE():
         lines = disassemble_mopp(mopp_bytes, origin, scale)
         for line in lines:
             print(f"  {line}")
+
+    # Also compile our own MOPP from SE geometry and show tightness comparison
+    from pyn.mopp_compiler import compile_mopp
+    from .mopp_verifier import verify_tightness, verify_correctness
+    nif = NifFile(r"tests/SkyrimSE/noblecrate01.nif")
+    child = nif.root.collision_object.body.shape.child
+    verts = child.vertices
+    tris = child.triangles
+    output_ids = list(range(len(tris)))
+    code, origin, scale = compile_mopp(verts, tris, radius=0.005, output_ids=output_ids)
+    largest_dim = max(
+        max(verts[i][a] for tri in tris for i in tri) - min(verts[i][a] for tri in tris for i in tri)
+        for a in range(3)
+    ) + 2 * 0.005
+
+    print(f"\n=== Our compiled MOPP ({len(code)} bytes vs vanilla 506) ===")
+    lines = disassemble_mopp(code, origin, scale)
+    for line in lines:
+        print(f"  {line}")
+
+    ok, msgs = verify_correctness(code, origin, largest_dim, verts, tris, output_ids, 0.005)
+    for m in msgs: log.debug(m)
+    assert ok, "Our compiled MOPP must be correct"
+
+    avg, msgs = verify_tightness(code, origin, largest_dim, verts, tris, 0.005)
+    for m in msgs: print(m)
+    print(f"Tightness: {avg:.2f} avg false-positive hits per outside point")
 
 
 def TEST_MOPP_VERIFY_COMPILER():

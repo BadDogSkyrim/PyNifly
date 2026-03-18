@@ -164,13 +164,13 @@ def disassemble_mopp(
                 cc = data[pos+1]
                 target = pos + 2 + cc
                 lines.append(f"{pad}[{pos:04X}] JUMP -> {target:04X}")
-                pos = target
+                return  # JUMP is a goto; target is shown in its own branch
 
             elif op == 0x06:
                 cc = (data[pos+1] << 8) | data[pos+2]
                 target = pos + 3 + cc
                 lines.append(f"{pad}[{pos:04X}] JUMP -> {target:04X}")
-                pos = target
+                return  # JUMP is a goto; target is shown in its own branch
 
             elif op == 0x09:
                 ii = data[pos+1]
