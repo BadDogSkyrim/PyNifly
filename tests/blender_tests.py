@@ -9103,10 +9103,13 @@ def TEST_COLLISION_TAIL():
 
 
 @TT.category('SKYRIM', 'MOPP')
-def TEST_COLLISION_MOPP_LE_ROUNDTRIP():
-    """Skyrim LE MOPP collision round-trip: import noblecrate01, export, reimport, verify geometry."""
-    testfile = TTB.test_file(r"tests\Skyrim\noblecrate01.nif")
-    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_LE_ROUNDTRIP.nif", output=True)
+@TT.parameterize(("game",      "testpath"),
+                 [("SKYRIM",    r"tests\Skyrim\noblecrate01.nif"),
+                  ("SKYRIMSE",  r"tests\SkyrimSE\noblecrate01.nif")])
+def TEST_COLLISION_MOPP_ROUNDTRIP(game, testpath):
+    """MOPP collision round-trip: import noblecrate01, export, reimport, verify geometry."""
+    testfile = TTB.test_file(testpath)
+    outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_MOPP_ROUNDTRIP_{game}.nif", output=True)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
@@ -9124,7 +9127,7 @@ def TEST_COLLISION_MOPP_LE_ROUNDTRIP():
 
     # Select all objects and export
     BD.ObjectSelect(list(bpy.data.objects), active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game)
 
     # Clear and reimport
     TTB.clear_all()

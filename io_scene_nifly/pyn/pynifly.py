@@ -908,30 +908,30 @@ class bhkCompressedMeshShape(bhkShape):
             # chunk_index is 1-based (0 is for bigTris).
             # output = ((chunk_idx + 1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
             # Decompose strips back into triangle order to map output IDs.
+            # Compare triangles as frozensets since strip winding reorders vertices.
+            local_tri_sets = [frozenset(lt) for lt in local_tris]
             tri_in_chunk = 0
             for strip in strips:
                 for k in range(len(strip) - 2):
-                    # winding = 0 for even, 1 for odd
                     winding = k & 1
                     oid = ((chunk_idx + 1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
-                    # Map back to input face index
                     if k % 2 == 0:
-                        local_tri = (strip[k], strip[k+1], strip[k+2])
+                        tri_set = frozenset((strip[k], strip[k+1], strip[k+2]))
                     else:
-                        local_tri = (strip[k], strip[k+2], strip[k+1])
-                    # Find the original face index for this local tri
+                        tri_set = frozenset((strip[k], strip[k+2], strip[k+1]))
                     for gi, fi in enumerate(face_group):
-                        lt = local_tris[gi]
-                        if lt == local_tri:
+                        if local_tri_sets[gi] == tri_set:
                             output_ids[fi] = oid
+                            local_tri_sets[gi] = None  # prevent double-match
                             break
                     tri_in_chunk += 1
             for a, b, c in leftovers:
                 oid = ((chunk_idx + 1) << bits_per_w_index) | (0 << bits_per_index) | tri_in_chunk
+                leftover_set = frozenset((a, b, c))
                 for gi, fi in enumerate(face_group):
-                    lt = local_tris[gi]
-                    if lt == (a, b, c):
+                    if local_tri_sets[gi] == leftover_set:
                         output_ids[fi] = oid
+                        local_tri_sets[gi] = None
                         break
                 tri_in_chunk += 1
 
