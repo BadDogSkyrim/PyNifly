@@ -3539,6 +3539,37 @@ def TEST_MOPP_ROUNDTRIP_SE():
 
 
 @test_category("SKYRIM", "MOPP")
+def TEST_COMPRESSED_MESH_MATERIALS():
+    """Read per-triangle materials from a multi-material compressed mesh (dockcorsol01)."""
+    nif = NifFile(r"tests/SkyrimSE/dockcorsol01.nif")
+    root = nif.root
+    c = root.collision_object
+    assert c is not None, "Root has collision"
+    cb = c.body
+    cs = cb.shape
+    assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape", "Shape is MOPP")
+
+    child = cs.child
+    assert child is not None, "MOPP has child"
+    assert TT.is_eq(child.blockname, "bhkCompressedMeshShape", "Child is compressed mesh")
+
+    tris = child.triangles
+    mat_ids = child.material_ids
+    assert TT.is_eq(len(mat_ids), len(tris),
+                    f"One material per triangle: {len(mat_ids)} mats, {len(tris)} tris")
+
+    unique_mats = set(mat_ids)
+    assert TT.is_gt(len(unique_mats), 1,
+                    f"Multiple materials found: {len(unique_mats)}")
+
+    from pyn.nifconstants import SkyrimHavokMaterial
+    for m in unique_mats:
+        name = SkyrimHavokMaterial.get_name(m)
+        count = mat_ids.count(m)
+        log.debug(f"  Material {name} (0x{m:08X}): {count} triangles")
+
+
+@test_category("SKYRIM", "MOPP")
 def TEST_MOPP_DUMP_NOBLECRATE():
     """Dump and compare MOPP bytecode from LE and SE noblecrate01 files."""
     from pyn.mopp_compiler import disassemble_mopp

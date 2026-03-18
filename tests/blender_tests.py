@@ -9148,6 +9148,65 @@ def TEST_COLLISION_MOPP_ROUNDTRIP(game, testpath):
                      f"Triangle count preserved: {reimport_tri_count}")
 
 
+@TT.category('SKYRIM', 'MOPP')
+def TEST_COLLISION_MOPP_MATERIALS():
+    """Multi-material MOPP round-trip: import dockcorsol01, verify vertex groups, export, reimport."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\dockcorsol01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_MATERIALS.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Find the collision shape
+    coll_objs = [o for o in bpy.data.objects
+                 if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "Found compressed mesh collision")
+    coll_obj = coll_objs[0]
+
+    # Should have SKY_HAV_MAT_ vertex groups
+    mat_groups = [vg for vg in coll_obj.vertex_groups
+                  if vg.name.startswith("SKY_HAV_MAT_")]
+    assert TT.is_gt(len(mat_groups), 1,
+                     f"Multiple material vertex groups: {[vg.name for vg in mat_groups]}")
+
+    mat_names = sorted(vg.name for vg in mat_groups)
+    log.info(f"Material groups on import: {mat_names}")
+
+    # Verify specific materials (dockcorsol01 has WOOD + CLOTH)
+    assert "SKY_HAV_MAT_WOOD" in mat_names or "SKY_HAV_MAT_MATERIAL_CLOTH" in mat_names, \
+        f"Expected WOOD or CLOTH in {mat_names}"
+
+    orig_tri_count = len(coll_obj.data.polygons)
+
+    # Export
+    BD.ObjectSelect(list(bpy.data.objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # Reimport
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    # Find collision again
+    coll_objs2 = [o for o in bpy.data.objects
+                  if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs2), 0, "Reimported collision found")
+    coll_obj2 = coll_objs2[0]
+
+    # Triangle count preserved
+    reimport_tri_count = len(coll_obj2.data.polygons)
+    assert TT.is_eq(reimport_tri_count, orig_tri_count,
+                     f"Triangle count preserved: {reimport_tri_count}")
+
+    # Material vertex groups preserved
+    mat_groups2 = [vg for vg in coll_obj2.vertex_groups
+                   if vg.name.startswith("SKY_HAV_MAT_")]
+    assert TT.is_eq(len(mat_groups2), len(mat_groups),
+                     f"Material group count preserved: {len(mat_groups2)}")
+
+    mat_names2 = sorted(vg.name for vg in mat_groups2)
+    assert TT.is_eq(mat_names2, mat_names,
+                     f"Material group names preserved: {mat_names2}")
+
+
 def show_all_tests():
     for t in [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]:
         print(f"{t.__name__:25}{t.__doc__}")

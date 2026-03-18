@@ -204,6 +204,16 @@ try:
 except AttributeError:
     nifly.setCollCompressedMeshAABB = None
 try:
+    nifly.getCollCompressedMeshTriMaterials.argtypes = [c_void_p, c_int, c_void_p, c_int]
+    nifly.getCollCompressedMeshTriMaterials.restype = c_int
+except AttributeError:
+    nifly.getCollCompressedMeshTriMaterials = None
+try:
+    nifly.setCollCompressedMeshMaterials.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_int]
+    nifly.setCollCompressedMeshMaterials.restype = c_int
+except AttributeError:
+    nifly.setCollCompressedMeshMaterials = None
+try:
     nifly.getCollPackedStripsDataID.argtypes = [c_void_p, c_int]
     nifly.getCollPackedStripsDataID.restype = c_int
 except AttributeError:

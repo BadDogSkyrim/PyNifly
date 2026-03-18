@@ -622,7 +622,8 @@ class bhkMoppBvTreeShape(bhkShape):
         return bytes(mopp_buf), origin, scale_buf.value
 
     @classmethod
-    def Create(cls, file, verts, tris, game, radius=0.005, material=0, parent=None):
+    def Create(cls, file, verts, tris, game, radius=0.005, material=0,
+               face_materials=None, parent=None):
         """Create a bhkMoppBvTreeShape with child shape and MOPP bytecode.
 
         Args:
@@ -631,7 +632,8 @@ class bhkMoppBvTreeShape(bhkShape):
             tris: List of (i,j,k) triangle indices.
             game: Game name string ('SKYRIMSE', 'SKYRIM', etc.).
             radius: Collision radius.
-            material: Havok material ID.
+            material: Default Havok material ID.
+            face_materials: Optional per-face material uint32 list.
             parent: Parent block (bhkRigidBody).
 
         Returns:
@@ -654,7 +656,8 @@ class bhkMoppBvTreeShape(bhkShape):
             output_ids = list(range(len(tris)))
         else:
             child, output_ids = bhkCompressedMeshShape.Create(
-                file, verts, tris, radius=radius, parent=mopp_shape)
+                file, verts, tris, radius=radius,
+                face_materials=face_materials, parent=mopp_shape)
 
         # Compile MOPP bytecode
         mopp_bytes, origin, scale = compile_mopp(verts, tris, radius=radius,
@@ -783,7 +786,7 @@ class bhkCompressedMeshShape(bhkShape):
         self._triangles = None
 
     @classmethod
-    def Create(cls, file, verts, tris, radius=0.005, parent=None):
+    def Create(cls, file, verts, tris, radius=0.005, face_materials=None, parent=None):
         """Create a bhkCompressedMeshShape with chunked geometry data.
 
         Segments the mesh into chunks (<=255 verts, <=255 tris each),
@@ -794,6 +797,7 @@ class bhkCompressedMeshShape(bhkShape):
             verts: List of (x,y,z) in Havok space.
             tris: List of (i,j,k) triangle indices.
             radius: Collision radius.
+            face_materials: Optional per-face HavokMaterial uint32 list.
             parent: Parent block (bhkMoppBvTreeShape).
 
         Returns:
@@ -818,8 +822,39 @@ class bhkCompressedMeshShape(bhkShape):
             shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
             return shape, list(range(len(tris)))
 
-        # Segment mesh into chunks
-        groups = segment_mesh(verts, tris)
+        # Build materials array from per-face materials
+        # materials_list[i] = (havok_material, layer) — chunks reference by index
+        if face_materials and any(m != 0 for m in face_materials):
+            unique_mats = sorted(set(face_materials))
+            mat_to_idx = {m: i for i, m in enumerate(unique_mats)}
+        else:
+            unique_mats = [0]  # single default material
+            mat_to_idx = {0: 0}
+            face_materials = None  # treat as uniform
+
+        # Set materials array on the data block
+        if nifly.setCollCompressedMeshMaterials is not None and len(unique_mats) > 0:
+            mat_buf = (c_uint32 * len(unique_mats))(*unique_mats)
+            check_msg(nifly.setCollCompressedMeshMaterials, file._handle,
+                      data_id, mat_buf, None, len(unique_mats))
+
+        # Segment mesh into chunks — split by material first if multi-material
+        if face_materials and len(unique_mats) > 1:
+            # Group faces by material, then segment each material group
+            all_groups = segment_mesh(verts, tris)
+            # Re-split any group that mixes materials
+            groups = []
+            for group in all_groups:
+                mats_in_group = set(face_materials[fi] for fi in group)
+                if len(mats_in_group) <= 1:
+                    groups.append(group)
+                else:
+                    for mat_val in mats_in_group:
+                        sub = [fi for fi in group if face_materials[fi] == mat_val]
+                        if sub:
+                            groups.append(sub)
+        else:
+            groups = segment_mesh(verts, tris)
 
         # Compute bitsPerIndex and related params from chunk sizes
         max_tri_in_chunk = max(
@@ -896,13 +931,18 @@ class bhkCompressedMeshShape(bhkShape):
                 vert_buf = (c_uint16 * len(quant_verts))(*quant_verts)
                 idx_buf = (c_uint16 * len(indices))(*indices)
                 strip_buf = (c_uint16 * len(strip_lengths))(*strip_lengths) if strip_lengths else None
+                # Determine material index for this chunk
+                chunk_mat_idx = 0
+                if face_materials:
+                    chunk_mat = face_materials[face_group[0]]
+                    chunk_mat_idx = mat_to_idx.get(chunk_mat, 0)
                 check_msg(nifly.addCollCompressedMeshChunk,
                           file._handle, data_id,
                           translation_buf,
                           vert_buf, len(local_verts),
                           idx_buf, len(indices),
                           strip_buf, len(strip_lengths),
-                          0)  # matIndex
+                          chunk_mat_idx)
 
             # Compute output IDs for MOPP.
             # chunk_index is 1-based (0 is for bigTris).
@@ -973,6 +1013,20 @@ class bhkCompressedMeshShape(bhkShape):
             else:
                 self._triangles = []
         return self._triangles
+
+    @property
+    def material_ids(self):
+        """Return per-triangle HavokMaterial uint32, same order as triangles."""
+        if nifly.getCollCompressedMeshTriMaterials is None:
+            return []
+        count = nifly.getCollCompressedMeshTriMaterials(
+            self.file._handle, self.properties.dataID, None, 0)
+        if count <= 0:
+            return []
+        buf = (c_uint32 * count)()
+        nifly.getCollCompressedMeshTriMaterials(
+            self.file._handle, self.properties.dataID, buf, count)
+        return list(buf)
 
 
 class bhkConstraint(NiObject):

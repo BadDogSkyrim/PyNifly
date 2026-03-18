@@ -4069,6 +4069,59 @@ NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint16
     return total;
 }
 
+NIFLY_API int getCollCompressedMeshTriMaterials(void* nifref, int dataIndex, uint32_t* buf, int buflen) {
+    /* Return one HavokMaterial (uint32) per triangle, same order as getCollCompressedMeshShapeTris.
+       BigTris first (material stored directly), then chunk tris (resolved via matIndex → materials[]). */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader& hdr = nif->GetHeader();
+    auto* data = hdr.GetBlock<bhkCompressedMeshShapeData>(dataIndex);
+    if (!data) return 0;
+
+    int numBigTris = (int)data->bigTris.size();
+    int numChunkTris = 0;
+    for (auto& chunk : data->chunks) {
+        int idx = 0;
+        for (int s = 0; s < (int)chunk.strips.size(); s++) {
+            int stripLen = chunk.strips[s];
+            if (stripLen >= 3)
+                numChunkTris += stripLen - 2;
+            idx += stripLen;
+        }
+        int remaining = (int)chunk.indices.size() - idx;
+        if (remaining > 0)
+            numChunkTris += remaining / 3;
+    }
+    int total = numBigTris + numChunkTris;
+
+    if (!buf) return total;
+
+    int j = 0;
+    for (auto& bt : data->bigTris) {
+        if (j >= buflen) break;
+        buf[j++] = bt.material;
+    }
+    for (auto& chunk : data->chunks) {
+        uint32_t mat = 0;
+        if (chunk.matIndex < data->materials.size())
+            mat = data->materials[chunk.matIndex].material;
+        int idx = 0;
+        for (int s = 0; s < (int)chunk.strips.size(); s++) {
+            int stripLen = chunk.strips[s];
+            for (int k = 0; k + 2 < stripLen; k++) {
+                if (j >= buflen) break;
+                buf[j++] = mat;
+            }
+            idx += stripLen;
+        }
+        int remaining = (int)chunk.indices.size() - idx;
+        for (int i = 0; i + 2 < remaining; i += 3) {
+            if (j >= buflen) break;
+            buf[j++] = mat;
+        }
+    }
+    return total;
+}
+
 // ── MOPP / CompressedMesh / PackedStrips CREATORS ──────────────────────────
 
 int addCollMoppShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
@@ -4242,6 +4295,25 @@ NIFLY_API int setCollCompressedMeshAABB(void* nifref, int dataID,
 
     data->aabbBoundMin = Vector4(bmin[0], bmin[1], bmin[2], 0.0f);
     data->aabbBoundMax = Vector4(bmax[0], bmax[1], bmax[2], 0.0f);
+    return 0;
+}
+
+NIFLY_API int setCollCompressedMeshMaterials(void* nifref, int dataID,
+                                              uint32_t* materials, uint32_t* layers, int count) {
+    /* Set the materials array on a bhkCompressedMeshShapeData.
+       Each entry is a (HavokMaterial, HavokFilter) pair. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(dataID);
+    CheckID(data);
+
+    data->materials.clear();
+    for (int i = 0; i < count; i++) {
+        bhkCMSDMaterial m;
+        m.material = materials[i];
+        m.layer.layer = layers ? layers[i] : 1;  // default OL_STATIC
+        data->materials.push_back(m);
+    }
     return 0;
 }
 

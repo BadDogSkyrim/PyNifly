@@ -692,6 +692,24 @@ class CollisionHandler():
         obj.matrix_world = parentxf.copy()
         self.collection.objects.link(obj)
         obj['bhkRadius'] = cs.properties.radius * self.import_scale
+
+        # Create vertex groups for per-triangle Havok materials
+        mat_ids = cs.material_ids
+        if mat_ids and len(mat_ids) == len(tris):
+            unique_mats = set(mat_ids)
+            if len(unique_mats) > 1:
+                for mat_val in unique_mats:
+                    name = "SKY_HAV_MAT_" + SkyrimHavokMaterial.get_name(mat_val)
+                    vg = obj.vertex_groups.new(name=name)
+                    # Assign faces with this material — add all verts of matching faces
+                    face_verts = set()
+                    for fi, mid in enumerate(mat_ids):
+                        if mid == mat_val:
+                            for vi in tris[fi]:
+                                face_verts.add(vi)
+                    if face_verts:
+                        vg.add(list(face_verts), 1.0, 'REPLACE')
+
         return obj
 
     collision_shape_importers = {
@@ -1058,15 +1076,49 @@ class CollisionHandler():
         game = self.nif.game
         radius = 0.005 if game != 'SKYRIM' else 0.1
 
-        # Get material from custom property
-        material = s.get('bhkMaterial', 0)
+        # Get default material from custom property
+        default_material = s.get('bhkMaterial', 0)
+        if isinstance(default_material, str):
+            try:
+                default_material = SkyrimHavokMaterial[default_material].value
+            except KeyError:
+                default_material = 0
+
+        # Build per-face material list from SKY_HAV_MAT_ vertex groups
+        face_materials = None
+        mat_vgroups = {}  # vgroup_index -> havok material uint32
+        for vg in s.vertex_groups:
+            if vg.name.startswith("SKY_HAV_MAT_"):
+                mat_name = vg.name[len("SKY_HAV_MAT_"):]
+                try:
+                    mat_val = SkyrimHavokMaterial[mat_name].value
+                except KeyError:
+                    mat_val = 0
+                if mat_val:
+                    mat_vgroups[vg.index] = mat_val
+
+        if mat_vgroups:
+            # For each face, find which material group its verts belong to
+            face_materials = []
+            for fi, tri in enumerate(tris):
+                face_mat = default_material
+                # Check first vertex of face — all verts should be in the same group
+                vi = tri[0]
+                # Use the original mesh vertex (before bmesh), mapping through bmesh indices
+                for vgi, mat_val in mat_vgroups.items():
+                    try:
+                        if s.vertex_groups[vgi].weight(vi) > 0.5:
+                            face_mat = mat_val
+                            break
+                    except RuntimeError:
+                        pass  # vertex not in group
+                face_materials.append(face_mat)
 
         # Create the shape hierarchy via high-level API
-        # We need a parent ID — this will be set by export_collision_body via addCollisionChild
-        # So we create a temporary parent context
         mopp_shape = bhkMoppBvTreeShape.Create(
             self.nif, havok_verts, tris, game,
-            radius=radius, material=material, parent=None)
+            radius=radius, material=default_material,
+            face_materials=face_materials, parent=None)
 
         return mopp_shape, Vector(), Quaternion()
 
