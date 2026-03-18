@@ -692,6 +692,24 @@ class CollisionHandler():
         obj.matrix_world = parentxf.copy()
         self.collection.objects.link(obj)
         obj['bhkRadius'] = cs.properties.radius * self.import_scale
+
+        # Create vertex groups for per-triangle Havok materials
+        mat_ids = cs.material_ids
+        if mat_ids and len(mat_ids) == len(tris):
+            unique_mats = set(mat_ids)
+            if len(unique_mats) > 1:
+                for mat_val in unique_mats:
+                    name = "SKY_HAV_MAT_" + SkyrimHavokMaterial.get_name(mat_val)
+                    vg = obj.vertex_groups.new(name=name)
+                    # Assign faces with this material — add all verts of matching faces
+                    face_verts = set()
+                    for fi, mid in enumerate(mat_ids):
+                        if mid == mat_val:
+                            for vi in tris[fi]:
+                                face_verts.add(vi)
+                    if face_verts:
+                        vg.add(list(face_verts), 1.0, 'REPLACE')
+
         return obj
 
     collision_shape_importers = {
@@ -1025,17 +1043,112 @@ class CollisionHandler():
         return cshape, s.matrix_local.translation, Quaternion()
 
 
+    def export_bhkMoppBvTreeShape(self, s, xform, child_type="compressed"):
+        """Export a MOPP collision from a Blender mesh object.
+
+        Extracts mesh geometry, converts to Havok space, creates the full
+        bhkMoppBvTreeShape → child shape → data chain.
+
+        Args:
+            s: Blender mesh object.
+            xform: Transform to apply (from export_collision_shape).
+            child_type: 'compressed' for SE, 'packed' for LE.
+        """
+        from pyn.triangulate import triangulate
+
+        # Get verts in world/export coordinates, scaled to Havok space
+        myscale = (self.export_xf @ s.matrix_world).to_scale()
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
+        mesh = s.data
+        havok_verts = []
+        for v in mesh.vertices:
+            hv = myscale * v.co / sf
+            havok_verts.append((hv.x, hv.y, hv.z))
+
+        # Triangulate using ear-clipping (preserves original vertex indices)
+        tris = []
+        tri_to_poly = []  # map each output tri to its source polygon index
+        for pi, poly in enumerate(mesh.polygons):
+            if len(poly.vertices) == 3:
+                tris.append(tuple(poly.vertices))
+                tri_to_poly.append(pi)
+            elif len(poly.vertices) == 4:
+                vi = list(poly.vertices)
+                coords = [mesh.vertices[i].co for i in vi]
+                for a, b, c in triangulate(coords):
+                    tris.append((vi[a], vi[b], vi[c]))
+                    tri_to_poly.append(pi)
+            elif len(poly.vertices) > 4:
+                vi = list(poly.vertices)
+                coords = [mesh.vertices[i].co for i in vi]
+                for a, b, c in triangulate(coords):
+                    tris.append((vi[a], vi[b], vi[c]))
+                    tri_to_poly.append(pi)
+
+        if not tris:
+            self.warn("bhkMoppBvTreeShape: no triangles to export")
+            return None, None, Quaternion()
+
+        # Determine game and radius
+        game = self.nif.game
+        radius = 0.005 if game != 'SKYRIM' else 0.1
+
+        # Get default material from custom property
+        default_material = s.get('bhkMaterial', 0)
+        if isinstance(default_material, str):
+            try:
+                default_material = SkyrimHavokMaterial[default_material].value
+            except KeyError:
+                default_material = 0
+
+        # Build per-face material list from SKY_HAV_MAT_ vertex groups
+        face_materials = None
+        mat_vgroups = {}  # vgroup_index -> havok material uint32
+        for vg in s.vertex_groups:
+            if vg.name.startswith("SKY_HAV_MAT_"):
+                mat_name = vg.name[len("SKY_HAV_MAT_"):]
+                try:
+                    mat_val = SkyrimHavokMaterial[mat_name].value
+                except KeyError:
+                    mat_val = 0
+                if mat_val:
+                    mat_vgroups[vg.index] = mat_val
+
+        if mat_vgroups:
+            # For each face, find which material group its verts belong to
+            face_materials = []
+            for fi, tri in enumerate(tris):
+                face_mat = default_material
+                # Check first vertex of face — all verts should be in the same group
+                vi = tri[0]
+                for vgi, mat_val in mat_vgroups.items():
+                    try:
+                        if s.vertex_groups[vgi].weight(vi) > 0.5:
+                            face_mat = mat_val
+                            break
+                    except RuntimeError:
+                        pass  # vertex not in group
+                face_materials.append(face_mat)
+
+        # Create the shape hierarchy via high-level API
+        mopp_shape = bhkMoppBvTreeShape.Create(
+            self.nif, havok_verts, tris, game,
+            radius=radius, material=default_material,
+            face_materials=face_materials, parent=None)
+
+        return mopp_shape, Vector(), Quaternion()
+
     def export_collision_shape(self, shape_list, xform=Matrix()):
         """
-        Export the first collision shape in shape_list. 
+        Export the first collision shape in shape_list.
         * shape_list = list of bhk*Shape objects. Should only be one.
         * xform = additional transform to apply. Shapes that position their verts
           explicitly must apply this transform. (Shapes that don't get their position set
           by the RigidBody.)
-        
-        Returns (shape, coordinates) 
-        * shape = collision shape in the nif object 
-        * coordinates = center of the shape (in Blender world coordinates) 
+
+        Returns (shape, coordinates)
+        * shape = collision shape in the nif object
+        * coordinates = center of the shape (in Blender world coordinates)
         * rotation = rotation to apply to the shape
         """
         for cs in shape_list:
@@ -1049,6 +1162,10 @@ class CollisionHandler():
                 return self.export_bhkCapsuleShape(cs, xform)
             elif cs.name.startswith("bhkConvexTransformShape"):
                 return self.export_bhkConvexTransformShape(cs, xform)
+            elif cs.name.startswith("bhkCompressedMeshShape"):
+                return self.export_bhkMoppBvTreeShape(cs, xform, child_type="compressed")
+            elif cs.name.startswith("bhkPackedNiTriStripsShape"):
+                return self.export_bhkMoppBvTreeShape(cs, xform, child_type="packed")
             # TODO: Add bhkSphereShape
         return None, None, Quaternion()
 
