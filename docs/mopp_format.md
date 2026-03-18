@@ -218,6 +218,21 @@ Each line shows:
 - `XX=Y.YYYY` — raw byte value = world-space Havok coordinate (when origin is known)
 - Indentation reflects tree depth; splits show both child branches
 
+### Standalone Usage
+
+```
+cd io_scene_nifly
+python -c "
+from pyn.pynifly import NifFile
+from pyn.mopp_compiler import disassemble_mopp
+nif = NifFile('path/to/file.nif')
+cs = nif.root.collision_object.body.shape
+mopp_bytes, origin, scale = cs.mopp_data
+for line in disassemble_mopp(mopp_bytes, origin, scale):
+    print(line)
+"
+```
+
 ### World-Space Annotations
 
 When `origin` is provided, the disassembler derives `largest_dim` from the root
