@@ -221,16 +221,8 @@ Each line shows:
 ### Standalone Usage
 
 ```
-cd io_scene_nifly
-python -c "
-from pyn.pynifly import NifFile
-from pyn.mopp_compiler import disassemble_mopp
-nif = NifFile('path/to/file.nif')
-cs = nif.root.collision_object.body.shape
-mopp_bytes, origin, scale = cs.mopp_data
-for line in disassemble_mopp(mopp_bytes, origin, scale):
-    print(line)
-"
+cd io_scene_nifly/pyn
+python mopp_compiler.py path/to/file.nif
 ```
 
 ### World-Space Annotations
