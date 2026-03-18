@@ -8125,6 +8125,7 @@ def TEST_FULL_PRECISION():
 
 
 @TT.category('SKYRIM')
+@TT.expect_errors(("Skyrim LE does not support per-chunk materials",))
 def TEST_EMPTY_NODES():
     """Empty nodes export with the rest."""
     testfile = TTB.test_file(r"tests\Skyrim\farmhouse01.nif")
@@ -9100,6 +9101,158 @@ def TEST_COLLISION_TAIL():
             if c == 1 and e[0] in near_positions and e[1] in near_positions]
     assert TT.is_eq(len(gaps), 0,
                      f"No gaps among cap verts ({len(gaps)} boundary edges)")
+
+
+@TT.category('SKYRIM', 'MOPP')
+@TT.parameterize(("game",      "testpath"),
+                 [("SKYRIM",    r"tests\Skyrim\noblecrate01.nif"),
+                  ("SKYRIMSE",  r"tests\SkyrimSE\noblecrate01.nif")])
+def TEST_COLLISION_MOPP_ROUNDTRIP(game, testpath):
+    """MOPP collision round-trip: import noblecrate01, export, reimport, verify geometry."""
+    testfile = TTB.test_file(testpath)
+    outfile = TTB.test_file(f"tests/Out/TEST_COLLISION_MOPP_ROUNDTRIP_{game}.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Find the collision shape (named after the child shape type)
+    coll_objs = [o for o in bpy.data.objects
+                 if o.name.startswith("bhkPackedNiTriStripsShape")
+                 or o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "Found MOPP collision object")
+    coll_obj = coll_objs[0]
+
+    orig_vert_count = len(coll_obj.data.vertices)
+    orig_tri_count = len(coll_obj.data.polygons)
+    assert TT.is_gt(orig_vert_count, 0, f"Collision has {orig_vert_count} verts")
+    assert TT.is_gt(orig_tri_count, 0, f"Collision has {orig_tri_count} tris")
+
+    # Select all objects and export
+    BD.ObjectSelect(list(bpy.data.objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game)
+
+    # Clear and reimport
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    # Find collision again
+    coll_objs2 = [o for o in bpy.data.objects
+                  if o.name.startswith("bhkPackedNiTriStripsShape")
+                  or o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs2), 0, "Reimported MOPP collision found")
+    coll_obj2 = coll_objs2[0]
+
+    reimport_vert_count = len(coll_obj2.data.vertices)
+    reimport_tri_count = len(coll_obj2.data.polygons)
+    assert TT.is_eq(reimport_vert_count, orig_vert_count,
+                     f"Vertex count preserved: {reimport_vert_count}")
+    assert TT.is_eq(reimport_tri_count, orig_tri_count,
+                     f"Triangle count preserved: {reimport_tri_count}")
+
+
+@TT.category('SKYRIM', 'MOPP')
+def TEST_COLLISION_MOPP_MATERIALS():
+    """Multi-material MOPP round-trip: import dockcorsol01, verify vertex groups, export, reimport."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\dockcorsol01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_MATERIALS.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Find the collision shape
+    coll_objs = [o for o in bpy.data.objects
+                 if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "Found compressed mesh collision")
+    coll_obj = coll_objs[0]
+
+    # Should have SKY_HAV_MAT_ vertex groups
+    mat_groups = [vg for vg in coll_obj.vertex_groups
+                  if vg.name.startswith("SKY_HAV_MAT_")]
+    assert TT.is_gt(len(mat_groups), 1,
+                     f"Multiple material vertex groups: {[vg.name for vg in mat_groups]}")
+
+    mat_names = sorted(vg.name for vg in mat_groups)
+    log.info(f"Material groups on import: {mat_names}")
+
+    # Verify specific materials (dockcorsol01 has WOOD + CLOTH)
+    assert "SKY_HAV_MAT_WOOD" in mat_names or "SKY_HAV_MAT_MATERIAL_CLOTH" in mat_names, \
+        f"Expected WOOD or CLOTH in {mat_names}"
+
+    orig_tri_count = len(coll_obj.data.polygons)
+
+    # Export
+    BD.ObjectSelect(list(bpy.data.objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # Reimport
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    # Find collision again
+    coll_objs2 = [o for o in bpy.data.objects
+                  if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs2), 0, "Reimported collision found")
+    coll_obj2 = coll_objs2[0]
+
+    # Triangle count preserved
+    reimport_tri_count = len(coll_obj2.data.polygons)
+    assert TT.is_eq(reimport_tri_count, orig_tri_count,
+                     f"Triangle count preserved: {reimport_tri_count}")
+
+    # Material vertex groups preserved
+    mat_groups2 = [vg for vg in coll_obj2.vertex_groups
+                   if vg.name.startswith("SKY_HAV_MAT_")]
+    assert TT.is_eq(len(mat_groups2), len(mat_groups),
+                     f"Material group count preserved: {len(mat_groups2)}")
+
+    mat_names2 = sorted(vg.name for vg in mat_groups2)
+    assert TT.is_eq(mat_names2, mat_names,
+                     f"Material group names preserved: {mat_names2}")
+
+
+@TT.category('SKYRIM', 'MOPP')
+def TEST_COLLISION_MOPP_MULTICHUNK():
+    """Multi-chunk MOPP round-trip: dockstepsdown01 (923 verts, 550 tris, 5+ chunks, 4 materials)."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\dockstepsdown01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_MULTICHUNK.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    coll_objs = [o for o in bpy.data.objects
+                 if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "Found compressed mesh collision")
+    coll_obj = coll_objs[0]
+
+    orig_vert_count = len(coll_obj.data.vertices)
+    orig_tri_count = len(coll_obj.data.polygons)
+    assert TT.is_gt(orig_vert_count, 255, f"Mesh needs multiple chunks: {orig_vert_count} verts")
+
+    mat_groups = [vg for vg in coll_obj.vertex_groups
+                  if vg.name.startswith("SKY_HAV_MAT_")]
+    mat_names = sorted(vg.name for vg in mat_groups)
+    log.info(f"Import: {orig_vert_count} verts, {orig_tri_count} tris, materials: {mat_names}")
+
+    # Export
+    BD.ObjectSelect(list(bpy.data.objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # Reimport
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+
+    coll_objs2 = [o for o in bpy.data.objects
+                  if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs2), 0, "Reimported collision found")
+    coll_obj2 = coll_objs2[0]
+
+    reimport_tri_count = len(coll_obj2.data.polygons)
+    assert TT.is_eq(reimport_tri_count, orig_tri_count,
+                     f"Triangle count preserved: {reimport_tri_count}")
+
+    # Material groups preserved
+    mat_groups2 = [vg for vg in coll_obj2.vertex_groups
+                   if vg.name.startswith("SKY_HAV_MAT_")]
+    mat_names2 = sorted(vg.name for vg in mat_groups2)
+    assert TT.is_eq(mat_names2, mat_names,
+                     f"Material groups preserved: {mat_names2}")
 
 
 def show_all_tests():
