@@ -27,7 +27,7 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 execute(
-    testlist=[TEST_TRIANGULATE],
+    testlist=[TEST_MOPP_DUMP_NOBLECRATE ],
     stop_on_fail=True,
     )
 execute()
