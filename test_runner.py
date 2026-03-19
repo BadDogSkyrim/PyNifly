@@ -26,7 +26,7 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_HIGHTECH_FLOORLIGHT , ], 
+    target_tests=[ TEST_PIPBOY , ],  # TEST_COLLISION_FO4_POOLBALL, TEST_WORKSHOP_DOOR_CONNECT_POINTS, TEST_PIPBOY, TEST_KF ,
     # categories={'FO4'},
     test_all=True,
     stop_on_fail=False,

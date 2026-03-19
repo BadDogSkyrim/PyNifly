@@ -20,13 +20,38 @@ a different body by `bodyID`.
 
 All values are little-endian. Pointers are 8 bytes (64-bit packfile format).
 
+The file has a fixed-size header region (0x100 bytes) followed by variable-length
+section data. The header region contains exactly one global file header and
+three section headers.
+
 ```
-0x000–0x03F: Global file header      (0x40 bytes)
+0x000–0x03F: Global file header      (0x40 bytes, exactly one)
 0x040–0x07F: Section header 0        (__classnames__)
-0x080–0x0BF: Section header 1        (__types__, usually empty)
+0x080–0x0BF: Section header 1        (__types__, always empty)
 0x0C0–0x0FF: Section header 2        (__data__)
-0x100+:      Section data, then fixup tables
+0x100+:      __classnames__ data
+             __data__ section (objects)
+             local fixup table
+             global fixup table
+             virtual fixup table
 ```
+
+The __classnames__ section maps hash values to class names (like
+`hknpConvexPolytopeShape`). The __data__ section contains the actual physics
+objects — the PhysicsSystemData, body info, and shape geometry. The __types__
+section is always empty in FO4 packfiles.
+
+Because the packfile is a flat byte stream, pointers can't hold real addresses.
+Instead, every pointer slot is written as zeros during construction, and three
+**fixup tables** at the end of the file tell the loader how to patch them:
+
+- **Local fixups** resolve pointers within the data section (e.g. an hkArray
+  pointing to its element data a few hundred bytes later).
+- **Global fixups** resolve pointers between sections (e.g. a BodyCInfo's
+  shape pointer targeting a shape object elsewhere in the data section, or
+  a reference into classnames).
+- **Virtual fixups** associate each object with its class name, so the loader
+  knows what type each blob of bytes represents.
 
 ## Global File Header (0x40 bytes)
 
@@ -60,6 +85,12 @@ Three section headers at offsets 0x40, 0x80, 0xC0:
 | 0x28 | 4 | imports (same as exports) |
 | 0x2C | 4 | end (same as exports) |
 | 0x30 | 16 | padding (0xFF) |
+
+The `exports` and `imports` fields exist in the Havok packfile spec for
+linking multiple packfiles together — an exporting packfile exposes named
+symbols, and an importing packfile references them. FO4 NIF packfiles are
+always self-contained, so these fields are unused and set equal to the end
+of the object data (i.e. where the fixup tables begin).
 
 ## Classnames Section
 
@@ -105,7 +136,7 @@ per-body arrays, then the shape objects. A typical single-polytope layout:
 +0x....: hknpShapeMassProperties     (0x30 bytes, polytope/CM only)
 ```
 
-## hknpPhysicsSystemData (0x80 bytes)
+## hknpPhysicsSystemData (PSD, 0x80 bytes)
 
 Six `hkArray` slots (16 bytes each) plus 16 bytes padding:
 
@@ -181,8 +212,8 @@ Rigid body definition — shape pointer, position, and orientation.
   Apply to vertices to get world-space positions.
 - **Identity rotation**: position is centre-of-mass, not node position.
   Vertices are in node-local space. Don't apply transform to verts.
-- **Sphere shapes**: position is baked into vertex offsets (no vertex
-  transform needed). The body position records the sphere center.
+- **Sphere shapes**: the shape object has no geometry, just a radius. The
+  body position is the sphere center in Havok space.
 
 ## ShapeEntry (0x10 bytes per body)
 
@@ -193,7 +224,8 @@ Rigid body definition — shape pointer, position, and orientation.
 
 ## dyn_motion (0x40 bytes, dynamic bodies only)
 
-Engine defaults for dynamic simulation. Usually constant across all FO4 NIFs.
+Data for the PSD +0x20 array. Engine defaults for dynamic simulation.
+Usually constant across all FO4 NIFs.
 
 | Offset | Size | Field | Default |
 |--------|------|-------|---------|
@@ -205,7 +237,7 @@ Engine defaults for dynamic simulation. Usually constant across all FO4 NIFs.
 
 ## dyn_inertia (0x40 bytes, dynamic bodies only)
 
-Per-body mass and inertia tensor.
+Data for the PSD +0x30 array. Per-body mass and inertia tensor.
 
 | Offset | Size | Field |
 |--------|------|-------|
@@ -241,7 +273,15 @@ Convex hull defined by vertices, face planes, and a face-vertex-index array.
 
 **FVI:** flat array of vertex indices, one byte each.
 
-The fixed header at +0x14 contains the `convex_radius` as a float32.
+The 0x30-byte fixed header is mostly undeciphered. Known fields:
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x00 | 16 | vtable/parent pointers (zeros) |
+| 0x10 | 4 | type/quality flags (0x01000103) |
+| 0x14 | 4 | convex_radius (float32) |
+| 0x18 | 4 | large_convex_radius (purpose unclear) |
+| 0x1C | 20 | unknown (zeros) |
 
 ### hknpCompressedMeshShape (0xC0 bytes) + ShapeData
 
