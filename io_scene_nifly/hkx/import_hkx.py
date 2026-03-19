@@ -439,9 +439,9 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         apply_fo4_animation(armature, anim_data, bone_names, anim_name,
                             self.fps, self.rename_bones, self.rename_bones_niftools)
 
-        # ── Set scene frame range to match animation ──
-        context.scene.frame_start = 1
-        context.scene.frame_end = anim_data.num_frames
+        # ── Extend scene frame range to cover animation ──
+        context.scene.frame_start = min(context.scene.frame_start, 1)
+        context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
         context.scene.frame_set(1)
 
         # ── Import annotation events as timeline markers ──
@@ -632,8 +632,8 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         if anim_data.blend_hint == 1:
             armature[PYN_HKX_ADDITIVE_PROP] = True
 
-        context.scene.frame_start = 1
-        context.scene.frame_end = anim_data.num_frames
+        context.scene.frame_start = min(context.scene.frame_start, 1)
+        context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
         context.scene.frame_set(1)
 
         for ann in anim_data.annotations:

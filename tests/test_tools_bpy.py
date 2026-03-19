@@ -74,6 +74,8 @@ def clear_all():
 
     bpy.context.scene.timeline_markers.clear()
     bpy.context.scene.render.fps = 28
+    bpy.context.scene.frame_start = 1
+    bpy.context.scene.frame_end = 250
 
 
 def hide_all():

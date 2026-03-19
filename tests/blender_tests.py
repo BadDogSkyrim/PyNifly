@@ -5759,8 +5759,8 @@ def TEST_COLLISION_FO4_POOLBALL():
     coll_obj = physics_shapes[0]
     assert TT.is_eq(coll_obj.get('pynCollisionShapeType'), 'sphere',
                      "Shape is a sphere")
-    assert TT.is_eq(coll_obj.rigid_body.collision_shape, 'SPHERE',
-                     "Rigid body collision shape is SPHERE")
+    assert TT.is_eq(coll_obj.rigid_body.collision_shape, 'CONVEX_HULL',
+                     "Rigid body collision shape is CONVEX_HULL")
 
     # Sphere mesh dimensions encode the radius; check it's reasonable.
     orig_dim = max(coll_obj.dimensions)
@@ -6244,9 +6244,11 @@ def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
                                  rename_bones=False, 
                                  create_bones=False)
     
-    # Check frame range after import
-    TT.assert_eq(bpy.context.scene.frame_start, 1, "Frame start should be 1")
-    TT.assert_eq(bpy.context.scene.frame_end, 37, "Frame end should be 37")
+    # Check animation frame range
+    assert TT.is_gt(len(bpy.data.actions), 0, "Door has at least one action")
+    act = bpy.data.actions[0]
+    assert TT.is_eq(int(act.frame_start), 1, "Action frame start")
+    assert TT.is_eq(int(act.frame_end), 34, "Action frame end")
     
     # Find parent connect points
     cp_parents = [obj for obj in bpy.context.scene.objects 
@@ -6447,7 +6449,7 @@ def TEST_PIPBOY():
                                                     .animation_data.action)]), 
                       57, 
                       "Max keyframe")
-    TT.assert_eq(bpy.context.scene.frame_end, 57, "Scene end frame")
+    TT.assert_eq(int(bpy.data.objects['TapeDeckLid'].animation_data.action.frame_end), 57, "Action end frame")
 
     bpy.ops.object.select_all(action='SELECT')
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', 
@@ -7175,7 +7177,7 @@ def TEST_NOBLECHEST():
     assert lid.animation_data is not None
     TT.assert_contains(lid.animation_data.action.name, animations, "animations exist")
     TT.assert_samemembers(animations, bpy.data.actions.keys(), "Have all animations")
-    TT.assert_gt(bpy.context.scene.frame_end, 12, "Have enough frames for animation")
+    TT.assert_gt(int(lid.animation_data.action.frame_end), 12, "Have enough frames for animation")
 
     cur_fps = bpy.context.scene.render.fps
     end_frame = 0.5 * cur_fps + 1
@@ -7612,7 +7614,8 @@ def TEST_KF():
     bpy.ops.import_scene.pynifly_kf(filepath=testfile2)
 
     TT.assert_eq(arma.animation_data.action.name, "1hm_attackpowerright", "action name after second import")
-    TT.assert_eq(bpy.context.scene.frame_end, 36, "end frame")
+    act2 = arma.animation_data.action
+    TT.assert_eq(int(act2.frame_end), 36, "action frame end")
 
     TT.assert_contains("1hm_staggerbacksmallest", bpy.data.actions, "first action still exists")
 

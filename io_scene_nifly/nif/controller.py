@@ -178,8 +178,8 @@ def apply_action(act):
                     obj.animation_data_create()
                 obj.animation_data.action = act
                 obj.animation_data.action_slot = s
-    bpy.context.scene.frame_start = int(act.frame_start)
-    bpy.context.scene.frame_end = int(act.frame_end)
+    bpy.context.scene.frame_start = min(bpy.context.scene.frame_start, int(act.frame_start))
+    bpy.context.scene.frame_end = max(bpy.context.scene.frame_end, int(act.frame_end))
 
 
 @dataclass
@@ -633,8 +633,10 @@ class ControllerHandler():
                 fc.keyframe_points[-1].co[0] for fc in BD.action_fcurves(self.action)])
             self.action.frame_start = round(min(self.action.frame_start, mintime))
             self.action.frame_end = round(max(self.action.frame_end, maxtime))
-            self.context.scene.frame_start = round(self.action.frame_start)
-            self.context.scene.frame_end = round(self.action.frame_end)
+            self.context.scene.frame_start = min(self.context.scene.frame_start,
+                                                  round(self.action.frame_start))
+            self.context.scene.frame_end = max(self.context.scene.frame_end,
+                                                round(self.action.frame_end))
 
 
     def _animate_bone(self, bone_name:str):

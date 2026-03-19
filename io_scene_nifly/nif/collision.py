@@ -622,7 +622,7 @@ class CollisionHandler():
 
             ObjectSelect([obj])
             bpy.ops.rigidbody.object_add(type='PASSIVE')
-            rb_shape = {'sphere': 'SPHERE'}.get(s.shape_type, 'MESH')
+            rb_shape = 'CONVEX_HULL' if s.shape_type == 'sphere' else 'MESH'
             obj.rigid_body.collision_shape = rb_shape
             obj.color = COLLISION_COLOR
             obj.display_type = 'WIRE'
@@ -643,10 +643,13 @@ class CollisionHandler():
                 obj['pynPhysMaxLinVel'] = s.physics.max_linear_velocity
                 obj['pynPhysMaxAngVel'] = s.physics.max_angular_velocity
 
-            if s.shape_type == 'polytope' and s.convex_radius > 0.0:
+            if s.convex_radius > 0.0:
                 radius_bl = s.convex_radius * sf
-                obj['pynCollisionRadius'] = radius_bl
-                _add_collision_radius_modifiers(obj, radius_bl)
+                obj.rigid_body.use_margin = True
+                obj.rigid_body.collision_margin = radius_bl
+                if s.shape_type == 'polytope':
+                    obj['pynCollisionRadius'] = radius_bl
+                    _add_collision_radius_modifiers(obj, radius_bl)
 
             if container is not None:
                 obj.parent = container
@@ -1361,8 +1364,11 @@ class CollisionHandler():
                         world_mat = self.export_xf @ obj.matrix_world
                         verts = [tuple(world_mat @ v.co / sf) for v in obj.data.vertices]
                         faces = [list(p.vertices) for p in obj.data.polygons]
-                        # convex_radius is stored in Blender units; convert back to Havok.
-                        radius = obj.get('pynCollisionRadius', 0.0) / sf
+                        # convex_radius: prefer rigid body margin, fall back to custom prop.
+                        if obj.rigid_body and obj.rigid_body.use_margin:
+                            radius = obj.rigid_body.collision_margin / sf
+                        else:
+                            radius = obj.get('pynCollisionRadius', 0.0) / sf
                         shapes.append(CollisionShape(
                             shape_type=shape_type,
                             name=obj.name,
