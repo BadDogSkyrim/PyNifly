@@ -146,73 +146,34 @@ try:
 except AttributeError:
     nifly.getCollPackedStripsShapeVerts = None
     nifly.getCollPackedStripsShapeTris = None
-try:
-    nifly.getCollCompressedMeshShapeVerts.argtypes = [c_void_p, c_int, c_void_p, c_int]
-    nifly.getCollCompressedMeshShapeVerts.restype = c_int
-    nifly.getCollCompressedMeshShapeTris.argtypes = [c_void_p, c_int, c_void_p, c_int]
-    nifly.getCollCompressedMeshShapeTris.restype = c_int
-except AttributeError:
-    nifly.getCollCompressedMeshShapeVerts = None
-    nifly.getCollCompressedMeshShapeTris = None
+nifly.getCollCompressedMeshShapeVerts.argtypes = [c_void_p, c_int, c_void_p, c_int]
+nifly.getCollCompressedMeshShapeVerts.restype = c_int
+nifly.getCollCompressedMeshShapeTris.argtypes = [c_void_p, c_int, c_void_p, c_int]
+nifly.getCollCompressedMeshShapeTris.restype = c_int
 
-# MOPP bytecode read functions
-try:
-    nifly.getCollMoppCodeLen.argtypes = [c_void_p, c_int]
-    nifly.getCollMoppCodeLen.restype = c_int
-except AttributeError:
-    nifly.getCollMoppCodeLen = None
-try:
-    nifly.getCollMoppCode.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_void_p, c_int]
-    nifly.getCollMoppCode.restype = c_int
-except AttributeError:
-    nifly.getCollMoppCode = None
+# MOPP bytecode read/write functions
+nifly.getCollMoppCodeLen.argtypes = [c_void_p, c_int]
+nifly.getCollMoppCodeLen.restype = c_int
+nifly.getCollMoppCode.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_void_p, c_int]
+nifly.getCollMoppCode.restype = c_int
+nifly.setCollMoppCode.argtypes = [c_void_p, c_int, c_void_p, c_float, c_void_p, c_int, c_uint8]
+nifly.setCollMoppCode.restype = c_int
 
-# MOPP / CompressedMesh / PackedStrips creation functions
-try:
-    nifly.setCollMoppCode.argtypes = [c_void_p, c_int, c_void_p, c_float, c_void_p, c_int]
-    nifly.setCollMoppCode.restype = c_int
-except AttributeError:
-    nifly.setCollMoppCode = None
-try:
-    nifly.getCollCompressedMeshShapeDataID.argtypes = [c_void_p, c_int]
-    nifly.getCollCompressedMeshShapeDataID.restype = c_int
-except AttributeError:
-    nifly.getCollCompressedMeshShapeDataID = None
-try:
-    nifly.setCollCompressedMeshParams.argtypes = [c_void_p, c_int, c_uint32, c_uint32, c_uint32, c_uint32]
-    nifly.setCollCompressedMeshParams.restype = c_int
-except AttributeError:
-    nifly.setCollCompressedMeshParams = None
-try:
-    nifly.setCollCompressedMeshBigVerts.argtypes = [c_void_p, c_int, c_void_p, c_int]
-    nifly.setCollCompressedMeshBigVerts.restype = c_int
-except AttributeError:
-    nifly.setCollCompressedMeshBigVerts = None
-try:
-    nifly.setCollCompressedMeshBigTris.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_int]
-    nifly.setCollCompressedMeshBigTris.restype = c_int
-except AttributeError:
-    nifly.setCollCompressedMeshBigTris = None
-try:
-    nifly.addCollCompressedMeshChunk.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_uint32]
-    nifly.addCollCompressedMeshChunk.restype = c_int
-except AttributeError:
-    nifly.addCollCompressedMeshChunk = None
-try:
-    nifly.setCollCompressedMeshAABB.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
-    nifly.setCollCompressedMeshAABB.restype = c_int
-except AttributeError:
-    nifly.setCollCompressedMeshAABB = None
-try:
-    nifly.getCollCompressedMeshTriMaterials.argtypes = [c_void_p, c_int, c_void_p, c_int]
-    nifly.getCollCompressedMeshTriMaterials.restype = c_int
-except AttributeError:
-    nifly.getCollCompressedMeshTriMaterials = None
-try:
-    nifly.setCollCompressedMeshMaterials.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_int]
-    nifly.setCollCompressedMeshMaterials.restype = c_int
-except AttributeError:
-    nifly.setCollCompressedMeshMaterials = None
+# CompressedMesh / PackedStrips creation functions
+nifly.getCollCompressedMeshShapeDataID.argtypes = [c_void_p, c_int]
+nifly.getCollCompressedMeshShapeDataID.restype = c_int
+nifly.setCollCompressedMeshBigVerts.argtypes = [c_void_p, c_int, c_void_p, c_int]
+nifly.setCollCompressedMeshBigVerts.restype = c_int
+nifly.setCollCompressedMeshBigTris.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_int]
+nifly.setCollCompressedMeshBigTris.restype = c_int
+nifly.addCollCompressedMeshChunk.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_int, c_void_p, c_int, c_void_p, c_int, c_uint32]
+nifly.addCollCompressedMeshChunk.restype = c_int
+nifly.setCollCompressedMeshAABB.argtypes = [c_void_p, c_int, c_void_p, c_void_p]
+nifly.setCollCompressedMeshAABB.restype = c_int
+nifly.getCollCompressedMeshTriMaterials.argtypes = [c_void_p, c_int, c_void_p, c_int]
+nifly.getCollCompressedMeshTriMaterials.restype = c_int
+nifly.setCollCompressedMeshMaterials.argtypes = [c_void_p, c_int, c_void_p, c_void_p, c_int]
+nifly.setCollCompressedMeshMaterials.restype = c_int
 try:
     nifly.getCollPackedStripsDataID.argtypes = [c_void_p, c_int]
     nifly.getCollPackedStripsDataID.restype = c_int

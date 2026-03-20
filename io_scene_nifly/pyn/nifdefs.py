@@ -486,6 +486,7 @@ class bhkMoppBvTreeShapeBuf(pynStructure):
         ('bufSize', c_uint16),
         ('bufType', c_uint16),
         ('shapeID', c_uint32),
+        ('buildType', c_uint8),
     ]
     def __init__(self, values=None):
         super().__init__(values=values)
@@ -509,6 +510,14 @@ class bhkCompressedMeshShapeBuf(pynStructure):
         ('bufType', c_uint16),
         ('radius', c_float),
         ('dataID', c_uint32),
+        ('bitsPerIndex', c_uint32),
+        ('bitsPerWIndex', c_uint32),
+        ('maskIndex', c_uint32),
+        ('maskWIndex', c_uint32),
+        ('error', c_float),
+        ('materialType', c_uint8),
+        ('userData', c_uint32),
+        ('unkFloat', c_float),
     ]
     def __init__(self, values=None):
         super().__init__(values=values)

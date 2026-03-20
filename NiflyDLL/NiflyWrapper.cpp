@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 25, 7, 0 };
+const int NiflyDDLVersion[3] = { 25, 7, 1 }; 
  
 using namespace nifly; 
 
@@ -3834,6 +3834,7 @@ int getCollMoppShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf) {
     CheckID(sh);
 
     buf->shapeID = sh->shapeRef.index;
+    buf->buildType = sh->buildType;
     return 0;
 }
 
@@ -3953,6 +3954,18 @@ int getCollCompressedMeshShapeProps(void* nifref, uint32_t nodeIndex, void* inbu
 
     buf->radius = sh->radius;
     buf->dataID = sh->dataRef.index;
+    buf->userData = sh->userData;
+    buf->unkFloat = sh->unkFloat;
+
+    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(sh->dataRef.index);
+    if (data) {
+        buf->bitsPerIndex = data->bitsPerIndex;
+        buf->bitsPerWIndex = data->bitsPerWIndex;
+        buf->maskIndex = data->maskIndex;
+        buf->maskWIndex = data->maskWIndex;
+        buf->error = data->error;
+        buf->materialType = data->materialType;
+    }
     return 0;
 }
 
@@ -4136,6 +4149,7 @@ int addCollMoppShape(void* nifref, const char* name, void* buffer, uint32_t pare
 
     auto sh = std::make_unique<bhkMoppBvTreeShape>();
     sh->shapeRef.index = buf->shapeID;
+    sh->buildType = buf->buildType;
     int newid = hdr->AddBlock(std::move(sh));
     addCollisionChild(nif, parent, newid);
     return newid;
@@ -4143,8 +4157,9 @@ int addCollMoppShape(void* nifref, const char* name, void* buffer, uint32_t pare
 
 NIFLY_API int setCollMoppCode(void* nifref, int blockID,
                                float* originXYZ, float scale,
-                               uint8_t* moppBytes, int moppLen) {
-    /* Set MOPP bytecode, origin and scale on an existing bhkMoppBvTreeShape. */
+                               uint8_t* moppBytes, int moppLen,
+                               uint8_t buildType) {
+    /* Set MOPP bytecode, origin, scale, and buildType on an existing bhkMoppBvTreeShape. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     auto* sh = hdr->GetBlock<bhkMoppBvTreeShape>(blockID);
@@ -4152,6 +4167,7 @@ NIFLY_API int setCollMoppCode(void* nifref, int blockID,
 
     sh->offset = Vector4(originXYZ[0], originXYZ[1], originXYZ[2], 0.0f);
     sh->scale = scale;
+    sh->buildType = buildType;
     sh->data.clear();
     sh->data.resize(moppLen);
     for (int i = 0; i < moppLen; i++)
@@ -4168,9 +4184,17 @@ int addCollCompressedMeshShape(void* nifref, const char* name, void* buffer, uin
     auto sh = std::make_unique<bhkCompressedMeshShape>();
     sh->radius = buf->radius;
     sh->radius2 = buf->radius;
+    sh->userData = buf->userData;
+    sh->unkFloat = buf->unkFloat;
 
     // Create the data block and link it
     auto dataBlock = std::make_unique<bhkCompressedMeshShapeData>();
+    dataBlock->bitsPerIndex = buf->bitsPerIndex;
+    dataBlock->bitsPerWIndex = buf->bitsPerWIndex;
+    dataBlock->maskIndex = buf->maskIndex;
+    dataBlock->maskWIndex = buf->maskWIndex;
+    dataBlock->error = buf->error;
+    dataBlock->materialType = buf->materialType;
     int dataID = hdr->AddBlock(std::move(dataBlock));
     sh->dataRef.index = dataID;
 
@@ -4195,21 +4219,6 @@ NIFLY_API int getCollCompressedMeshShapeDataID(void* nifref, int shapeID) {
     return sh->dataRef.index;
 }
 
-NIFLY_API int setCollCompressedMeshParams(void* nifref, int dataID,
-                                           uint32_t bitsPerIndex, uint32_t bitsPerWIndex,
-                                           uint32_t maskIndex, uint32_t maskWIndex) {
-    /* Set the MOPP indexing parameters on a bhkCompressedMeshShapeData. */
-    NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader* hdr = &nif->GetHeader();
-    auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(dataID);
-    CheckID(data);
-
-    data->bitsPerIndex = bitsPerIndex;
-    data->bitsPerWIndex = bitsPerWIndex;
-    data->maskIndex = maskIndex;
-    data->maskWIndex = maskWIndex;
-    return 0;
-}
 
 NIFLY_API int setCollCompressedMeshBigVerts(void* nifref, int dataID,
                                              float* verts, int vertCount) {

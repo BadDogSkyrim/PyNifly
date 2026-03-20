@@ -800,6 +800,7 @@ struct BHKMoppBvTreeShapeBuf {
 	uint16_t bufSize = sizeof(BHKMoppBvTreeShapeBuf);
 	uint16_t bufType = BUFFER_TYPES::bhkMoppBvTreeShapeBufType;
 	uint32_t shapeID;	// child shape block ID
+	uint8_t buildType;	// 1=BUILT_WITHOUT_CHUNK_SUBDIVISION, 2=BUILT_WITH_CHUNK_SUBDIVISION
 };
 
 struct BHKPackedNiTriStripsShapeBuf {
@@ -815,6 +816,14 @@ struct BHKCompressedMeshShapeBuf {
 	uint16_t bufType = BUFFER_TYPES::bhkCompressedMeshShapeBufType;
 	float radius;
 	uint32_t dataID;	// bhkCompressedMeshShapeData block ID
+	uint32_t bitsPerIndex;
+	uint32_t bitsPerWIndex;
+	uint32_t maskIndex;
+	uint32_t maskWIndex;
+	float error;
+	uint8_t materialType;
+	uint32_t userData;
+	float unkFloat;
 };
 
 struct ConnectPointBuf {

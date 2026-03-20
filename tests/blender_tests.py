@@ -8233,6 +8233,75 @@ def TEST_FACEGEN():
     assert BD.NearEqual(exmax, 4.7, epsilon=0.1), f"Eye max X correct: {exmax}"
 
 
+@TT.category('SKYRIMSE', 'FACEGEN')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
+def TEST_FACEGEN_SE():
+    """Skyrim SE facegen file round-trips correctly."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\facegen.nif")
+    outfile = TTB.test_file(r"tests/out/TEST_FACEGEN_SE.nif")
+
+    nifin = pyn.NifFile(testfile)
+    in_shape_names = [s.name for s in nifin.shapes]
+    head_in_verts = len(nifin.shape_dict['YASLykaiosMaleHead'].verts)
+
+    # Import into its own collection.
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 create_bones=False,
+                                 import_pose=True,
+                                 create_collection=True)
+
+    meshes = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+    head = [obj for obj in meshes if obj.name.startswith('YASLykaiosMaleHead')][0]
+
+    # All head parts should occupy roughly the same volume, positioned like a head.
+    bboxes = {}
+    for obj in meshes:
+        bboxes[obj.name] = TTB.get_obj_bbox(obj, worldspace=True)
+
+    head_bb = bboxes[head.name]
+    head_height = head_bb[1].z - head_bb[0].z
+    head_width = head_bb[1].x - head_bb[0].x
+
+    # Head should be taller than wide and reasonably sized (not collapsed or giant).
+    assert TT.is_gt(head_height, head_width, "Head taller than wide")
+    assert TT.is_gt(head_height, 10, "Head has reasonable height")
+    assert TT.is_lt(head_height, 40, "Head not oversized")
+
+    # All parts should overlap the head bounding box -- none should be wildly misplaced.
+    for name, bb in bboxes.items():
+        assert TT.is_lt(bb[0].z, head_bb[1].z,
+                         f"{name} overlaps head Z range")
+        assert TT.is_gt(bb[1].z, head_bb[0].z,
+                         f"{name} overlaps head Z range")
+
+    # Export all facegen shapes.
+    BD.ObjectSelect(meshes, active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
+
+    # Verify round-trip
+    nifout = pyn.NifFile(outfile)
+    out_shape_names = [s.name for s in nifout.shapes]
+    assert TT.is_eq(sorted(out_shape_names), sorted(in_shape_names),
+                     "All shapes exported")
+    assert TT.is_eq(len(nifout.shape_dict['YASLykaiosMaleHead'].verts),
+                     head_in_verts, "Head vert count preserved")
+
+    # Deselect everything so the reimport doesn't merge as a shape key.
+    bpy.ops.object.select_all(action='DESELECT')
+
+    # Re-import the exported file into a separate collection for easy inspection.
+    bpy.ops.import_scene.pynifly(filepath=outfile,
+                                 create_bones=False,
+                                 import_pose=True,
+                                 create_collection=True)
+    re_head = [obj for obj in bpy.context.selected_objects
+               if obj.name.startswith('YASLykaiosMaleHead')][0]
+    re_bb = TTB.get_obj_bbox(re_head, worldspace=True)
+    assert TT.is_equiv(re_bb[1].z - re_bb[0].z, head_height,
+                        "Re-imported head height matches",
+                        e=0.1)
+
+
 def UNITTEST_CUBE_INFO1():
     """Unit test to ensure we can analyze a rotated cube."""
     bpy.ops.mesh.primitive_cube_add(location=(0,0,0,))
@@ -9160,6 +9229,46 @@ def TEST_COLLISION_MOPP_MATERIALS():
     mat_names2 = sorted(vg.name for vg in mat_groups2)
     assert TT.is_eq(mat_names2, mat_names,
                      f"Material group names preserved: {mat_names2}")
+
+    # Verify bhkCompressedMeshShapeData properties on the exported file
+    nifcheck = pyn.NifFile(outfile)
+    coll_shapes = [n.collision_object.body.shape.child
+                   for n in nifcheck.nodes.values()
+                   if n.collision_object and n.collision_object.body
+                   and n.collision_object.body.shape
+                   and hasattr(n.collision_object.body.shape, 'child')]
+    assert TT.is_gt(len(coll_shapes), 0, "Found compressed mesh shape in exported NIF")
+    cms = coll_shapes[0]
+    assert TT.is_equiv(cms.properties.error, 0.001,
+                        f"error field: {cms.properties.error}")
+    assert TT.is_eq(cms.properties.materialType, 1,
+                     f"materialType field: {cms.properties.materialType}")
+    assert TT.is_gt(cms.properties.bitsPerIndex, 0,
+                     f"bitsPerIndex: {cms.properties.bitsPerIndex}")
+    assert TT.is_eq(cms.properties.bitsPerWIndex, cms.properties.bitsPerIndex + 1,
+                     f"bitsPerWIndex: {cms.properties.bitsPerWIndex}")
+    expected_mask = (1 << cms.properties.bitsPerIndex) - 1
+    assert TT.is_eq(cms.properties.maskIndex, expected_mask,
+                     f"maskIndex: {cms.properties.maskIndex}")
+    expected_wmask = (1 << cms.properties.bitsPerWIndex) - 1
+    assert TT.is_eq(cms.properties.maskWIndex, expected_wmask,
+                     f"maskWIndex: {cms.properties.maskWIndex}")
+
+    # Verify bhkMoppBvTreeShape properties — read from fresh NifFile to ensure
+    # we're checking the on-disk values, not cached in-memory objects.
+    nifcheck2 = pyn.NifFile(outfile)
+    for n in nifcheck2.nodes.values():
+        if n.collision_object and n.collision_object.body and n.collision_object.body.shape:
+            shape = n.collision_object.body.shape
+            if hasattr(shape, 'mopp_data'):
+                mopp_bytes, origin, scale = shape.mopp_data
+                assert TT.is_equiv(scale, 1.0, f"MOPP scale: {scale}")
+                log.debug(f"MOPP buildType value: {shape.properties.buildType}")
+                assert TT.is_eq(shape.properties.buildType, 1,
+                                f"MOPP buildType (BUILT_WITHOUT_CHUNK_SUBDIVISION): {shape.properties.buildType}")
+                break
+    else:
+        assert False, "No MOPP shape found in exported NIF"
 
 
 @TT.category('SKYRIM', 'MOPP')

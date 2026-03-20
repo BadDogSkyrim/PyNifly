@@ -608,8 +608,6 @@ class bhkMoppBvTreeShape(bhkShape):
     @property
     def mopp_data(self):
         """Return (mopp_bytes, origin, scale) or (b'', (0,0,0), 0) if unavailable."""
-        if nifly.getCollMoppCodeLen is None:
-            return b"", (0.0, 0.0, 0.0), 0.0
         length = nifly.getCollMoppCodeLen(self.file._handle, self.id)
         if length <= 0:
             return b"", (0.0, 0.0, 0.0), 0.0
@@ -644,6 +642,7 @@ class bhkMoppBvTreeShape(bhkShape):
         # Create MOPP block (child shape ID will be set by child creation)
         buf = bhkMoppBvTreeShapeBuf()
         buf.shapeID = NODEID_NONE
+        buf.buildType = 1  # placeholder; real value set in setCollMoppCode below
         mopp_id = check_msg(nifly.addBlock, file._handle, None, byref(buf),
                             parent.id if parent else NODEID_NONE)
         mopp_shape = cls(file=file, id=mopp_id, properties=buf, parent=parent)
@@ -666,12 +665,16 @@ class bhkMoppBvTreeShape(bhkShape):
         mopp_bytes, origin, scale = compile_mopp(verts, tris, radius=radius,
                                                   output_ids=output_ids)
 
-        # Set MOPP code on the block
-        if nifly.setCollMoppCode is not None:
-            origin_buf = (c_float * 3)(*origin)
-            mopp_buf = (c_uint8 * len(mopp_bytes))(*mopp_bytes)
-            check_msg(nifly.setCollMoppCode, file._handle, mopp_id,
-                      origin_buf, c_float(scale), mopp_buf, len(mopp_bytes))
+        # Set MOPP code on the block. The NIF scale field is always 1.0 in
+        # vanilla files — the engine derives quantization from the bytecode.
+        # buildType: 0=BUILT_WITH_CHUNK_SUBDIVISION,
+        #            1=BUILT_WITHOUT_CHUNK_SUBDIVISION, 2=BUILD_NOT_SET
+        # Vanilla always uses 1 (BUILT_WITHOUT_CHUNK_SUBDIVISION).
+        origin_buf = (c_float * 3)(*origin)
+        mopp_buf = (c_uint8 * len(mopp_bytes))(*mopp_bytes)
+        check_msg(nifly.setCollMoppCode, file._handle, mopp_id,
+                  origin_buf, c_float(1.0), mopp_buf, len(mopp_bytes),
+                  c_uint8(1))
 
         return mopp_shape
 
@@ -811,20 +814,6 @@ class bhkCompressedMeshShape(bhkShape):
         from .tri_strip import stripify
         import math
 
-        buf = bhkCompressedMeshShapeBuf()
-        buf.radius = radius
-        shape_id = check_msg(nifly.addBlock, file._handle, None, byref(buf),
-                             parent.id if parent else NODEID_NONE)
-
-        if nifly.getCollCompressedMeshShapeDataID is None:
-            shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
-            return shape, list(range(len(tris)))
-
-        data_id = nifly.getCollCompressedMeshShapeDataID(file._handle, shape_id)
-        if data_id < 0:
-            shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
-            return shape, list(range(len(tris)))
-
         # Build materials array from per-face materials
         # materials_list[i] = (havok_material, layer) — chunks reference by index
         if face_materials and any(m != 0 for m in face_materials):
@@ -834,12 +823,6 @@ class bhkCompressedMeshShape(bhkShape):
             unique_mats = [0]  # single default material
             mat_to_idx = {0: 0}
             face_materials = None  # treat as uniform
-
-        # Set materials array on the data block
-        if nifly.setCollCompressedMeshMaterials is not None and len(unique_mats) > 0:
-            mat_buf = (c_uint32 * len(unique_mats))(*unique_mats)
-            check_msg(nifly.setCollCompressedMeshMaterials, file._handle,
-                      data_id, mat_buf, None, len(unique_mats))
 
         # Segment mesh into chunks — split by material first if multi-material
         if face_materials and len(unique_mats) > 1:
@@ -867,10 +850,28 @@ class bhkCompressedMeshShape(bhkShape):
         mask_index = (1 << bits_per_index) - 1
         mask_w_index = (1 << bits_per_w_index) - 1
 
-        if nifly.setCollCompressedMeshParams is not None:
-            check_msg(nifly.setCollCompressedMeshParams, file._handle,
-                      data_id, bits_per_index, bits_per_w_index,
-                      mask_index, mask_w_index)
+        # Set up buffer with data-block params and create shape + data blocks
+        buf = bhkCompressedMeshShapeBuf()
+        buf.radius = radius
+        buf.bitsPerIndex = bits_per_index
+        buf.bitsPerWIndex = bits_per_w_index
+        buf.maskIndex = mask_index
+        buf.maskWIndex = mask_w_index
+        buf.error = 0.001  # standard quantization tolerance for Skyrim SE
+        buf.materialType = 1 if face_materials else 0
+        shape_id = check_msg(nifly.addBlock, file._handle, None, byref(buf),
+                             parent.id if parent else NODEID_NONE)
+
+        data_id = nifly.getCollCompressedMeshShapeDataID(file._handle, shape_id)
+        if data_id < 0:
+            shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
+            return shape, list(range(len(tris)))
+
+        # Set materials array on the data block
+        if len(unique_mats) > 0:
+            mat_buf = (c_uint32 * len(unique_mats))(*unique_mats)
+            check_msg(nifly.setCollCompressedMeshMaterials, file._handle,
+                      data_id, mat_buf, None, len(unique_mats))
 
         # Build MOPP output IDs per input triangle
         output_ids = [0] * len(tris)
@@ -879,11 +880,10 @@ class bhkCompressedMeshShape(bhkShape):
         all_x = [verts[i][0] for tri in tris for i in tri]
         all_y = [verts[i][1] for tri in tris for i in tri]
         all_z = [verts[i][2] for tri in tris for i in tri]
-        if nifly.setCollCompressedMeshAABB is not None:
-            bmin = (c_float * 3)(min(all_x), min(all_y), min(all_z))
-            bmax = (c_float * 3)(max(all_x), max(all_y), max(all_z))
-            check_msg(nifly.setCollCompressedMeshAABB, file._handle,
-                      data_id, bmin, bmax)
+        bmin = (c_float * 3)(min(all_x), min(all_y), min(all_z))
+        bmax = (c_float * 3)(max(all_x), max(all_y), max(all_z))
+        check_msg(nifly.setCollCompressedMeshAABB, file._handle,
+                  data_id, bmin, bmax)
 
         # Process each chunk
         for chunk_idx, face_group in enumerate(groups):
@@ -939,23 +939,22 @@ class bhkCompressedMeshShape(bhkShape):
                 indices.extend([a, b, c])
 
             # Add chunk via DLL
-            if nifly.addCollCompressedMeshChunk is not None:
-                translation_buf = (c_float * 4)(tx, ty, tz, 0.0)
-                vert_buf = (c_uint16 * len(quant_verts))(*quant_verts)
-                idx_buf = (c_uint16 * len(indices))(*indices)
-                strip_buf = (c_uint16 * len(strip_lengths))(*strip_lengths) if strip_lengths else None
-                # Determine material index for this chunk
-                chunk_mat_idx = 0
-                if face_materials:
-                    chunk_mat = face_materials[face_group[0]]
-                    chunk_mat_idx = mat_to_idx.get(chunk_mat, 0)
-                check_msg(nifly.addCollCompressedMeshChunk,
-                          file._handle, data_id,
-                          translation_buf,
-                          vert_buf, len(local_verts),
-                          idx_buf, len(indices),
-                          strip_buf, len(strip_lengths),
-                          chunk_mat_idx)
+            translation_buf = (c_float * 4)(tx, ty, tz, 0.0)
+            vert_buf = (c_uint16 * len(quant_verts))(*quant_verts)
+            idx_buf = (c_uint16 * len(indices))(*indices)
+            strip_buf = (c_uint16 * len(strip_lengths))(*strip_lengths) if strip_lengths else None
+            # Determine material index for this chunk
+            chunk_mat_idx = 0
+            if face_materials:
+                chunk_mat = face_materials[face_group[0]]
+                chunk_mat_idx = mat_to_idx.get(chunk_mat, 0)
+            check_msg(nifly.addCollCompressedMeshChunk,
+                      file._handle, data_id,
+                      translation_buf,
+                      vert_buf, len(local_verts),
+                      idx_buf, len(indices),
+                      strip_buf, len(strip_lengths),
+                      chunk_mat_idx)
 
             # Compute output IDs for MOPP.
             # chunk_index is 1-based (0 is for bigTris).
@@ -994,9 +993,6 @@ class bhkCompressedMeshShape(bhkShape):
     @property
     def vertices(self):
         if self._vertices is None:
-            if nifly.getCollCompressedMeshShapeVerts is None:
-                self._vertices = []
-                return self._vertices
             count = nifly.getCollCompressedMeshShapeVerts(
                 self.file._handle, self.properties.dataID, None, 0)
             if count > 0:
@@ -1012,9 +1008,6 @@ class bhkCompressedMeshShape(bhkShape):
     @property
     def triangles(self):
         if self._triangles is None:
-            if nifly.getCollCompressedMeshShapeTris is None:
-                self._triangles = []
-                return self._triangles
             count = nifly.getCollCompressedMeshShapeTris(
                 self.file._handle, self.properties.dataID, None, 0)
             if count > 0:
@@ -1030,8 +1023,6 @@ class bhkCompressedMeshShape(bhkShape):
     @property
     def material_ids(self):
         """Return per-triangle HavokMaterial uint32, same order as triangles."""
-        if nifly.getCollCompressedMeshTriMaterials is None:
-            return []
         count = nifly.getCollCompressedMeshTriMaterials(
             self.file._handle, self.properties.dataID, None, 0)
         if count <= 0:
