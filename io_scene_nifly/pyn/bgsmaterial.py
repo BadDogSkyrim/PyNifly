@@ -498,7 +498,3 @@ class TestModule:
         print(mdict)
 
     # ----------------------------------------------------------------------
-
-if __name__ == "__main__":
-    tester = TestModule()
-    tester.run()

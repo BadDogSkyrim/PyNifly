@@ -732,9 +732,3 @@ def TEST_CAM():
             ( 0.0000, 0.0000,  0.0000,    1.0000)))
     inv, z = cam_to_inv(mx, 38)
     assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
-
-
-if __name__ == "__main__":
-    print("------------RUNNING TESTS--------------")
-    TEST_CAM()
-    print("------------TESTS COMPLETE-------------")

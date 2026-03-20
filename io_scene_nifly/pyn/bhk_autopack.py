@@ -1775,16 +1775,3 @@ def _make_box_verts_faces() -> Tuple[List[Vert3], List[Face]]:
         [1, 2, 6, 5],  # +X right
     ]
     return verts, faces
-
-
-if __name__ == '__main__':
-    import sys
-    if len(sys.argv) == 2:
-        out = sys.argv[1]
-    else:
-        out = 'test_box.bin'
-    verts, faces = _make_box_verts_faces()
-    data = pack_convex_polytope(verts, faces)
-    with open(out, 'wb') as f:
-        f.write(data)
-    print(f'Written {len(data)} bytes to {out}')

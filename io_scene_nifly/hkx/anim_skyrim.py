@@ -1080,7 +1080,3 @@ def main():
     except ValueError as e:
         if not skel:
             print(f"Error: {e}")
-
-
-if __name__ == '__main__':
-    main()

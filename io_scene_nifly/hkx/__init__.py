@@ -98,8 +98,3 @@ def register():
         log.debug(f"Found hkxcmd at {import_hkx.hkxcmd_path}")
     else:
         log.error(f"Could not locate hkxcmd in the pyNifly install. Animations cannot be exported to HKX format.")
-
-
-if __name__ == "__main__":
-    unregister()
-    register()

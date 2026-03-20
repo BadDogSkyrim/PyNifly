@@ -330,7 +330,3 @@ def matDeterminant(mat):
     else:
         return sum( (-1 if i&1 else 1) * mat[i][0] * matCofactor(mat, i, 0)
                     for i in range(dim) )
-
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()

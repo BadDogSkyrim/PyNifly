@@ -1398,7 +1398,3 @@ def _main() -> int:
     extract_havok_from_nif(in_path, out_path)
     print(out_path)
     return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(_main())

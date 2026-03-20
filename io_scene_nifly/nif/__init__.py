@@ -68,8 +68,3 @@ def register():
         subtype='DIR_PATH',
         default=""
     )
-
-
-if __name__ == "__main__":
-    unregister()
-    register()

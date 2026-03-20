@@ -276,12 +276,3 @@ def find_game(game_name: str) -> Path | None:
     if finder:
         return finder()
     return None
-
-
-# Example usage:
-if __name__ == "__main__":
-    path = find_game("SKYRIMSE")
-    print("Skyrim SE found at:", path)
-    path = find_game("FO4")
-    print("Fallout 4 found at:", path)
-    
