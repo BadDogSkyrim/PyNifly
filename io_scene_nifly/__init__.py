@@ -14,13 +14,25 @@ bl_info = {
 }
 
 import os
-from importlib import reload 
 import logging
 log = logging.getLogger('pynifly')
 
 log.info(f"PyNifly version {'.'.join(map(str, bl_info['version']))} initializing")
 
 DEBUGGING = ('PYNIFLY_DEV_ROOT' in os.environ)
+
+# Blender-approved submodule reload pattern.
+# On first load "bpy" is not yet in locals; on subsequent reloads it is.
+if "bpy" in locals():
+    import importlib
+    from . import nif, tri, hkx, kf
+    importlib.reload(nif)
+    importlib.reload(tri)
+    importlib.reload(hkx)
+    importlib.reload(kf)
+    if DEBUGGING:
+        from . import osd
+        importlib.reload(osd)
 
 from contextlib import suppress
 import bpy
@@ -140,26 +152,19 @@ class PyNiflyPreferences(AddonPreferences):
 def register():
     bpy.utils.register_class(PyNiflyPreferences)
 
+    if DEBUGGING:
+        log.setLevel(logging.DEBUG)
+
     from . import nif
     from . import tri
     from . import hkx
     from . import kf
-    if DEBUGGING:
-        from . import osd
-
-    if DEBUGGING:
-        log.setLevel(logging.DEBUG)
-        reload(nif)
-        reload(tri)
-        reload(hkx)
-        reload(kf)
-        reload(osd)
-
     hkx.register()
     kf.register()
     nif.register()
     tri.register()
     if DEBUGGING:
+        from . import osd
         osd.register()
 
     log.info(f"PyNifly {'.'.join(map(str, bl_info['version']))} registered")
