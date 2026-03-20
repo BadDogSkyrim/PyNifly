@@ -9,6 +9,7 @@ import traceback
 from contextlib import suppress
 import bpy
 from mathutils import Vector
+from .. import __package__ as base_package
 from .. import blender_defs as BD
 from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2, NODEID_NONE
 from ..pyn.niflytools import find_referenced_file, texture_path
@@ -1131,7 +1132,7 @@ class ShaderImporter:
         * shape = shape to read for texture files
         * self.textures <- dictionary of filepaths to use.
         """
-        prefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
+        prefs = bpy.context.preferences.addons[base_package].preferences
         self.textures = {}
         altpaths = []
         

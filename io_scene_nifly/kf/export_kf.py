@@ -8,6 +8,7 @@ from pathlib import Path
 import bpy
 from bpy.props import StringProperty, CollectionProperty
 from bpy_extras.io_utils import ExportHelper, ImportHelper
+from .. import __package__ as base_package
 from ..pyn.pynifly import NifFile
 from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
 from ..pyn.nifdefs import PynIntFlag
@@ -111,7 +112,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
             self.filepath = str(Path(context.window_manager.pynifly_last_export_path_kf) 
                                 / Path(self.filepath))
 
-        pyniflyPrefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
+        pyniflyPrefs = bpy.context.preferences.addons[base_package].preferences
         self.rename_bones = pyniflyPrefs.rename_bones
         self.rename_bones_niftools = pyniflyPrefs.rename_bones_nift
         if bpy.context.object and bpy.context.object.type == 'ARMATURE':

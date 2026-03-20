@@ -11,6 +11,7 @@ import xml.etree.ElementTree as xml
 import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
+from .. import __package__ as base_package
 from ..pyn.nifdefs import PynIntFlag
 from ..pyn.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath, fo4Dict, skyrimDict
 from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
@@ -106,7 +107,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                                 / Path(self.filepath))
 
         # Override defaults with addon user preferences
-        pyniflyPrefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
+        pyniflyPrefs = bpy.context.preferences.addons[base_package].preferences
         self.rename_bones = pyniflyPrefs.rename_bones
         self.rename_bones_niftools = pyniflyPrefs.rename_bones_niftools
         self.blender_xf = pyniflyPrefs.blender_xf

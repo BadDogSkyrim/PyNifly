@@ -39,7 +39,7 @@ import bpy
 from bpy.types import AddonPreferences
 from bpy.props import StringProperty, BoolProperty
 class PyNiflyPreferences(AddonPreferences):
-    bl_idname = "io_scene_nifly"   # critical: must match your add-on module name
+    bl_idname = __package__
 
     sky_texture_path_1: StringProperty(
         name="Skyrim Texture Path 1",

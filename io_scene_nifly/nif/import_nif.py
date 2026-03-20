@@ -13,6 +13,7 @@ from pathlib import Path
 import bpy
 from bpy.props import CollectionProperty, StringProperty
 from bpy_extras.io_utils import ImportHelper
+from .. import __package__ as base_package
 from .. import bl_info
 from ..pyn.niflytools import fo4FaceDict, find_trip, find_tris, MatNearEqual
 from ..pyn.nifdefs import (ShaderFlags1, ShaderFlags2, BSXFlagsValues, BSValueNodeFlags, 
@@ -1944,7 +1945,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             
         # Load defaults. Use the addon's defaults unless something about the current
         # objects override them.
-        pyniflyPrefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
+        pyniflyPrefs = bpy.context.preferences.addons[base_package].preferences
         self.blender_xf = pyniflyPrefs.blender_xf
         self.rename_bones = pyniflyPrefs.rename_bones
         self.rename_bones_niftools = pyniflyPrefs.rename_bones_niftools

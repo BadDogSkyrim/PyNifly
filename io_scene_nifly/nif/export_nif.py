@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import bpy
 from bpy_extras.io_utils import ExportHelper
+from .. import __package__ as base_package
 from ..tri.trifile import TriFile
 from ..tri.tripfile import TripFile
 from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict, 
@@ -1783,7 +1784,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         Given objects being exported, set any settings they specify.
         """
         try:
-            prefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
+            prefs = bpy.context.preferences.addons[base_package].preferences
         except KeyError:
             prefs = ExportSettings()
         
