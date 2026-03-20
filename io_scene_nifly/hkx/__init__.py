@@ -1,25 +1,23 @@
-
 """
 HKX ANIMATION IMPORT/EXPORT
 """
-
-import os
-import importlib
 from contextlib import suppress
 import logging
+
+_needs_reload = "bpy" in locals()
+
 import bpy
 from . import import_hkx
 from . import export_hkx
 from . import skeleton_hkx
 from . import anim_fo4
 
-
-def reload_all():
-    if 'PYNIFLY_DEV_ROOT' in os.environ:
-        importlib.reload(anim_fo4)
-        importlib.reload(import_hkx)
-        importlib.reload(export_hkx)
-        importlib.reload(skeleton_hkx)
+if _needs_reload:
+    import importlib
+    anim_fo4 = importlib.reload(anim_fo4)
+    import_hkx = importlib.reload(import_hkx)
+    export_hkx = importlib.reload(export_hkx)
+    skeleton_hkx = importlib.reload(skeleton_hkx)
 
 
 def nifly_menu_import_hkx(self, context):
@@ -59,8 +57,6 @@ def unregister():
         del bpy.types.WindowManager.pynifly_last_export_path_skel
 
 def register():
-    reload_all()
-
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_hkx)
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_skel)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_hkx)

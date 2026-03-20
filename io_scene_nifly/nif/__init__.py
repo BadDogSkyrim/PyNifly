@@ -1,27 +1,26 @@
 """
 Import/Export the nif format
 """
-import os 
-import importlib
 from contextlib import suppress
+
+_needs_reload = "bpy" in locals()
+
 import bpy
-from . import import_nif 
+from . import import_nif
 from . import export_nif
 from . import controller
 from . import shader_io
-from . import controller
 from . import collision
 from . import connectpoint
 
-
-def reload_all():
-    if 'PYNIFLY_DEV_ROOT' in os.environ:
-        importlib.reload(import_nif)
-        importlib.reload(export_nif)
-        importlib.reload(shader_io)
-        importlib.reload(controller)
-        importlib.reload(collision)
-        importlib.reload(connectpoint)
+if _needs_reload:
+    import importlib
+    import_nif = importlib.reload(import_nif)
+    export_nif = importlib.reload(export_nif)
+    controller = importlib.reload(controller)
+    shader_io = importlib.reload(shader_io)
+    collision = importlib.reload(collision)
+    connectpoint = importlib.reload(connectpoint)
 
 
 def nifly_menu_import_nif(self, context):
@@ -47,8 +46,6 @@ def unregister():
 
 
 def register():
-    reload_all()
-
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_nif)
     with suppress(RuntimeError):

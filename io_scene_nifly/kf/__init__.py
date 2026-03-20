@@ -1,21 +1,19 @@
 """
 KF ANIMATION IMPORT
 """
-
-import os
-import importlib
 from contextlib import suppress
 import logging
-import bpy
 
+_needs_reload = "bpy" in locals()
+
+import bpy
 from . import import_kf
 from . import export_kf
 
-
-def reload_all():
-    if 'PYNIFLY_DEV_ROOT' in os.environ:
-        importlib.reload(import_kf)
-        importlib.reload(export_kf)
+if _needs_reload:
+    import importlib
+    import_kf = importlib.reload(import_kf)
+    export_kf = importlib.reload(export_kf)
 
 
 def nifly_menu_import_kf(self, context):
@@ -40,8 +38,6 @@ def unregister():
 
 
 def register():
-    reload_all()
-    
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_kf)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_kf)
     with suppress(RuntimeError):

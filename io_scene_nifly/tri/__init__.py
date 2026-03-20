@@ -28,7 +28,16 @@ updated by anon (me) to work with newer blender ( version 2.63+), I hope
 """
 
 from contextlib import suppress
+
+_needs_reload = "bpy" in locals()
+
 import bpy
+from . import import_tri
+
+if _needs_reload:
+    import importlib
+    import_tri = importlib.reload(import_tri)
+
 from .import_tri import ImportTRI
 
 
