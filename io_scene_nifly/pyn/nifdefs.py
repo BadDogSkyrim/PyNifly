@@ -92,7 +92,8 @@ class PynBufferTypes(IntEnum):
     bhkMoppBvTreeShapeBufType = 69
     bhkPackedNiTriStripsShapeBufType = 70
     bhkCompressedMeshShapeBufType = 71
-    COUNT = 72
+    BSDecalPlacementVectorExtraDataBufType = 72
+    COUNT = 73
 
 
 class NiShaderBuf(pynStructure):
@@ -825,6 +826,24 @@ class FurnitureMarkerDataBuf(pynStructure):
                     self.entry_points |= FurnEntryPoints[e].value
                 except:
                     self.entry_points |= int(e, 0)
+
+
+class BSDecalPlacementVectorExtraDataBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("numVectorBlocks", c_uint16) ]
+
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BSDecalPlacementVectorExtraDataBufType
+
+
+class DecalVectorBuf(Structure):
+    _fields_ = [
+        ("point", c_float * 3),
+        ("normal", c_float * 3) ]
 
 
 class ConnectPointBuf(pynStructure):

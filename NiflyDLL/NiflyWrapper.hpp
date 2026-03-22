@@ -117,6 +117,10 @@ extern "C" NIFLY_API int getConnectPointChild(void* nifref, int index, char* buf
 extern "C" NIFLY_API void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf);
 extern "C" NIFLY_API int getFurnitureMarkerPosition(void* nifref, int id, int index, FurnitureMarkerDataBuf* buf);
 extern "C" NIFLY_API int addFurnitureMarkerPosition(void* nifref, int id, FurnitureMarkerDataBuf* buf);
+extern "C" NIFLY_API int getDecalVectorBlockCount(void* nifref, int id, int blockIndex, uint16_t* count);
+extern "C" NIFLY_API int getDecalVector(void* nifref, int id, int blockIndex, int vectorIndex, DecalVectorBuf* buf);
+extern "C" NIFLY_API int addDecalVectorBlock(void* nifref, int id);
+extern "C" NIFLY_API int addDecalVector(void* nifref, int id, int blockIndex, DecalVectorBuf* buf);
 extern "C" NIFLY_API void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int controlsBaseSkel);
 /* ********************* ERROR REPORTING ********************* */
 extern "C" NIFLY_API void clearMessageLog();

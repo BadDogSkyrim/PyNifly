@@ -658,6 +658,21 @@ class NifImporter():
             BD.link_to_collection(self.collection, ed)
 
 
+    def import_decal_placement(self, node, parent_obj,
+                               decal:P.BSDecalPlacementVectorExtraData):
+        import json
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "BSDecalPlacementVectorExtraData:" + decal.name
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        ed['BSDecalPlacementVectorExtraData_Name'] = decal.name
+        ed['BSDecalPlacementVectorExtraData_Value'] = json.dumps(decal.vector_blocks)
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
+
+
     def import_skip(self, node, parent_obj, extblock):
         """Dummy import for extra data handled elsewhere."""
         pass
@@ -672,6 +687,7 @@ class NifImporter():
         'BSFurnitureMarkerNode': import_furniture_markers,
         'NiStringExtraData': import_stringdata,
         'BSBehaviorGraphExtraData': import_behavior_graph_data,
+        'BSDecalPlacementVectorExtraData': import_decal_placement,
         'BSConnectPoint::Parents': import_skip,
         'BSConnectPoint::Children': import_skip,
         }

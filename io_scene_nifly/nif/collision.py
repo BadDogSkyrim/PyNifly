@@ -688,6 +688,8 @@ class CollisionHandler():
         obj.matrix_world = parentxf.copy()
         self.collection.objects.link(obj)
         obj['bhkRadius'] = cs.properties.radius * self.import_scale
+        if cs.properties.material != 0:
+            obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.material)
         return obj
 
     def import_bhkCompressedMeshShape(self, cs:bhkShape, parentxf:Matrix):
@@ -709,18 +711,18 @@ class CollisionHandler():
         mat_ids = cs.material_ids
         if mat_ids and len(mat_ids) == len(tris):
             unique_mats = set(mat_ids)
-            if len(unique_mats) > 1:
-                for mat_val in unique_mats:
-                    name = "SKY_HAV_MAT_" + SkyrimHavokMaterial.get_name(mat_val)
-                    vg = obj.vertex_groups.new(name=name)
-                    # Assign faces with this material — add all verts of matching faces
-                    face_verts = set()
-                    for fi, mid in enumerate(mat_ids):
-                        if mid == mat_val:
-                            for vi in tris[fi]:
-                                face_verts.add(vi)
-                    if face_verts:
-                        vg.add(list(face_verts), 1.0, 'REPLACE')
+            for mat_val in unique_mats:
+                if mat_val == 0:
+                    continue
+                name = "SKY_HAV_MAT_" + SkyrimHavokMaterial.get_name(mat_val)
+                vg = obj.vertex_groups.new(name=name)
+                face_verts = set()
+                for fi, mid in enumerate(mat_ids):
+                    if mid == mat_val:
+                        for vi in tris[fi]:
+                            face_verts.add(vi)
+                if face_verts:
+                    vg.add(list(face_verts), 1.0, 'REPLACE')
 
         return obj
 

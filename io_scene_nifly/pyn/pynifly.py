@@ -657,6 +657,10 @@ class bhkMoppBvTreeShape(bhkShape):
                 parent=mopp_shape)
             output_ids = list(range(len(tris)))
         else:
+            # For SE, pass default material via face_materials if no per-face
+            # materials are provided.
+            if not face_materials and material != 0:
+                face_materials = [material] * len(tris)
             child, output_ids = bhkCompressedMeshShape.Create(
                 file, verts, tris, radius=radius,
                 face_materials=face_materials, parent=mopp_shape)
@@ -812,7 +816,6 @@ class bhkCompressedMeshShape(bhkShape):
         """
         from .mesh_segment import segment_mesh
         from .tri_strip import stripify
-        import math
 
         # Build materials array from per-face materials
         # materials_list[i] = (havok_material, layer) — chunks reference by index
@@ -842,13 +845,13 @@ class bhkCompressedMeshShape(bhkShape):
         else:
             groups = segment_mesh(verts, tris)
 
-        # Compute bitsPerIndex and related params from chunk sizes
-        max_tri_in_chunk = max(
-            (len(g) for g in groups), default=0)
-        bits_per_index = max(1, math.ceil(math.log2(max(max_tri_in_chunk, 1) + 1)))
-        bits_per_w_index = bits_per_index + 1  # +1 for winding bit
-        mask_index = (1 << bits_per_index) - 1
-        mask_w_index = (1 << bits_per_w_index) - 1
+        # Vanilla Havok toolchain always uses fixed bit-field widths for
+        # shape-key encoding, regardless of actual chunk sizes.  The engine
+        # may assume these constants when decoding MOPP output IDs.
+        bits_per_index = 17
+        bits_per_w_index = 18
+        mask_index = 0x1FFFF
+        mask_w_index = 0x3FFFF
 
         # Set up buffer with data-block params and create shape + data blocks
         buf = bhkCompressedMeshShapeBuf()
@@ -2829,6 +2832,53 @@ class BSBehaviorGraphExtraData(NiExtraData):
         p.behaviorGraphFileID = nifly.addString(file._handle, behavior_graph_file.encode('utf-8'))
         p.controlsBaseSkeleton = 1 if controls_base_skeleton else 0
         return file.add_block(name, p, parent)
+
+
+class BSDecalPlacementVectorExtraData(NiExtraData):
+    buffer_type = PynBufferTypes.BSDecalPlacementVectorExtraDataBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSDecalPlacementVectorExtraDataBuf(values)
+
+    @property
+    def vector_blocks(self):
+        """Return list of vector blocks; each block is a list of (point, normal) tuples.
+
+        point and normal are each (x, y, z) float tuples.
+        """
+        blocks = []
+        for bi in range(self.properties.numVectorBlocks):
+            count = c_uint16()
+            nifly.getDecalVectorBlockCount(
+                self.file._handle, self.id, bi, byref(count))
+            vectors = []
+            for vi in range(count.value):
+                vbuf = DecalVectorBuf()
+                nifly.getDecalVector(
+                    self.file._handle, self.id, bi, vi, byref(vbuf))
+                vectors.append((tuple(vbuf.point), tuple(vbuf.normal)))
+            blocks.append(vectors)
+        return blocks
+
+    @classmethod
+    def New(cls, file, name='', vector_blocks=None, parent=None):
+        p = BSDecalPlacementVectorExtraDataBuf()
+        p.numVectorBlocks = len(vector_blocks) if vector_blocks else 0
+        node = file.add_block(name, p, parent)
+        if vector_blocks:
+            for bi, block in enumerate(vector_blocks):
+                nifly.addDecalVectorBlock(file._handle, node.id)
+                for point, normal in block:
+                    vbuf = DecalVectorBuf()
+                    vbuf.point[:] = point
+                    vbuf.normal[:] = normal
+                    nifly.addDecalVector(
+                        file._handle, node.id, bi, byref(vbuf))
+        return node
 
 
 class NiStringExtraData(NiExtraData):

@@ -97,6 +97,7 @@ enum BUFFER_TYPES : uint16_t {
 	bhkMoppBvTreeShapeBufType,
 	bhkPackedNiTriStripsShapeBufType,
 	bhkCompressedMeshShapeBufType,
+	BSDecalPlacementVectorExtraDataBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -408,6 +409,18 @@ struct FurnitureMarkerDataBuf {
 	float heading;
 	uint16_t animationType;
 	uint16_t entryPoints;
+};
+
+struct BSDecalPlacementVectorExtraDataBuf {
+	uint16_t bufSize = sizeof(BSDecalPlacementVectorExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::BSDecalPlacementVectorExtraDataBufType;
+	uint32_t nameID;
+	uint16_t numVectorBlocks;
+};
+
+struct DecalVectorBuf {
+	float point[3];
+	float normal[3];
 };
 
 struct BSXFlagsBuf {

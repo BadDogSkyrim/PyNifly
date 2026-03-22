@@ -26,8 +26,8 @@ importlib.reload(tests)
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_FACEGEN_SE , ], 
+    target_tests=[ TEST_DECAL_PLACEMENT, TEST_IMP_EXP_SKY_2, TEST_SCALING_BP, TEST_IMP_EXP_SCALE_2, TEST_SHADER_EYE, TEST_ANIM_SHADER_BSLSP, TEST_TEXTURE_PATHS, TEST_NIFTOOLS_NAMES, TEST_SKYRIM_HKX_SKEL_WITH_NIF ],
     # categories={'FO4'},
-    test_all=False,
+    test_all=True,
     stop_on_fail=False,
     )

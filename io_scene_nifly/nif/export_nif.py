@@ -385,6 +385,7 @@ class NifExporter:
         self.str_data = set()
         self.int_data = set()
         self.cloth_data = set()
+        self.decal_data = set()
         self.grouping_nodes = set()
         self.bsx_flag = None
         self.bone_lod = None
@@ -475,14 +476,20 @@ class NifExporter:
         """ Export a shape's extra data """
         edlist = []
         strlist = []
+        decallist = []
         for ch in robj.blender_obj.children:
              if 'NiStringExtraData_Name' in ch:
                 strlist.append( (ch['NiStringExtraData_Name'], ch['NiStringExtraData_Value']) )
                 self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
              if 'BSBehaviorGraphExtraData_Name' in ch:
-                edlist.append( (ch['BSBehaviorGraphExtraData_Name'], 
+                edlist.append( (ch['BSBehaviorGraphExtraData_Name'],
                                ch['BSBehaviorGraphExtraData_Value']) )
                 self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
+             if 'BSDecalPlacementVectorExtraData_Name' in ch:
+                import json
+                decallist.append( (ch['BSDecalPlacementVectorExtraData_Name'],
+                                   json.loads(ch['BSDecalPlacementVectorExtraData_Value'])) )
+                self.objs_written.add(ReprObject(ch, None))
         
         if len(strlist) > 0:
             # Create NiStringExtraData objects using new class
@@ -493,10 +500,18 @@ class NifExporter:
             # Create BSBehaviorGraphExtraData objects using new class
             for name, file_path, controls_skeleton in edlist:
                 from ..pyn.pynifly import BSBehaviorGraphExtraData
-                BSBehaviorGraphExtraData.New(robj.nifnode.file, name=name, 
-                                            behavior_graph_file=file_path, 
-                                            controls_base_skeleton=controls_skeleton, 
+                BSBehaviorGraphExtraData.New(robj.nifnode.file, name=name,
+                                            behavior_graph_file=file_path,
+                                            controls_base_skeleton=controls_skeleton,
                                             parent=robj.nifnode)
+        if len(decallist) > 0:
+            from ..pyn.pynifly import BSDecalPlacementVectorExtraData
+            for name, blocks in decallist:
+                vector_blocks = [[(tuple(v[0]), tuple(v[1])) for v in block]
+                                 for block in blocks]
+                BSDecalPlacementVectorExtraData.New(
+                    robj.nifnode.file, name=name,
+                    vector_blocks=vector_blocks, parent=robj.nifnode)
 
 
     def add_armature(self, arma):
@@ -554,6 +569,9 @@ class NifExporter:
 
             elif 'BSClothExtraData_Name' in obj.keys():
                 self.cloth_data.add(obj)
+
+            elif 'BSDecalPlacementVectorExtraData_Name' in obj.keys():
+                self.decal_data.add(obj)
 
             elif 'BSXFlags_Name' in obj.keys():
                 self.bsx_flag = obj
@@ -709,7 +727,23 @@ class NifExporter:
             self.objs_written.add(ReprObject(cd, self.nif.rootNode)) # [cd.name] = self.nif
 
         if len(cdlist) > 0:
-            self.nif.cloth_data = cdlist 
+            self.nif.cloth_data = cdlist
+
+
+    def export_decal_data(self):
+        """Export decal placement data for root-level decal empties."""
+        import json
+        for obj in self.decal_data:
+            if obj in [ro.blender_obj for ro in self.objs_written]:
+                continue  # already exported as shape child
+            name = obj['BSDecalPlacementVectorExtraData_Name']
+            blocks = json.loads(obj['BSDecalPlacementVectorExtraData_Value'])
+            vector_blocks = [[(tuple(v[0]), tuple(v[1])) for v in block]
+                             for block in blocks]
+            pynifly.BSDecalPlacementVectorExtraData.New(
+                self.nif, name=name,
+                vector_blocks=vector_blocks, parent=self.nif.rootNode)
+            self.objs_written.add(ReprObject(obj, self.nif.rootNode))
 
 
     def export_bsx_flag(self):
@@ -807,6 +841,7 @@ class NifExporter:
         self.export_string_data()
         self.export_behavior_graph_data()
         self.export_cloth_data()
+        self.export_decal_data()
         self.export_bsx_flag()
         self.export_bone_lod()
         self.export_bound()

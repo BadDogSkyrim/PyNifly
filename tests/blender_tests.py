@@ -459,7 +459,6 @@ def TEST_IMP_EXP_SKY(game, blendxf, pretty):
         
 
 @TT.category('SKYRIM', 'BODYPART')
-@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_IMP_EXP_SKY_2():
     """Can read the armor nif with two shapes and spit it back out"""
     # Basic test that the import/export round trip works on nifs with multiple bodyparts. 
@@ -960,7 +959,6 @@ def TEST_DRAUGR_IMPORT_E():
     
 
 @TT.category('SKYRIM', 'BODYPART', 'SCALING')
-@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_SCALING_BP():
     """Can scale bodyparts"""
 
@@ -1012,7 +1010,6 @@ def TEST_SCALING_BP():
 
 
 @TT.category('SKYRIM', 'BODYPART', 'SCALING')
-@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_IMP_EXP_SCALE_2():
     """Can read the body nif scaled"""
     # Regression: Making sure that the scale factor doesn't mess up importing under one
@@ -2286,7 +2283,6 @@ def TEST_SHADER_ALL():
 
 
 @TT.category('SKYRIM', 'SHADER')
-@TT.expect_errors( ('Unknown block type: BSDecalPlacementVectorExtraData',) )
 def TEST_SHADER_EYE():
     """Test that all texture slots are imported and exported correctly."""
     testfile2 = TTB.test_file(r"tests\SkyrimSE\eyesmale.nif")
@@ -2440,7 +2436,6 @@ def TEST_HIGHTECH_FLOORLIGHT():
 
 
 @TT.category('SKYRIM', 'SHADER', 'ANIMATION')
-@TT.expect_errors( ('Unknown block type: BSDecalPlacementVectorExtraData',) )
 def TEST_ANIM_SHADER_BSLSP():
     """Controllers on BSLightingShaders work correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\voidshade_1.nif")
@@ -2900,7 +2895,6 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 
 @TT.category('SKYRIM', 'SHADER')
 @TT.parameterize("txtdir", ["tests\SkyrimSE", "xyzzy"])
-@TT.expect_errors( ("Unknown block type: BSDecalPlacementVectorExtraData",) )
 def TEST_TEXTURE_PATHS(txtdir):
     """
     Texture paths are correctly resolved. Checks a texture file can be found using
@@ -3253,6 +3247,74 @@ def TEST_FEET_MULTI():
         TT.assert_eq(len(strdata), 1, f"{shape.name} has one extra data")
         assert strdata[0].name == 'SDTA', "String data name written correctly"
         assert strdata[0].string_data.startswith('[{"name"'), "String data value written correctly"
+
+
+@TT.category('SKYRIM', 'EXTRA_DATA')
+@TT.expect_errors(("Could not find texture", "Could not load"))
+def TEST_DECAL_PLACEMENT():
+    """BSDecalPlacementVectorExtraData round-trip."""
+    import json
+
+    testfile = TTB.test_file(r"tests\SkyrimSE\malebody_1.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_DECAL_PLACEMENT.nif", output=True)
+
+    # --- pyn-layer: read original decal data ---
+    nif_orig = pyn.NifFile(testfile)
+    orig_decals = []
+    for ed in nif_orig.rootNode.extra_data(blockname="BSDecalPlacementVectorExtraData"):
+        orig_decals.append((ed.name, ed.vector_blocks))
+    for shape in nif_orig.shapes:
+        for ed in shape.extra_data(blockname="BSDecalPlacementVectorExtraData"):
+            orig_decals.append((ed.name, ed.vector_blocks))
+    log.info(f"Original decal extra data count: {len(orig_decals)}")
+    TT.assert_gt(len(orig_decals), 0, "original has decal data")
+
+    for name, blocks in orig_decals:
+        log.info(f"  '{name}': {len(blocks)} blocks")
+        for bi, block in enumerate(blocks):
+            log.info(f"    block[{bi}]: {len(block)} vectors")
+            TT.assert_gt(len(block), 0, f"block {bi} has vectors")
+
+    # --- Blender import ---
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_collection=True)
+    import_coll = bpy.context.collection
+
+    decal_objs = [o for o in import_coll.all_objects
+                  if 'BSDecalPlacementVectorExtraData_Name' in o]
+    TT.assert_gt(len(decal_objs), 0, "decal empties imported")
+
+    for dobj in decal_objs:
+        dname = dobj['BSDecalPlacementVectorExtraData_Name']
+        dval = json.loads(dobj['BSDecalPlacementVectorExtraData_Value'])
+        log.info(f"Imported decal '{dname}': {len(dval)} blocks")
+        TT.assert_gt(len(dval), 0, f"decal '{dname}' has blocks")
+
+    # --- Export ---
+    BD.ObjectSelect(list(import_coll.all_objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # --- Verify exported NIF ---
+    nif_out = pyn.NifFile(outfile)
+    out_decals = []
+    for ed in nif_out.rootNode.extra_data(blockname="BSDecalPlacementVectorExtraData"):
+        out_decals.append((ed.name, ed.vector_blocks))
+    for shape in nif_out.shapes:
+        for ed in shape.extra_data(blockname="BSDecalPlacementVectorExtraData"):
+            out_decals.append((ed.name, ed.vector_blocks))
+    TT.assert_eq(len(out_decals), len(orig_decals), "decal count preserved")
+
+    for (orig_name, orig_blocks), (out_name, out_blocks) in zip(orig_decals, out_decals):
+        TT.assert_eq(out_name, orig_name, "decal name preserved")
+        TT.assert_eq(len(out_blocks), len(orig_blocks), f"block count for '{orig_name}'")
+        for bi, (ob, nb) in enumerate(zip(orig_blocks, out_blocks)):
+            TT.assert_eq(len(nb), len(ob), f"vector count block[{bi}] of '{orig_name}'")
+            for vi, (ov, nv) in enumerate(zip(ob, nb)):
+                TT.assert_equiv(nv[0][0], ov[0][0], f"point.x [{bi}][{vi}]")
+                TT.assert_equiv(nv[0][1], ov[0][1], f"point.y [{bi}][{vi}]")
+                TT.assert_equiv(nv[0][2], ov[0][2], f"point.z [{bi}][{vi}]")
+                TT.assert_equiv(nv[1][0], ov[1][0], f"normal.x [{bi}][{vi}]")
+                TT.assert_equiv(nv[1][1], ov[1][1], f"normal.y [{bi}][{vi}]")
+                TT.assert_equiv(nv[1][2], ov[1][2], f"normal.z [{bi}][{vi}]")
 
 
 @TT.category('SKYRIM', 'SCALING')
@@ -4861,7 +4923,6 @@ def TEST_NORMAL_SEAM():
 
 
 @TT.category('SKYRIM', 'ARMATURE')
-@TT.expect_errors(("Unknown block type: BSDecalPlacementVectorExtraData",))
 def TEST_NIFTOOLS_NAMES():
     """Can import nif with niftools' naming convention"""
     # We allow renaming bones according to the NifTools format. Someday this may allow
@@ -8625,7 +8686,6 @@ def TEST_FO4_ANIM_EXPORT():
 
 
 @TT.category('SKYRIM', 'HKX')
-@TT.expect_errors(('Unknown block type: BSDecalPlacementVectorExtraData',))
 def TEST_SKYRIM_HKX_SKEL_WITH_NIF():
     """Import HKX skeleton, NIF body, then HKX animation — full workflow."""
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
@@ -9243,16 +9303,14 @@ def TEST_COLLISION_MOPP_MATERIALS():
                         f"error field: {cms.properties.error}")
     assert TT.is_eq(cms.properties.materialType, 1,
                      f"materialType field: {cms.properties.materialType}")
-    assert TT.is_gt(cms.properties.bitsPerIndex, 0,
-                     f"bitsPerIndex: {cms.properties.bitsPerIndex}")
-    assert TT.is_eq(cms.properties.bitsPerWIndex, cms.properties.bitsPerIndex + 1,
-                     f"bitsPerWIndex: {cms.properties.bitsPerWIndex}")
-    expected_mask = (1 << cms.properties.bitsPerIndex) - 1
-    assert TT.is_eq(cms.properties.maskIndex, expected_mask,
-                     f"maskIndex: {cms.properties.maskIndex}")
-    expected_wmask = (1 << cms.properties.bitsPerWIndex) - 1
-    assert TT.is_eq(cms.properties.maskWIndex, expected_wmask,
-                     f"maskWIndex: {cms.properties.maskWIndex}")
+    assert TT.is_eq(cms.properties.bitsPerIndex, 17,
+                     "bitsPerIndex vanilla standard")
+    assert TT.is_eq(cms.properties.bitsPerWIndex, 18,
+                     "bitsPerWIndex vanilla standard")
+    assert TT.is_eq(cms.properties.maskIndex, 0x1FFFF,
+                     "maskIndex vanilla standard")
+    assert TT.is_eq(cms.properties.maskWIndex, 0x3FFFF,
+                     "maskWIndex vanilla standard")
 
     # Verify bhkMoppBvTreeShape properties — read from fresh NifFile to ensure
     # we're checking the on-disk values, not cached in-memory objects.
@@ -9316,6 +9374,144 @@ def TEST_COLLISION_MOPP_MULTICHUNK():
     mat_names2 = sorted(vg.name for vg in mat_groups2)
     assert TT.is_eq(mat_names2, mat_names,
                      f"Material groups preserved: {mat_names2}")
+
+
+@TT.category('SKYRIM', 'MOPP')
+def TEST_COLLISION_MOPP_MOUNTAINPEAK():
+    """Large MOPP collision round-trip: mountainpeak02 (4290 verts, 1754 tris)."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\mountainpeak02.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_MOUNTAINPEAK.nif", output=True)
+
+    # Read original collision stats via pyn
+    nif_orig = pyn.NifFile(testfile)
+    orig_root = nif_orig.rootNode
+    orig_co = orig_root.collision_object
+    orig_body = orig_co.body
+    orig_mopp = orig_body.shape
+    orig_cmesh = orig_mopp.child
+    orig_verts = orig_cmesh.vertices
+    orig_tris = orig_cmesh.triangles
+    orig_mopp_data, orig_origin, orig_scale = orig_mopp.mopp_data
+    log.info(f"Original: {len(orig_verts)} verts, {len(orig_tris)} tris, "
+             f"MOPP {len(orig_mopp_data)} bytes")
+
+    # Import into Blender
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_collection=True)
+    import_coll = bpy.context.collection
+
+    coll_objs = [o for o in import_coll.all_objects
+                 if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "collision imported")
+    coll_obj = coll_objs[0]
+
+    import_vert_count = len(coll_obj.data.vertices)
+    import_tri_count = len(coll_obj.data.polygons)
+    assert TT.is_eq(import_vert_count, len(orig_verts), "imported vert count")
+    assert TT.is_eq(import_tri_count, len(orig_tris), "imported tri count")
+    log.info(f"Imported: {import_vert_count} verts, {import_tri_count} tris")
+
+    # Check bounding box is reasonable (mountain peak ~119x137x122 Havok units)
+    bb = TTB.get_obj_bbox(coll_obj, worldspace=True)
+    bb_size = bb[1] - bb[0]
+    assert TT.is_gt(bb_size.x, 5.0, "collision X extent")
+    assert TT.is_gt(bb_size.y, 5.0, "collision Y extent")
+    assert TT.is_gt(bb_size.z, 5.0, "collision Z extent")
+
+    # Single-material mesh should have one SKY_HAV_MAT_ vertex group
+    mat_vgroups = [vg for vg in coll_obj.vertex_groups
+                   if vg.name.startswith("SKY_HAV_MAT_")]
+    assert TT.is_eq(len(mat_vgroups), 1, "one material vertex group")
+    assert TT.is_eq(mat_vgroups[0].name, "SKY_HAV_MAT_STONE", "material is STONE")
+
+    # Also check visual meshes imported
+    vis_meshes = [o for o in import_coll.all_objects
+                  if o.type == 'MESH' and not o.name.startswith("bhk")]
+    assert TT.is_eq(len(vis_meshes), 2, "visual mesh count")
+
+    # Export
+    BD.ObjectSelect(list(import_coll.all_objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    # Compare exported NIF collision against original
+    nif_out = pyn.NifFile(outfile)
+    out_root = nif_out.rootNode
+    out_co = out_root.collision_object
+    assert out_co is not None, "exported NIF has collision"
+    out_body = out_co.body
+    out_mopp = out_body.shape
+    assert TT.is_eq(out_mopp.blockname, "bhkMoppBvTreeShape", "MOPP shape type")
+
+    out_cmesh = out_mopp.child
+    assert TT.is_eq(out_cmesh.blockname, "bhkCompressedMeshShape", "child shape type")
+
+    # Verify vanilla-standard bitsPerIndex/bitsPerWIndex
+    out_cms_props = out_cmesh.properties
+    assert TT.is_eq(out_cms_props.bitsPerIndex, 17, "bitsPerIndex")
+    assert TT.is_eq(out_cms_props.bitsPerWIndex, 18, "bitsPerWIndex")
+    assert TT.is_eq(out_cms_props.maskIndex, 0x1FFFF, "maskIndex")
+    assert TT.is_eq(out_cms_props.maskWIndex, 0x3FFFF, "maskWIndex")
+
+    out_verts = out_cmesh.vertices
+    out_tris = out_cmesh.triangles
+    log.info(f"Exported: {len(out_verts)} verts, {len(out_tris)} tris")
+
+    # Triangle count preserved exactly; vert count may increase due to
+    # chunk boundary duplication (each chunk has its own local vertex set).
+    assert TT.is_ge(len(out_verts), len(orig_verts), "exported vert count")
+    assert TT.is_eq(len(out_tris), len(orig_tris), "exported tri count")
+
+    # Material should be STONE on all triangles
+    out_mat_ids = out_cmesh.material_ids
+    out_unique_mats = set(out_mat_ids)
+    assert TT.is_eq(len(out_unique_mats), 1, "single material in export")
+    assert TT.is_eq(next(iter(out_unique_mats)), 3741512247, "exported material is STONE")
+
+    # Check MOPP data was generated
+    out_mopp_data, out_origin, out_scale = out_mopp.mopp_data
+    log.info(f"Exported MOPP: {len(out_mopp_data)} bytes, "
+             f"origin=({out_origin[0]:.3f},{out_origin[1]:.3f},{out_origin[2]:.3f}), "
+             f"scale={out_scale:.6f}")
+    assert TT.is_gt(len(out_mopp_data), 0, "MOPP bytecode generated")
+
+    # MOPP origin should be close to original
+    for i in range(3):
+        assert TT.is_equiv(out_origin[i], orig_origin[i], f"MOPP origin[{i}]", e=1.0)
+
+    # Bounding box of exported verts should match original closely
+    orig_xs = [v[0] for v in orig_verts]
+    orig_ys = [v[1] for v in orig_verts]
+    orig_zs = [v[2] for v in orig_verts]
+    out_xs = [v[0] for v in out_verts]
+    out_ys = [v[1] for v in out_verts]
+    out_zs = [v[2] for v in out_verts]
+    assert TT.is_equiv(min(out_xs), min(orig_xs), "vert min X", e=1.0)
+    assert TT.is_equiv(max(out_xs), max(orig_xs), "vert max X", e=1.0)
+    assert TT.is_equiv(min(out_ys), min(orig_ys), "vert min Y", e=1.0)
+    assert TT.is_equiv(max(out_ys), max(orig_ys), "vert max Y", e=1.0)
+    assert TT.is_equiv(min(out_zs), min(orig_zs), "vert min Z", e=1.0)
+    assert TT.is_equiv(max(out_zs), max(orig_zs), "vert max Z", e=1.0)
+
+    # Rigid body properties should be preserved
+    out_bp = out_body.properties
+    orig_bp = orig_body.properties
+    assert TT.is_eq(out_bp.collisionFilter_layer, orig_bp.collisionFilter_layer,
+                     "collision layer")
+    assert TT.is_equiv(out_bp.friction, orig_bp.friction, "friction", e=0.01)
+    assert TT.is_equiv(out_bp.restitution, orig_bp.restitution, "restitution", e=0.01)
+
+    # Reimport to verify the generated NIF is loadable
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.import_scene.pynifly(filepath=outfile, create_collection=True)
+    reimport_coll = bpy.context.collection
+
+    re_coll = [o for o in reimport_coll.all_objects
+               if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(re_coll), 0, "reimported collision found")
+    re_vert_count = len(re_coll[0].data.vertices)
+    re_tri_count = len(re_coll[0].data.polygons)
+    assert TT.is_ge(re_vert_count, len(orig_verts), "reimported vert count")
+    assert TT.is_eq(re_tri_count, len(orig_tris), "reimported tri count")
+    log.info(f"Reimported: {re_vert_count} verts, {re_tri_count} tris — OK")
 
 
 def show_all_tests():

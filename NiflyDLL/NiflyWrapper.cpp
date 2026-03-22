@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 25, 7, 1 }; 
+const int NiflyDDLVersion[3] = { 25, 8, 0 }; 
  
 using namespace nifly; 
 
@@ -2899,6 +2899,116 @@ NIFLY_API int addFurnitureMarkerPosition(void* nifref, int id, FurnitureMarkerDa
     pos.entryPoints = buf->entryPoints;
 
     fm->positions.push_back(pos);
+    return 0;
+}
+
+// =================== BSDecalPlacementVectorExtraData ===================
+
+int getBSDecalPlacementVectorExtraData(void* nifref, uint32_t blockID, void* inbuf)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(blockID);
+    BSDecalPlacementVectorExtraDataBuf* buf = static_cast<BSDecalPlacementVectorExtraDataBuf*>(inbuf);
+
+    if (!dp) {
+        niflydll::LogWrite("getBSDecalPlacementVectorExtraData: Invalid block");
+        return 1;
+    }
+    CheckBuf(buf, BUFFER_TYPES::BSDecalPlacementVectorExtraDataBufType, BSDecalPlacementVectorExtraDataBuf);
+
+    buf->nameID = dp->name.GetIndex();
+    buf->numVectorBlocks = static_cast<uint16_t>(dp->decalVectorBlocks.size());
+
+    return 0;
+}
+
+int addBSDecalPlacementVectorExtraData(void* nifref, const char* name, void* properties, uint32_t parent)
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSDecalPlacementVectorExtraDataBuf* buf = static_cast<BSDecalPlacementVectorExtraDataBuf*>(properties);
+    NiAVObject* parentObj = hdr->GetBlock<NiAVObject>(parent);
+
+    CheckBuf(buf, BUFFER_TYPES::BSDecalPlacementVectorExtraDataBufType, BSDecalPlacementVectorExtraDataBuf);
+
+    auto dp = std::make_unique<BSDecalPlacementVectorExtraData>();
+    dp->name.get() = name ? name : "";
+
+    int newid = nif->AssignExtraData(parentObj, std::move(dp));
+    return newid;
+}
+
+NIFLY_API int getDecalVectorBlockCount(void* nifref, int id, int blockIndex, uint16_t* count) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
+
+    if (!dp || blockIndex < 0 || blockIndex >= int(dp->decalVectorBlocks.size())) {
+        niflydll::LogWrite("getDecalVectorBlockCount: Invalid block or index");
+        return 1;
+    }
+
+    *count = static_cast<uint16_t>(dp->decalVectorBlocks[blockIndex].points.size());
+    return 0;
+}
+
+NIFLY_API int getDecalVector(void* nifref, int id, int blockIndex, int vectorIndex, DecalVectorBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
+
+    if (!dp || blockIndex < 0 || blockIndex >= int(dp->decalVectorBlocks.size())) {
+        niflydll::LogWrite("getDecalVector: Invalid block or block index");
+        return 1;
+    }
+
+    auto& block = dp->decalVectorBlocks[blockIndex];
+    if (vectorIndex < 0 || vectorIndex >= int(block.points.size())) {
+        niflydll::LogWrite("getDecalVector: Invalid vector index");
+        return 1;
+    }
+
+    auto& pt = block.points[vectorIndex];
+    auto& nm = block.normals[vectorIndex];
+    buf->point[0] = pt.x; buf->point[1] = pt.y; buf->point[2] = pt.z;
+    buf->normal[0] = nm.x; buf->normal[1] = nm.y; buf->normal[2] = nm.z;
+
+    return 0;
+}
+
+NIFLY_API int addDecalVectorBlock(void* nifref, int id) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
+
+    if (!dp) {
+        niflydll::LogWrite("addDecalVectorBlock: Invalid block");
+        return 1;
+    }
+
+    DecalVectorBlock newBlock;
+    dp->decalVectorBlocks.push_back(newBlock);
+    return 0;
+}
+
+NIFLY_API int addDecalVector(void* nifref, int id, int blockIndex, DecalVectorBuf* buf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
+
+    if (!dp || blockIndex < 0 || blockIndex >= int(dp->decalVectorBlocks.size())) {
+        niflydll::LogWrite("addDecalVector: Invalid block or block index");
+        return 1;
+    }
+
+    auto& block = dp->decalVectorBlocks[blockIndex];
+    Vector3 pt, nm;
+    pt.x = buf->point[0]; pt.y = buf->point[1]; pt.z = buf->point[2];
+    nm.x = buf->normal[0]; nm.y = buf->normal[1]; nm.z = buf->normal[2];
+    block.points.push_back(pt);
+    block.normals.push_back(nm);
+
     return 0;
 }
 
@@ -6298,6 +6408,7 @@ BlockGetterFunction getterFunctions[] = {
     getCollMoppShapeProps, //bhkMoppBvTreeShapeBufType
     getCollPackedStripsShapeProps, //bhkPackedNiTriStripsShapeBufType
     getCollCompressedMeshShapeProps, //bhkCompressedMeshShapeBufType
+    getBSDecalPlacementVectorExtraData, //BSDecalPlacementVectorExtraDataBufType
     nullptr //END
 };
 
@@ -6392,6 +6503,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkMoppBvTreeShapeBufType (set via setCollMoppCode)
     nullptr, //bhkPackedNiTriStripsShapeBufType (set via setCollPackedStrips*)
     nullptr, //bhkCompressedMeshShapeBufType (set via setCollCompressedMesh*)
+    nullptr, //BSDecalPlacementVectorExtraDataBufType (set via addDecalVector*)
     nullptr //END
 };
 
@@ -6485,6 +6597,7 @@ BlockCreatorFunction creatorFunctions[] = {
     addCollMoppShape, //bhkMoppBvTreeShapeBufType
     addCollPackedStripsShape, //bhkPackedNiTriStripsShapeBufType
     addCollCompressedMeshShape, //bhkCompressedMeshShapeBufType
+    addBSDecalPlacementVectorExtraData, //BSDecalPlacementVectorExtraDataBufType
     nullptr //end
 };
 
