@@ -104,3 +104,5 @@ ipch/
 PyNifly.code-workspace
 /NiflyDLL/NiflyDLL/Test/NiflyDLL.tlog
 tests/tests/Out/TEST_KF.kf
+io_scene_nifly-25.7.1.zip
+io_scene_nifly-25.9.0.zip

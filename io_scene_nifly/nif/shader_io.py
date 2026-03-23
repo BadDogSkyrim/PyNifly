@@ -14,7 +14,7 @@ from .. import blender_defs as BD
 from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2, NODEID_NONE
 from ..pyn.niflytools import find_referenced_file, texture_path
 from ..pyn.pynifly import NiShape, NiShader, AlphaPropertyBuf, BSLSPShaderType, PynBufferTypes
-from .. import gamefinder
+
 
 log = logging.getLogger("pynifly")
 
@@ -1151,9 +1151,6 @@ class ShaderImporter:
                 if path_pref and (cleaned_path := texture_path(path_pref)):
                     altpaths.append(cleaned_path)
 
-        if gamepath := gamefinder.find_game(self.game):
-            altpaths.append(gamepath / 'data' / 'textures')
-        
         for k, t in shape.textures.items():
             if not t: continue
             if k == 'RootMaterialPath':
