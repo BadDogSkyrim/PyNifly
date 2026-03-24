@@ -13,6 +13,18 @@ from typing import List, Tuple, Dict, Set
 from collections import defaultdict
 
 
+def _same_winding(a, b, c, orig):
+    """Check if triangle (a, b, c) has the same winding as orig = (x, y, z).
+
+    Same winding means (a,b,c) is a cyclic permutation of (x,y,z):
+      (x,y,z), (y,z,x), or (z,x,y).
+    Different winding is an anti-cyclic permutation:
+      (x,z,y), (z,y,x), or (y,x,z).
+    """
+    x, y, z = orig
+    return (a, b, c) in ((x, y, z), (y, z, x), (z, x, y))
+
+
 def stripify(
     tris: List[Tuple[int, int, int]],
 ) -> Tuple[List[List[int]], List[Tuple[int, int, int]]]:
@@ -86,14 +98,9 @@ def _build_strip(
     a, b, c = tris[start_ti]
     used.add(start_ti)
 
-    # Try extending the strip forward from edge (b, c).
-    # The strip starts as [a, b, c].
+    # The strip starts as [a, b, c] matching the original triangle winding.
+    # Only extend forward — reverse+extend can create invalid triangles.
     strip = [a, b, c]
-    _extend_strip_forward(strip, tris, edge_tris, used)
-
-    # Also try extending backward from edge (a, b) by reversing and extending.
-    # Reverse the strip, then extend forward from the new trailing edge.
-    strip.reverse()
     _extend_strip_forward(strip, tris, edge_tris, used)
 
     return strip
@@ -148,5 +155,20 @@ def _extend_strip_forward(
             # Degenerate triangle (two vertices the same)
             break
 
-        used.add(next_ti)
+        # Check winding: the engine will decode this triangle based on
+        # the current tri_count parity. Verify it matches the original.
         strip.append(third)
+        n = len(strip)
+        tri_count = n - 2
+        if (tri_count - 1) % 2 == 0:
+            decoded = (strip[-3], strip[-2], strip[-1])
+        else:
+            decoded = (strip[-3], strip[-1], strip[-2])
+
+        if not _same_winding(decoded[0], decoded[1], decoded[2], tris[next_ti]):
+            # Winding mismatch — this triangle would be flipped.
+            # Remove it and stop extending.
+            strip.pop()
+            break
+
+        used.add(next_ti)
