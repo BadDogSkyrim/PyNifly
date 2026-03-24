@@ -669,15 +669,16 @@ class bhkMoppBvTreeShape(bhkShape):
         mopp_bytes, origin, scale = compile_mopp(verts, tris, radius=radius,
                                                   output_ids=output_ids)
 
-        # Set MOPP code on the block. The NIF scale field is always 1.0 in
-        # vanilla files — the engine derives quantization from the bytecode.
+        # Set MOPP code on the block.
+        # The 'scale' parameter is stored in offset.w and used by the engine
+        # for MOPP spatial quantisation (254*256*256 / largest_dim).
         # buildType: 0=BUILT_WITH_CHUNK_SUBDIVISION,
         #            1=BUILT_WITHOUT_CHUNK_SUBDIVISION, 2=BUILD_NOT_SET
         # Vanilla always uses 1 (BUILT_WITHOUT_CHUNK_SUBDIVISION).
         origin_buf = (c_float * 3)(*origin)
         mopp_buf = (c_uint8 * len(mopp_bytes))(*mopp_bytes)
         check_msg(nifly.setCollMoppCode, file._handle, mopp_id,
-                  origin_buf, c_float(1.0), mopp_buf, len(mopp_bytes),
+                  origin_buf, c_float(scale), mopp_buf, len(mopp_bytes),
                   c_uint8(1))
 
         return mopp_shape
@@ -961,14 +962,17 @@ class bhkCompressedMeshShape(bhkShape):
 
             # Compute output IDs for MOPP.
             # chunk_index is 1-based (0 is for bigTris).
-            # output = ((chunk_idx + 1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
-            # Decompose strips back into triangle order to map output IDs.
-            # Compare triangles as frozensets since strip winding reorders vertices.
+            # tri_in_chunk = INDEX POSITION within the indices array, NOT
+            # the sequential triangle number.  For strip triangle k in a
+            # strip starting at index offset strip_start: tri_in_chunk =
+            # strip_start + k.  For flat triangle k: flat_start + k*3.
+            # output = ((chunk_idx+1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
             local_tri_sets = [frozenset(lt) for lt in local_tris]
-            tri_in_chunk = 0
+            idx_pos = 0  # current position in the indices array
             for strip in strips:
                 for k in range(len(strip) - 2):
                     winding = k & 1
+                    tri_in_chunk = idx_pos + k
                     oid = ((chunk_idx + 1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
                     if k % 2 == 0:
                         tri_set = frozenset((strip[k], strip[k+1], strip[k+2]))
@@ -979,8 +983,10 @@ class bhkCompressedMeshShape(bhkShape):
                             output_ids[fi] = oid
                             local_tri_sets[gi] = None  # prevent double-match
                             break
-                    tri_in_chunk += 1
-            for a, b, c in leftovers:
+                idx_pos += len(strip)
+            # Flat triangles: each occupies 3 index positions
+            for li, (a, b, c) in enumerate(leftovers):
+                tri_in_chunk = idx_pos + li * 3
                 oid = ((chunk_idx + 1) << bits_per_w_index) | (0 << bits_per_index) | tri_in_chunk
                 leftover_set = frozenset((a, b, c))
                 for gi, fi in enumerate(face_group):
@@ -988,7 +994,6 @@ class bhkCompressedMeshShape(bhkShape):
                         output_ids[fi] = oid
                         local_tri_sets[gi] = None
                         break
-                tri_in_chunk += 1
 
         shape = cls(file=file, id=shape_id, properties=buf, parent=parent)
         return shape, output_ids

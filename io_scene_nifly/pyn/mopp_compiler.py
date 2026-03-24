@@ -495,13 +495,30 @@ def _encode_node(node: _BVHNode, origin, largest_dim) -> bytearray:
 
 def _add_root_filters(code: bytearray, origin, largest_dim,
                       bbox_min, bbox_max) -> bytearray:
-    """Prepend axis filter nodes for the root bounding box."""
+    """Prepend axis filter nodes for the root bounding box.
+
+    The engine derives the quantisation scale from these filters.
+    The largest axis MUST have hi=0xFF or the scale will be wrong
+    and all spatial queries will miss.
+    """
     prefix = bytearray()
+    filters = []
     for axis in range(3):
         lo = _encode_bound_lower(bbox_min[axis], origin[axis], largest_dim)
         hi = _encode_bound_upper(bbox_max[axis], origin[axis], largest_dim)
-        # Opcode 0x26+axis: filter on axis
+        filters.append((lo, hi))
+
+    # Ensure at least one axis reaches 0xFF.  Floating-point precision loss
+    # can produce 0xFE for the largest axis; force it to 0xFF.
+    max_hi = max(f[1] for f in filters)
+    if max_hi < 0xFF:
+        for i in range(3):
+            if filters[i][1] == max_hi:
+                filters[i] = (filters[i][0], 0xFF)
+                break
+
+    for axis in range(3):
         prefix.append(0x26 + axis)
-        prefix.append(lo)
-        prefix.append(hi)
+        prefix.append(filters[axis][0])
+        prefix.append(filters[axis][1])
     return prefix + code

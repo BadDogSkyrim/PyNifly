@@ -9213,6 +9213,16 @@ def TEST_COLLISION_MOPP_ROUNDTRIP(game, testpath):
     BD.ObjectSelect(list(bpy.data.objects), active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game)
 
+    # Verify the exported NIF's rigid body has a valid rotation quaternion.
+    # A zero quaternion [0,0,0,0] crashes the Havok physics engine.
+    from pyn.pynifly import NifFile
+    outnif = NifFile(outfile)
+    out_body = outnif.rootNode.collision_object.body
+    out_rot = out_body.properties.rotation
+    rot_len_sq = sum(out_rot[i]**2 for i in range(4))
+    assert TT.is_equiv(rot_len_sq, 1.0,
+                        f"Rigid body rotation is unit quaternion (len²={rot_len_sq})", e=0.01)
+
     # Clear and reimport
     TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=outfile)

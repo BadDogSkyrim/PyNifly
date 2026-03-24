@@ -56,8 +56,11 @@ def stripify(
             continue
 
         strip = _build_strip(start_ti, tris, neighbors, edge_tris, used)
-        if strip is not None and len(strip) >= 3:
+        if strip is not None and len(strip) >= 4:
             strips.append(strip)
+        elif strip is not None:
+            # Strip too short (single triangle) — put it back for leftovers
+            used.discard(start_ti)
 
     # Collect leftover triangles
     leftovers = [tris[ti] for ti in range(len(tris)) if ti not in used]

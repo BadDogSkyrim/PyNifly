@@ -3972,7 +3972,7 @@ NIFLY_API int getCollMoppCode(void* nifref, int blockID,
         originXYZ[2] = sh->offset.z;
     }
     if (scaleOut) {
-        *scaleOut = sh->scale;
+        *scaleOut = sh->offset.w;  // Havok quantisation scale stored in offset.w
     }
     int len = (int)sh->data.size();
     if (moppBuf) {
@@ -4275,8 +4275,11 @@ NIFLY_API int setCollMoppCode(void* nifref, int blockID,
     auto* sh = hdr->GetBlock<bhkMoppBvTreeShape>(blockID);
     CheckID(sh);
 
-    sh->offset = Vector4(originXYZ[0], originXYZ[1], originXYZ[2], 0.0f);
-    sh->scale = scale;
+    // offset.xyz = MOPP origin; offset.w = Havok quantisation scale
+    // (254*256*256 / largest_dim).  The 'scale' parameter from the caller
+    // carries this value; the NIF 'scale' field is always 1.0.
+    sh->offset = Vector4(originXYZ[0], originXYZ[1], originXYZ[2], scale);
+    sh->scale = 1.0f;
     sh->buildType = buildType;
     sh->data.clear();
     sh->data.resize(moppLen);
@@ -4401,6 +4404,13 @@ NIFLY_API int addCollCompressedMeshChunk(void* nifref, int dataID,
     for (int i = 0; i < numStrips; i++) {
         uint16_t sl = stripLengths[i];
         chunk.strips.push_back(sl);
+    }
+    // Welding info array must exist or CK crashes (null deref in hkpTriangleShape).
+    // Zeroed values are fine — the engine handles collision correctly without
+    // real welding data (verified by binary-patching vanilla files).
+    uint16_t zero = 0;
+    for (int i = 0; i < numIndices; i++) {
+        chunk.weldingInfo.push_back(zero);
     }
 
     int chunkIdx = (int)data->chunks.size();

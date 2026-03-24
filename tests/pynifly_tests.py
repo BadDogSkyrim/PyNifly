@@ -3758,6 +3758,126 @@ def TEST_MOPP_VERIFY_PLANE():
     assert passed, "Plane MOPP correctness failed:\n" + "\n".join(messages)
 
 
+@test_category("SKYRIM", "MOPP")
+def TEST_MOPP_ROCKS01_ROUNDTRIP():
+    """Round-trip rocks01.nif collision through our creation APIs at the pynifly level.
+
+    Reads vanilla rocks01, extracts collision geometry, creates a new NIF with
+    visual mesh + collision built from scratch, reads it back and verifies.
+    Tests the full DLL pipeline: chunk creation, MOPP compilation, setCollMoppCode.
+    """
+    testfile = _test_file(r"tests/SkyrimSE/rocks01.nif")
+    outfile = _test_file(r"tests/Out/TEST_MOPP_ROCKS01_ROUNDTRIP.nif")
+
+    # Read vanilla rock
+    orig = NifFile(testfile)
+    orig_shape = orig.shapes[0]
+    orig_body = orig.root.collision_object.body
+    orig_mopp = orig_body.shape
+    orig_child = orig_mopp.child
+
+    # Extract collision geometry
+    havok_verts = orig_child.vertices
+    havok_tris = orig_child.triangles
+    radius = orig_child.properties.radius
+
+    # Extract per-triangle materials
+    data_id = orig_child.properties.dataID
+    nm = nifly.getCollCompressedMeshTriMaterials(orig._handle, data_id, None, 0)
+    mat_buf = (ctypes.c_uint32 * nm)()
+    nifly.getCollCompressedMeshTriMaterials(orig._handle, data_id,
+                                            ctypes.byref(mat_buf), nm)
+    face_materials = [mat_buf[i] for i in range(nm)]
+
+    # Extract visual mesh
+    vis_verts = orig_shape.verts
+    vis_tris = orig_shape.tris
+    vis_uvs = orig_shape.uvs
+    vis_normals = orig_shape.normals
+
+    log.debug(f"Original: {len(havok_verts)} collision verts, {len(havok_tris)} tris, "
+              f"{len(vis_verts)} visual verts")
+    outnif = NifFile()
+    outnif.initialize("SKYRIMSE", outfile, root_type="BSFadeNode", root_name="RockS01")
+
+    # BSXFlags — the Collision bit tells the engine to load collision data
+    orig_bsx = orig.root.get_extra_data(blockname='BSXFlags')
+    BSXFlags.New(outnif, name='BSX', flags=orig_bsx.flags, parent=outnif.root)
+
+    # Create visual shape
+    out_shape = outnif.createShapeFromData(
+        "RockS01:1", vis_verts, vis_tris, vis_uvs, vis_normals,
+        parent=outnif.root)
+
+    # Create collision: collision object → rigid body → MOPP → compressed mesh
+    coll = outnif.root.add_collision(None, flags=orig.root.collision_object.properties.flags)
+    rb_props = bhkWorldObject.get_buffer('bhkRigidBody')
+    rb_props.collisionFilter_layer = orig_body.properties.collisionFilter_layer
+    rb_props.broadPhaseType = orig_body.properties.broadPhaseType
+    rb_props.collisionResponse = orig_body.properties.collisionResponse
+    rb_props.motionSystem = orig_body.properties.motionSystem
+    rb_props.qualityType = orig_body.properties.qualityType
+    rb_props.friction = orig_body.properties.friction
+    rb_props.restitution = orig_body.properties.restitution
+    rb_props.rotation[3] = 1.0
+    rb = coll.add_body(rb_props)
+
+    mopp = bhkMoppBvTreeShape.Create(
+        outnif, havok_verts, havok_tris, "SKYRIMSE",
+        radius=radius, material=0,
+        face_materials=face_materials, parent=rb)
+
+    outnif.save()
+
+    # Read back and verify
+    check = NifFile(outfile)
+    assert check.root.collision_object is not None, "Has collision object"
+    cb = check.root.collision_object.body
+    assert cb is not None, "Has body"
+    cs = cb.shape
+    assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape", "Shape is MOPP")
+
+    child = cs.child
+    assert TT.is_eq(child.blockname, "bhkCompressedMeshShape", "Child is compressed mesh")
+
+    verts_back = child.vertices
+    tris_back = child.triangles
+    assert TT.is_eq(len(tris_back), len(havok_tris),
+                    f"Triangle count preserved: {len(tris_back)}")
+    assert TT.is_gt(len(verts_back), 0, f"Vertices recovered: {len(verts_back)}")
+
+    # Verify MOPP bytecode
+    mopp_bytes, origin, scale = cs.mopp_data
+    assert TT.is_gt(len(mopp_bytes), 0, "MOPP bytecode written")
+    assert TT.is_gt(scale, 0, f"MOPP scale is positive: {scale}")
+
+    # Verify rotation quaternion is valid
+    rot = cb.properties.rotation
+    rot_len_sq = sum(rot[i]**2 for i in range(4))
+    assert TT.is_equiv(rot_len_sq, 1.0,
+                        f"Rotation is unit quaternion (len²={rot_len_sq})", e=0.01)
+
+    # Verify MOPP offset.w (scale) was written correctly
+    # The scale should be ~254*256*256/largest_dim
+    xs = [v[0] for v in havok_verts]; ys = [v[1] for v in havok_verts]; zs = [v[2] for v in havok_verts]
+    largest_dim = max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs)) + 2*radius
+    expected_scale = 254.0 * 256.0 * 256.0 / largest_dim
+    assert TT.is_equiv(scale, expected_scale,
+                        f"MOPP scale matches expected ({scale:.0f} vs {expected_scale:.0f})",
+                        e=expected_scale * 0.01)
+
+    log.debug(f"Round-trip: {len(verts_back)} verts, {len(tris_back)} tris, "
+              f"{len(mopp_bytes)} MOPP bytes, scale={scale:.0f}")
+
+    # Dump collision structure for both input and output
+    sys.path.insert(0, str(Path(__file__).parent.parent / 'io_scene_nifly' / 'scripts'))
+    from dump_collision import dump_nif
+    log.info("=== INPUT (vanilla rocks01) ===")
+    dump_nif(str(Path(testfile).resolve()))
+    log.info("=== OUTPUT (our round-trip) ===")
+    dump_nif(str(Path(outfile).resolve()))
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

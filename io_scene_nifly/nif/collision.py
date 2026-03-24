@@ -784,7 +784,10 @@ class CollisionHandler():
         # on the shape.
         p = cb.properties
         p.extract(sh, ignore=COLLISION_BODY_IGNORE)
-        if not cb.blockname.startswith('bhkRigidBody'):
+        if cb.blockname == 'bhkRigidBodyT':
+            # Preserve the T variant so export doesn't downgrade to bhkRigidBody.
+            sh['pynRigidBody'] = cb.blockname
+        elif not cb.blockname.startswith('bhkRigidBody'):
             # Shape's parent wasn't a rigidbody. Remember what it was for export.
             sh['pynRigidBody'] = cb.blockname
 
@@ -1217,8 +1220,6 @@ class CollisionHandler():
         props = bhkWorldObject.get_buffer(bodytype, values=coll)
         if props.bufType == PynBufferTypes.bhkRigidBodyBufType and cshape.needsTransform:
             props.bufType = PynBufferTypes.bhkRigidBodyTBufType
-        elif props.bufType == PynBufferTypes.bhkRigidBodyTBufType and not cshape.needsTransform:
-            props.bufType = PynBufferTypes.bhkRigidBodyBufType
          
         props.shapeID = cshape.id
         props.mass = coll.rigid_body.mass
@@ -1243,15 +1244,16 @@ class CollisionHandler():
         rv.rotate(targqw.inverted())
         rv = rv * self.export_xf.to_scale()
 
-        if props.bufType == PynBufferTypes.bhkRigidBodyTBufType:
+        if props.bufType in (PynBufferTypes.bhkRigidBodyBufType,
+                            PynBufferTypes.bhkRigidBodyTBufType):
             props.rotation[0] = rot.x
             props.rotation[1] = rot.y
             props.rotation[2] = rot.z
             props.rotation[3] = rot.w
 
-            props.translation[0] = rv.x/HAVOC_SCALE_FACTOR 
-            props.translation[1] = rv.y/HAVOC_SCALE_FACTOR 
-            props.translation[2] = rv.z/HAVOC_SCALE_FACTOR 
+            props.translation[0] = rv.x/HAVOC_SCALE_FACTOR
+            props.translation[1] = rv.y/HAVOC_SCALE_FACTOR
+            props.translation[2] = rv.z/HAVOC_SCALE_FACTOR
             props.translation[3] = 0
 
         elif props.bufType == PynBufferTypes.bhkSimpleShapePhantomBufType:
