@@ -3460,7 +3460,8 @@ def TEST_MOPP_ROUNDTRIP_LE():
 
 @test_category("SKYRIM", "MOPP")
 def TEST_MOPP_ROUNDTRIP_SE():
-    """Round-trip MOPP write for Skyrim SE: create NIF with bhkCompressedMeshShape, read it back."""
+    """Round-trip MOPP write for Skyrim SE: create NIF with bhkCompressedMeshShape, read
+    it back."""
     # Simple box in Havok space
     havok_verts = [
         (-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
@@ -3524,7 +3525,7 @@ def TEST_MOPP_ROUNDTRIP_SE():
 
     # Verify the MOPP bytes FROM THE FILE can reach all triangles
     from pyn.mopp_compiler import _derive_largest_dim
-    from .mopp_verifier import verify_surface_reachability
+    from scripts.mopp_verifier import verify_surface_reachability
     largest_dim = _derive_largest_dim(mopp_bytes, mopp_origin)
     assert largest_dim is not None, "Can derive largest_dim from MOPP root filters"
     ok, msgs = verify_surface_reachability(
@@ -3601,7 +3602,7 @@ def TEST_MOPP_MULTICHUNK_ROUNDTRIP():
 
     # Verify the MOPP bytes FROM THE FILE can reach all triangles
     from pyn.mopp_compiler import _derive_largest_dim
-    from .mopp_verifier import verify_surface_reachability
+    from scripts.mopp_verifier import verify_surface_reachability
     largest_dim = _derive_largest_dim(mopp_bytes, mopp_origin)
     assert largest_dim is not None, "Can derive largest_dim from MOPP root filters"
     ok, msgs = verify_surface_reachability(
@@ -3672,7 +3673,7 @@ def TEST_MOPP_DUMP_NOBLECRATE():
 
     # Also compile our own MOPP from SE geometry and show tightness comparison
     from pyn.mopp_compiler import compile_mopp
-    from .mopp_verifier import verify_tightness, verify_correctness
+    from scripts.mopp_verifier import verify_tightness, verify_correctness
     nif = NifFile(r"tests/SkyrimSE/noblecrate01.nif")
     child = nif.root.collision_object.body.shape.child
     verts = child.vertices
@@ -3701,7 +3702,7 @@ def TEST_MOPP_DUMP_NOBLECRATE():
 def TEST_MOPP_VERIFY_COMPILER():
     """Verify our MOPP compiler produces correct trees via walk-based testing."""
     from pyn.mopp_compiler import compile_mopp
-    from .mopp_verifier import verify_all
+    from scripts.mopp_verifier import verify_all
 
     # Box mesh
     verts = [
@@ -3735,7 +3736,7 @@ def TEST_MOPP_VERIFY_COMPILER():
 def TEST_MOPP_VERIFY_PLANE():
     """Verify MOPP compiler on a 2-triangle plane."""
     from pyn.mopp_compiler import compile_mopp
-    from .mopp_verifier import verify_correctness
+    from scripts.mopp_verifier import verify_correctness
 
     verts = [(0, 0, 0), (0, 1, 0), (2, 0, 0), (2, 1, 0)]
     tris = [(0, 3, 1), (0, 2, 3)]
@@ -3882,7 +3883,7 @@ def TEST_MOPP_COMPILER_BLACKBOX():
     root filters, scale, leaf count, surface reachability, and outside rejection.
     """
     from pyn.mopp_compiler import compile_mopp, _derive_largest_dim
-    from .mopp_verifier import walk_mopp, verify_surface_reachability
+    from scripts.mopp_verifier import walk_mopp, verify_surface_reachability
 
     # Use a box mesh — simple, convex, well-understood
     verts = [

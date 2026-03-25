@@ -20,7 +20,8 @@
       "Read(//c/Users/hughr/.claude/projects/c--Modding-PyNifly/memory/**)",
       "Bash(python pynifly_test_runner.py --list)",
       "WebFetch(domain:developer.blender.org)",
-      "WebFetch(domain:docs.blender.org)"
+      "WebFetch(domain:docs.blender.org)",
+      "Read(//c/Users/hughr/Documents/My Games/Skyrim Special Edition/SKSE/**)"
     ],
     "additionalDirectories": [
       "c:\\Users\\hughr\\.claude\\projects\\c--Modding-PyNifly\\memory"

@@ -465,9 +465,12 @@ if __name__ == "__main__":
         sys.exit(1)
 
     import os
-    os.chdir(os.path.join(os.path.dirname(__file__), '..', 'io_scene_nifly'))
-    sys.path.insert(0, '.')
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _pyn_parent = os.path.join(_script_dir, '..')
+    if _pyn_parent not in sys.path:
+        sys.path.insert(0, _pyn_parent)
     from pyn.pynifly import NifFile
+    from pyn.mopp_compiler import _derive_largest_dim
 
     nif_path = sys.argv[1]
     nif = NifFile(nif_path)
@@ -491,10 +494,6 @@ if __name__ == "__main__":
     child = cs.child
     verts = child.vertices
     tris = child.triangles
-
-    # Derive largest_dim from origin (same as disassembler)
-    sys.path.insert(0, os.path.join('..', 'io_scene_nifly', 'pyn'))
-    from mopp_compiler import _derive_largest_dim
     largest_dim = _derive_largest_dim(mopp_bytes, origin)
     if largest_dim is None:
         print("Could not derive largest_dim from MOPP data")

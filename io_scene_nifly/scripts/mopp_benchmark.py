@@ -21,12 +21,14 @@ import csv
 import argparse
 import statistics
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'io_scene_nifly'))
-sys.path.insert(0, os.path.dirname(__file__))
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_pyn_parent = os.path.join(_script_dir, '..')
+if _pyn_parent not in sys.path:
+    sys.path.insert(0, _pyn_parent)
 
 from pyn.pynifly import NifFile
 from pyn.mopp_compiler import compile_mopp, _derive_largest_dim
-from mopp_verifier import verify_tightness
+from scripts.mopp_verifier import verify_tightness
 
 
 def benchmark_nifs(nifs_dir, max_nifs=40, num_samples=500, seed=42):
