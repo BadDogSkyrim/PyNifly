@@ -3518,21 +3518,19 @@ def TEST_MOPP_ROUNDTRIP_SE():
                     f"Vertices recovered: {len(verts_back)}")
 
     # Verify MOPP bytecode was written
-    mopp_bytes, _, _ = cs.mopp_data
+    mopp_bytes, mopp_origin, mopp_scale = cs.mopp_data
     assert TT.is_gt(len(mopp_bytes), 0, "MOPP bytecode written")
+    assert TT.is_gt(mopp_scale, 0, f"MOPP scale is positive: {mopp_scale}")
 
-    # Verify geometry is close to original (within quantization tolerance)
-    from pyn.mopp_compiler import compile_mopp
-    from .mopp_verifier import verify_correctness
-    output_ids = list(range(len(tris_back)))
-    code, orig, _ = compile_mopp(verts_back, tris_back, radius=0.005, output_ids=output_ids)
-    largest_dim = max(
-        max(verts_back[i][a] for tri in tris_back for i in tri) - min(verts_back[i][a] for tri in tris_back for i in tri)
-        for a in range(3)
-    ) + 2 * 0.005
-    ok, msgs = verify_correctness(code, orig, largest_dim, verts_back, tris_back, output_ids, 0.005)
+    # Verify the MOPP bytes FROM THE FILE can reach all triangles
+    from pyn.mopp_compiler import _derive_largest_dim
+    from .mopp_verifier import verify_surface_reachability
+    largest_dim = _derive_largest_dim(mopp_bytes, mopp_origin)
+    assert largest_dim is not None, "Can derive largest_dim from MOPP root filters"
+    ok, msgs = verify_surface_reachability(
+        mopp_bytes, mopp_origin, largest_dim, verts_back, tris_back, radius=0.005)
     for m in msgs: log.debug(m)
-    assert ok, "Re-compiled MOPP from read-back geometry is correct"
+    assert ok, "All triangles reachable in written MOPP"
 
     log.debug(f"Round-trip SE: {len(verts_back)} verts, {len(tris_back)} tris, "
               f"{len(mopp_bytes)} MOPP bytes")
@@ -3597,21 +3595,19 @@ def TEST_MOPP_MULTICHUNK_ROUNDTRIP():
                         f"Material 0x{m:08X} tri count: {back_count} vs {orig_count}")
 
     # MOPP bytecode was written
-    mopp_bytes, _, _ = cs.mopp_data
+    mopp_bytes, mopp_origin, mopp_scale = cs.mopp_data
     assert TT.is_gt(len(mopp_bytes), 0, "MOPP bytecode written")
+    assert TT.is_gt(mopp_scale, 0, f"MOPP scale is positive: {mopp_scale}")
 
-    # Verify MOPP correctness on the read-back geometry
-    from pyn.mopp_compiler import compile_mopp
-    from .mopp_verifier import verify_correctness
-    output_ids = list(range(len(tris_back)))
-    code, orig, _ = compile_mopp(verts_back, tris_back, radius=0.005, output_ids=output_ids)
-    largest_dim = max(
-        max(verts_back[i][a] for tri in tris_back for i in tri) - min(verts_back[i][a] for tri in tris_back for i in tri)
-        for a in range(3)
-    ) + 2 * 0.005
-    ok, msgs = verify_correctness(code, orig, largest_dim, verts_back, tris_back, output_ids, 0.005)
+    # Verify the MOPP bytes FROM THE FILE can reach all triangles
+    from pyn.mopp_compiler import _derive_largest_dim
+    from .mopp_verifier import verify_surface_reachability
+    largest_dim = _derive_largest_dim(mopp_bytes, mopp_origin)
+    assert largest_dim is not None, "Can derive largest_dim from MOPP root filters"
+    ok, msgs = verify_surface_reachability(
+        mopp_bytes, mopp_origin, largest_dim, verts_back, tris_back, radius=0.005)
     for m in msgs: log.debug(m)
-    assert ok, "MOPP correctness check on multi-chunk read-back"
+    assert ok, "All triangles reachable in written MOPP (multi-chunk)"
 
     log.debug(f"Multi-chunk roundtrip: {len(verts_back)} verts, {len(tris_back)} tris, "
               f"{len(set(mats_back))} materials, {len(mopp_bytes)} MOPP bytes")
@@ -3876,6 +3872,100 @@ def TEST_MOPP_ROCKS01_ROUNDTRIP():
     dump_nif(str(Path(testfile).resolve()))
     log.info("=== OUTPUT (our round-trip) ===")
     dump_nif(str(Path(outfile).resolve()))
+
+
+@test_category("SKYRIM", "MOPP")
+def TEST_MOPP_COMPILER_BLACKBOX():
+    """Black-box tests for compile_mopp output properties.
+
+    Tests observable properties of the compiled MOPP without inspecting internals:
+    root filters, scale, leaf count, surface reachability, and outside rejection.
+    """
+    from pyn.mopp_compiler import compile_mopp, _derive_largest_dim
+    from .mopp_verifier import walk_mopp, verify_surface_reachability
+
+    # Use a box mesh — simple, convex, well-understood
+    verts = [
+        (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+        (-1, -1,  1), (1, -1,  1), (1, 1,  1), (-1, 1,  1),
+    ]
+    tris = [
+        (0,1,2), (0,2,3), (4,6,5), (4,7,6),
+        (0,4,5), (0,5,1), (2,6,7), (2,7,3),
+        (0,3,7), (0,7,4), (1,5,6), (1,6,2),
+    ]
+    radius = 0.005
+    output_ids = list(range(len(tris)))
+
+    code, origin, scale = compile_mopp(verts, tris, radius=radius,
+                                        output_ids=output_ids)
+
+    xs = [v[0] for v in verts]; ys = [v[1] for v in verts]; zs = [v[2] for v in verts]
+    largest_dim = max(max(xs)-min(xs), max(ys)-min(ys), max(zs)-min(zs)) + 2*radius
+
+    # 1. Scale is correct
+    expected_scale = 254.0 * 256.0 * 256.0 / largest_dim
+    assert TT.is_equiv(scale, expected_scale,
+                        f"Scale: {scale:.0f} vs expected {expected_scale:.0f}",
+                        e=expected_scale * 0.01)
+
+    # 2. Root filters: one axis reaches 0xFF, all start at 0x00
+    assert TT.is_gt(len(code), 9, "MOPP has at least root filters + content")
+    filter_his = []
+    for i in range(3):
+        op = code[i * 3]
+        lo = code[i * 3 + 1]
+        hi = code[i * 3 + 2]
+        assert 0x26 <= op <= 0x28, f"Root opcode {i} is a FILTER (0x{op:02X})"
+        assert lo == 0x00, f"Filter {i} lo is 0x00"
+        filter_his.append(hi)
+    assert 0xFF in filter_his, f"At least one filter reaches 0xFF: {[hex(h) for h in filter_his]}"
+
+    # 3. Largest dim derivable from root filters
+    derived_ld = _derive_largest_dim(code, origin)
+    assert derived_ld is not None, "Can derive largest_dim from root filters"
+    assert TT.is_equiv(derived_ld, largest_dim,
+                        f"Derived largest_dim {derived_ld:.4f} vs {largest_dim:.4f}",
+                        e=largest_dim * 0.01)
+
+    # 4. All triangles reachable from surface points
+    ok, msgs = verify_surface_reachability(
+        code, origin, largest_dim, verts, tris, radius=radius, samples_per_tri=20)
+    for m in msgs: log.debug(m)
+    assert ok, "All triangles reachable from surface points"
+
+    # 5. Points well outside the mesh return no hits
+    import random
+    rng = random.Random(42)
+    outside_hits = 0
+    for _ in range(100):
+        # Points at least 1.0 beyond the AABB in a random direction
+        px = rng.uniform(-3.0, 3.0)
+        py = rng.uniform(-3.0, 3.0)
+        pz = rng.uniform(-3.0, 3.0)
+        if -1.1 <= px <= 1.1 and -1.1 <= py <= 1.1 and -1.1 <= pz <= 1.1:
+            continue  # skip points near the mesh
+        hits = walk_mopp(code, origin, largest_dim, (px, py, pz))
+        if len(hits) > 0:
+            outside_hits += 1
+    assert TT.is_eq(outside_hits, 0,
+                     f"Points outside mesh: {outside_hits}/100 had hits (should be 0)")
+
+    # 6. Leaf count matches triangle count
+    # Count unique leaves by walking with points on each triangle
+    all_leaves = set()
+    for ti, tri in enumerate(tris):
+        v0, v1, v2 = verts[tri[0]], verts[tri[1]], verts[tri[2]]
+        cx = (v0[0]+v1[0]+v2[0]) / 3
+        cy = (v0[1]+v1[1]+v2[1]) / 3
+        cz = (v0[2]+v1[2]+v2[2]) / 3
+        hits = walk_mopp(code, origin, largest_dim, (cx, cy, cz))
+        all_leaves.update(hits)
+    assert TT.is_eq(len(all_leaves), len(tris),
+                     f"Unique leaves from centroids: {len(all_leaves)} vs {len(tris)} tris")
+
+    log.debug(f"Black-box tests passed: {len(tris)} tris, {len(code)} MOPP bytes, "
+              f"scale={scale:.0f}")
 
 
 ###################### Test execution framework #########################

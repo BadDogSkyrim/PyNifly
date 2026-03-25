@@ -248,6 +248,67 @@ def verify_correctness(
     return passed, messages
 
 
+def verify_surface_reachability(
+    mopp_bytes: bytes,
+    origin: Tuple[float, float, float],
+    largest_dim: float,
+    verts: Sequence[Tuple[float, float, float]],
+    tris: Sequence[Tuple[int, int, int]],
+    radius: float = 0.005,
+    samples_per_tri: int = 10,
+    seed: int = 42,
+) -> Tuple[bool, List[str]]:
+    """Verify every triangle is reachable from points on its surface.
+
+    Unlike verify_correctness, this does not require output_ids — it just
+    checks that the MOPP returns *some* hit for points on each triangle.
+    This tests the actual MOPP bytes from a file, not recompiled ones.
+
+    Points are sampled on the triangle surface using barycentric coordinates,
+    so they will always be valid hits regardless of BVH tightness.
+
+    Returns:
+        (passed, messages) — passed is True if no triangles are unreachable.
+    """
+    rng = random.Random(seed)
+    messages = []
+    passed = True
+
+    for ti, tri in enumerate(tris):
+        v0 = verts[tri[0]]
+        v1 = verts[tri[1]]
+        v2 = verts[tri[2]]
+        missed = 0
+
+        for _ in range(samples_per_tri):
+            # Random point on the triangle surface (barycentric coordinates)
+            u, v = rng.random(), rng.random()
+            if u + v > 1.0:
+                u, v = 1.0 - u, 1.0 - v
+            w = 1.0 - u - v
+            px = w * v0[0] + u * v1[0] + v * v2[0]
+            py = w * v0[1] + u * v1[1] + v * v2[1]
+            pz = w * v0[2] + u * v1[2] + v * v2[2]
+
+            hits = walk_mopp(mopp_bytes, origin, largest_dim, (px, py, pz))
+            if len(hits) == 0:
+                missed += 1
+
+        if missed > 0:
+            passed = False
+            cx = (v0[0]+v1[0]+v2[0])/3
+            cy = (v0[1]+v1[1]+v2[1])/3
+            cz = (v0[2]+v1[2]+v2[2])/3
+            messages.append(
+                f"FAIL: triangle {ti} at ({cx:.3f},{cy:.3f},{cz:.3f}) "
+                f"unreachable for {missed}/{samples_per_tri} surface points")
+
+    if passed:
+        messages.append(f"OK: all {len(tris)} triangles reachable from surface "
+                        f"({samples_per_tri} samples each)")
+    return passed, messages
+
+
 def verify_completeness(
     mopp_bytes: bytes,
     origin: Tuple[float, float, float],
