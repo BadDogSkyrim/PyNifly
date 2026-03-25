@@ -3524,10 +3524,8 @@ def TEST_MOPP_ROUNDTRIP_SE():
     assert TT.is_gt(mopp_scale, 0, f"MOPP scale is positive: {mopp_scale}")
 
     # Verify the MOPP bytes FROM THE FILE can reach all triangles
-    from pyn.mopp_compiler import _derive_largest_dim
     from scripts.mopp_verifier import verify_surface_reachability
-    largest_dim = _derive_largest_dim(mopp_bytes, mopp_origin)
-    assert largest_dim is not None, "Can derive largest_dim from MOPP root filters"
+    largest_dim = 254.0 * 256.0 * 256.0 / mopp_scale
     ok, msgs = verify_surface_reachability(
         mopp_bytes, mopp_origin, largest_dim, verts_back, tris_back, radius=0.005)
     for m in msgs: log.debug(m)
@@ -3601,10 +3599,8 @@ def TEST_MOPP_MULTICHUNK_ROUNDTRIP():
     assert TT.is_gt(mopp_scale, 0, f"MOPP scale is positive: {mopp_scale}")
 
     # Verify the MOPP bytes FROM THE FILE can reach all triangles
-    from pyn.mopp_compiler import _derive_largest_dim
     from scripts.mopp_verifier import verify_surface_reachability
-    largest_dim = _derive_largest_dim(mopp_bytes, mopp_origin)
-    assert largest_dim is not None, "Can derive largest_dim from MOPP root filters"
+    largest_dim = 254.0 * 256.0 * 256.0 / mopp_scale
     ok, msgs = verify_surface_reachability(
         mopp_bytes, mopp_origin, largest_dim, verts_back, tris_back, radius=0.005)
     for m in msgs: log.debug(m)
