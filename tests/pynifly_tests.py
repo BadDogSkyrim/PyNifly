@@ -3969,6 +3969,98 @@ def TEST_MOPP_COMPILER_BLACKBOX():
               f"scale={scale:.0f}")
 
 
+@test_category("SKYRIM", "MOPP")
+def TEST_MOPP_SLGDARCHFIRE01_POINTS():
+    """Regression test: hand-picked collision points on slgdarchfire01 (fireplace).
+
+    Points identified by in-game testing. HIT points are on collision surfaces,
+    MISS points are inside the open cavity. Coordinates in Blender space,
+    converted to Havok space for MOPP walking.
+    """
+    from scripts.mopp_verifier import walk_mopp
+    from pyn.nifconstants import HAVOC_SCALE_FACTOR
+
+    testfile = _test_file(r"tests/SkyrimSE/meshes/slgdarchfire01.nif")
+    outfile = _test_file(r"tests/Out/TEST_MOPP_SLGDARCHFIRE01_POINTS.nif")
+
+    # Read vanilla collision geometry
+    nif = NifFile(testfile)
+    orig_body = nif.root.collision_object.body
+    child = orig_body.shape.child
+    havok_verts = child.vertices
+    havok_tris = child.triangles
+    radius = child.properties.radius
+
+    # Get per-triangle materials
+    data_id = child.properties.dataID
+    nm = nifly.getCollCompressedMeshTriMaterials(nif._handle, data_id, None, 0)
+    mat_buf = (ctypes.c_uint32 * nm)()
+    nifly.getCollCompressedMeshTriMaterials(nif._handle, data_id,
+                                            ctypes.byref(mat_buf), nm)
+    face_materials = [mat_buf[i] for i in range(nm)]
+
+    # Build through the real export path
+    outnif = NifFile()
+    outnif.initialize("SKYRIMSE", outfile, root_type="BSFadeNode", root_name="Test")
+    coll = outnif.root.add_collision(None)
+    rb_props = bhkWorldObject.get_buffer('bhkRigidBody')
+    rb_props.rotation[3] = 1.0
+    rb = coll.add_body(rb_props)
+    bhkMoppBvTreeShape.Create(
+        outnif, havok_verts, havok_tris, "SKYRIMSE",
+        radius=radius, material=0,
+        face_materials=face_materials, parent=rb)
+    outnif.save()
+
+    # Read back the MOPP from the file
+    check = NifFile(outfile)
+    cs = check.root.collision_object.body.shape
+    code, origin, scale = cs.mopp_data
+    assert TT.is_gt(scale, 0, f"MOPP scale is positive: {scale}")
+    # Derive largest_dim from the scale (254*256*256/scale), not from
+    # _derive_largest_dim which fails on asymmetric meshes.
+    largest_dim = 254.0 * 256.0 * 256.0 / scale
+
+    sf = HAVOC_SCALE_FACTOR
+
+    # Hand-picked HIT points (Blender coords) — must produce MOPP hits
+    hit_points_blender = [
+        [57.8, -35.74, 73.0],
+        [37.77, 24.05, 73.25],
+        [40.96, -2.059, 73.5],
+        [47.48, 44.37, 142.8],
+    ]
+    # Hand-picked MISS points (Blender coords) — inside the overall mesh AABB
+    # but not near any triangle surface. Should produce no MOPP hits.
+    miss_points_blender = [
+        (-128, 78, 102),
+        (-1.3373, -0.4751, 100.0000),
+        [-19.12, -11.27, 75],
+        [78, 12.53, 137],
+    ]
+
+    failures = []
+    for bp in hit_points_blender:
+        hp = (bp[0]/sf, bp[1]/sf, bp[2]/sf)
+        hits = walk_mopp(code, origin, largest_dim, hp)
+        if len(hits) == 0:
+            failures.append(f"HIT point {bp} -> Havok ({hp[0]:.4f},{hp[1]:.4f},{hp[2]:.4f}): no MOPP hits")
+
+    for bp in miss_points_blender:
+        hp = (bp[0]/sf, bp[1]/sf, bp[2]/sf)
+        hits = walk_mopp(code, origin, largest_dim, hp)
+        if len(hits) > 0:
+            failures.append(f"MISS point {bp} -> Havok ({hp[0]:.4f},{hp[1]:.4f},{hp[2]:.4f}): got {len(hits)} hits (point is outside all triangle AABBs)")
+
+    if failures:
+        for f in failures:
+            log.error(f"POINT TEST FAIL: {f}")
+    assert len(failures) == 0, f"{len(failures)} point tests failed:\n" + "\n".join(failures)
+
+    log.debug(f"slgdarchfire01 point tests passed: {len(hit_points_blender)} hits, "
+              f"{len(miss_points_blender)} misses")
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

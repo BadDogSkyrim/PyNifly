@@ -340,8 +340,8 @@ def _build_bvh(tris: List[_TriInfo], origin, largest_dim, depth=0) -> _BVHNode:
     node = _BVHNode()
     node.bbox_min, node.bbox_max = _compute_bbox(tris)
 
-    # Leaf condition: 1 or 2 triangles, or max depth
-    if len(tris) <= 2 or depth > 40:
+    # Leaf condition: single triangle or max depth
+    if len(tris) <= 1 or depth > 40:
         node.tris = tris
         return node
 
@@ -414,6 +414,15 @@ def _encode_node(node: _BVHNode, origin, largest_dim) -> bytearray:
     # --- Leaf node ---
     if node.left is None and node.right is None:
         for tri in node.tris:
+            # Per-triangle FILTER nodes reject points outside this
+            # triangle's AABB. Necessary because parent split thresholds
+            # use subtree bounding boxes which can be much larger.
+            for a in range(3):
+                lo = _encode_bound_lower(tri.bbox_min[a], origin[a], largest_dim)
+                hi = _encode_bound_upper(tri.bbox_max[a], origin[a], largest_dim)
+                code.append(0x26 + a)
+                code.append(lo)
+                code.append(hi)
             code.extend(_emit_leaf(tri.output_id))
         return code
 
