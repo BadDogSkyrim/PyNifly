@@ -1218,8 +1218,10 @@ class CollisionHandler():
         if not cshape: return None
 
         props = bhkWorldObject.get_buffer(bodytype, values=coll)
-        if props.bufType == PynBufferTypes.bhkRigidBodyBufType and cshape.needsTransform:
+        if cshape.needsTransform:
             props.bufType = PynBufferTypes.bhkRigidBodyTBufType
+        elif props.bufType == PynBufferTypes.bhkRigidBodyTBufType:
+            props.bufType = PynBufferTypes.bhkRigidBodyBufType
          
         props.shapeID = cshape.id
         props.mass = coll.rigid_body.mass
