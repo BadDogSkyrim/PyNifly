@@ -27,10 +27,10 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 execute(
-    testlist=[TEST_MOPP_ROUNDTRIP_SE, TEST_MOPP_MULTICHUNK_ROUNDTRIP, TEST_MOPP_COMPILER_BLACKBOX, TEST_MOPP_ROCKS01_ROUNDTRIP ],
+    testlist=[TEST_MOPP_SLGDARCHFIRE01_POINTS ],
     stop_on_fail=True,
     )
-# execute()
+execute()
 # execute(start=TEST_KF)
 # execute(categories={"SHADER"})
 #
