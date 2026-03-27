@@ -40,9 +40,8 @@ def unregister():
 def register():
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_kf)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_kf)
-    with suppress(RuntimeError):
-        bpy.utils.register_class(import_kf.ImportKF)
-        bpy.utils.register_class(export_kf.ExportKF)
+    bpy.utils.register_class(import_kf.ImportKF)
+    bpy.utils.register_class(export_kf.ExportKF)
 
     # Register properties to remember last import paths
     bpy.types.WindowManager.pynifly_last_import_path_kf = bpy.props.StringProperty(

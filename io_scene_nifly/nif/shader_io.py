@@ -14,6 +14,7 @@ from .. import blender_defs as BD
 from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2, NODEID_NONE
 from ..pyn.niflytools import find_referenced_file, texture_path
 from ..pyn.pynifly import NiShape, NiShader, AlphaPropertyBuf, BSLSPShaderType, PynBufferTypes
+from ..gamefinder import find_game
 
 
 log = logging.getLogger("pynifly")
@@ -1146,10 +1147,15 @@ class ShaderImporter:
                 if path_pref and (cleaned_path := texture_path(path_pref)):
                     altpaths.append(cleaned_path)
         else:
-            for i, path_pref in enumerate([prefs.fo4_texture_path_1, prefs.fo4_texture_path_2, 
+            for i, path_pref in enumerate([prefs.fo4_texture_path_1, prefs.fo4_texture_path_2,
                              prefs.fo4_texture_path_3, prefs.fo4_texture_path_4], 1):
                 if path_pref and (cleaned_path := texture_path(path_pref)):
                     altpaths.append(cleaned_path)
+
+        # Last resort: try to find the game's Data directory via registry
+        game_data = find_game(self.game)
+        if game_data:
+            altpaths.append(game_data)
 
         for k, t in shape.textures.items():
             if not t: continue

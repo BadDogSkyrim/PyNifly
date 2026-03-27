@@ -48,9 +48,8 @@ def unregister():
 def register():
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_nif)
-    with suppress(RuntimeError):
-        bpy.utils.register_class(import_nif.ImportNIF)
-        bpy.utils.register_class(export_nif.ExportNIF)
+    bpy.utils.register_class(import_nif.ImportNIF)
+    bpy.utils.register_class(export_nif.ExportNIF)
 
     controller.register()
 

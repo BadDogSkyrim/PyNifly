@@ -62,15 +62,11 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_hkx)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_skelhkx)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_skel)
-    with suppress(RuntimeError):
-        bpy.utils.register_class(import_hkx.ImportHKX)
-        bpy.utils.register_class(skeleton_hkx.ImportSkel)
-    with suppress(RuntimeError):
-        bpy.utils.register_class(export_hkx.ExportHKX)
-    with suppress(RuntimeError):
-        bpy.utils.register_class(export_hkx.ExportSkelHKX)
-    with suppress(RuntimeError):
-        bpy.utils.register_class(skeleton_hkx.ExportSkel)
+    bpy.utils.register_class(import_hkx.ImportHKX)
+    bpy.utils.register_class(skeleton_hkx.ImportSkel)
+    bpy.utils.register_class(export_hkx.ExportHKX)
+    bpy.utils.register_class(export_hkx.ExportSkelHKX)
+    bpy.utils.register_class(skeleton_hkx.ExportSkel)
 
     # Register properties to remember last import paths
     bpy.types.WindowManager.pynifly_last_import_path_hkx = bpy.props.StringProperty(

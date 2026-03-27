@@ -2109,3 +2109,7 @@ def main():
 
     anim = load_fo4_animation(filepath)
     print(anim.summary())
+
+
+if __name__ == '__main__':
+    main()
