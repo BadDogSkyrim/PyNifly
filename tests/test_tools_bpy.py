@@ -453,16 +453,25 @@ def check_xf(node1:pyn.NiNode, node2:pyn.NiNode):
 
     assert node1.properties.transform.NearEqual(node2.properties.transform, epsilon=0.001), \
         f"{node1.name} transforms match"
-    assert QNearEqual(Quaternion(ti1.rotation), Quaternion(ti2.rotation), epsilon=0.001), \
-        f"{node1.name} interpolators have same rotation"
+
+    # Interpolator base values may be FLT_MAX sentinels (meaning "use keyed data only").
+    # Only compare when neither side uses sentinels.
+    FMAX_THRESH = 1e+37
+    ti1_sentinel = abs(ti1.properties.rotation[0]) > FMAX_THRESH
+    ti2_sentinel = abs(ti2.properties.rotation[0]) > FMAX_THRESH
+    if not ti1_sentinel and not ti2_sentinel:
+        assert QNearEqual(Quaternion(ti1.rotation), Quaternion(ti2.rotation), epsilon=0.001), \
+            f"{node1.name} interpolators have same rotation"
+
     assert QNearEqual(BD.key_rotation(td1, 0), BD.key_rotation(td2, 0), epsilon=0.1), \
         f"{node1.name} transform data rotations are same on first keyframe: {BD.key_rotation(td1, 0)} == {BD.key_rotation(td2, 0)}"
     assert VNearEqual(td1.translations[0].value, td2.translations[0].value), \
         f"{node1.name} transform data translations are same on first keyframe"
 
-    tiv = Vector(ti1.properties.translation)
-    v = Vector(td1.translations[0].value)
-    assert VNearEqual(tiv, v), f"{node1.name} translations are the same: {tiv} == {v}"
+    if not ti1_sentinel and not ti2_sentinel:
+        tiv = Vector(ti1.properties.translation)
+        v = Vector(td1.translations[0].value)
+        assert VNearEqual(tiv, v), f"{node1.name} translations are the same: {tiv} == {v}"
 
 
 def check_bone_controllers(nif1, nif2, nodenames):

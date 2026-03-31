@@ -1,8 +1,12 @@
-import logging 
+import logging
 import os
 from importlib import reload
 from . import test_tools
 reload(test_tools)
+from . import test_tools_bpy
+reload(test_tools_bpy)
+from . import test_nifchecker
+reload(test_nifchecker)
 
 # def running_in_blender():
 #     try:
