@@ -4,6 +4,13 @@ Ideas, reminders, wish list, and open questions.
 
 ## Open Issues
 
+### UV V-flip asymmetry in standalone (non-Blender) usage
+- `createShapeFromData` flips UV V coordinate (`1-v`) on write (line ~4700 in pynifly.py)
+- `shape.uvs` returns raw NIF values on read — no flip
+- This means a read-then-write round trip inverts the V axis
+- The flip exists for Blender's UV convention, but it should live in the Blender import/export layer, not in the core library
+- **Fix**: Remove the `1-v` from `createShapeFromData`, add it to the Blender addon's export path instead
+
 ## Wish List
 
 ### HKX annotation markers

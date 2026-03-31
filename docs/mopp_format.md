@@ -35,9 +35,11 @@ scaled = 254.0 * (world_coord - origin[axis]) / largest_dim
 ```
 
 Where:
-- `origin` is the expanded AABB minimum (stored in the bhkMoppBvTreeShape)
+- `origin` is the expanded AABB minimum (stored in `bhkMoppBvTreeShape.offset.xyz`)
 - `largest_dim` is the largest axis extent of the expanded AABB
-- The `scale` field stored in the NIF is 1.0 for Skyrim and is ignored
+- The Havok quantisation scale (`254*256*256 / largest_dim`) is stored in
+  `bhkMoppBvTreeShape.offset.w`. The engine uses this for all MOPP spatial
+  decoding. The NIF `scale` field is always 1.0 and is not used.
 
 The root of the MOPP tree typically has three FILTER instructions that
 establish the bounding box on each axis.
@@ -168,7 +170,9 @@ output_id = (chunk_index << bitsPerWIndex) | (winding << bitsPerIndex) | tri_in_
 Where:
 - `chunk_index` is 1-based (0 = bigTris)
 - `winding` is 0 (CCW) or 1 (CW) — from triangle strip alternation
-- `tri_in_chunk` is the triangle's position within the chunk
+- `tri_in_chunk` is the triangle's index position within the chunk's indices
+  array: `strip_start + k` for strip triangle k, `flat_start + k*3` for flat
+  triangle k (NOT the sequential triangle number)
 - `bitsPerIndex` and `bitsPerWIndex` are stored in the data block
 
 For packed strips (LE), output IDs are sequential triangle indices.
@@ -237,7 +241,7 @@ multiple axes.
 
 ## Using the Verifier
 
-The MOPP verifier (`tests/mopp_verifier.py`) tests tree quality:
+The MOPP verifier (`io_scene_nifly/scripts/mopp_verifier.py`) tests tree quality:
 
 ```python
 from mopp_verifier import verify_all
@@ -260,8 +264,7 @@ Three checks:
 ### Standalone Usage
 
 ```
-cd tests
-python mopp_verifier.py path/to/file.nif
+python io_scene_nifly/scripts/mopp_verifier.py path/to/file.nif
 ```
 
 Runs tightness analysis on a NIF's MOPP tree.
@@ -277,29 +280,33 @@ from pyn.mopp_compiler import compile_mopp
 code, origin, scale = compile_mopp(verts, tris, radius=0.005, output_ids=None)
 ```
 
-The compiler builds an axis-aligned BVH with median splits. It does not use
-diagonal splits, shared subtrees, or output base compression — these are
-vanilla Havok optimizations that produce smaller trees but are not functionally
-required.
+The compiler builds an axis-aligned BVH with median splits and single-triangle
+leaves. Each leaf has per-triangle FILTER nodes (X, Y, Z) that constrain the
+query point to the triangle's exact AABB before emitting the LEAF opcode. This
+eliminates false positives from parent split overlap zones.
+
+It does not use diagonal splits, shared subtrees, or output base compression —
+these are vanilla Havok optimizations that produce smaller trees.
 
 ## Comparison: Our Compiler vs Vanilla Havok
 
-For the noblecrate01 collision (52 triangles):
+Benchmark across 20 vanilla architecture meshes:
 
 | | Vanilla | Ours |
 |---|---------|------|
-| Size | 506 bytes | 205 bytes |
+| Avg false positive rate | 0.33 | 0.21 (better) |
+| Avg code size | 4157 bytes | 6025 bytes (1.45x) |
 | Split types | Axis + diagonal | Axis only |
+| Leaf filtering | None | Per-triangle FILTER on all 3 axes |
 | Shared subtrees | Yes (JUMP) | No |
 | Output compression | SET_OUTPUT + relative | Direct |
-| Tightness | ~2 avg false positives | ~20 avg false positives |
 
-Our tree is actually smaller (fewer instructions due to no diagonals) but
-looser (more false positives for the narrowphase). Both produce correct
-collision behavior in-game.
+Our tree is larger (per-triangle filters add ~9 bytes per leaf) but tighter
+(fewer false positives for the narrowphase). Both produce correct collision
+behavior in-game.
 
 ## References
 
 - [niftools wiki: Havok MOPP Data format](https://github.com/niftools/nifxml/wiki/Havok-MOPP-Data-format)
 - PyNifly source: `io_scene_nifly/pyn/mopp_compiler.py`
-- PyNifly verifier: `tests/mopp_verifier.py`
+- PyNifly verifier: `io_scene_nifly/scripts/mopp_verifier.py`
