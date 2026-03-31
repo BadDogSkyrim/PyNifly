@@ -2239,6 +2239,10 @@ def TEST_SHADER_FO4():
         f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
     assert TT.is_eq(shapecheck.name, shapeorig.name, "shader name")
 
+    # Environment Mapping flag on FO4 NIF causes CTDs — must never be set on export.
+    assert not shapecheck.shader.properties.shaderflags1_test(pyn.ShaderFlags1.ENVIRONMENT_MAPPING), \
+        "Environment Mapping flag must not be set on FO4 export"
+
 
 @TT.category('FO4', 'SHADER')
 def TEST_SHADER_GRAYSCALE_COLOR():

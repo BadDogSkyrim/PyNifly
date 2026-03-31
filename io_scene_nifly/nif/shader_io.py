@@ -1773,9 +1773,15 @@ class ShaderExporter:
 
         # Write the textures we can write. 'Wrinkles' and 'RootMaterialPath' appear in
         # the materials file only.
-        for textureslot in ['Diffuse', 'Normal', 'SoftLighting', 'Specular', 
-                            'EnvMap', 'EnvMask']:
+        # FO4: Environment Mapping flag on the NIF causes CTDs — skip env map textures
+        # and clear the flag in case it was carried over from material properties.
+        textureslots = ['Diffuse', 'Normal', 'SoftLighting', 'Specular']
+        if self.game != 'FO4':
+            textureslots += ['EnvMap', 'EnvMask']
+        for textureslot in textureslots:
             self.write_texture(shape, textureslot)
+        if self.game == 'FO4':
+            shape.shader.properties.shaderflags1_clear(ShaderFlags1.ENVIRONMENT_MAPPING)
 
 
     def export(self, new_shape:NiShape):

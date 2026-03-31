@@ -27,7 +27,7 @@ if 'tests.blender_tests' in sys.modules:
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_SKEL_BEAST_POSE,  ], # TEST_FACEGEN_SE
+    target_tests=[ TEST_SHADER_FO4,  ], # TEST_FACEGEN_SE
     # categories={'FO4'},
     test_all=False,
     stop_on_fail=False,
