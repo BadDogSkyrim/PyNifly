@@ -7565,6 +7565,38 @@ def TEST_DWEMER_CHEST():
                         "Collision bounds", e=0.1)
 
 
+@TT.category('SKYRIMSE', 'ANIMATION')
+def TEST_DWEMER_GEAR_ANIM():
+    """Dwemer gear rotation animates linearly from 0 to 2*pi.
+    The NIF has quadratic XYZ rotation keys with forward/backward tangents that
+    define a linear ramp. Verify the imported fcurve reflects this."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\dweplatformgear01.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    gear = bpy.data.objects["Gear01"]
+    assert gear.animation_data, "Gear01 has animation data"
+
+    slot = gear.animation_data.action_slot
+    cb = gear.animation_data.action.layers[0].strips[0].channelbag(slot)
+    assert cb, "Have channelbag"
+
+    # Find the Z rotation euler curve (index=2)
+    z_curve = next((fc for fc in cb.fcurves
+                    if fc.data_path == "rotation_euler" and fc.array_index == 2), None)
+    assert z_curve, "Have Z rotation fcurve"
+
+    kfp = z_curve.keyframe_points
+    TT.assert_eq(len(kfp), 2, "Two keyframes")
+    TT.assert_equiv(kfp[0].co[1], 0, "Start Z value")
+    TT.assert_equiv(kfp[-1].co[1], 6.2832, "End Z value", e=0.01)
+
+    # Evaluate at the midpoint — should be ~pi for a linear ramp.
+    mid_frame = (kfp[0].co[0] + kfp[-1].co[0]) / 2
+    mid_val = z_curve.evaluate(mid_frame)
+    TT.assert_equiv(mid_val, math.pi, "Midpoint Z value is pi", e=0.1)
+
+
 @TT.category('SKYRIM', 'ANIMATION')
 def TEST_ALDUIN():
     """Read and write animation using bones."""

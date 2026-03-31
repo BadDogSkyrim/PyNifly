@@ -1461,13 +1461,15 @@ def _import_transform_data(td:NiTransformData,
             _add_actionslot(importer.action_target, curveX)
 
             if all_equal([len(td.xrotations), len(td.yrotations), len(td.zrotations)]):
-                x_rot = ('LINEAR' if td.properties.xRotations.interpolation == NiKeyType.LINEAR_KEY
-                            else 'BEZIER')
-                y_rot = ('LINEAR' if td.properties.yRotations.interpolation == NiKeyType.LINEAR_KEY
-                            else 'BEZIER')
-                z_rot = ('LINEAR' if td.properties.zRotations.interpolation == NiKeyType.LINEAR_KEY
-                            else 'BEZIER')
-                for x, y, z in zip(td.xrotations, td.yrotations, td.zrotations):
+                x_bezier = (td.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY)
+                y_bezier = (td.properties.yRotations.interpolation == NiKeyType.QUADRATIC_KEY)
+                z_bezier = (td.properties.zRotations.interpolation == NiKeyType.QUADRATIC_KEY)
+                x_rot = 'BEZIER' if x_bezier else 'LINEAR'
+                y_rot = 'BEZIER' if y_bezier else 'LINEAR'
+                z_rot = 'BEZIER' if z_bezier else 'LINEAR'
+                apply_tangents = not (have_parent_rotation or pretty_R_q)
+                nkeys = len(td.xrotations)
+                for idx, (x, y, z) in enumerate(zip(td.xrotations, td.yrotations, td.zrotations)):
                     # In theory the X/Y/Z dimensions do not have to have key frames at
                     # the same time signatures. But an Euler rotation needs all 3.
                     # Probably they will all line up because generating them any other
@@ -1493,6 +1495,27 @@ def _import_transform_data(td:NiTransformData,
                     ky.interpolation = y_rot
                     kz = curveZ.keyframe_points.insert(z.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[2])
                     kz.interpolation = z_rot
+
+                    if apply_tangents:
+                        xprev = td.xrotations[idx-1] if idx > 0 else None
+                        xnext = td.xrotations[idx+1] if idx < nkeys-1 else None
+                        yprev = td.yrotations[idx-1] if idx > 0 else None
+                        ynext = td.yrotations[idx+1] if idx < nkeys-1 else None
+                        zprev = td.zrotations[idx-1] if idx > 0 else None
+                        znext = td.zrotations[idx+1] if idx < nkeys-1 else None
+                        if x_bezier:
+                            kx.handle_left_type = "FREE"
+                            kx.handle_right_type = "FREE"
+                            kx.handle_left, kx.handle_right = importer._key_nif_to_blender(xprev, x, xnext)
+                        if y_bezier:
+                            ky.handle_left_type = "FREE"
+                            ky.handle_right_type = "FREE"
+                            ky.handle_left, ky.handle_right = importer._key_nif_to_blender(yprev, y, ynext)
+                        if z_bezier:
+                            kz.handle_left_type = "FREE"
+                            kz.handle_right_type = "FREE"
+                            kz.handle_left, kz.handle_right = importer._key_nif_to_blender(zprev, z, znext)
+
                     importer.start_time = min(importer.start_time, x.time, y.time, z.time)
                     importer.end_time = max(importer.end_time, x.time, y.time, z.time)
                     
