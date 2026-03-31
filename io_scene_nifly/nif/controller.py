@@ -2358,11 +2358,16 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
             exporter.given_scale_warning = True
 
     if quat or eu or loc:
+        # Use FLT_MAX sentinels for the interpolator's base transform when we
+        # have keyed data.  Vanilla NIFs do this to tell the engine "use the
+        # keys, not a static base value".  Writing concrete values (e.g.
+        # identity) instead causes CK crashes on some meshes.
+        FMAX = -3.4028234663852886e+38
         ti = NiTransformInterpolator.New(
             file=exporter.nif,
-            translation=targ_xf.translation[:],
-            rotation=targ_q[:],
-            scale=1.0,
+            translation=(FMAX, FMAX, FMAX),
+            rotation=(FMAX, FMAX, FMAX, FMAX),
+            scale=FMAX,
         )
         
         td:NiTransformData = NiTransformData.New(

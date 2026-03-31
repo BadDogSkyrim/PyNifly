@@ -7404,7 +7404,7 @@ def TEST_DWEMER_CHEST():
     Read and write the animation of chest opening and shutting. Also create a collision
     object for the chest and esure it works.
     """
-    testfile = TTB.test_file(r"tests\Skyrim\dwechest01.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\dwechest01.nif")
     outfile =TTB.test_file(r"tests/Out/TEST_DWEMER_CHEST.nif")
 
     #### READ ####
