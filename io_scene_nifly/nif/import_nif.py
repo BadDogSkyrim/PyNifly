@@ -1183,6 +1183,11 @@ class NifImporter():
                 nif_bone = nif.nodes[bn]
                 if isinstance(nif_bone, P.NiNode) and nif_bone.name != nif.rootName:
                     if blname in self.nif_rest_bones:
+                        # Rest position already matches NIF, but edit bones
+                        # can't store scale. Apply non-unit scale to the pose.
+                        nif_scale = nif_bone.transform.scale
+                        if abs(nif_scale - 1.0) > 0.0001:
+                            arma.pose.bones[blname].scale = Vector((nif_scale,)*3)
                         continue
 
                     bone_xf = BD.transform_to_matrix(nif_bone.global_transform)

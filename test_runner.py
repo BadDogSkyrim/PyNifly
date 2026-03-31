@@ -21,13 +21,14 @@ if str(mod_path) not in sys.path:
 
 
 import tests
-# importlib.reload(tests)
 importlib.reload(tests)
+if 'tests.blender_tests' in sys.modules:
+    importlib.reload(sys.modules['tests.blender_tests'])
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_COLLISION_MOPP_ROUNDTRIP,  ], # TEST_FACEGEN_SE
+    target_tests=[ TEST_SKEL_BEAST_POSE,  ], # TEST_FACEGEN_SE
     # categories={'FO4'},
-    test_all=True,
+    test_all=False,
     stop_on_fail=False,
     )

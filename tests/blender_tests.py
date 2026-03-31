@@ -5,18 +5,28 @@ https://polynook.com/learn/set-up-blender-addon-development-environment-in-windo
 """
 import os
 import sys
-import shutil 
+import importlib
+import shutil
 import logging
 import math
 from pathlib import Path
 import json
 import bpy
 from mathutils import Matrix, Vector, Quaternion, Euler
+
+# Reload all io_scene_nifly submodules so code changes take effect without
+# restarting Blender. Must happen before any from-imports below.
+_addon_prefix = "io_scene_nifly"
+_stale = [name for name in sys.modules if name == _addon_prefix or name.startswith(_addon_prefix + ".")]
+for _name in _stale:
+    importlib.reload(sys.modules[_name])
+del _stale
+
 import io_scene_nifly.pyn.niflytools as NT
 from io_scene_nifly.pyn.nifdefs import PynBufferTypes
 from io_scene_nifly.pyn.nifconstants import (
-    NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, SkyrimHavokMaterial, 
-    CycleType, hkResponseType, BroadPhaseType, hkMotionType, 
+    NiAVFlags, ShaderFlags2, bhkCOFlags, SkyrimCollisionLayer, SkyrimHavokMaterial,
+    CycleType, hkResponseType, BroadPhaseType, hkMotionType,
     hkSolverDeactivation, hkQualityType, HAVOC_SCALE_FACTOR)
 import io_scene_nifly.pyn.pynifly as pyn
 import xml.etree.ElementTree as xml
@@ -1461,6 +1471,36 @@ def TEST_SKEL_SKY():
     foot_constr = foot_bone.constraints[0]
     foot_col = foot_constr.target
     assert foot_col, "Have foot collision object"
+
+
+@TT.category('SKYRIMSE', 'ARMATURE')
+def TEST_SKEL_BEAST_POSE():
+    """Skeleton-only NIF has pose location matching bind location for all bones.
+    The beast skeleton has hand bones with scale 0.851680 in the NIF. Verify that
+    the imported pose reflects those transforms correctly."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\skeletonbeast_female.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_bones=False)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+
+    nif = pyn.NifFile(testfile)
+
+    # Hand bone has local scale 0.851680 in the NIF. Check pose scale matches.
+    rhand = arma.pose.bones['NPC Hand.R']
+    rhand_nif = nif.nodes['NPC R Hand [RHnd]']
+    assert NT.NearEqual(rhand_nif.transform.scale, 0.851680, epsilon=0.0001), \
+        f"NIF hand bone has expected local scale: {rhand_nif.transform.scale}"
+    assert NT.NearEqual(rhand.scale[0], rhand_nif.transform.scale, epsilon=0.001), \
+        f"Pose hand bone scale matches NIF: {rhand.scale[0]} != {rhand_nif.transform.scale}"
+
+    # Finger has local scale 1.0 but inherits global scale 0.851680 from hand.
+    rfinger = arma.pose.bones['NPC Finger00.R']
+    rfinger_nif = nif.nodes['NPC R Finger00 [RF00]']
+    assert NT.NearEqual(rfinger_nif.transform.scale, 1.0, epsilon=0.0001), \
+        f"NIF finger bone has unit local scale: {rfinger_nif.transform.scale}"
+    assert NT.NearEqual(rfinger.scale[0], 1.0, epsilon=0.001), \
+        f"Pose finger bone has unit local scale: {rfinger.scale[0]}"
 
 
 @TT.category('SKYRIMSE', 'BODYPART', 'TRI')
