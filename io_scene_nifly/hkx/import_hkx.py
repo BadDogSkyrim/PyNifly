@@ -866,12 +866,13 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
     log.info(f"Created action '{action.name}' with {frame_end} frames")
 
 
-def extract_fo4_animation(armature):
+def extract_fo4_animation(armature, fps=None):
     """Extract animation data from a Blender armature into an AnimationData.
 
-    Reverses apply_fo4_animation:
-        q_anim = q_rest @ q_pose
-        v_anim = q_rest @ v_delta + v_rest
+    Evaluates pose bone transforms at each frame, capturing NLA blending,
+    constraints, and drivers.  Only selected bones get per-frame animation;
+    unselected bones are exported as static (frame-1 value).  If no bones
+    are selected, all bones are animated.
 
     Returns an AnimationData ready for write_fo4_animation(), or None if no action.
     """
@@ -884,15 +885,21 @@ def extract_fo4_animation(armature):
 
     action = armature.animation_data.action
 
-    # Determine frame range
+    # Determine frame range (in Blender frames)
     frame_start = int(action.frame_start) if action.use_frame_range else int(action.frame_range[0])
     frame_end = int(action.frame_end) if action.use_frame_range else int(action.frame_range[1])
-    num_frames = frame_end - frame_start + 1
-    if num_frames < 1:
+    blender_frame_count = frame_end - frame_start + 1
+    if blender_frame_count < 1:
         log.error("Action has no frames.")
         return None
 
-    fps = bpy.context.scene.render.fps
+    if fps is None:
+        fps = bpy.context.scene.render.fps
+
+    # Resample if export FPS differs from Blender scene FPS
+    blender_fps = bpy.context.scene.render.fps
+    duration = (blender_frame_count - 1) / blender_fps
+    num_frames = round(duration * fps) + 1 if duration > 0 else 1
 
     # Select the correct bone dictionary based on game
     game = armature.get(PYN_HKX_GAME_PROP, 'FO4')
@@ -910,7 +917,6 @@ def extract_fo4_animation(armature):
     if hkx_bones_str:
         nif_bone_names = hkx_bones_str.split(";")
     else:
-        # Fall back to pose bone names, converting back to NIF names
         nif_bone_names = []
         for pb in armature.pose.bones:
             nif_bone_names.append(bone_dict.nif_name(pb.name)
@@ -933,101 +939,100 @@ def extract_fo4_animation(armature):
             return pose_bones[bl]
         return None
 
-    # Build fcurve lookup: bone_name → {prop → {index → fcurve}}
-    fcurve_map = {}
-    for fc in bdefs.action_fcurves(action):
-        dp = fc.data_path
-        if not dp.startswith('pose.bones["'):
-            continue
-        end_quote = dp.index('"]', 12)
-        bone_name = dp[12:end_quote]
-        prop = dp[end_quote + 3:]  # after "]."
-        if bone_name not in fcurve_map:
-            fcurve_map[bone_name] = {}
-        if prop not in fcurve_map[bone_name]:
-            fcurve_map[bone_name][prop] = {}
-        fcurve_map[bone_name][prop][fc.array_index] = fc
+    # Resolve pose bones for each track
+    track_pbs = []
+    for nif_name in nif_bone_names:
+        track_pbs.append(_find_pose_bone(nif_name))
 
-    # Extract per-track data
-    tracks = []
-    binding_indices = []
-    bone_names_out = []
+    # Only selected bones get per-frame animation; if none selected, animate all
+    try:
+        sel_pbs = bpy.context.selected_pose_bones
+        selected_bones = {pb.name for pb in sel_pbs} if sel_pbs else set()
+    except AttributeError:
+        selected_bones = {pb.name for pb in pose_bones if pb.bone.select}
+    animate_all = not selected_bones
 
-    for track_idx, nif_name in enumerate(nif_bone_names):
-        td = anim_fo4.TrackData()
+    # Rest poses needed for additive animations
+    rest_data = {}
+    if additive:
+        for pb in track_pbs:
+            if pb and pb.name not in rest_data:
+                rest_data[pb.name] = _bone_rest_local(pb.bone)
 
-        pb = _find_pose_bone(nif_name)
-        if pb is None:
-            # Bone not in armature — write identity track
-            for _ in range(num_frames):
-                td.translations.append([0.0, 0.0, 0.0])
+    # Initialize tracks
+    tracks = [anim_fo4.TrackData() for _ in nif_bone_names]
+
+    scene = bpy.context.scene
+    original_frame = scene.frame_current
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+
+    # Map original pose bone names to indices for lookup on evaluated object
+    track_pb_names = [pb.name if pb else None for pb in track_pbs]
+
+    def _read_bone_local(eval_pb):
+        """Read bone-local transform from the evaluated pose."""
+        if eval_pb.parent:
+            local_mx = eval_pb.parent.matrix.inverted() @ eval_pb.matrix
+        else:
+            local_mx = eval_pb.matrix.copy()
+
+        q = local_mx.to_quaternion()
+        v = local_mx.to_translation()
+        s = local_mx.to_scale()
+
+        if additive:
+            rest_q, rest_t = rest_data[eval_pb.name]
+            rest_q_inv = rest_q.inverted()
+            q = rest_q_inv @ q
+            v = rest_q_inv @ (v - rest_t)
+
+        return [q.x, q.y, q.z, q.w], [v.x, v.y, v.z], [s.x, s.y, s.z]
+
+    for f in range(num_frames):
+        # Convert export frame to Blender frame (fractional) for resampling
+        time = f / fps if fps > 0 else 0.0
+        bl_frame = frame_start + time * blender_fps
+        int_frame = int(bl_frame)
+        subframe = bl_frame - int_frame
+        scene.frame_set(int_frame, subframe=subframe)
+        depsgraph.update()
+        eval_armature = armature.evaluated_get(depsgraph)
+        eval_pose_bones = eval_armature.pose.bones
+
+        for track_idx, pb_name in enumerate(track_pb_names):
+            td = tracks[track_idx]
+
+            if pb_name is None:
                 td.rotations.append([0.0, 0.0, 0.0, 1.0])
+                td.translations.append([0.0, 0.0, 0.0])
                 td.scales.append([1.0, 1.0, 1.0])
-            tracks.append(td)
-            binding_indices.append(track_idx)
-            bone_names_out.append(nif_name)
-            continue
+                continue
 
-        bone = pb.bone
-        rest_q, rest_t = _bone_rest_local(bone)
+            # Unselected bones: repeat frame-0 value
+            if not animate_all and pb_name not in selected_bones and f > 0:
+                td.rotations.append(td.rotations[0])
+                td.translations.append(td.translations[0])
+                td.scales.append(td.scales[0])
+                continue
 
-        # Get fcurves for this bone
-        bl_name = pb.name
-        bone_fcs = fcurve_map.get(bl_name, {})
-        rot_fcs = bone_fcs.get('rotation_quaternion', {})
-        loc_fcs = bone_fcs.get('location', {})
-        scale_fcs = bone_fcs.get('scale', {})
-
-        for f in range(num_frames):
-            frame = frame_start + f
-
-            # Rotation
-            q_pose = Quaternion((
-                rot_fcs[0].evaluate(frame) if 0 in rot_fcs else 1.0,
-                rot_fcs[1].evaluate(frame) if 1 in rot_fcs else 0.0,
-                rot_fcs[2].evaluate(frame) if 2 in rot_fcs else 0.0,
-                rot_fcs[3].evaluate(frame) if 3 in rot_fcs else 0.0,
-            ))
-            if additive:
-                q_anim = q_pose
-            else:
-                q_anim = rest_q @ q_pose
-            # HKX format: [x, y, z, w]
-            td.rotations.append([q_anim.x, q_anim.y, q_anim.z, q_anim.w])
-
-            # Translation
-            v_delta = Vector((
-                loc_fcs[0].evaluate(frame) if 0 in loc_fcs else 0.0,
-                loc_fcs[1].evaluate(frame) if 1 in loc_fcs else 0.0,
-                loc_fcs[2].evaluate(frame) if 2 in loc_fcs else 0.0,
-            ))
-            if additive:
-                v_anim = v_delta
-            else:
-                v_anim = rest_q @ v_delta + rest_t
-            td.translations.append([v_anim.x, v_anim.y, v_anim.z])
-
-            # Scale
-            scl = [
-                scale_fcs[0].evaluate(frame) if 0 in scale_fcs else 1.0,
-                scale_fcs[1].evaluate(frame) if 1 in scale_fcs else 1.0,
-                scale_fcs[2].evaluate(frame) if 2 in scale_fcs else 1.0,
-            ]
+            eval_pb = eval_pose_bones[pb_name]
+            rot, loc, scl = _read_bone_local(eval_pb)
+            td.rotations.append(rot)
+            td.translations.append(loc)
             td.scales.append(scl)
 
-        tracks.append(td)
-        binding_indices.append(track_idx)
-        bone_names_out.append(nif_name)
+    scene.frame_set(original_frame)
 
     # Build AnimationData
-    duration = (num_frames - 1) / fps if num_frames > 1 else 1.0 / fps
+    binding_indices = list(range(len(nif_bone_names)))
+    # duration was computed from the Blender frame range above
     anim_out = anim_fo4.AnimationData(
         duration=duration,
         num_frames=num_frames,
         num_tracks=len(tracks),
         frame_duration=1.0 / fps,
         tracks=tracks,
-        bone_names=bone_names_out,
+        bone_names=list(nif_bone_names),
         track_to_bone_indices=binding_indices,
         original_skeleton_name="Root",
         blend_hint=1 if additive else 0,

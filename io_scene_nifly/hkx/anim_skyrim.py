@@ -29,8 +29,8 @@ try:
         AnimationData, Annotation, BonePose, Skeleton, TrackData,
         _decompress_spline, _parse_skeleton_xml, _parse_animation_xml,
         _read_null_string,
-        _compress_all_blocks, _write_48bit_quat, _write_16bit_scalar,
-        _write_8bit_scalar, _FixupBuilder,
+        _compress_all_blocks, _write_48bit_quat, _write_40bit_quat,
+        _write_16bit_scalar, _write_8bit_scalar, _FixupBuilder,
         _w_u8, _w_u16, _w_u32, _w_i16, _w_f32,
         _pad16, _pad4, _hkarray, _align,
     )
@@ -39,8 +39,8 @@ except ImportError:
         AnimationData, Annotation, BonePose, Skeleton, TrackData,
         _decompress_spline, _parse_skeleton_xml, _parse_animation_xml,
         _read_null_string,
-        _compress_all_blocks, _write_48bit_quat, _write_16bit_scalar,
-        _write_8bit_scalar, _FixupBuilder,
+        _compress_all_blocks, _write_48bit_quat, _write_40bit_quat,
+        _write_16bit_scalar, _write_8bit_scalar, _FixupBuilder,
         _w_u8, _w_u16, _w_u32, _w_i16, _w_f32,
         _pad16, _pad4, _hkarray, _align,
     )
@@ -602,15 +602,14 @@ def load_skyrim_skeleton(filepath: str) -> Optional[Skeleton]:
 # These differ from FO4 (hk_2014) hashes.
 _ANIM_CLASS_ENTRIES_V8: List[Tuple[int, str]] = [
     (0x75585EF6, 'hkClass'),
-    (0x7EA4C2A4, 'hkClassMember'),
+    (0x5C7EA4C2, 'hkClassMember'),
     (0x8A3609CF, 'hkClassEnum'),
     (0xCE6F8A6C, 'hkClassEnumItem'),
     (0x2772C11E, 'hkRootLevelContainer'),
-    (0x26859F4C, 'hkaAnimationContainer'),
+    (0x8DC20333, 'hkaAnimationContainer'),
     (0x792EE0BB, 'hkaSplineCompressedAnimation'),
-    (0xB8E0F860, 'hkaDefaultAnimatedReferenceFrame'),
     (0x66EAC971, 'hkaAnimationBinding'),
-    (0x1DE13A73, 'hkMemoryResourceContainer'),
+    (0x4762F92A, 'hkMemoryResourceContainer'),
 ]
 
 
@@ -733,7 +732,7 @@ def _build_anim_data_section(anim: AnimationData,
         struct.pack_into('<I', buf, off + P + 4, count | 0x80000000)
 
     # Compress animation
-    spline_blob, block_offsets = _compress_all_blocks(anim)
+    spline_blob, block_offsets = _compress_all_blocks(anim, rot_quant=1)
 
     num_tracks = anim.num_tracks
     bone_names = anim.bone_names or [f"Bone{i}" for i in range(num_tracks)]
@@ -741,6 +740,7 @@ def _build_anim_data_section(anim: AnimationData,
     binding_indices = anim.track_to_bone_indices or list(range(num_tracks))
 
     # ═══ hkRootLevelContainer ═══
+    # RLC in hk_2010 has no serialized base class header — hkArray at offset 0.
     rlc_rel = rel()
     fx.add_virtual(rlc_rel, 0, name_offs['hkRootLevelContainer'])
     arr_rlc = write_arr(2)
@@ -779,7 +779,7 @@ def _build_anim_data_section(anim: AnimationData,
     # ═══ hkaAnimationContainer ═══
     ac_rel = rel()
     fx.add_virtual(ac_rel, 0, name_offs['hkaAnimationContainer'])
-    fx.add_local(nv0_variant, ac_rel)
+    fx.add_global(nv0_variant, 2, ac_rel)
 
     write(bytes(base_sz))              # vtable + memSizeAndFlags
     write_arr(0)                       # skeletons
@@ -825,7 +825,7 @@ def _build_anim_data_section(anim: AnimationData,
 
     spline_rel = rel()
     fx.add_virtual(spline_rel, 0, name_offs['hkaSplineCompressedAnimation'])
-    fx.add_local(anim_ptr, spline_rel)
+    fx.add_global(anim_ptr, 2, spline_rel)
 
     spline_hdr = bytearray(spline_struct_size)
     struct.pack_into('<I', spline_hdr, o_type, 5)  # SPLINE_COMPRESSED
@@ -844,6 +844,9 @@ def _build_anim_data_section(anim: AnimationData,
         struct.pack_into('<f', spline_hdr, o_block_inv, 1.0 / anim.block_duration)
     struct.pack_into('<f', spline_hdr, o_frame_dur, anim.frame_duration)
     pack_arr_at(spline_hdr, o_block_offsets, n_blocks)
+    pack_arr_at(spline_hdr, o_float_block_off, n_blocks)  # one offset per block
+    pack_arr_at(spline_hdr, o_transform_off, 0)      # empty, flagged
+    pack_arr_at(spline_hdr, o_float_off, 0)           # empty, flagged
     pack_arr_at(spline_hdr, o_data, len(spline_blob))
     write(bytes(spline_hdr))
 
@@ -905,38 +908,21 @@ def _build_anim_data_section(anim: AnimationData,
         write(_w_u32(bo))
     align16()
 
+    # Float block offsets array (same count as blocks, all zero — no float tracks)
+    float_block_off_data_rel = rel()
+    fx.add_local(spline_rel + o_float_block_off, float_block_off_data_rel)
+    for _ in range(n_blocks):
+        write(_w_u32(0))
+    align16()
+
     # Spline data blob
     spline_data_rel = rel()
     fx.add_local(spline_rel + o_data, spline_data_rel)
     write(spline_blob)
     align16()
 
-    # extractedMotion → hkaDefaultAnimatedReferenceFrame
-    ref_frame_rel = rel()
-    fx.add_virtual(ref_frame_rel, 0, name_offs['hkaDefaultAnimatedReferenceFrame'])
-    fx.add_local(spline_rel + o_extr_motion, ref_frame_rel)
-
-    # hkaDefaultAnimatedReferenceFrame layout:
-    # base(base_sz) + up(16) + forward(16) + duration(4) + pad(4) +
-    # referenceFrameSamples hkArray(arr_sz)
-    o_rf_up = base_sz
-    o_rf_fwd = base_sz + 16
-    o_rf_dur = base_sz + 32
-    o_rf_samples = (base_sz + 40 + P - 1) & ~(P - 1)
-    ref_struct_size = _align(o_rf_samples + arr_sz, 16)
-
-    ref_hdr = bytearray(ref_struct_size)
-    struct.pack_into('<ffff', ref_hdr, o_rf_up, 0.0, 0.0, 1.0, 0.0)
-    struct.pack_into('<ffff', ref_hdr, o_rf_fwd, 0.0, 1.0, 0.0, 0.0)
-    struct.pack_into('<f', ref_hdr, o_rf_dur, anim.duration)
-    n_samples = anim.num_frames + 1
-    pack_arr_at(ref_hdr, o_rf_samples, n_samples)
-    write(bytes(ref_hdr))
-
-    ref_samples_rel = rel()
-    fx.add_local(ref_frame_rel + o_rf_samples, ref_samples_rel)
-    write(bytes(16 * n_samples))  # vec4 per sample, all zeros
-    align16()
+    # extractedMotion left as null pointer (no fixup) — vanilla Skyrim
+    # idle animations don't use extracted motion reference frames.
 
     # ═══ hkaAnimationBinding ═══
     # base(base_sz) + originalSkeletonName(P) + animation(P)
@@ -951,7 +937,7 @@ def _build_anim_data_section(anim: AnimationData,
 
     binding_rel = rel()
     fx.add_virtual(binding_rel, 0, name_offs['hkaAnimationBinding'])
-    fx.add_local(bind_ptr, binding_rel)
+    fx.add_global(bind_ptr, 2, binding_rel)
 
     bind_hdr = bytearray(bind_struct_size)
     pack_arr_at(bind_hdr, o_bind_idx, len(binding_indices))
@@ -965,7 +951,7 @@ def _build_anim_data_section(anim: AnimationData,
     align_to(2)
 
     # Animation pointer
-    fx.add_local(binding_rel + o_bind_anim, spline_rel)
+    fx.add_global(binding_rel + o_bind_anim, 2, spline_rel)
 
     # Binding indices array
     bind_idx_rel = rel()
@@ -975,11 +961,15 @@ def _build_anim_data_section(anim: AnimationData,
     align16()
 
     # ═══ hkMemoryResourceContainer ═══
+    # Full struct: base(2P) + 3 hkArrays + name(P) + pad(P)
     mrc_rel = rel()
     fx.add_virtual(mrc_rel, 0, name_offs['hkMemoryResourceContainer'])
-    fx.add_local(nv1_variant, mrc_rel)
-    mrc_size = _align(base_sz + arr_sz, 16)
-    write(bytes(mrc_size))
+    fx.add_global(nv1_variant, 2, mrc_rel)
+    mrc_buf = bytearray(base_sz + 3 * arr_sz + 2 * P)
+    # Arrays 2 and 3 need DONT_DEALLOCATE flag on capacity
+    pack_arr_at(mrc_buf, base_sz + arr_sz, 0)       # externalLinks (empty, flagged)
+    pack_arr_at(mrc_buf, base_sz + 2 * arr_sz, 0)   # objectData (empty, flagged)
+    write(bytes(mrc_buf))
     align16()
 
     return bytes(data), fx
