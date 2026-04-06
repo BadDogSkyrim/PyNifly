@@ -16,6 +16,7 @@ os.chdir(py_addon_path / "tests")
 from pyn import xmltools
 xmltools.XMLFile.SetPath(hkxcmd_path)
 from tests.pynifly_tests import *
+import tests.anim_tests as anim_tests
 
 # Library is automatically loaded when pynifly is imported
 # No need to call NifFile.Load() anymore
@@ -31,6 +32,7 @@ execute(
     stop_on_fail=True,
     )
 execute()
+anim_tests.execute()
 # execute(start=TEST_KF)
 # execute(categories={"SHADER"})
 #

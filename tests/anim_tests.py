@@ -21,10 +21,12 @@ from pathlib import Path
 _test_dir = Path(__file__).resolve().parent
 _project_root = _test_dir.parent
 sys.path.insert(0, str(_project_root / "io_scene_nifly" / "hkx"))
+sys.path.insert(0, str(_project_root / "io_scene_nifly"))
+sys.path.insert(0, str(_test_dir))
 
 import anim_fo4
 import anim_skyrim
-from . import test_tools as TT
+import test_tools as TT
 
 log = logging.getLogger("pynifly")
 
@@ -184,6 +186,162 @@ def TEST_FO4_ANIM_ROUNDTRIP():
 
     print(f"    Max rotation error: {max_rot_err:.6f}")
     print(f"    Max translation error: {max_pos_err:.6f}")
+
+
+def TEST_FO4_ANIM_ROUNDTRIP_VARIETY():
+    r"""Roundtrip 5 FO4 animations covering different characteristics.
+
+    To verify in-game, copy each output over SneakIdle.hkx and sneak in FO4:
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_FO4_RT_Death1.hkx" "C:\steam\steamapps\common\Fallout 4\Data\Meshes\Actors\Character\Animations\MT\Neutral\SneakIdle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_FO4_RT_SneakIdle.hkx" "C:\steam\steamapps\common\Fallout 4\Data\Meshes\Actors\Character\Animations\MT\Neutral\SneakIdle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_FO4_RT_CoughingAfterCryo.hkx" "C:\steam\steamapps\common\Fallout 4\Data\Meshes\Actors\Character\Animations\MT\Neutral\SneakIdle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_FO4_RT_IdleSitChairLaserPistolCleaning.hkx" "C:\steam\steamapps\common\Fallout 4\Data\Meshes\Actors\Character\Animations\MT\Neutral\SneakIdle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_FO4_RT_PoseA_Talk_L5.hkx" "C:\steam\steamapps\common\Fallout 4\Data\Meshes\Actors\Character\Animations\MT\Neutral\SneakIdle.hkx" -Force
+    """
+    import struct as _s
+
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    test_files = [
+        ("Death1.hkx",                          95,  81, 1),
+        ("SneakIdle.hkx",                        95, 286, 2),
+        ("CoughingAfterCryo.hkx",                94, 826, 4),
+        ("IdleSitChairLaserPistolCleaning.hkx",  94, 501, 2),
+        ("PoseA_Talk_L5.hkx",                    95, 207, 1),
+    ]
+
+    # Expected hk_2014 class hashes
+    EXPECTED_HASHES = {
+        'hkClassMember': 0xB0EFA719,
+        'hkaAnimationContainer': 0x26859F4C,
+        'hkMemoryResourceContainer': 0x1DE13A73,
+        'hkaSplineCompressedAnimation': 0x8C3B5F7E,
+        'hkaAnimationBinding': 0x0FAF9150,
+    }
+
+    rot_tol = 0.05
+    pos_tol = 0.5
+
+    for filename, exp_tracks, exp_frames, exp_blocks in test_files:
+        in_path = str(_FO4_ANIM_DIR / filename)
+        out_path = str(_OUT_DIR / f"TEST_FO4_RT_{filename}")
+
+        orig = anim_fo4.load_fo4_animation(in_path)
+        assert TT.is_eq(orig.num_tracks, exp_tracks, f"{filename} track count")
+        assert TT.is_eq(orig.num_frames, exp_frames, f"{filename} frame count")
+
+        anim_fo4.write_fo4_animation(out_path, orig)
+        reloaded = anim_fo4.load_fo4_animation(out_path)
+
+        # ── Data roundtrip checks ──
+        assert TT.is_eq(reloaded.num_tracks, orig.num_tracks,
+                         f"{filename} roundtrip track count")
+        assert TT.is_eq(reloaded.num_frames, orig.num_frames,
+                         f"{filename} roundtrip frame count")
+        assert TT.is_equiv(reloaded.duration, orig.duration,
+                            f"{filename} roundtrip duration", e=0.001)
+
+        max_rot_err = 0.0
+        for i in range(orig.num_tracks):
+            for f in range(len(orig.tracks[i].rotations)):
+                oq = orig.tracks[i].rotations[f]
+                rq = reloaded.tracks[i].rotations[f]
+                dot = sum(oq[j] * rq[j] for j in range(4))
+                if dot < 0:
+                    rq = [-x for x in rq]
+                for j in range(4):
+                    err = abs(oq[j] - rq[j])
+                    if err > max_rot_err:
+                        max_rot_err = err
+                    assert err < rot_tol, \
+                        f"{filename} track {i} frame {f} rot[{j}]: err={err:.4f}"
+
+            for f in range(len(orig.tracks[i].translations)):
+                for j in range(3):
+                    err = abs(orig.tracks[i].translations[f][j] -
+                              reloaded.tracks[i].translations[f][j])
+                    assert err < pos_tol, \
+                        f"{filename} track {i} frame {f} pos[{j}]: err={err:.4f}"
+
+        # ── Binary format checks ──
+        with open(out_path, 'rb') as fh:
+            raw = fh.read()
+
+        # File header
+        assert raw[0:4] == b'\x57\xE0\xE0\x57', f"{filename} magic 1"
+        assert raw[4:8] == b'\x10\xC0\xC0\x10', f"{filename} magic 2"
+        assert _s.unpack_from('<i', raw, 0x0C)[0] == 11, f"{filename} file version"
+        assert raw[0x10] == 8, f"{filename} ptr size"
+        assert raw[0x28:0x36] == b'hk_2014.1.0-r1', f"{filename} version string"
+
+        # Class hashes
+        cn_abs = _s.unpack_from('<I', raw, 0x50 + 0x14)[0]
+        cn_end = cn_abs + _s.unpack_from('<I', raw, 0x50 + 0x18)[0]
+        classnames = {}
+        pos = cn_abs
+        while pos < cn_end:
+            h, flags = _s.unpack_from('<IB', raw, pos)
+            if h == 0xFFFFFFFF:
+                break
+            s = pos + 5
+            e = raw.index(b'\x00', s)
+            classnames[raw[s:e].decode('ascii')] = h
+            pos = e + 1
+
+        for cls, exp_hash in EXPECTED_HASHES.items():
+            assert classnames.get(cls) == exp_hash, \
+                f"{filename} {cls} hash {classnames.get(cls, 0):#010x} != {exp_hash:#010x}"
+
+        # Global fixups (inter-object refs must be global)
+        ds_abs = _s.unpack_from('<I', raw, 0x50 + 2*0x40 + 0x14)[0]
+        gr = _s.unpack_from('<I', raw, 0x50 + 2*0x40 + 0x1C)[0]
+        vr = _s.unpack_from('<I', raw, 0x50 + 2*0x40 + 0x20)[0]
+        gc = 0
+        pos = ds_abs + gr
+        while pos + 12 <= ds_abs + vr:
+            s, sec, d = _s.unpack_from('<III', raw, pos)
+            if s == 0xFFFFFFFF:
+                break
+            gc += 1
+            pos += 12
+        assert TT.is_eq(gc, 6, f"{filename} global fixup count")
+
+        # Quaternion encoding
+        er = _s.unpack_from('<I', raw, 0x50 + 2*0x40 + 0x24)[0]
+        sp_off = None
+        pos = ds_abs + vr
+        while pos + 12 <= ds_abs + er:
+            o, sec, n = _s.unpack_from('<III', raw, pos)
+            if o == 0xFFFFFFFF:
+                break
+            ss = cn_abs + n
+            se = raw.index(b'\x00', ss)
+            if raw[ss:se] == b'hkaSplineCompressedAnimation':
+                sp_off = o
+                break
+            pos += 12
+
+        # Animation type field at +0x10 (after 16-byte base class)
+        assert _s.unpack_from('<I', raw, ds_abs + sp_off + 0x10)[0] == 3, \
+            f"{filename} animation type must be 3 (SPLINE_COMPRESSED)"
+
+        # Find data blob and check rot_quant
+        lr = _s.unpack_from('<I', raw, 0x50 + 2*0x40 + 0x18)[0]
+        pos = ds_abs + lr
+        blob_off = None
+        while pos + 8 <= ds_abs + gr:
+            s, d = _s.unpack_from('<II', raw, pos)
+            if s == 0xFFFFFFFF:
+                break
+            if s == sp_off + 0x98:
+                blob_off = d
+                break
+            pos += 8
+        assert blob_off is not None, f"{filename} data blob fixup"
+        rq = (raw[ds_abs + blob_off] >> 2) & 0x0F
+        assert TT.is_eq(rq, 1, f"{filename} rot_quant=1 (40-bit)")
+
+        print(f"    {filename:45s} OK (rot_err={max_rot_err:.6f})")
 
 
 def TEST_FO4_ANIM_QUATERNION_VALID():
@@ -654,6 +812,7 @@ ALL_TESTS = [
     TEST_READ_FO4_ANIM,
     TEST_FO4_ANIM_TRACKS,
     TEST_FO4_ANIM_ROUNDTRIP,
+    TEST_FO4_ANIM_ROUNDTRIP_VARIETY,
     TEST_FO4_ANIM_QUATERNION_VALID,
     TEST_READ_SKYRIM_ANIM,
     TEST_SKYRIM_ANIM_TRACKS,

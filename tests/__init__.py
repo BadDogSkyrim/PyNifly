@@ -3,8 +3,11 @@ import os
 from importlib import reload
 from . import test_tools
 reload(test_tools)
-from . import test_tools_bpy
-reload(test_tools_bpy)
+try:
+    from . import test_tools_bpy
+    reload(test_tools_bpy)
+except ImportError:
+    pass
 from . import test_nifchecker
 reload(test_nifchecker)
 
