@@ -1471,7 +1471,7 @@ def _build_mask_bytes(track: TrackData, n_frames: int,
     if rot_type == 'static':
         b2 = 0x0F
     elif rot_type == 'spline':
-        b2 = 0xF0 | 0x0F
+        b2 = 0xF0
 
     # Encode byte 3: scale flags
     b3 = 0
@@ -1480,7 +1480,6 @@ def _build_mask_bytes(track: TrackData, n_frames: int,
             b3 |= (1 << axis)
         elif scale_types[axis] == 'spline':
             b3 |= (1 << (axis + 4))
-            b3 |= (1 << axis)
 
     info = {'pos_types': pos_types, 'rot_type': rot_type, 'scale_types': scale_types}
     return bytes([b0, b1, b2, b3]), info
@@ -1775,9 +1774,10 @@ def _build_anim_classnames() -> Tuple[bytes, Dict[str, int]]:
 
 def _anim_file_header(cn_name_off: int) -> bytes:
     """Build the 0x40-byte file header for a standalone HKX."""
-    hdr = bytearray(0x40)
+    hdr = bytearray(0x50)  # 0x40 header + 0x10 padding block
     hdr[0x00:0x04] = _HKX_MAGIC
-    struct.pack_into('<i', hdr, 0x08, 0)          # userTag
+    hdr[0x04:0x08] = b'\x10\xc0\xc0\x10'          # second magic
+    struct.pack_into('<i', hdr, 0x08, 0)           # userTag
     struct.pack_into('<i', hdr, 0x0C, 11)          # fileVersion
     hdr[0x10:0x14] = b'\x08\x01\x00\x01'          # layoutRules (64-bit LE)
     struct.pack_into('<i', hdr, 0x14, 3)           # numSections
@@ -1787,7 +1787,10 @@ def _anim_file_header(cn_name_off: int) -> bytes:
     struct.pack_into('<i', hdr, 0x24, cn_name_off) # contentsClassNameSectionOffset
     hdr[0x28:0x38] = b'hk_2014.1.0-r1\x00\xff'
     struct.pack_into('<i', hdr, 0x38, 0)           # flags
-    struct.pack_into('<i', hdr, 0x3C, 21)          # maxPredicate
+    struct.pack_into('<H', hdr, 0x3C, 21)          # maxPredicate (u16)
+    struct.pack_into('<H', hdr, 0x3E, 0x10)        # sectionOffset (u16)
+    # Padding block at 0x40
+    struct.pack_into('<i', hdr, 0x40, 0x14)        # padding block marker
     return bytes(hdr)
 
 
@@ -1837,8 +1840,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         while len(data) % 16:
             data.append(0)
 
-    # Compress the animation data
-    spline_blob, block_offsets = _compress_all_blocks(anim)
+    # Compress the animation data (FO4 uses rot_quant=1, 40-bit quaternions)
+    spline_blob, block_offsets = _compress_all_blocks(anim, rot_quant=1)
 
     num_tracks = anim.num_tracks
     bone_names = anim.bone_names or [f"Bone{i}" for i in range(num_tracks)]
@@ -1891,23 +1894,24 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # ═══ hkaAnimationContainer ═══
     ac_rel = rel()
     fx.add_virtual(ac_rel, 0, name_offs['hkaAnimationContainer'])
-    fx.add_local(nv0_variant, ac_rel)  # RLC variant[0] → here
+    fx.add_global(nv0_variant, 2, ac_rel)  # RLC variant[0] → here
 
-    # 6 hkArrays: skeletons(0), animations(1), bindings(1), attachments(0), skins(0), pad
-    write(_hkarray(0))          # +0x00: skeletons
-    arr_anims = write(_hkarray(1))  # +0x10: animations
-    arr_binds = write(_hkarray(1))  # +0x20: bindings
-    write(_hkarray(0))          # +0x30: attachments
-    write(_hkarray(0))          # +0x40: skins
-    write(bytes(0x30))          # pad to 0x80
+    # Base class (vtable + memSizeAndFlags) then 5 hkArrays + padding
+    write(bytes(16))                # base class
+    write(_hkarray(0))              # +0x10: skeletons
+    arr_anims = write(_hkarray(1))  # +0x20: animations
+    arr_binds = write(_hkarray(1))  # +0x30: bindings
+    write(_hkarray(0))              # +0x40: attachments
+    write(_hkarray(0))              # +0x50: skins
     align16()
 
-    # Animation pointer array (1 entry, 8 bytes)
+    # Animation pointer array (1 entry, 8 bytes, aligned to 16)
     anim_ptr_array_rel = rel()
     fx.add_local(arr_anims, anim_ptr_array_rel)
     anim_ptr = write(bytes(8))  # ptr → hkaSplineCompressedAnimation
+    align16()
 
-    # Binding pointer array (1 entry, 8 bytes)
+    # Binding pointer array (1 entry, 8 bytes, aligned to 16)
     bind_ptr_array_rel = rel()
     fx.add_local(arr_binds, bind_ptr_array_rel)
     bind_ptr = write(bytes(8))  # ptr → hkaAnimationBinding
@@ -1916,12 +1920,12 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # ═══ hkaSplineCompressedAnimation ═══
     spline_rel = rel()
     fx.add_virtual(spline_rel, 0, name_offs['hkaSplineCompressedAnimation'])
-    fx.add_local(anim_ptr, spline_rel)  # AnimContainer.animations[0] → here
+    fx.add_global(anim_ptr, 2, spline_rel)  # AnimContainer.animations[0] → here
 
     # hkaAnimation base: type(u32) + pad + ... (0x28 bytes base, then specific fields)
     # Simplified: write 0xA8 bytes for the full hkaSplineCompressedAnimation header
     spline_hdr = bytearray(0xA8)
-    struct.pack_into('<I', spline_hdr, 0x00, 3)    # type = HK_SPLINE_COMPRESSED_ANIMATION
+    struct.pack_into('<I', spline_hdr, 0x10, 3)    # type = HK_SPLINE_COMPRESSED_ANIMATION (after base class)
     # +0x10: annotationTracks hkArray → filled below
     struct.pack_into('<f', spline_hdr, 0x14, anim.duration)
     struct.pack_into('<I', spline_hdr, 0x18, num_tracks)
@@ -1943,9 +1947,13 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # +0x88: floatOffsets
     # +0x98: data (the spline blob)
     n_blocks = anim.num_blocks or 1
-    struct.pack_into('<I', spline_hdr, 0x58 + 8, n_blocks)
+    struct.pack_into('<I', spline_hdr, 0x58 + 8, n_blocks)           # blockOffsets size
     struct.pack_into('<I', spline_hdr, 0x58 + 12, n_blocks | 0x80000000)
-    struct.pack_into('<I', spline_hdr, 0x98 + 8, len(spline_blob))
+    struct.pack_into('<I', spline_hdr, 0x68 + 8, n_blocks)           # floatBlockOffsets size
+    struct.pack_into('<I', spline_hdr, 0x68 + 12, n_blocks | 0x80000000)
+    struct.pack_into('<I', spline_hdr, 0x78 + 12, 0x80000000)        # transformOffsets DONT_DEALLOCATE
+    struct.pack_into('<I', spline_hdr, 0x88 + 12, 0x80000000)        # floatOffsets DONT_DEALLOCATE
+    struct.pack_into('<I', spline_hdr, 0x98 + 8, len(spline_blob))   # data size
     struct.pack_into('<I', spline_hdr, 0x98 + 12, len(spline_blob) | 0x80000000)
 
     # Compute maskAndQuantizationSize (bytes of mask data per block = 4 * numTracks, aligned)
@@ -1984,6 +1992,13 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         write(_w_u32(bo))
     align16()
 
+    # Float block offsets array
+    float_block_off_data_rel = rel()
+    fx.add_local(spline_rel + 0x68, float_block_off_data_rel)
+    for _ in range(n_blocks):
+        write(_w_u32(0))
+    align16()
+
     # Spline data blob
     spline_data_rel = rel()
     fx.add_local(spline_rel + 0x98, spline_data_rel)
@@ -1993,32 +2008,33 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # extractedMotion → hkaDefaultAnimatedReferenceFrame
     ref_frame_rel = rel()
     fx.add_virtual(ref_frame_rel, 0, name_offs['hkaDefaultAnimatedReferenceFrame'])
-    fx.add_local(spline_rel + 0x20, ref_frame_rel)
+    fx.add_global(spline_rel + 0x20, 2, ref_frame_rel)
 
     # hkaDefaultAnimatedReferenceFrame: 0x70 header + referenceFrameSamples
+    # Base class is 0x20 bytes (16-byte base + padding for vec4 alignment)
     ref_hdr = bytearray(0x70)
-    # +0x10: up vec4 = (0,0,1,0)
-    struct.pack_into('<ffff', ref_hdr, 0x10, 0.0, 0.0, 1.0, 0.0)
-    # +0x20: forward vec4 = (0,1,0,0)
-    struct.pack_into('<ffff', ref_hdr, 0x20, 0.0, 1.0, 0.0, 0.0)
-    # +0x30: duration
-    struct.pack_into('<f', ref_hdr, 0x30, anim.duration)
-    # +0x58: referenceFrameSamples hkArray
-    n_samples = anim.num_frames + 1
-    struct.pack_into('<I', ref_hdr, 0x58 + 8, n_samples)
-    struct.pack_into('<I', ref_hdr, 0x58 + 12, n_samples | 0x80000000)
+    # +0x20: up vec4 = (0,0,1,0)
+    struct.pack_into('<ffff', ref_hdr, 0x20, 0.0, 0.0, 1.0, 0.0)
+    # +0x30: forward vec4 = (0,1,0,0)
+    struct.pack_into('<ffff', ref_hdr, 0x30, 0.0, 1.0, 0.0, 0.0)
+    # +0x40: duration
+    struct.pack_into('<f', ref_hdr, 0x40, anim.duration)
+    # +0x48: referenceFrameSamples hkArray
+    n_samples = anim.num_frames
+    struct.pack_into('<I', ref_hdr, 0x48 + 8, n_samples)
+    struct.pack_into('<I', ref_hdr, 0x48 + 12, n_samples | 0x80000000)
     write(bytes(ref_hdr))
 
     # referenceFrameSamples data (vec4 per sample, all zeros = no root motion)
     ref_samples_rel = rel()
-    fx.add_local(ref_frame_rel + 0x58, ref_samples_rel)
+    fx.add_local(ref_frame_rel + 0x48, ref_samples_rel)
     write(bytes(16 * n_samples))
     align16()
 
     # ═══ hkaAnimationBinding ═══
     binding_rel = rel()
     fx.add_virtual(binding_rel, 0, name_offs['hkaAnimationBinding'])
-    fx.add_local(bind_ptr, binding_rel)  # AnimContainer.bindings[0] → here
+    fx.add_global(bind_ptr, 2, binding_rel)  # AnimContainer.bindings[0] → here
 
     bind_hdr = bytearray(0x58)
     # +0x10: originalSkeletonName ptr → filled below
@@ -2026,7 +2042,10 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # +0x20: transformTrackToBoneIndices hkArray
     struct.pack_into('<I', bind_hdr, 0x20 + 8, len(binding_indices))
     struct.pack_into('<I', bind_hdr, 0x20 + 12, len(binding_indices) | 0x80000000)
-    # +0x30: floatTrackToFloatSlotIndices (empty)
+    # +0x30: floatTrackToFloatSlotIndices (empty, flagged)
+    struct.pack_into('<I', bind_hdr, 0x30 + 12, 0x80000000)
+    # +0x40: partitionIndices (empty, flagged)
+    struct.pack_into('<I', bind_hdr, 0x40 + 12, 0x80000000)
     # +0x50: blendHint = 0
     write(bytes(bind_hdr))
 
@@ -2037,8 +2056,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     while len(data) % 2:
         data.append(0)
 
-    # Animation ptr (local fixup within data section)
-    fx.add_local(binding_rel + 0x18, spline_rel)
+    # Animation ptr (global fixup — inter-object reference)
+    fx.add_global(binding_rel + 0x18, 2, spline_rel)
 
     # Binding indices array
     bind_idx_rel = rel()
@@ -2050,8 +2069,13 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # ═══ hkMemoryResourceContainer ═══
     mrc_rel = rel()
     fx.add_virtual(mrc_rel, 0, name_offs['hkMemoryResourceContainer'])
-    fx.add_local(nv1_variant, mrc_rel)  # RLC variant[1] → here
-    write(bytes(0x40))
+    fx.add_global(nv1_variant, 2, mrc_rel)  # RLC variant[1] → here
+    # Full struct: base(16) + 3 hkArrays(48) + name(8) + pad(8) = 80 bytes
+    mrc_buf = bytearray(80)
+    # Arrays 2 and 3 need DONT_DEALLOCATE flag (cap at array_start + P + 4)
+    struct.pack_into('<I', mrc_buf, 0x2C, 0x80000000)  # externalLinks cap (+0x20 + 8 + 4)
+    struct.pack_into('<I', mrc_buf, 0x3C, 0x80000000)  # objectData cap (+0x30 + 8 + 4)
+    write(bytes(mrc_buf))
     align16()
 
     return bytes(data), fx
@@ -2105,10 +2129,6 @@ def write_fo4_animation(filepath: str, anim: AnimationData) -> None:
     cn_name_off = name_offs['hkRootLevelContainer']
     hdr = _anim_file_header(cn_name_off)
 
-    # 16-byte padding block at 0x40
-    padding = bytearray(16)
-    padding[0:2] = struct.pack('<H', 0x10)
-
     shdr0 = _anim_section_header('__classnames__', cn_start,
                                   cn_start + len(cn_data), cn_start + len(cn_data),
                                   cn_start + len(cn_data), cn_start + len(cn_data))
@@ -2118,7 +2138,7 @@ def write_fo4_animation(filepath: str, anim: AnimationData) -> None:
                                   local_fix_abs, global_fix_abs,
                                   virt_fix_abs, data_end)
 
-    result = hdr + bytes(padding) + shdr0 + shdr1 + shdr2 + cn_data + data_section
+    result = hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
 
     with open(filepath, 'wb') as f:
         f.write(result)
