@@ -804,6 +804,175 @@ def TEST_SKYRIMSE_HKX_BINARY_FORMAT():
     print(f"    Binary format validation passed")
 
 
+def TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY():
+    r"""Roundtrip 5 Skyrim SE animations covering different characteristics.
+
+    To verify in-game, copy each output over sneakmtidle.hkx and sneak in Skyrim SE:
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_SE_RT_sneakmtidle.hkx" "C:\steam\steamapps\common\Skyrim Special Edition\Data\Meshes\actors\character\animations\sneakmtidle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_SE_RT_sneak_1hmattackintro.hkx" "C:\steam\steamapps\common\Skyrim Special Edition\Data\Meshes\actors\character\animations\sneakmtidle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_SE_RT_chair_idlearmscrossedvar1.hkx" "C:\steam\steamapps\common\Skyrim Special Edition\Data\Meshes\actors\character\animations\sneakmtidle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_SE_RT_dialogueangrya.hkx" "C:\steam\steamapps\common\Skyrim Special Edition\Data\Meshes\actors\character\animations\sneakmtidle.hkx" -Force
+        Copy-Item "C:\Modding\PyNifly\tests\tests\Out\TEST_SE_RT_bow_drawlight.hkx" "C:\steam\steamapps\common\Skyrim Special Edition\Data\Meshes\actors\character\animations\sneakmtidle.hkx" -Force
+    """
+    import struct as _s
+
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    test_files = [
+        ("sneakmtidle.hkx",                99, 333, 2),
+        ("sneak_1hmattackintro.hkx",        99,  10, 1),
+        ("chair_idlearmscrossedvar1.hkx",   99, 275, 2),
+        ("dialogueangrya.hkx",              99, 291, 2),
+        ("bow_drawlight.hkx",               99,  51, 1),
+    ]
+
+    EXPECTED_HASHES = {
+        'hkClass': 0x75585EF6,
+        'hkClassMember': 0x5C7EA4C2,
+        'hkaAnimationContainer': 0x8DC20333,
+        'hkMemoryResourceContainer': 0x4762F92A,
+        'hkaSplineCompressedAnimation': 0x792EE0BB,
+        'hkaAnimationBinding': 0x66EAC971,
+    }
+
+    rot_tol = 0.05
+    pos_tol = 0.5
+
+    for filename, exp_tracks, exp_frames, exp_blocks in test_files:
+        in_path = str(_SKYRIMSE_DIR / filename)
+        out_path = str(_OUT_DIR / f"TEST_SE_RT_{filename}")
+
+        orig = anim_skyrim.load_skyrim_animation(in_path)
+        assert TT.is_eq(orig.num_tracks, exp_tracks, f"{filename} track count")
+        assert TT.is_eq(orig.num_frames, exp_frames, f"{filename} frame count")
+
+        anim_skyrim.write_skyrim_animation(out_path, orig, ptr_size=8)
+        reloaded = anim_skyrim.load_skyrim_animation(out_path)
+
+        # ── Data roundtrip checks ──
+        assert TT.is_eq(reloaded.num_tracks, orig.num_tracks,
+                         f"{filename} roundtrip track count")
+        assert TT.is_eq(reloaded.num_frames, orig.num_frames,
+                         f"{filename} roundtrip frame count")
+        assert TT.is_equiv(reloaded.duration, orig.duration,
+                            f"{filename} roundtrip duration", e=0.001)
+
+        max_rot_err = 0.0
+        for i in range(orig.num_tracks):
+            for f in range(len(orig.tracks[i].rotations)):
+                oq = orig.tracks[i].rotations[f]
+                rq = reloaded.tracks[i].rotations[f]
+                dot = sum(oq[j] * rq[j] for j in range(4))
+                if dot < 0:
+                    rq = [-x for x in rq]
+                for j in range(4):
+                    err = abs(oq[j] - rq[j])
+                    if err > max_rot_err:
+                        max_rot_err = err
+                    assert err < rot_tol, \
+                        f"{filename} track {i} frame {f} rot[{j}]: err={err:.4f}"
+
+            for f in range(len(orig.tracks[i].translations)):
+                for j in range(3):
+                    err = abs(orig.tracks[i].translations[f][j] -
+                              reloaded.tracks[i].translations[f][j])
+                    assert err < pos_tol, \
+                        f"{filename} track {i} frame {f} pos[{j}]: err={err:.4f}"
+
+        # ── Annotation roundtrip ──
+        assert TT.is_eq(len(reloaded.annotations), len(orig.annotations),
+                         f"{filename} annotation count")
+        for ai, (oa, ra) in enumerate(zip(orig.annotations, reloaded.annotations)):
+            assert TT.is_eq(ra.text, oa.text, f"{filename} annotation {ai} text")
+            assert TT.is_equiv(ra.time, oa.time, f"{filename} annotation {ai} time", e=0.001)
+
+        # ── Binary format checks ──
+        with open(out_path, 'rb') as fh:
+            raw = fh.read()
+
+        # File header (hk_2010, single magic, no padding block)
+        assert raw[0:4] == b'\x57\xE0\xE0\x57', f"{filename} magic"
+        assert _s.unpack_from('<i', raw, 0x0C)[0] == 8, f"{filename} file version"
+        assert raw[0x10] == 8, f"{filename} ptr size"
+        version_str = raw[0x28:0x38].split(b'\x00')[0]
+        assert version_str == b'hk_2010.2.0-r1', f"{filename} version string"
+
+        # Class hashes (hk_2010)
+        cn_abs = _s.unpack_from('<I', raw, 0x40 + 0x14)[0]
+        cn_end = cn_abs + _s.unpack_from('<I', raw, 0x40 + 0x18)[0]
+        classnames = {}
+        pos = cn_abs
+        while pos < cn_end:
+            h, flags = _s.unpack_from('<IB', raw, pos)
+            if h == 0xFFFFFFFF:
+                break
+            s = pos + 5
+            e = raw.index(b'\x00', s)
+            classnames[raw[s:e].decode('ascii')] = h
+            pos = e + 1
+
+        for cls, exp_hash in EXPECTED_HASHES.items():
+            assert classnames.get(cls) == exp_hash, \
+                f"{filename} {cls} hash {classnames.get(cls, 0):#010x} != {exp_hash:#010x}"
+
+        assert 'hkaDefaultAnimatedReferenceFrame' not in classnames, \
+            f"{filename} must not contain hkaDefaultAnimatedReferenceFrame"
+
+        # Global fixups (5 inter-object refs)
+        ds_abs = _s.unpack_from('<I', raw, 0xA0 + 0x14)[0]
+        gr = _s.unpack_from('<I', raw, 0xA0 + 0x1C)[0]
+        vr = _s.unpack_from('<I', raw, 0xA0 + 0x20)[0]
+        er = _s.unpack_from('<I', raw, 0xA0 + 0x24)[0]
+        gc = 0
+        pos = ds_abs + gr
+        while pos + 12 <= ds_abs + vr:
+            s, sec, d = _s.unpack_from('<III', raw, pos)
+            if s == 0xFFFFFFFF:
+                break
+            gc += 1
+            pos += 12
+        assert TT.is_eq(gc, 5, f"{filename} global fixup count")
+
+        # Virtual fixups — find spline object
+        sp_off = None
+        pos = ds_abs + vr
+        while pos + 12 <= ds_abs + er:
+            o, sec, n = _s.unpack_from('<III', raw, pos)
+            if o == 0xFFFFFFFF:
+                break
+            ss = cn_abs + n
+            se = raw.index(b'\x00', ss)
+            if raw[ss:se] == b'hkaSplineCompressedAnimation':
+                sp_off = o
+                break
+            pos += 12
+
+        # Quaternion encoding — rot_quant=1 (40-bit)
+        lr = _s.unpack_from('<I', raw, 0xA0 + 0x18)[0]
+        pos = ds_abs + lr
+        P = 8
+        base_sz = 2 * P
+        arr_sz = P + 8
+        o_ann = base_sz + 16 + P
+        o_post_ann = o_ann + arr_sz
+        o_block_offsets = ((o_post_ann + 28 + P - 1) & ~(P - 1))
+        o_data = o_block_offsets + 4 * arr_sz
+        blob_off = None
+        while pos + 8 <= ds_abs + gr:
+            s, d = _s.unpack_from('<II', raw, pos)
+            if s == 0xFFFFFFFF:
+                break
+            if s == sp_off + o_data:
+                blob_off = d
+                break
+            pos += 8
+        assert blob_off is not None, f"{filename} data blob fixup"
+        rq = (raw[ds_abs + blob_off] >> 2) & 0x0F
+        assert TT.is_eq(rq, 1, f"{filename} rot_quant=1 (40-bit)")
+
+        print(f"    {filename:45s} OK (rot_err={max_rot_err:.6f})")
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 #  Runner
 # ═════════════════════════════════════════════════════════════════════════════
@@ -826,6 +995,7 @@ ALL_TESTS = [
     TEST_SKYRIMSE_ANIM_TRACKS,
     TEST_SKYRIMSE_ANIM_ROUNDTRIP,
     TEST_SKYRIMSE_HKX_BINARY_FORMAT,
+    TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY,
 ]
 
 
