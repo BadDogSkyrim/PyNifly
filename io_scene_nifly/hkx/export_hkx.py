@@ -73,6 +73,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fps = bpy.context.scene.render.fps
         obj = bpy.context.object
         if obj and obj.type == 'ARMATURE':
             if 'PYN_SKELETON_FILE'in obj:
@@ -218,7 +219,6 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
             return {'CANCELLED'}
 
         self.context = context
-        self.fps = context.scene.render.fps
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
         NifFile.clear_log()
 
@@ -226,7 +226,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         if context.object.get(PYN_HKX_BONES_PROP):
             game = self.game
             try:
-                anim_data = extract_fo4_animation(context.object)
+                anim_data = extract_fo4_animation(context.object, fps=self.fps)
                 if anim_data is None:
                     log.error("Failed to extract animation data from armature.")
                     res.add('CANCELLED')

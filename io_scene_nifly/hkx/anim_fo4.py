@@ -1233,6 +1233,33 @@ def _write_48bit_quat(q) -> bytes:
     return struct.pack('<HHH', x_raw, y_raw, z_raw)
 
 
+def _write_40bit_quat(q) -> bytes:
+    """Encode a unit quaternion [x,y,z,w] as 5 bytes (40-bit compressed).
+
+    Matches the reader's _read_40bit_quat exactly.
+    3 components stored as 12-bit unsigned, 4th reconstructed.
+    """
+    FRACTAL = 0.000345436
+
+    # Find component with largest absolute value — it gets reconstructed
+    abs_q = [abs(c) for c in q]
+    shift = abs_q.index(max(abs_q))
+    r_sign = q[shift] < 0
+
+    # The 3 stored components (excluding the largest)
+    vals = [q[j] for j in range(4) if j != shift]
+
+    # Quantize: value = (raw - 2049) * FRACTAL → raw = value / FRACTAL + 2049
+    raw = [min(0xFFF, max(0, int(round(v / FRACTAL + 2049)))) for v in vals]
+
+    packed = (raw[0] & 0xFFF) | ((raw[1] & 0xFFF) << 12) | ((raw[2] & 0xFFF) << 24)
+    packed |= (shift & 3) << 36
+    if r_sign:
+        packed |= 1 << 38
+
+    return packed.to_bytes(5, 'little')
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 #  Export: Scalar quantization
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1379,6 +1406,8 @@ def _fit_bspline_quat(degree: int, knots: List, n_cp: int,
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _EPS = 1e-5   # Tolerance for static/identity detection
+
+# Default quantization (FO4). Skyrim uses rot_quant=1 (40-bit).
 _POS_QUANT = 1      # 16-bit position quantization
 _ROT_QUANT = 2      # 48-bit quaternion
 _SCALE_QUANT = 1    # 16-bit scale quantization
@@ -1394,7 +1423,9 @@ def _classify_axis(values: List[float], identity_val: float = 0.0) -> str:
     return 'spline'
 
 
-def _build_mask_bytes(track: TrackData, n_frames: int) -> Tuple[bytes, dict]:
+def _build_mask_bytes(track: TrackData, n_frames: int,
+                      pos_quant: int = _POS_QUANT, rot_quant: int = _ROT_QUANT,
+                      scale_quant: int = _SCALE_QUANT) -> Tuple[bytes, dict]:
     """Build the 4 mask bytes for a track and return axis classification info."""
     # Position
     pos_types = []
@@ -1425,7 +1456,7 @@ def _build_mask_bytes(track: TrackData, n_frames: int) -> Tuple[bytes, dict]:
         scale_types.append(_classify_axis(vals, 1.0))
 
     # Encode byte 0: quantization
-    b0 = (_POS_QUANT & 0x03) | ((_ROT_QUANT & 0x0F) << 2) | ((_SCALE_QUANT & 0x03) << 6)
+    b0 = (pos_quant & 0x03) | ((rot_quant & 0x0F) << 2) | ((scale_quant & 0x03) << 6)
 
     # Encode byte 1: position flags
     b1 = 0
@@ -1434,7 +1465,6 @@ def _build_mask_bytes(track: TrackData, n_frames: int) -> Tuple[bytes, dict]:
             b1 |= (1 << axis)
         elif pos_types[axis] == 'spline':
             b1 |= (1 << (axis + 4))
-            b1 |= (1 << axis)  # Static bit also set for spline
 
     # Encode byte 2: rotation flags
     b2 = 0
@@ -1457,7 +1487,7 @@ def _build_mask_bytes(track: TrackData, n_frames: int) -> Tuple[bytes, dict]:
 
 
 def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
-                    frames_in_block: int) -> bytes:
+                    frames_in_block: int, rot_quant: int = _ROT_QUANT) -> bytes:
     """Compress one block of animation data for all tracks.
 
     Returns the compressed byte blob for this block.
@@ -1469,8 +1499,8 @@ def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
     masks = []
     infos = []
     for track in all_tracks:
-        # Slice to this block's frames
-        mask_bytes, info = _build_mask_bytes(track, frames_in_block)
+        mask_bytes, info = _build_mask_bytes(track, frames_in_block,
+                                             rot_quant=rot_quant)
         masks.append(mask_bytes)
         infos.append(info)
         out.extend(mask_bytes)
@@ -1544,7 +1574,8 @@ def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
 
         # ─── ROTATION ───
         rot_type = info['rot_type']
-        qalign = _QUAT_ALIGN.get(_ROT_QUANT, 4)
+        qalign = _QUAT_ALIGN.get(rot_quant, 4)
+        _write_quat = _write_40bit_quat if rot_quant == 1 else _write_48bit_quat
 
         if rot_type == 'spline':
             quats = [track.rotations[f] for f in range(f0, f1)]
@@ -1576,13 +1607,13 @@ def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
 
             for cp in cps:
                 cp_n = _quat_normalize(cp)
-                out.extend(_write_48bit_quat(cp_n))
+                out.extend(_write_quat(cp_n))
 
         elif rot_type == 'static':
             if qalign > 1:
                 while len(out) % qalign:
                     out.append(0)
-            out.extend(_write_48bit_quat(track.rotations[f0]))
+            out.extend(_write_quat(track.rotations[f0]))
 
         # else identity: no data
 
@@ -1645,7 +1676,7 @@ def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
     return bytes(out)
 
 
-def _compress_all_blocks(anim: AnimationData) -> Tuple[bytes, List[int]]:
+def _compress_all_blocks(anim: AnimationData, rot_quant: int = _ROT_QUANT) -> Tuple[bytes, List[int]]:
     """Compress all animation blocks. Returns (data_blob, block_offsets)."""
     max_fpb = anim.max_frames_per_block or 256
     num_blocks = anim.num_blocks or 1
@@ -1669,7 +1700,7 @@ def _compress_all_blocks(anim: AnimationData) -> Tuple[bytes, List[int]]:
             block_tracks.append(bt)
 
         block_offsets.append(len(data))
-        block_data = _compress_block(block_tracks, 0, frames_in_block)
+        block_data = _compress_block(block_tracks, 0, frames_in_block, rot_quant=rot_quant)
         data.extend(block_data)
 
     return bytes(data), block_offsets
