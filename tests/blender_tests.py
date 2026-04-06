@@ -9051,6 +9051,92 @@ def TEST_SKYRIMSE_ANIM_EXPORT():
     com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
     assert TT.is_gt(len(com_curves), 0, "NPC COM bone still animated after roundtrip")
 
+    # ── Binary format validation (catches CTD-causing bugs) ──
+    import struct as _s
+
+    with open(outfile, 'rb') as f:
+        raw = f.read()
+
+    # File header
+    assert raw[0x28:0x28+14] == b'hk_2010.2.0-r1', "Version string is hk_2010"
+
+    # Class hashes must be hk_2010, not hk_2014 (FO4)
+    cn_abs = _s.unpack_from('<I', raw, 0x40 + 0x14)[0]
+    cn_end = cn_abs + _s.unpack_from('<I', raw, 0x40 + 0x18)[0]
+    classnames = {}
+    pos = cn_abs
+    while pos < cn_end:
+        h, flags = _s.unpack_from('<IB', raw, pos)
+        if h == 0xFFFFFFFF:
+            break
+        s = pos + 5
+        e = raw.index(b'\x00', s)
+        classnames[raw[s:e].decode('ascii')] = h
+        pos = e + 1
+
+    assert TT.is_eq(classnames.get('hkClassMember'), 0x5C7EA4C2,
+                     "hkClassMember hash is hk_2010")
+    assert TT.is_eq(classnames.get('hkaAnimationContainer'), 0x8DC20333,
+                     "hkaAnimationContainer hash is hk_2010")
+    assert TT.is_eq(classnames.get('hkMemoryResourceContainer'), 0x4762F92A,
+                     "hkMemoryResourceContainer hash is hk_2010")
+    assert 'hkaDefaultAnimatedReferenceFrame' not in classnames, \
+        "No hkaDefaultAnimatedReferenceFrame in Skyrim anim"
+
+    # Global fixups must exist (inter-object refs)
+    ds_abs = _s.unpack_from('<I', raw, 0xA0 + 0x14)[0]
+    global_rel = _s.unpack_from('<I', raw, 0xA0 + 0x1C)[0]
+    virt_rel = _s.unpack_from('<I', raw, 0xA0 + 0x20)[0]
+    global_count = 0
+    pos = ds_abs + global_rel
+    while pos + 12 <= ds_abs + virt_rel:
+        src, sec, dst = _s.unpack_from('<III', raw, pos)
+        if src == 0xFFFFFFFF:
+            break
+        global_count += 1
+        pos += 12
+    assert TT.is_eq(global_count, 5, "5 global fixups for inter-object refs")
+
+    # Spline data must use 40-bit quaternions (rot_quant=1), not 48-bit (FO4)
+    spline_off = None
+    exp_rel = _s.unpack_from('<I', raw, 0xA0 + 0x24)[0]
+    vpos = ds_abs + virt_rel
+    while vpos + 12 <= ds_abs + exp_rel:
+        obj, sec, noff = _s.unpack_from('<III', raw, vpos)
+        if obj == 0xFFFFFFFF:
+            break
+        str_s = cn_abs + noff
+        str_e = raw.index(b'\x00', str_s)
+        if raw[str_s:str_e] == b'hkaSplineCompressedAnimation':
+            spline_off = obj
+            break
+        vpos += 12
+    assert spline_off is not None, "Found spline anim object"
+
+    P = 8
+    base_sz = 2 * P
+    arr_sz = P + 8
+    o_ann = base_sz + 16 + P
+    o_post_ann = o_ann + arr_sz
+    o_block_offsets = ((o_post_ann + 28 + P - 1) & ~(P - 1))
+    o_data = o_block_offsets + 4 * arr_sz
+
+    local_rel = _s.unpack_from('<I', raw, 0xA0 + 0x18)[0]
+    data_blob_off = None
+    lpos = ds_abs + local_rel
+    while lpos + 8 <= ds_abs + global_rel:
+        src, dst = _s.unpack_from('<II', raw, lpos)
+        if src == 0xFFFFFFFF:
+            break
+        if src == spline_off + o_data:
+            data_blob_off = dst
+            break
+        lpos += 8
+    assert data_blob_off is not None, "Data blob fixup found"
+
+    rot_quant = (raw[ds_abs + data_blob_off] >> 2) & 0x0F
+    assert TT.is_eq(rot_quant, 1, "Skyrim uses rot_quant=1 (40-bit), not 2 (48-bit)")
+
 
 def do_tests(
         target_tests=None,
