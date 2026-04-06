@@ -481,6 +481,171 @@ def TEST_SKYRIMSE_ANIM_ROUNDTRIP():
         assert TT.is_equiv(ra.time, oa.time, f"SE annotation {i} time", e=0.001)
 
 
+def TEST_SKYRIMSE_HKX_BINARY_FORMAT():
+    """Validate the binary structure of a written Skyrim SE HKX file.
+
+    Catches format bugs that cause Skyrim CTD: wrong class hashes,
+    incorrect struct sizes, missing fixups, wrong quantization.
+    """
+    import struct as _s
+
+    # Write a roundtrip file
+    fp = str(_SKYRIMSE_DIR / "1hm_staggerbacksmallest.hkx")
+    orig = anim_skyrim.load_skyrim_animation(fp)
+    out = str(_OUT_DIR / "TEST_SKYRIMSE_FORMAT_CHECK.hkx")
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    anim_skyrim.write_skyrim_animation(out, orig, ptr_size=8)
+
+    with open(out, 'rb') as f:
+        data = f.read()
+
+    # ── File header ──
+    assert data[0:4] == b'\x57\xE0\xE0\x57', "HKX magic"
+    assert _s.unpack_from('<i', data, 0x0C)[0] == 8, "File version = 8 (hk_2010)"
+    assert data[0x10] == 8, "Pointer size = 8 (SE)"
+    version_str = data[0x28:0x38].split(b'\x00')[0]
+    assert version_str == b'hk_2010.2.0-r1', f"Version string: {version_str}"
+
+    # ── Class hashes (hk_2010, NOT hk_2014) ──
+    # Parse classnames section
+    cn_abs = _s.unpack_from('<I', data, 0x40 + 0x14)[0]
+    cn_end_rel = _s.unpack_from('<I', data, 0x40 + 0x18)[0]
+    cn_end = cn_abs + cn_end_rel
+    classnames = {}
+    pos = cn_abs
+    while pos < cn_end:
+        hash_val, flags = _s.unpack_from('<IB', data, pos)
+        if hash_val == 0xFFFFFFFF:
+            break
+        str_start = pos + 5
+        str_end = data.index(b'\x00', str_start)
+        name = data[str_start:str_end].decode('ascii')
+        classnames[name] = hash_val
+        pos = str_end + 1
+
+    # Verify hk_2010 hashes (these were wrong — had FO4 hk_2014 hashes)
+    EXPECTED_HASHES = {
+        'hkClass': 0x75585EF6,
+        'hkClassMember': 0x5C7EA4C2,       # was 0x7EA4C2A4 (FO4)
+        'hkaAnimationContainer': 0x8DC20333, # was 0x26859F4C (FO4)
+        'hkMemoryResourceContainer': 0x4762F92A, # was 0x1DE13A73 (FO4)
+        'hkaSplineCompressedAnimation': 0x792EE0BB,
+        'hkaAnimationBinding': 0x66EAC971,
+    }
+    for name, expected_hash in EXPECTED_HASHES.items():
+        assert name in classnames, f"Class {name} must be in classnames section"
+        assert classnames[name] == expected_hash, \
+            f"Class {name}: hash {classnames[name]:#010x} != expected {expected_hash:#010x}"
+
+    # hkaDefaultAnimatedReferenceFrame must NOT be present (was erroneously included)
+    assert 'hkaDefaultAnimatedReferenceFrame' not in classnames, \
+        "hkaDefaultAnimatedReferenceFrame should not be in Skyrim animation files"
+
+    # ── Section structure ──
+    ds_abs = _s.unpack_from('<I', data, 0xA0 + 0x14)[0]
+    local_rel = _s.unpack_from('<I', data, 0xA0 + 0x18)[0]
+    global_rel = _s.unpack_from('<I', data, 0xA0 + 0x1C)[0]
+    virt_rel = _s.unpack_from('<I', data, 0xA0 + 0x20)[0]
+    exp_rel = _s.unpack_from('<I', data, 0xA0 + 0x24)[0]
+
+    # ── Virtual fixups → find object offsets ──
+    virt_entries = []
+    pos = ds_abs + virt_rel
+    while pos + 12 <= ds_abs + exp_rel:
+        obj, sec, noff = _s.unpack_from('<III', data, pos)
+        if obj == 0xFFFFFFFF:
+            break
+        # Resolve classname
+        str_start = cn_abs + noff
+        str_end = data.index(b'\x00', str_start)
+        name = data[str_start:str_end].decode('ascii')
+        virt_entries.append((obj, name))
+        pos += 12
+
+    assert TT.is_eq(len(virt_entries), 5, "Virtual fixup count (5 objects)")
+    obj_names = [name for _, name in virt_entries]
+    assert 'hkRootLevelContainer' in obj_names
+    assert 'hkaAnimationContainer' in obj_names
+    assert 'hkaSplineCompressedAnimation' in obj_names
+    assert 'hkaAnimationBinding' in obj_names
+    assert 'hkMemoryResourceContainer' in obj_names
+
+    # ── Global fixups (inter-object references) ──
+    global_count = 0
+    pos = ds_abs + global_rel
+    while pos + 12 <= ds_abs + virt_rel:
+        src, sec, dst = _s.unpack_from('<III', data, pos)
+        if src == 0xFFFFFFFF:
+            break
+        global_count += 1
+        pos += 12
+    assert TT.is_eq(global_count, 5,
+                     "Global fixups (inter-object refs must be global, not local)")
+
+    # ── hkRootLevelContainer layout ──
+    # RLC has no serialized base class header — hkArray starts at offset 0
+    rlc_off = [o for o, n in virt_entries if n == 'hkRootLevelContainer'][0]
+    rlc_abs = ds_abs + rlc_off
+    # The hkArray size field is at ptr_size (8) bytes into the array
+    rlc_arr_size = _s.unpack_from('<I', data, rlc_abs + 8)[0]
+    assert TT.is_eq(rlc_arr_size, 2, "RLC namedVariants count = 2")
+
+    # ── hkMemoryResourceContainer size ──
+    mrc_off = [o for o, n in virt_entries if n == 'hkMemoryResourceContainer'][0]
+    mrc_abs = ds_abs + mrc_off
+    mrc_end = ds_abs + local_rel  # last object before fixup tables
+    mrc_size = mrc_end - mrc_abs
+    assert mrc_size >= 80, \
+        f"hkMemoryResourceContainer must be >= 80 bytes (was {mrc_size})"
+
+    # ── Spline animation: quaternion encoding ──
+    spline_off = [o for o, n in virt_entries if n == 'hkaSplineCompressedAnimation'][0]
+    spline_abs = ds_abs + spline_off
+    P = 8
+    base_sz = 2 * P
+    arr_sz = P + 8
+
+    # Find the data blob via local fixup from spline+0x98 (data hkArray ptr)
+    o_data_arr = spline_off + base_sz + 16 + P + arr_sz + 16 + 4 * arr_sz
+    # Simpler: read directly from spline struct field offsets
+    o_ann = base_sz + 16 + P       # annotationTracks hkArray offset
+    o_post_ann = o_ann + arr_sz     # after annotationTracks
+    o_block_offsets = ((o_post_ann + 28 + P - 1) & ~(P - 1))
+    o_data = o_block_offsets + 4 * arr_sz  # skip 4 arrays
+
+    # Find data blob by tracing the local fixup for the data hkArray ptr
+    data_blob_off = None
+    pos = ds_abs + local_rel
+    while pos + 8 <= ds_abs + global_rel:
+        src, dst = _s.unpack_from('<II', data, pos)
+        if src == 0xFFFFFFFF:
+            break
+        if src == spline_off + o_data:
+            data_blob_off = dst
+            break
+        pos += 8
+    assert data_blob_off is not None, "Data blob fixup found"
+
+    # Read first track mask byte — quantization must use rot_quant=1 (40-bit)
+    blob_abs = ds_abs + data_blob_off
+    mask_b0 = data[blob_abs]
+    rot_quant = (mask_b0 >> 2) & 0x0F
+    assert TT.is_eq(rot_quant, 1,
+                     "Skyrim must use rot_quant=1 (40-bit), not 2 (48-bit FO4)")
+
+    # ── Empty arrays must have DONT_DEALLOCATE flag ──
+    o_float_block = o_block_offsets + arr_sz
+    o_transform = o_float_block + arr_sz
+    o_float = o_transform + arr_sz
+    for name, arr_off in [('transformOffsets', o_transform),
+                          ('floatOffsets', o_float)]:
+        cap = _s.unpack_from('<I', data, spline_abs + arr_off + P + 4)[0]
+        assert cap & 0x80000000, \
+            f"{name} cap must have DONT_DEALLOCATE flag (got {cap:#010x})"
+
+    print(f"    Binary format validation passed")
+
+
 # ═════════════════════════════════════════════════════════════════════════════
 #  Runner
 # ═════════════════════════════════════════════════════════════════════════════
@@ -501,6 +666,7 @@ ALL_TESTS = [
     TEST_SKYRIMSE_SKELETON,
     TEST_SKYRIMSE_ANIM_TRACKS,
     TEST_SKYRIMSE_ANIM_ROUNDTRIP,
+    TEST_SKYRIMSE_HKX_BINARY_FORMAT,
 ]
 
 
