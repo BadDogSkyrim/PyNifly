@@ -11,7 +11,7 @@ In FO4, the `BSLightingShaderProperty` shader flags (`SLSF1_VERTEX_ALPHA`,
 them. What actually matters is:
 
 1. **The shape's vertex format** — whether the BSTriShape's `vertexDesc`
-   includes the per-vertex colors bit. If yes, the vertex stream carries an
+   includes the vertex colors bit. If yes, the vertex stream carries an
    RGBA value per vertex. If no, there is no vertex color data at all.
 2. **The BGSM material file** — fields like `alphblend0` (alpha blend) and
    `alphatest` (alpha test) decide whether the alpha channel is consumed at
@@ -19,17 +19,20 @@ them. What actually matters is:
    its own.
 3. **The texture's alpha channel** — combined multiplicatively with vertex
    alpha and the material's `Alpha` scalar.
+4. Some materials flags, such as "Tree", change the meaning of the alpha channel. When those 
+   flags are set, the alpha channel is ignored. The alpha settings in the materials file are still
+   applied to diffuse alpha.
 
-The `NiAlphaProperty` block on the shape is **optional**. The engine will still
+The `NiAlphaProperty` block on the shape is **optional**, at least under some conditions. 
+The engine will still
 do alpha blending / testing based on the BGSM even if no `NiAlphaProperty`
 exists in the nif.
 
 ### Vanilla examples
 
 - `Meshes\Landscape\Trees\TreeElmFree01.nif` — `TreeElmFree01:0 - L1_TreeElmFree01:0`
-  has 1522 verts; 490 of them have alpha > 0 and the rest are alpha = 0.
-  **Note:** this is a tree BGSM, so the per-vertex alpha is wind-sway weight,
-  not an opacity mask (see Rule 1 and the tree exception below).
+  has 1522 verts; verts closer to the Z axis tend to have alpha at or near 1, whereas verts 
+  far away have values at or near 0. We assume this reflects wind-sway weight, not alpha at all.
 - `Meshes\SetDressing\LightFixtures\WorkshopLightbulbHanging01.nif` —
   `Bulb001:3` has the vertex_colors bit set in its BSTriShape vertex format
   and 156 verts of `(1,1,1,1)` (uniformly opaque, white). Shows that the bit
@@ -37,6 +40,10 @@ exists in the nif.
   does **not** have the bit set, so its `colors` array is empty (length 0,
   not None) — illustrates the difference between "no vertex colors at all"
   vs. "vertex colors present but trivial".
+- `TrashEdge01.nif` uses vertex alpha in combination with alpha test to fade the rubble in
+from the edge. It does not use alpha blend.
+- Hair such as `HairLong01.nif` uses vertex colors and alpha test, _and_ greyscale to palette color.
+But the vertex alpha is all 1 so it doesn't interact with the rest.
 
 ## Rule 1: Vertex colors + alpha import
 
@@ -112,32 +119,23 @@ matches the in-game appearance once vertex alpha is wired into the diffuse
 output. The `tree=False` clause is what distinguishes this case from the
 maple.
 
-> ⚠️ Open question: the legacy importer also force-enabled vertex colors for
-> any `BSEffectShaderProperty` and force-enabled vertex alpha for
-> `GREYSCALE_COLOR` shaders. Those branches were removed in favor of the rule
-> above. Grayscale-to-palette and effect-shader test cases need to be
-> re-verified to confirm the rule still does the right thing.
+It seems like we do not need special rules to handle grayscale-to-palette color. 
 
 ## Rule 2: NiAlphaProperty is optional in FO4
 
 Skyrim required a `NiAlphaProperty` block on the shape for any kind of alpha
 effect. FO4 does **not**: the engine drives alpha behaviour from the BGSM's
-`alphblend0` / `alphatest` fields plus the texture and vertex alpha. The
-`NiAlphaProperty` block, if present, just provides additional/legacy controls.
+`alphblend0` / `alphatest` fields plus the texture and vertex alpha. We are not sure
+if the `NiAlphaProperty` block is ever necessary or used.
 
 This means:
 
-- Vanilla FO4 shapes regularly ship with vertex alpha and an alphatest BGSM
+- Vanilla FO4 shapes may ship with vertex alpha and an alphatest BGSM
   but **no** `NiAlphaProperty` in the nif. Example:
   `Meshes\SetDressing\Rubble\TrashEdge01.nif` — `L1_TrashEdge01:0` has
   `hasVertexColors=1`, vertex alphas with both 0 and 1, no NiAlphaProperty
   block, and `materials\Landscape\Ground\DebrisGroundTile.BGSM` /
   `materials\SetDressing\Rubble\RubTrashPiles01.BGSM` with `alphatest=True`.
-- `Meshes\Landscape\Trees\TreeMaplePreWar01Orange.nif` also has no
-  `NiAlphaProperty` block. Its BGSM is `tree=True, alphatest=True`. The
-  engine alpha-tests the leaf card textures to get the leaf silhouettes,
-  and uses vertex alpha separately as wind-sway weight. No NiAlphaProperty
-  is needed or present.
 - An importer that only creates a Blender `AlphaProperty` node when a NIF
   `NiAlphaProperty` block exists will silently strip the visual alpha effect
   from such shapes.
@@ -153,7 +151,7 @@ When importing an FO4 shape:
    alpha fields so the material in Blender reflects what the engine will do.
    Threshold comes from BGSM `alphatestref`.
 3. Mark the material with a custom property (`pyn_synthetic_alpha_from_bgsm`)
-   so the exporter does not write a phantom `NiAlphaProperty` block back to
+   so the exporter does not write an unnecessary `NiAlphaProperty` block back to
    the nif on round-trip.
 
 ## Rule 3: BGSM has no vertex-color / vertex-alpha toggle

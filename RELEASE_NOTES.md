@@ -6,8 +6,8 @@
   are now always imported into Blender (`COLOR` and `VERTEX_ALPHA` color attributes)
   whenever the BSTriShape's vertex format carries them, so the data round-trips
   faithfully on export. Whether the vertex alpha is wired into the diffuse shader
-  is decided per-material rather than from vestigial NIF shader flags.
-- **Tree materials.** Tree BGSMs (`BGSM.tree == True`) reuse the per-vertex alpha
+  is determined by material alpha settings rather than from vestigial NIF shader flags.
+- **Tree materials.** Tree BGSMs (`BGSM.tree == True`) reuse the vertex alpha
   channel as wind-sway weight (trunk α=0, branch tips α=1), not as opacity. The
   importer now leaves vertex alpha unwired in the shader for tree materials so the
   trunk stays visible in Blender, while still preserving the data on round-trip.
@@ -15,15 +15,16 @@
   block but its BGSM has `alphblend0` or `alphatest` set, pynifly now synthesizes
   a Blender Alpha Property shader node from the BGSM fields so the imported
   material reflects what the engine will actually do. The synthesized node is
-  flagged so export does NOT write a phantom `NiAlphaProperty` block back into
+  flagged so export does NOT write a  `NiAlphaProperty` block back into
   the nif on round-trip.
 - **BGSM lookup fixes.** Material file lookups now strip stray `Data\` prefixes
-  from relative paths, fall back to user FO4 texture-path prefs (with `\textures`
-  trimmed) so absolute dev-machine material names still resolve, and the lookup
-  is no longer triggered during export (the BGSM is read-only on import).
+  from relative paths and strip absolute materials paths (of which vanilla has a few) to the "materials"
+  component. The texture path preferences may end with /data or /textures; the materials path will
+  be resolved either way. We no longer try to read the materials on _export_. 
 - **`BSMeshLODTriShape` LOD groups.** All three LOD vertex groups (`LOD0`, `LOD1`,
   `LOD2`) are now always created on import, even when buckets are empty, so the
   user sees a consistent set regardless of which LOD levels the source nif uses.
+- **The AlphaProperty shader node** no longer emits fractional alpha when alpha blend is not set.
 
 ## See Also
 
