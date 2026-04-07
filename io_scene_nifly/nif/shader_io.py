@@ -1082,46 +1082,101 @@ class ShaderImporter:
             (self.inputs_offset_x-TEXTURE_NODE_WIDTH-HORIZONTAL_GAP, 0,))
 
 
+    def _make_alpha_node(self, alpha_test, alpha_threshold, alpha_blend,
+                         source_blend_mode, dst_blend_mode):
+        """Create and wire up an AlphaProperty shader node with the given settings."""
+        alpha = append_groupnode(self, "AlphaProperty", "Alpha Property", self.asset_path)
+        alpha.width = TEXTURE_NODE_WIDTH
+        self.link(alpha.outputs[0], self.bsdf.inputs['Alpha Property'])
+
+        if self.diffuse:
+            self.link(self.diffuse.outputs['Alpha'], alpha.inputs['Alpha'])
+
+        if self.alphamap and self.vertex_alpha:
+            self.link(self.vertex_alpha.outputs['Color'], alpha.inputs['Vertex Alpha'])
+
+        self.material.alpha_threshold = 1  # Not using the material's alpha threshold
+        alpha.inputs['Alpha Test'].default_value = bool(alpha_test)
+        if alpha_test:
+            alpha.inputs['Alpha Threshold'].default_value = alpha_threshold
+        alpha.inputs['Alpha Blend'].default_value = bool(alpha_blend)
+        alpha.inputs['Source Blend Mode'].default_value = source_blend_mode
+        alpha.inputs['Destination Blend Mode'].default_value = dst_blend_mode
+        return alpha
+
+
     def import_shader_alpha(self, shape):
         if 'Alpha Mult' in self.bsdf.inputs:
             self.bsdf.inputs['Alpha Mult'].default_value = shape.shader.properties.Alpha
 
         if shape.has_alpha_property:
             props:AlphaPropertyBuf = shape.alpha_property.properties
-
-            alpha = append_groupnode(self, "AlphaProperty",  "Alpha Property", self.asset_path)
-            alpha.width = TEXTURE_NODE_WIDTH
-            self.link(alpha.outputs[0], self.bsdf.inputs['Alpha Property'])
-
-            if self.diffuse:
-                self.link(self.diffuse.outputs['Alpha'], alpha.inputs['Alpha'])
-            
-            if self.alphamap and self.vertex_alpha:
-                self.link(self.vertex_alpha.outputs['Color'], alpha.inputs['Vertex Alpha'])
-
-            self.material.alpha_threshold = 1 # Not using the material's alpha threshold
-            alpha.inputs['Alpha Test'].default_value = bool(props.alpha_test)
-            if props.alpha_test:
-                alpha.inputs['Alpha Threshold'].default_value = props.threshold
-
-            alpha.inputs['Alpha Blend'].default_value = bool(props.alpha_blend)
-            alpha.inputs['Source Blend Mode'].default_value = props.source_blend_mode
-            alpha.inputs['Destination Blend Mode'].default_value = props.dst_blend_mode
-
-            self.material['NiAlphaProperty_flags'] = shape.alpha_property.properties.flags
-            self.material['NiAlphaProperty_threshold'] = shape.alpha_property.properties.threshold
-
+            self._make_alpha_node(props.alpha_test, props.threshold,
+                                  props.alpha_blend,
+                                  props.source_blend_mode, props.dst_blend_mode)
+            self.material['NiAlphaProperty_flags'] = props.flags
+            self.material['NiAlphaProperty_threshold'] = props.threshold
             return True
-        else:
-            if self.vertex_alpha:
-                self.link(self.vertex_alpha.outputs['Color'], self.bsdf.inputs['Vertex Alpha'])
-            try:
-                self.diffuse.image.alpha_mode = 'NONE'
-            except:
-                pass
-            
-            return False
+
+        # FO4: no NiAlphaProperty block, but the BGSM may still drive alpha
+        # blending/testing. Synthesize an Alpha Property node from the BGSM
+        # so the Blender material reflects what the engine will do, and tag
+        # it so export does NOT write a phantom NiAlphaProperty block back
+        # to the nif on round-trip.
+        if self.game == 'FO4':
+            mat = getattr(shape.shader, 'materials', None)
+            if mat is not None:
+                bgsm_blend = bool(getattr(mat, 'alphblend0', 0))
+                bgsm_test = bool(getattr(mat, 'alphatest', 0))
+                if bgsm_blend or bgsm_test:
+                    threshold = int(getattr(mat, 'alphatestref', 128))
+                    self._make_alpha_node(bgsm_test, threshold, bgsm_blend,
+                                          source_blend_mode=0, dst_blend_mode=0)
+                    # Mark the material so _export_alpha skips writing a NiAlphaProperty.
+                    self.material['pyn_synthetic_alpha_from_bgsm'] = True
+                    return True
+
+        if self.vertex_alpha:
+            self.link(self.vertex_alpha.outputs['Color'], self.bsdf.inputs['Vertex Alpha'])
+        try:
+            self.diffuse.image.alpha_mode = 'NONE'
+        except:
+            pass
+        return False
         
+
+    @staticmethod
+    def _build_alt_pathlist_for_game(game):
+        """Build the alternate-path list used to locate textures and material files.
+
+        Includes Blender's texture directory, the user's per-game texture path prefs,
+        and a registry-derived game data folder as a last resort.
+        """
+        prefs = bpy.context.preferences.addons[base_package].preferences
+        altpaths = []
+
+        if bpy.context.preferences.filepaths.texture_directory:
+            altpaths.append(bpy.context.preferences.filepaths.texture_directory)
+
+        if game in ('SKYRIM', 'SKYRIMSE'):
+            path_prefs = [prefs.sky_texture_path_1, prefs.sky_texture_path_2,
+                          prefs.sky_texture_path_3, prefs.sky_texture_path_4]
+        else:
+            path_prefs = [prefs.fo4_texture_path_1, prefs.fo4_texture_path_2,
+                          prefs.fo4_texture_path_3, prefs.fo4_texture_path_4]
+        for path_pref in path_prefs:
+            if path_pref and (cleaned_path := texture_path(path_pref)):
+                altpaths.append(cleaned_path)
+
+        game_data = find_game(game)
+        if game_data:
+            altpaths.append(game_data)
+
+        return altpaths
+
+    def _build_alt_pathlist(self):
+        return ShaderImporter._build_alt_pathlist_for_game(self.game)
+
 
     def find_textures(self, shape:NiShape):
         """
@@ -1133,29 +1188,8 @@ class ShaderImporter:
         * shape = shape to read for texture files
         * self.textures <- dictionary of filepaths to use.
         """
-        prefs = bpy.context.preferences.addons[base_package].preferences
         self.textures = {}
-        altpaths = []
-        
-        # Add Blender's texture directory if not empty
-        if bpy.context.preferences.filepaths.texture_directory:
-            altpaths.append(bpy.context.preferences.filepaths.texture_directory)
-        
-        if self.game in ('SKYRIM', 'SKYRIMSE'):
-            for i, path_pref in enumerate([prefs.sky_texture_path_1, prefs.sky_texture_path_2, 
-                             prefs.sky_texture_path_3, prefs.sky_texture_path_4], 1):
-                if path_pref and (cleaned_path := texture_path(path_pref)):
-                    altpaths.append(cleaned_path)
-        else:
-            for i, path_pref in enumerate([prefs.fo4_texture_path_1, prefs.fo4_texture_path_2,
-                             prefs.fo4_texture_path_3, prefs.fo4_texture_path_4], 1):
-                if path_pref and (cleaned_path := texture_path(path_pref)):
-                    altpaths.append(cleaned_path)
-
-        # Last resort: try to find the game's Data directory via registry
-        game_data = find_game(self.game)
-        if game_data:
-            altpaths.append(game_data)
+        altpaths = self._build_alt_pathlist()
 
         for k, t in shape.textures.items():
             if not t: continue
@@ -1385,7 +1419,16 @@ class ShaderImporter:
             self.game = shape.file.game
             self.is_effect_shader = (shape.shader.blockname == 'BSEffectShaderProperty')
             self.is_lighting_shader = (shape.shader.blockname == 'BSLightingShaderProperty')
-            have_face = (self.is_lighting_shader and 
+
+            # Feed Blender's FO4/Skyrim texture-path prefs into the BGSM lookup
+            # before we touch shape.shader.properties (which triggers materials load).
+            # Some NIFs ship with absolute material paths from a developer's machine
+            # (e.g. C:\Projects\Fallout4\Build\PC\Data\materials\...). find_referenced_file
+            # already strips everything before "materials" and falls back to alt paths,
+            # but it needs the game-data dir to actually search.
+            shape.shader.alternate_paths = self._build_alt_pathlist()
+
+            have_face = (self.is_lighting_shader and
                         shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.asset_path = os.path.join(asset_path, "shaders.blend")
 
@@ -1437,6 +1480,15 @@ class ShaderImporter:
 
             self.make_uv_nodes()
             self.colormap, self.alphamap = get_effective_colormaps(obj.data)
+
+            # FO4 tree materials store wind-sway weights in vertex alpha, not
+            # opacity. The data is imported into the VERTEX_ALPHA color
+            # attribute so it round-trips on export, but it must NOT be wired
+            # into the shader as alpha — that would make the trunk invisible.
+            if self.game == 'FO4':
+                mat = getattr(shape.shader, 'materials', None)
+                if mat is not None and bool(getattr(mat, 'tree', 0)):
+                    self.alphamap = None
 
             self.import_diffuse()
             self.import_shader_attrs(shape)
@@ -1527,11 +1579,19 @@ class ShaderExporter:
     def _export_shader_attrs(self, shape):
         if not self.material:
             return
-        
+
         try:
             if mn := self.material.get('BSLSP_Shader_Name', ""):
             # if 'BSLSP_Shader_Name' in self.material and self.material['BSLSP_Shader_Name']:
                 shape.shader.name = mn
+
+            # On export we never want to read the BGSM: Blender already holds
+            # the authoritative shader settings and we're about to write them.
+            # Short-circuit the lazy materials lookup on the new shape's shader
+            # so accessing `.properties` doesn't try to resolve the (possibly
+            # absolute, dev-machine-only) material path from the source nif.
+            shape.shader._checked_for_materials = True
+            shape.shader._materials = None
 
             shape.shader.properties.load(self.material, game=self.game)
             if 'BS_Shader_Block_Name' in self.material:
@@ -1735,7 +1795,14 @@ class ShaderExporter:
 
         if (not alpha_input) or (not alpha_input.is_linked):
             return
-        
+
+        # If this Alpha Property node was synthesized from the BGSM on import
+        # (i.e. there was no NiAlphaProperty block in the source nif), don't
+        # write a NiAlphaProperty block back out — the BGSM still owns the
+        # alpha settings, and adding a block would change the source file.
+        if self.material.get('pyn_synthetic_alpha_from_bgsm'):
+            return
+
         shape.has_alpha_property = True
 
         alphanode = alpha_input.links[0].from_node

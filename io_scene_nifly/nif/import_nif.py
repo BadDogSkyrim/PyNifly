@@ -179,9 +179,11 @@ def mesh_create_lod_groups(the_shape, the_object):
 
     Triangles are stored sorted by LOD: first lodSize0 are LOD0 (coarsest),
     next lodSize1 are LOD1, remaining lodSize2 are LOD2 (finest).
+    All three LOD groups (LOD0, LOD1, LOD2) are always created so the user
+    sees a consistent set of groups regardless of which buckets are populated.
     Groups are cumulative: LOD0 contains LOD0 tris, LOD1 contains LOD0+LOD1
-    tris. LOD2 is implicit (everything). A Mask modifier with no vertex group
-    is added so the user can select LOD0 or LOD1 to view coarser levels.
+    tris, LOD2 contains all tris. A Mask modifier with no vertex group is
+    added so the user can select LOD0 or LOD1 to view coarser levels.
     """
     props = the_shape.properties
     if not hasattr(props, 'lodSize0'):
@@ -201,17 +203,20 @@ def mesh_create_lod_groups(the_shape, the_object):
         else:
             lod_groups.append(vg.new(name=name))
 
-    # LOD0 and LOD1 are cumulative: LOD1 includes LOD0's tris too.
-    # LOD2 is implicit — everything not masked.
+    # Cumulative population: a tri at LOD level L is added to groups L, L+1, L+2.
+    # tri 0..lodSize0-1     → LOD0, LOD1, LOD2
+    # next lodSize1 tris    → LOD1, LOD2
+    # remaining tris (LOD2) → LOD2
     tri_idx = 0
-    for lod_level in range(2):
-        for _ in range(lod_sizes[lod_level]):
+    for lod_level in range(3):
+        count = lod_sizes[lod_level] if lod_level < 2 else (len(mesh.polygons) - tri_idx)
+        for _ in range(count):
             if tri_idx >= len(mesh.polygons):
                 break
             face = mesh.polygons[tri_idx]
             for lp in face.loop_indices:
                 vi = mesh.loops[lp].vertex_index
-                for g in range(lod_level, 2):
+                for g in range(lod_level, 3):
                     lod_groups[g].add((vi,), 1.0, 'ADD')
             tri_idx += 1
 
@@ -228,14 +233,15 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
             use_vertex_colors = shape.shader.properties.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
             use_vertex_alpha = shape.shader.properties.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA)
         else:
-            if shape.properties.hasVertexColors or shape.shader.blockname == 'BSEffectShaderProperty':
+            # FO4: shader flags are vestigial. Whenever the shape's vertex
+            # format carries colors we import both the color and alpha layers,
+            # so the data round-trips faithfully. Whether the shader actually
+            # *uses* vertex alpha is decided later in shader_io (e.g. tree
+            # materials use vertex alpha for wind-sway weights and don't wire
+            # it into the diffuse output).
+            if shape.properties.hasVertexColors:
                 use_vertex_colors = True
-                # FO4 uses vertex alpha when greyscale-to-palette is active
-                # or with effect shaders, but not for all vertex-colored meshes.
-                use_vertex_alpha = (
-                    shape.shader.properties.shaderflags1_test(ShaderFlags1.GREYSCALE_COLOR)
-                    or shape.shader.blockname == 'BSEffectShaderProperty'
-                )
+                use_vertex_alpha = True
         if use_vertex_colors \
             and shape.colors and len(shape.colors) > 0:
             clayer = None
@@ -1772,6 +1778,17 @@ class NifImporter():
                 ValueError("Import file of unknown type.")
             if not self.reference_skel:
                 self.reference_skel = self.nif.reference_skel
+
+            # Push texture/material search paths from Blender prefs onto every shader
+            # *before* anything touches shape.shader.properties (which triggers the
+            # one-shot BGSM lookup). Otherwise the lookup runs with no alt paths and
+            # the failure gets cached.
+            if hasattr(self.nif, 'shapes'):
+                alt_paths = shader_io.ShaderImporter._build_alt_pathlist_for_game(
+                    self.nif.game)
+                for shp in self.nif.shapes:
+                    if shp.shader is not None:
+                        shp.shader.alternate_paths = alt_paths
 
             # Determine whether the new shapes should be merged into existing shapes
             this_vertcounts = None

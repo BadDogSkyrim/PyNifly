@@ -28,12 +28,12 @@ KFP_HANDLE_OFFSET = 10
 ANIMATION_TIME_ADJUST = 1
 
 
-shader_nodes = {    
-    "Fallout 4 MTS": "Lighting", 
-    "FO4 Effect Shader": "Effect", 
-    "SkyrimShader:Effect": "Effect", 
-    "SkyrimShader:Default": "Lighting", 
-} 
+shader_nodes = {
+    "Fallout 4 MTS": "Lighting",
+    "Fallout 4 Effect": "Effect",
+    "SkyrimShader:Effect": "Effect",
+    "SkyrimShader:Default": "Lighting",
+}
 
 def _shader_game(nodename):
     if nodename.startswith("Fallout") or nodename.startswith('FO4'):
@@ -1821,7 +1821,7 @@ def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyColorController,
     if "Fallout 4 MTS - Greyscale To Palette Vector" in importer.action_target.nodes:
         importer.path_name = f'nodes["Fallout 4 MTS - Greyscale To Palette Vector"].inputs["Palette"].default_value'
     else:
-        importer.path_name = f'nodes["FO4 Effect Shader"].inputs["Emission Color"].default_value'
+        importer.path_name = f'nodes["Fallout 4 Effect"].inputs["Emission Color"].default_value'
 
     if not interp:
         interp = ctlr.interpolator

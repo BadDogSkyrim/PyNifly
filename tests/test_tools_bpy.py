@@ -25,6 +25,48 @@ PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
 PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
 
 
+def stage_materials_for(*nif_paths):
+    """For each nif in `nif_paths`, find each shape's BGSM under the FO4
+    vanilla assets dir and copy it into that nif's `materialsRoot` so a
+    fresh `pyn.NifFile(path)` can resolve the materials file without alt
+    paths.
+
+    Use this in tests that read `shape.shader.properties` after opening a
+    nif with `pyn.NifFile` directly (i.e. outside the Blender importer,
+    which already pushes alt paths onto every shader). Without it the
+    BGSM lookup falls back to `materialsRoot` only and the missing-file
+    warning trips the test runner.
+
+    Silently skips any BGSM that isn't found in the FO4 assets dir.
+    """
+    import shutil
+    assets = Path(PYNIFLY_TEXTURES_FO4)
+    for nif_path in nif_paths:
+        if not os.path.exists(nif_path):
+            continue
+        nf = pyn.NifFile(nif_path)
+        # NifFile.materialsRoot is what the BGSM lookup uses as its base
+        # ("<nif dir>/.." up to but not including "meshes", or just the
+        # nif's own directory). Stage into that folder.
+        base = Path(nf.materialsRoot) if nf.materialsRoot else Path(nif_path).parent
+        for shape in nf.shapes:
+            name = shape.shader.name  # does not trigger BGSM load
+            if not name:
+                continue
+            rel = Path(name)
+            parts = [p.lower() for p in rel.parts]
+            if 'materials' in parts:
+                rel = Path(*rel.parts[parts.index('materials'):])
+            else:
+                rel = Path('materials') / rel
+            src = assets / rel
+            if not src.exists():
+                continue
+            dst = base / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, dst)
+
+
 def test_title(name, desc):
     print (f"\n\n\n++++++++++++++++++++++++++++++ {name} ++++++++++++++++++++++++++++++")
     print (f"{desc}")

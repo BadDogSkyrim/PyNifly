@@ -58,6 +58,7 @@ test_categories = {
     'FURNITURE': (3,0,), # Furniture markers and properties
     'HKX': (4,4,), # HKX and KF animations
     'INVENTORY_MARKER': (3,0,), # Inventory markers and properties
+    'LOD': (3,0,), # LOD handling
     'PARTITIONS': (3,0,), # Body partitions and vertex groups
     'PHYSICS': (3,0,), # Object collisions and physics
     'SCALING': (3,0,), # Tests of import/export scaling
@@ -317,8 +318,9 @@ def TEST_SKIN_BONE_XFORM():
 
 
 @TT.category('FO4', 'BODYPART', 'XFORM')
-@TT.expect_errors(("bhkPhysicsSystem decode failed", 
-                   "Unknown block type: bhkRagdollSystem",))
+@TT.expect_errors(("bhkPhysicsSystem decode failed",
+                   "Unknown block type: bhkRagdollSystem",
+                   "Could not find materials file",))
 @TT.parameterize(("create_bones",   "estimate_offset",  "use_pose",), 
                  [(False,           True,               True),])
 def TEST_BODYPART_ALIGNMENT_FO4_1(create_bones, estimate_offset, use_pose):
@@ -578,6 +580,7 @@ def TEST_IMP_EXP_FO4_2():
     armor.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
 
+    TTB.stage_materials_for(testfile, outfile)
     nifout = pyn.NifFile(outfile)
     bodyout = nifout.shape_dict['BaseMaleBody_03:0']
     armorout = nifout.shape_dict['Pack_UnderArmor_03_M:0']
@@ -696,8 +699,9 @@ def TEST_BPY_PARENT_A(game, blendxf, pretty):
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
 @TT.expect_errors(("Could not find texture Diffuse",
                    "Could not find texture Normal",
-                   "Could not load diffuse texture", 
-                   "Could not load normal texture",))
+                   "Could not load diffuse texture",
+                   "Could not load normal texture",
+                   "Could not find materials file",))
 def TEST_BPY_PARENT_B():
     """Maintain armature structure"""
     testfile2 = TTB.test_file(r"tests\FO4\meshes\bear_tshirt_turtleneck.nif")
@@ -1599,6 +1603,7 @@ def TEST_TRI_SIMPLE():
     
 
 @TT.category('FO4', 'TRI')
+@TT.expect_errors(("Could not find materials file",))
 def TEST_TRI_EXISTING():
     """Can load a tri file into an existing mesh"""
 
@@ -2282,6 +2287,7 @@ def TEST_SHADER_GRAYSCALE_COLOR():
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     # Testing the attributes on the shader node, which is fine because they do get set.
+    TTB.stage_materials_for(testfile, outfile)
     n1 = pyn.NifFile(testfile)
     n2 = pyn.NifFile(outfile)
     hair1 = n1.shapes[0]
@@ -2915,6 +2921,12 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
     # Check the alpha
     alphacheck = glowcheck.alpha_property
     TT.assert_eq(alphacheck.properties.flags, 4109, "Alpha flags")
+
+    # Regression: FO4 export must clear the ENVIRONMENT_MAPPING shader flag
+    # on every shape (it's ignored by the engine but causes CTDs in practice).
+    for shp in nifcheck.shapes:
+        assert not shp.shader.properties.shaderflags1_test(pyn.ShaderFlags1.ENVIRONMENT_MAPPING), \
+            f"FO4 export cleared ENVIRONMENT_MAPPING on {shp.name}"
 
     # "PartA" sequence has a color controller that affects the emissive color of
     # "GlowingOneGlowFXstreak:0". (Which is not emissive color at all--emissive color is
@@ -3701,6 +3713,7 @@ def TEST_COLOR_CUBES():
         assert c == (1, 0, 0, 1) or c == (0, 1, 0, 1), f"Color is red or green: {c}"
         
 
+@TT.expect_errors( ("Could not find materials file",))
 @TT.category('FO4', 'SHADER')
 def TEST_NOTEXTURES():
     """Can read a nif with no texture paths."""
@@ -3728,8 +3741,7 @@ def TEST_VERTEX_COLOR_IO():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     eyes = TTB.find_shape("FemaleEyesAO:0")
-    assert eyes.active_material["Shader_Flags_2"].find("VERTEX_COLORS") >= 0, \
-        f"Eyes have colors: {eyes.active_material['Shader_Flags_2']}"
+    assert TT.is_contains('COLORS', eyes['pynVertexDesc'], "Eye vertex color flag")
     
     if bpy.app.version >= (3, 5, 0):
         # Color data handled differently in older versions
@@ -3754,6 +3766,7 @@ def TEST_VERTEX_COLOR_IO():
 
     assert os.path.exists(outfile), f"File created: {outfile}"
 
+    TTB.stage_materials_for(outfile)
     nifcheck = pyn.NifFile(outfile)
     eyescheck = nifcheck.shapes[0]
     min_a = min(c[3] for c in eyescheck.colors)
@@ -4316,7 +4329,7 @@ def TEST_TREE():
     # Trees in FO4 use a special root node and a special shape node.
 
     # ------- Load --------
-    testfile = TTB.test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
+    testfile = TTB.test_file(r"tests\FO4\meshes\TreeMaplePreWar01Orange.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_TREE.nif", output=True)
 
     # Read expected LOD sizes from the source NIF
@@ -4338,10 +4351,9 @@ def TEST_TREE():
     # LOD sizes not stored as custom properties — recovered from vertex groups
     assert 'lodSize0' not in tree, "lodSize not stored as custom property"
 
-    # Check LOD vertex groups were created on import (LOD2 is implicit)
+    # Check all 3 LOD vertex groups were created on import.
     lod_groups = [g.name for g in tree.vertex_groups if g.name in BD.LOD_GROUP_NAMES]
-    assert TT.is_eq(len(lod_groups), 2, "Have 2 LOD vertex groups")
-    assert TT.is_eq(lod_groups, ["LOD0", "LOD1"], "LOD groups have correct names")
+    assert TT.is_eq(sorted(lod_groups), ["LOD0", "LOD1", "LOD2"], "Have all 3 LOD vertex groups")
 
     # Check Mask modifier was added
     lod_mod = tree.modifiers.get("LOD")
@@ -4358,6 +4370,7 @@ def TEST_TREE():
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     # ------- Check
+    TTB.stage_materials_for(outfile)
     nifcheck = pyn.NifFile(outfile)
     assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
     treecheck = nifcheck.shapes[0]
@@ -4385,6 +4398,136 @@ def TEST_TREE():
 
     assert TT.is_eq(exp_lod2_verts, src_lod2_verts,
                      "LOD2 triangles reference the same vertices after round-trip")
+
+
+@TT.category('FO4', 'LOD', 'SHADER')
+@TT.expect_errors(("Unable to find a suitable DXT compression",
+                   "Falling back to uncompressed",))
+def TEST_TRASH_EDGE():
+    """FO4 LOD edge cases and vertex alpha without VERTEX_ALPHA shader flag."""
+    # TrashEdge01.nif exercises two FO4 issues:
+    #   1. LOD distribution with empty buckets:
+    #      - L1_TrashEdge01:0  has lodSize 0 / 93  / 0   (everything in LOD1)
+    #      - L2_TrashDecal01:1 has lodSize 0 / 0   / 300 (everything in LOD2)
+    #   2. L1_TrashEdge01:0 has per-vertex alpha (some verts a=0, some a=1)
+    #      but the BSLightingShaderProperty does NOT set the VERTEX_ALPHA flag.
+    #      In FO4 the SLSF1_VERTEX_ALPHA flag is vestigial — the vertex stream
+    #      carries alpha whenever the vertex format includes colors, and the
+    #      BGSM decides whether it's blended at runtime. The importer must
+    #      still round-trip that alpha data faithfully.
+    testfile = TTB.test_file(r"tests\FO4\meshes\TrashEdge01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_TRASH_EDGE.nif", output=True)
+
+    # ------- Capture expected values from source --------
+    nif_in = pyn.NifFile(testfile)
+    src_edge = nif_in.shape_dict['L1_TrashEdge01:0']
+    src_decal = nif_in.shape_dict['L2_TrashDecal01:1']
+
+    assert TT.is_eq(src_edge.properties.lodSize0, 0,  "Source edge LOD0")
+    assert TT.is_eq(src_edge.properties.lodSize1, 93, "Source edge LOD1")
+    assert TT.is_eq(src_edge.properties.lodSize2, 0,  "Source edge LOD2")
+    assert TT.is_eq(src_decal.properties.lodSize0, 0,   "Source decal LOD0")
+    assert TT.is_eq(src_decal.properties.lodSize1, 0,   "Source decal LOD1")
+    assert TT.is_eq(src_decal.properties.lodSize2, 300, "Source decal LOD2")
+
+    # Edge has per-vertex colors with meaningful alpha (shader flags don't
+    # matter in FO4; we check the vertex stream directly).
+    assert TT.is_gt(len(src_edge.colors), 0, "Source edge has vertex colors")
+    src_edge_alphas = [c[3] for c in src_edge.colors]
+    assert TT.is_eq(min(src_edge_alphas), 0.0, "Source edge has alpha=0 verts")
+    assert TT.is_eq(max(src_edge_alphas), 1.0, "Source edge has alpha=1 verts")
+
+    # ------- Import --------
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_collection=True)
+
+    edge = next(o for o in bpy.data.objects
+                if o.type == 'MESH' and o.name.startswith('L1_TrashEdge01'))
+    decal = next(o for o in bpy.data.objects
+                 if o.type == 'MESH' and o.name.startswith('L2_TrashDecal01'))
+
+    # LOD modifiers should exist on both shapes
+    assert edge.modifiers.get("LOD") is not None,  "Edge has LOD mask modifier"
+    assert decal.modifiers.get("LOD") is not None, "Decal has LOD mask modifier"
+
+    # All three LOD groups should always be created, even when buckets are empty.
+    edge_lod_groups = [g.name for g in edge.vertex_groups if g.name in BD.LOD_GROUP_NAMES]
+    assert TT.is_eq(sorted(edge_lod_groups), ["LOD0", "LOD1", "LOD2"],
+                    "Edge has all 3 LOD vertex groups")
+    decal_lod_groups = [g.name for g in decal.vertex_groups if g.name in BD.LOD_GROUP_NAMES]
+    assert TT.is_eq(sorted(decal_lod_groups), ["LOD0", "LOD1", "LOD2"],
+                    "Decal has all 3 LOD vertex groups")
+
+    # Edge cumulative membership: LOD0 empty, LOD1 = LOD2 = all 94 verts.
+    def vg_vert_count(obj, name):
+        gi = obj.vertex_groups[name].index
+        return sum(1 for v in obj.data.vertices if any(g.group == gi for g in v.groups))
+    assert TT.is_eq(vg_vert_count(edge, "LOD0"), 0, "Edge LOD0 empty")
+    assert TT.is_eq(vg_vert_count(edge, "LOD1"), len(edge.data.vertices), "Edge LOD1 = all verts")
+    assert TT.is_eq(vg_vert_count(edge, "LOD2"), len(edge.data.vertices), "Edge LOD2 = all verts")
+
+    # Decal cumulative membership: LOD0 = LOD1 = empty, LOD2 = all verts.
+    assert TT.is_eq(vg_vert_count(decal, "LOD0"), 0, "Decal LOD0 empty")
+    assert TT.is_eq(vg_vert_count(decal, "LOD1"), 0, "Decal LOD1 empty")
+    assert TT.is_eq(vg_vert_count(decal, "LOD2"), len(decal.data.vertices), "Decal LOD2 = all verts")
+
+    # Diffuse texture should be loaded on the edge material. The importer
+    # creates a 'Diffuse_Texture' ShaderNodeTexImage and sets its image.
+    assert edge.active_material is not None, "Edge has a material"
+    diff_node = edge.active_material.node_tree.nodes.get('Diffuse_Texture')
+    assert diff_node is not None, "Edge has Diffuse_Texture node"
+    assert diff_node.image is not None, "Edge diffuse texture image is loaded"
+    assert TT.is_gt(len(diff_node.image.filepath), 0, "Edge diffuse texture filepath set")
+    assert TT.is_gt(len(diff_node.image.pixels), 0, "Edge diffuse image has pixel data")
+
+    # The source nif has no NiAlphaProperty block on the edge shape, but its
+    # BGSM has alphatest set, so the importer must synthesize an Alpha
+    # Property shader node from the BGSM. (We confirmed source has no block.)
+    assert not src_edge.has_alpha_property, "Source edge has no NiAlphaProperty block"
+    edge_mat = edge.active_material
+    assert edge_mat is not None, "Edge has a material"
+    assert 'Alpha Property' in (n.label for n in edge_mat.node_tree.nodes) \
+        or any('Alpha Property' in n.name for n in edge_mat.node_tree.nodes), \
+        "Edge material has an Alpha Property shader node"
+
+    # Vertex alpha layer must be created on the edge even though the
+    # VERTEX_ALPHA shader flag is not set, because the alpha data is real.
+    assert BD.ALPHA_MAP_NAME in edge.data.color_attributes, \
+        "Edge has VERTEX_ALPHA color attribute despite shader flag not being set"
+    alphmap = edge.data.color_attributes[BD.ALPHA_MAP_NAME]
+    a_vals = [alphmap.data[i].color[0] for i in range(len(alphmap.data))]
+    assert TT.is_eq(min(a_vals), 0.0, "Imported edge alpha minimum is 0")
+    assert TT.is_eq(max(a_vals), 1.0, "Imported edge alpha maximum is 1")
+
+    # ------- Export --------
+    BD.ObjectSelect([edge, decal,
+                     next(o for o in bpy.data.objects if 'pynRoot' in o)],
+                    active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)
+
+    # ------- Check --------
+    nif_out = pyn.NifFile(outfile)
+    out_edge = nif_out.shape_dict['L1_TrashEdge01:0']
+    out_decal = nif_out.shape_dict['L2_TrashDecal01:1']
+
+    # LOD sizes round-trip
+    assert TT.is_eq(out_edge.properties.lodSize0, 0,  "Edge LOD0 round-trips")
+    assert TT.is_eq(out_edge.properties.lodSize1, 93, "Edge LOD1 round-trips")
+    assert TT.is_eq(out_edge.properties.lodSize2, 0,  "Edge LOD2 round-trips")
+    assert TT.is_eq(out_decal.properties.lodSize0, 0,   "Decal LOD0 round-trips")
+    assert TT.is_eq(out_decal.properties.lodSize1, 0,   "Decal LOD1 round-trips")
+    assert TT.is_eq(out_decal.properties.lodSize2, 300, "Decal LOD2 round-trips")
+
+    # Vertex alpha round-trips on the edge: still has both 0 and 1 alphas.
+    assert TT.is_gt(len(out_edge.colors), 0, "Edge still has vertex colors")
+    out_alphas = [c[3] for c in out_edge.colors]
+    assert TT.is_eq(min(out_alphas), 0.0, "Edge alpha=0 verts round-trip")
+    assert TT.is_eq(max(out_alphas), 1.0, "Edge alpha=1 verts round-trip")
+
+    # The exporter must NOT add a NiAlphaProperty block to the edge shape:
+    # the source nif had none and the alpha info lives in the BGSM, not the
+    # nif. Adding a block would change the file's structure on round-trip.
+    assert not out_edge.has_alpha_property, \
+        "Exported edge must not have a NiAlphaProperty block"
 
 
 def CheckBow(nif, nifcheck, bow):
@@ -4860,6 +5003,7 @@ def TEST_COLLISION_HIER():
 
 
 @TT.category('FO4', 'SHADER')
+@TT.expect_errors(("Could not find materials file",))
 def TEST_NORM():
     """Normals are read correctly"""
     testfile = TTB.test_file(r"tests/FO4/Meshes/CheetahMaleHead.nif")
@@ -5786,8 +5930,9 @@ def TEST_COLLISION_FO4_VAULT_SHELF():
 
 @TT.category('FO4', 'PHYSICS')
 @TT.expect_errors( ("Could not find texture",
-                    "Could not load normal texture", 
-                    "Could not load diffuse texture"))
+                    "Could not load normal texture",
+                    "Could not load diffuse texture",
+                    "Could not find materials file",))
 def TEST_COLLISION_FO4_CANDLE_BOTTLE():
     """FO4 bhkPhysicsSystem: standalone polytope with world-space vertices.
 
@@ -6374,12 +6519,13 @@ def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
     root_obj.select_set(True)
     bpy.context.view_layer.objects.active = root_obj
     
-    bpy.ops.export_scene.pynifly(filepath=outfile, 
+    bpy.ops.export_scene.pynifly(filepath=outfile,
                                   target_game='FO4',
                                   intuit_defaults=False,
                                   rename_bones=False)
-    
+
     # Load and check the exported NIF
+    TTB.stage_materials_for(testfile, outfile)
     nif_original = pyn.NifFile(testfile)
     nif_exported = pyn.NifFile(outfile)
     
@@ -6521,6 +6667,7 @@ def TEST_FO4_CHAIR():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     # --------- Check ----------
+    TTB.stage_materials_for(outfile)
     nifcheck = pyn.NifFile(outfile)
     fmcheck = nifcheck.root.get_extra_data(blockname='BSFurnitureMarkerNode')
     assert fmcheck, "BSFurnitureMarkerNode exists"
@@ -6826,6 +6973,7 @@ def TEST_ANIMATRON_2():
  
 
 @TT.category('FO4', 'ARMATURE')
+@TT.expect_errors(("Could not find materials file",))
 def TEST_CUSTOM_BONES():
     """Can handle custom bones correctly"""
     # These nifs have bones that are not part of the vanilla skeleton.
@@ -8091,9 +8239,10 @@ def TEST_TEXTURE_CLAMP():
 
 
 @TT.category('FO4', 'SHADER')
-@TT.expect_errors(('Could not load diffuse texture', 
+@TT.expect_errors(('Could not load diffuse texture',
                    'Could not load normal texture',
-                   'Could not find texture'))
+                   'Could not find texture',
+                   'Could not find materials file',))
 def TEST_MISSING_MAT():
     """We import and export properly even when files are missing."""
     testfile = TTB.test_file(r"tests\FO4\malehandsalt.nif")
@@ -8150,14 +8299,16 @@ def TEST_SCAFFOLD_FRAME():
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
+    TTB.stage_materials_for(testfile, outfile)
     nifin = pyn.NifFile(testfile)
     nifout = pyn.NifFile(outfile)
-    assert (nifin.shapes[0].shader.properties.textureClampMode 
+    assert (nifin.shapes[0].shader.properties.textureClampMode
             == nifout.shapes[0].shader.properties.textureClampMode), \
         f"Preserved texture clamp mode: {nifout.shapes[0].shader.textureClampMode}"
 
 
 @TT.category('FO4', 'SHADER')
+@TT.expect_errors(("Could not find materials file",))
 def TEST_MISSING_FILES():
     """Write a good nif even if texture and materials files are missing."""
     blendfile = TTB.test_file(r"tests\FO4\Gloves.blend")
@@ -8197,6 +8348,7 @@ def TEST_MISSING_FILES():
 
 
 @TT.category('FO4', 'BODYPARTS')
+@TT.expect_errors(("Could not find materials file",))
 def TEST_FULL_PRECISION():
     """Can set full precision."""
     testfile = TTB.test_file(r"tests\FO4\Meshes\OtterFemHead.nif")

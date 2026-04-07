@@ -3805,11 +3805,22 @@ class NiShaderFO4(NiShader):
                     else:
                         altpaths.append(alternate_paths)
                 
-                fullpath = find_referenced_file(self.name, self.file.filepath, root='materials', 
+                fullpath = find_referenced_file(self.name, self.file.filepath, root='materials',
                                                 alt_pathlist=altpaths)
                 if fullpath:
-                    self._materials = bgsmaterial.MaterialFile.Open(fullpath)
-                    self._load_properties_from_materials()
+                    try:
+                        self._materials = bgsmaterial.MaterialFile.Open(fullpath)
+                    except Exception:
+                        log.exception(
+                            f"Could not read materials file '{fullpath}' "
+                            f"referenced by shader '{self.name}'")
+                        self._materials = None
+                    if self._materials:
+                        self._load_properties_from_materials()
+                else:
+                    log.warning(
+                        f"Could not find materials file '{self.name}' "
+                        f"(searched nif filetree and {len(altpaths)} alternate path(s))")
             self._checked_for_materials = True
         return self._materials
     

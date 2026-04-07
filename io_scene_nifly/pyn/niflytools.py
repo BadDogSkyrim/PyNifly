@@ -147,9 +147,14 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
     """
     fp = Path(filepath.lower())
 
-    # If relative, must start with "textures"
-    if (not fp.is_absolute()) and fp.parts[0] != root:
-        fp = Path(root) / fp
+    # If relative, must start with `root` ("textures" or "materials"). If the
+    # path contains `root` as a non-leading component (e.g. "Data/materials/...")
+    # truncate to start at `root`. Otherwise prepend `root`.
+    if not fp.is_absolute():
+        if root in fp.parts and fp.parts[0] != root:
+            fp = Path(*fp.parts[fp.parts.index(root):])
+        elif fp.parts[0] != root:
+            fp = Path(root) / fp
 
     # If fp is absolute, check for DDS or PNG variant and return whichever exists
     if fp.is_absolute():
