@@ -4574,6 +4574,7 @@ class NifFile:
         self.node_ids = {}
         self._nodes = None
         self._shapes = None
+        self._max_string_len = None
         self._load_shapes()
 
     def __del__(self):
@@ -4584,11 +4585,17 @@ class NifFile:
     def max_string_len(self):
         """Length of buffer required for the longest string stored in the nif + one for
         the trailing null byte. Return at least 128 because reasons.
+
+        Cached after first call: the DLL scans every string to compute this, and it's
+        called once per string read. Recomputing each time is O(strings²).
         """
+        if self._max_string_len is not None:
+            return self._max_string_len
         if self._handle:
-            return max(128, nifly.getMaxStringLen(self._handle)+1)
+            self._max_string_len = max(128, nifly.getMaxStringLen(self._handle)+1)
         else:
-            return 128
+            self._max_string_len = 128
+        return self._max_string_len
         
     @property
     def reference_skel(self):

@@ -9333,10 +9333,21 @@ def do_tests(
         except:
             pass
     
+    from time import perf_counter
+    test_timings = []  # list of (name, seconds)
+
     for t in active_tests:
         if t not in executed_tests:
+            _t0 = perf_counter()
             execute_test(t, executed_tests, stop_on_fail=stop_on_fail)
-            
+            test_timings.append((t.__name__, perf_counter() - _t0))
+
+    print(f"\n\n===Slowest tests (top 30)===")
+    for name, dt in sorted(test_timings, key=lambda x: -x[1])[:30]:
+        print(f"  {dt:7.2f}s  {name}")
+    _total = sum(dt for _, dt in test_timings)
+    print(f"  -------\n  {_total:7.2f}s  TOTAL ({len(test_timings)} tests)")
+
     passed_tests = [t for t, v in executed_tests.items() if v == 'PASS']
     failed_tests = [t for t, v in executed_tests.items() if v == 'FAIL']
     skipped_tests = [t for t, v in executed_tests.items() if v == 'SKIP']

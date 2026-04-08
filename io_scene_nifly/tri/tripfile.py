@@ -4,7 +4,7 @@
 
 import os
 import logging
-from struct import (unpack, pack)
+from struct import (unpack, pack, iter_unpack)
 from typing import BinaryIO
 
 # ###################################################################################
@@ -101,12 +101,16 @@ class TripFile:
                 vertcount = unpack('<1H', file.read(2))[0]
                 morphverts = []
 
-                for k in range(vertcount):
-                    id, x, y, z = unpack('<1H3h', file.read(8))
-
-                    v = (x * morphmult, y * morphmult, z * morphmult)
-                    if self._coord_nonzero(v):
-                        morphverts.append([id, v]) 
+                # Bulk read + iter_unpack: avoids 4 function calls (read, unpack,
+                # _coord_nonzero, append) per vertex. Each record is 8 bytes (HHhh).
+                buf = file.read(8 * vertcount)
+                mm = morphmult
+                for id, x, y, z in iter_unpack('<H3h', buf):
+                    vx = x * mm
+                    vy = y * mm
+                    vz = z * mm
+                    if abs(vx) > 0.0001 or abs(vy) > 0.0001 or abs(vz) > 0.0001:
+                        morphverts.append([id, (vx, vy, vz)])
 
                 if True: # len(morphverts) > 0:
                     offsetmorphs[morphname] = morphverts # keep them all, even null morphs

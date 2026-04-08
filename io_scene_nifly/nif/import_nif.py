@@ -771,12 +771,16 @@ class NifImporter():
             bpy.ops.object.mode_set(mode = 'OBJECT')
             return bn
 
-        # If not a known skeleton bone, just import as an EMPTY object
-        if self.context.object and (not self.context.object.hide_get()): 
-            bpy.ops.object.mode_set(mode = 'OBJECT')
-        bpy.ops.object.add(radius=1.0, type='EMPTY', )
-        obj = bpy.context.object
-        obj.name = ninode.name
+        # If not a known skeleton bone, just import as an EMPTY object.
+        # Use the data API rather than bpy.ops.object.add — the operator triggers a
+        # dependency-graph update on every call, which adds up fast on collision/
+        # controller-heavy nifs (e.g. 244 calls = ~0.5s on FO4 GearDoor).
+        obj = bpy.data.objects.new(ninode.name, None)
+        obj.empty_display_size = 1.0
+        bpy.context.collection.objects.link(obj)
+        # Downstream code expects this object to be active (mirroring what
+        # bpy.ops.object.add used to do).
+        bpy.context.view_layer.objects.active = obj
         obj["pynBlockName"] = ninode.blockname
         obj["pynNodeName"] = ninode.name
         if hasattr(ninode.properties, 'valueNodeFlags'):

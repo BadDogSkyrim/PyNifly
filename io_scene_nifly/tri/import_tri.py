@@ -6,6 +6,7 @@ from pathlib import Path
 import logging
 from typing import BinaryIO
 import bpy
+import numpy as np
 from bpy_extras.io_utils import ImportHelper
 from .. import blender_defs as BD
 from ..pyn.niflytools import gameSkeletons
@@ -139,20 +140,27 @@ def create_trip_shape_keys(obj, trip:TripFile):
         newsk = obj.shape_key_add()
         newsk.name = "Basis"
 
+    # Read base coords once into a flat float32 buffer; per-morph we copy and add
+    # offsets only at sparse vertex indices, then bulk-write via foreach_set. This
+    # replaces a per-vert per-component Python loop that was the #1 hotspot of tri
+    # import (~0.97s self time on TEST_TRI_HIMBO).
+    n = len(verts)
+    base = np.empty(n * 3, dtype=np.float32)
+    verts.foreach_get('co', base)
+
     offsetmorphs = trip.shapes[obj.name]
     for morph_name, morph_verts in sorted(offsetmorphs.items()):
         newsk = obj.shape_key_add()
         newsk.name = ">" + morph_name
         newsk.value = 0
 
-        obj.active_shape_key_index = len(mesh.shape_keys.key_blocks) - 1
-        #This is a pointer, not a copy
-        mesh_key_verts = mesh.shape_keys.key_blocks[obj.active_shape_key_index].data
+        coords = base.copy()
         for vert_index, offsets in morph_verts:
-            for i in range(3):
-                mesh_key_verts[vert_index].co[i] = verts[vert_index].co[i] + offsets[i]
-        
-        mesh.update()
+            i = vert_index * 3
+            coords[i]   += offsets[0]
+            coords[i+1] += offsets[1]
+            coords[i+2] += offsets[2]
+        newsk.data.foreach_set('co', coords)
 
     obj.active_shape_key_index = 0
 

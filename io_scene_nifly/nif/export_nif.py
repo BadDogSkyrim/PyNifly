@@ -3,6 +3,7 @@ Export Blender meshes to NIF files.
 """
 
 import os
+from functools import lru_cache
 from contextlib import suppress
 from mathutils import Matrix, Vector, Euler, Color
 import codecs
@@ -169,8 +170,13 @@ def expected_game(nif, bonelist):
         (matchgame in ['SKYRIM', 'SKYRIMSE'] and nif.game in ['SKYRIM', 'SKYRIMSE'])
 
 
+@lru_cache(maxsize=None)
 def is_partition(name):
-    """ Check whether <name> is a valid partition or segment name """
+    """ Check whether <name> is a valid partition or segment name.
+    Cached: vertex group names form a tiny bounded set, but this is called per-loop
+    in the export hot path (millions of calls per shape). lru_cache turns it into
+    one regex match per distinct group name.
+    """
     if pynifly.SkyPartition.name_match(name) >= 0:
         return True
 
