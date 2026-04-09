@@ -82,6 +82,11 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         description="HKX reference skeleton to use for animation binding",
         default="") # type: ignore
 
+    create_collection: bpy.props.BoolProperty(
+        name="Import to collection",
+        description="Import each HKX skeleton into its own new collection.",
+        default=False) # type: ignore
+
     @classmethod
     def poll(cls, context):
         if not nifly_path:
@@ -126,9 +131,25 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         return super().invoke(context, event)
 
 
+    def _target_collection(self, context):
+        """Return the collection new objects should be linked to.
+
+        With create_collection=True, makes a new collection named after the
+        HKX file and sets it as the active layer collection so subsequent
+        operations land there too."""
+        if self.create_collection:
+            coll = bpy.data.collections.new(self.hkx_filepath.stem)
+            context.scene.collection.children.link(coll)
+            new_lc = context.view_layer.layer_collection.children[coll.name]
+            new_lc.exclude = False
+            context.view_layer.active_layer_collection = new_lc
+            return coll
+        return context.view_layer.active_layer_collection.collection
+
+
     def __str__(self):
         return f"""
-        Importing HXK: {self.filename_list} 
+        Importing HXK: {self.filename_list}
             setings: {self.import_flags}
             armature: {self.armature} 
         """
@@ -337,7 +358,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         arm_data = bpy.data.armatures.new(arm_name)
         arma = bpy.data.objects.new(arm_name, arm_data)
 
-        coll = context.view_layer.active_layer_collection.collection
+        coll = self._target_collection(context)
         coll.objects.link(arma)
         context.view_layer.objects.active = arma
         arma.select_set(True)
@@ -528,7 +549,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         arm_data = bpy.data.armatures.new(arm_name)
         arma = bpy.data.objects.new(arm_name, arm_data)
 
-        coll = context.view_layer.active_layer_collection.collection
+        coll = self._target_collection(context)
         coll.objects.link(arma)
         context.view_layer.objects.active = arma
         arma.select_set(True)
