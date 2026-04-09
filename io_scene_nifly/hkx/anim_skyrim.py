@@ -471,6 +471,8 @@ def _parse_skeleton_hkx(data: bytes) -> Optional[Skeleton]:
                 skel.bones.append(_read_null_string(data, data_abs + str_target))
             else:
                 skel.bones.append('')
+            lt = data[data_abs + bone_rel + ptr_size]
+            skel.lock_translation.append(bool(lt))
 
     # referencePose (hkArray<hkQsTransform>)
     # hkQsTransform is 0x30 bytes (same regardless of pointer size)
@@ -484,6 +486,27 @@ def _parse_skeleton_hkx(data: bytes) -> Optional[Skeleton]:
             rx, ry, rz, rw = _f32(data, p+16), _f32(data, p+20), _f32(data, p+24), _f32(data, p+28)
             sx, sy, sz = _f32(data, p+32), _f32(data, p+36), _f32(data, p+40)
             skel.reference_pose.append(BonePose([tx, ty, tz], [rx, ry, rz, rw], [sx, sy, sz]))
+
+    # referenceFloats (hkArray<float>)
+    rfloat_off = pose_off + arr_size
+    rfloat_count = _u32(data, s + rfloat_off + count_off)
+    rfloat_content = fixups.get(skel_rel + rfloat_off)
+    if rfloat_content is not None and rfloat_count > 0:
+        rabs = data_abs + rfloat_content
+        skel.reference_floats = [_f32(data, rabs + i * 4) for i in range(rfloat_count)]
+
+    # floatSlots (hkArray<hkStringPtr>) — array of string pointers
+    fslot_off = rfloat_off + arr_size
+    fslot_count = _u32(data, s + fslot_off + count_off)
+    fslot_content = fixups.get(skel_rel + fslot_off)
+    if fslot_content is not None and fslot_count > 0:
+        for i in range(fslot_count):
+            slot_ptr_rel = fslot_content + i * ptr_size
+            str_target = fixups.get(slot_ptr_rel)
+            if str_target is not None:
+                skel.float_slots.append(_read_null_string(data, data_abs + str_target))
+            else:
+                skel.float_slots.append('')
 
     return skel
 
@@ -673,8 +696,9 @@ def _skyrim_section_header(name: str, abs_start: int,
     hdr = bytearray(_SEC_HDR_SIZE)
     name_b = name.encode('ascii') + b'\x00'
     hdr[:len(name_b)] = name_b
-    for i in range(len(name_b), 0x14):
-        hdr[i] = 0xFF
+    # Vanilla pads name field with NULs and places a single 0xFF sentinel
+    # at byte 19 (just before the offset table). hkxcmd rejects all-0xFF padding.
+    hdr[0x13] = 0xFF
     struct.pack_into('<I', hdr, 0x14, abs_start)
     struct.pack_into('<I', hdr, 0x18, local_fix - abs_start)
     struct.pack_into('<I', hdr, 0x1C, global_fix - abs_start)
@@ -1014,6 +1038,334 @@ def write_skyrim_animation(filepath: str, anim: AnimationData,
     # 0xD0: classnames data
     # cn_end: data section
     cn_start = 0x40 + 3 * _SEC_HDR_SIZE  # = 0xD0
+    cn_end = cn_start + len(cn_data)
+    data_start = cn_end
+
+    local_fix_abs = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs + len(local_tbl)
+    virt_fix_abs = global_fix_abs + len(global_tbl)
+    data_end = virt_fix_abs + len(virt_tbl)
+
+    cn_name_off = name_offs['hkRootLevelContainer']
+    hdr = _skyrim_file_header(cn_name_off, ptr_size)
+
+    shdr0 = _skyrim_section_header('__classnames__', cn_start,
+                                    cn_start + len(cn_data), cn_start + len(cn_data),
+                                    cn_start + len(cn_data), cn_start + len(cn_data))
+    shdr1 = _skyrim_section_header('__types__', cn_end,
+                                    cn_end, cn_end, cn_end, cn_end)
+    shdr2 = _skyrim_section_header('__data__', data_start,
+                                    local_fix_abs, global_fix_abs,
+                                    virt_fix_abs, data_end)
+
+    result = hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
+
+    with open(filepath, 'wb') as f:
+        f.write(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Skeleton writer (Skyrim LE/SE, hk_2010)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Class hashes for a skeleton-only HKX (hk_2010). hkaSkeleton hash extracted
+# from vanilla SE skeleton.hkx.
+_SKEL_CLASS_ENTRIES_V8: List[Tuple[int, str]] = [
+    (0x75585EF6, 'hkClass'),
+    (0x5C7EA4C2, 'hkClassMember'),
+    (0x8A3609CF, 'hkClassEnum'),
+    (0xCE6F8A6C, 'hkClassEnumItem'),
+    (0x2772C11E, 'hkRootLevelContainer'),
+    (0x8DC20333, 'hkaAnimationContainer'),
+    (0x366E8220, 'hkaSkeleton'),
+    (0x4762F92A, 'hkMemoryResourceContainer'),
+]
+
+
+def _build_skel_classnames_v8() -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for a Skyrim skeleton HKX."""
+    data = b''
+    name_offs: Dict[str, int] = {}
+    for hash_val, name in _SKEL_CLASS_ENTRIES_V8:
+        name_offs[name] = len(data) + 5
+        data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
+    data = _pad16(data, fill=0xFF)
+    return data, name_offs
+
+
+def _default_lock_translation(bone_name: str) -> bool:
+    """Heuristic for lockTranslation when not stored on the bone.
+
+    Unlocks root-motion bones, COM bones, and the human special nodes —
+    matches the vanilla pattern across all Skyrim skeletons."""
+    n = bone_name.strip()
+    nl = n.lower()
+    parts = nl.split()
+    if 'root' in parts or nl.endswith('root') or '[root]' in nl:
+        return False
+    if 'com' in nl.split() or n.endswith('_COM') or '[com' in nl:
+        return False
+    if n.startswith('x_NPC '):
+        return False
+    return True
+
+
+def _build_skel_data_section(skel: Skeleton,
+                              name_offs: Dict[str, int],
+                              ptr_size: int = 4) -> Tuple[bytes, _FixupBuilder]:
+    """Build __data__ section for a Skyrim skeleton HKX."""
+    P = ptr_size
+    arr_sz = P + 8
+    base_sz = 2 * P
+
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    def rel():
+        return len(data)
+
+    def write(b):
+        off = len(data)
+        data.extend(b)
+        return off
+
+    def write_string(s: str) -> int:
+        off = rel()
+        data.extend(s.encode('ascii') + b'\x00')
+        return off
+
+    def align16():
+        while len(data) % 16:
+            data.append(0)
+
+    def align_to(n):
+        while len(data) % n:
+            data.append(0)
+
+    def write_arr(count):
+        return write(_hkarray(count, P))
+
+    def write_ptr():
+        return write(_ptr(P))
+
+    bones = list(skel.bones)
+    nbones = len(bones)
+    parents = list(skel.parents) if skel.parents else [-1] * nbones
+    if len(parents) < nbones:
+        parents = parents + [-1] * (nbones - len(parents))
+    poses = list(skel.reference_pose)
+    while len(poses) < nbones:
+        poses.append(BonePose())
+    if skel.lock_translation and len(skel.lock_translation) == nbones:
+        lock = list(skel.lock_translation)
+    else:
+        lock = [_default_lock_translation(b) for b in bones]
+    skel_name = bones[0] if bones else (skel.name or "Root")
+    float_slots = list(skel.float_slots)
+    ref_floats = list(skel.reference_floats)
+    if len(ref_floats) < len(float_slots):
+        ref_floats = ref_floats + [0.0] * (len(float_slots) - len(ref_floats))
+
+    # ═══ hkRootLevelContainer ═══
+    rlc_rel = rel()
+    fx.add_virtual(rlc_rel, 0, name_offs['hkRootLevelContainer'])
+    arr_rlc = write_arr(2)
+    align16()
+
+    # NamedVariant data: 2 entries × 3*P
+    nv_data_rel = rel()
+    fx.add_local(arr_rlc, nv_data_rel)
+    nv0_name = write_ptr(); nv0_class = write_ptr(); nv0_variant = write_ptr()
+    nv1_name = write_ptr(); nv1_class = write_ptr(); nv1_variant = write_ptr()
+    align16()
+
+    # Variant strings
+    nv0_name_str = rel(); write_string("Merged Animation Container"); align_to(2)
+    nv0_class_str = rel(); write_string("hkaAnimationContainer"); align_to(2)
+    nv1_name_str = rel(); write_string("Resource Data"); align_to(2)
+    nv1_class_str = rel(); write_string("hkMemoryResourceContainer"); align16()
+
+    fx.add_local(nv0_name, nv0_name_str)
+    fx.add_local(nv0_class, nv0_class_str)
+    fx.add_local(nv1_name, nv1_name_str)
+    fx.add_local(nv1_class, nv1_class_str)
+
+    # ═══ hkaAnimationContainer ═══
+    ac_rel = rel()
+    fx.add_virtual(ac_rel, 0, name_offs['hkaAnimationContainer'])
+    fx.add_global(nv0_variant, 2, ac_rel)
+
+    write(bytes(base_sz))              # base class
+    arr_skels = write_arr(1)           # skeletons
+    write_arr(0)                       # animations
+    write_arr(0)                       # bindings
+    write_arr(0)                       # attachments
+    write_arr(0)                       # skins
+    align16()
+
+    # Skeleton pointer array (1 entry)
+    skel_ptr_array_rel = rel()
+    fx.add_local(arr_skels, skel_ptr_array_rel)
+    skel_ptr = write_ptr()
+    align16()
+
+    # ═══ hkaSkeleton ═══
+    # Layout: base(base_sz) + name(P) + parentIndices(arr_sz) + bones(arr_sz)
+    #         + referencePose(arr_sz) + referenceFloats(arr_sz) + floatSlots(arr_sz)
+    #         + localFrames(arr_sz)
+    o_name = base_sz
+    o_pi = o_name + P
+    o_bones = o_pi + arr_sz
+    o_pose = o_bones + arr_sz
+    o_rfloats = o_pose + arr_sz
+    o_fslots = o_rfloats + arr_sz
+    o_lframes = o_fslots + arr_sz
+    skel_struct_size = _align(o_lframes + arr_sz, 16)
+
+    skel_obj_rel = rel()
+    fx.add_virtual(skel_obj_rel, 0, name_offs['hkaSkeleton'])
+    fx.add_global(skel_ptr, 2, skel_obj_rel)
+
+    skel_buf = bytearray(skel_struct_size)
+    # parentIndices count/cap
+    struct.pack_into('<I', skel_buf, o_pi + P, nbones)
+    struct.pack_into('<I', skel_buf, o_pi + P + 4, nbones | 0x80000000)
+    # bones count/cap
+    struct.pack_into('<I', skel_buf, o_bones + P, nbones)
+    struct.pack_into('<I', skel_buf, o_bones + P + 4, nbones | 0x80000000)
+    # referencePose count/cap
+    struct.pack_into('<I', skel_buf, o_pose + P, nbones)
+    struct.pack_into('<I', skel_buf, o_pose + P + 4, nbones | 0x80000000)
+    # referenceFloats count/cap
+    if ref_floats:
+        struct.pack_into('<I', skel_buf, o_rfloats + P, len(ref_floats))
+        struct.pack_into('<I', skel_buf, o_rfloats + P + 4, len(ref_floats) | 0x80000000)
+    else:
+        struct.pack_into('<I', skel_buf, o_rfloats + P + 4, 0x80000000)
+    # floatSlots count/cap
+    if float_slots:
+        struct.pack_into('<I', skel_buf, o_fslots + P, len(float_slots))
+        struct.pack_into('<I', skel_buf, o_fslots + P + 4, len(float_slots) | 0x80000000)
+    else:
+        struct.pack_into('<I', skel_buf, o_fslots + P + 4, 0x80000000)
+    # localFrames empty, flagged
+    struct.pack_into('<I', skel_buf, o_lframes + P + 4, 0x80000000)
+    write(bytes(skel_buf))
+
+    # Skeleton name string
+    skel_name_rel = rel()
+    write_string(skel_name)
+    fx.add_local(skel_obj_rel + o_name, skel_name_rel)
+    align_to(2)
+
+    # parentIndices data (int16 array)
+    pi_data_rel = rel()
+    fx.add_local(skel_obj_rel + o_pi, pi_data_rel)
+    for p in parents:
+        write(_w_i16(p))
+    align_to(P)
+
+    # bones array — one hkaBone per bone
+    bone_stride = 16 if P == 8 else 8
+    bones_data_rel = rel()
+    fx.add_local(skel_obj_rel + o_bones, bones_data_rel)
+    bone_struct_offsets = []
+    for i in range(nbones):
+        bs_rel = rel()
+        bone_struct_offsets.append(bs_rel)
+        write(bytes(P))                          # name ptr (placeholder)
+        write(struct.pack('<I', 1 if lock[i] else 0))  # lockTranslation
+        if bone_stride > P + 4:
+            write(bytes(bone_stride - (P + 4)))  # padding
+    align_to(2)
+
+    # bone name strings — fix up each bone struct's name ptr
+    # Each string must be at a 2-byte aligned offset (hkxcmd requirement).
+    for i in range(nbones):
+        align_to(2)
+        bn_rel = rel()
+        write_string(bones[i] or "")
+        fx.add_local(bone_struct_offsets[i], bn_rel)
+    align16()
+
+    # referencePose data — hkQsTransform (0x30 bytes each)
+    pose_data_rel = rel()
+    fx.add_local(skel_obj_rel + o_pose, pose_data_rel)
+    for bp in poses:
+        # translation: 3 floats + pad
+        tx = bp.translation if bp.translation else [0.0, 0.0, 0.0]
+        rq = bp.rotation if bp.rotation else [0.0, 0.0, 0.0, 1.0]
+        sc = bp.scale if bp.scale else [1.0, 1.0, 1.0]
+        write(struct.pack('<ffff', tx[0], tx[1], tx[2], 0.0))
+        write(struct.pack('<ffff', rq[0], rq[1], rq[2], rq[3]))
+        write(struct.pack('<ffff', sc[0], sc[1], sc[2], 0.0))
+    align16()
+
+    # referenceFloats / floatSlots data
+    if ref_floats:
+        rf_rel = rel()
+        fx.add_local(skel_obj_rel + o_rfloats, rf_rel)
+        for v in ref_floats:
+            write(struct.pack('<f', v))
+        align_to(P)
+
+    if float_slots:
+        # Array of pointer-to-string
+        fs_arr_rel = rel()
+        fx.add_local(skel_obj_rel + o_fslots, fs_arr_rel)
+        slot_ptr_offsets = []
+        for _ in float_slots:
+            slot_ptr_offsets.append(rel())
+            write_ptr()
+        align_to(2)
+        for i, name in enumerate(float_slots):
+            sn_rel = rel()
+            write_string(name)
+            fx.add_local(slot_ptr_offsets[i], sn_rel)
+        align16()
+
+    align16()
+
+    # ═══ hkMemoryResourceContainer ═══
+    mrc_rel = rel()
+    fx.add_virtual(mrc_rel, 0, name_offs['hkMemoryResourceContainer'])
+    fx.add_global(nv1_variant, 2, mrc_rel)
+    mrc_buf = bytearray(base_sz + 3 * arr_sz + 2 * P)
+    # externalLinks empty/flagged
+    struct.pack_into('<I', mrc_buf, base_sz + arr_sz + P + 4, 0x80000000)
+    # objectData empty/flagged
+    struct.pack_into('<I', mrc_buf, base_sz + 2 * arr_sz + P + 4, 0x80000000)
+    write(bytes(mrc_buf))
+    align16()
+
+    return bytes(data), fx
+
+
+def write_skyrim_skeleton(filepath: str, skel: Skeleton,
+                          ptr_size: int = 8) -> None:
+    """Write a Skeleton to a Skyrim binary HKX file (hk_2010).
+
+    Parameters
+    ----------
+    filepath : str
+        Output path for the .hkx file.
+    skel : Skeleton
+        Must have bones, parents, and reference_pose populated.
+    ptr_size : int
+        4 for Skyrim LE (32-bit), 8 for Skyrim SE (64-bit).
+    """
+    if not skel.bones:
+        raise ValueError("Skeleton has no bones — cannot export.")
+
+    cn_data, name_offs = _build_skel_classnames_v8()
+    obj_data, fx = _build_skel_data_section(skel, name_offs, ptr_size)
+
+    local_tbl = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl = fx.build_virtual_table()
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
+    cn_start = 0x40 + 3 * _SEC_HDR_SIZE
     cn_end = cn_start + len(cn_data)
     data_start = cn_end
 

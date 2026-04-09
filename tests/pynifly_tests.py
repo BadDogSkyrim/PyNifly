@@ -2711,6 +2711,70 @@ def TEST_SET_SKINTINT():
         f"shader type"
 
 
+@test_category("HKX", "SKYRIM")
+def TEST_HKX_SKELETON_ROUNDTRIP():
+    """Native Skyrim skeleton.hkx round-trip (LE + SE) against vanilla files."""
+    import importlib.util
+
+    hkx_dir = Path(__file__).resolve().parents[1] / 'io_scene_nifly' / 'hkx'
+    def _load(name):
+        spec = importlib.util.spec_from_file_location(name, hkx_dir / f'{name}.py')
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    _load('anim_fo4')
+    askyr = _load('anim_skyrim')
+
+    # Vanilla SE skeletons covering different shapes:
+    # human (lots of float slots + locks), wolf (no slots), atronach (mixed locks),
+    # draugr (some slots), 1st-person (zero locks).
+    candidates = [
+        'character/character assets/skeleton.hkx',
+        'character/_1stperson/characterassets/skeletonfirst.hkx',
+        'draugr/character assets/skeletons.hkx',
+        'canine/character assets wolf/skeleton.hkx',
+        'atronachfrost/character assets/skeleton.hkx',
+        'dragon/character assets/skeleton.hkx',
+    ]
+    base = Path(r'C:/Modding/SkyrimSEAssets/00 Vanilla Assets/meshes/actors')
+    files = [base / c for c in candidates if (base / c).exists()]
+    if not files:
+        print("(skipped — vanilla SE assets not available)")
+        return
+
+    out = Path(_test_file(r"tests/Out/TEST_HKX_SKELETON_ROUNDTRIP.hkx"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    def pose_eq(a, b):
+        for x, y in zip(a.translation + a.rotation + a.scale,
+                        b.translation + b.rotation + b.scale):
+            if not math.isclose(x, y, abs_tol=1e-6):
+                return False
+        return True
+
+    for f in files:
+        s = askyr.load_skyrim_skeleton(str(f))
+        assert s is not None, f"failed to load {f}"
+        assert len(s.bones) > 0, f"empty bone list for {f}"
+        assert len(s.lock_translation) == len(s.bones), f"lock_translation length mismatch for {f}"
+
+        for ptr_size in (4, 8):
+            askyr.write_skyrim_skeleton(str(out), s, ptr_size=ptr_size)
+            s2 = askyr.load_skyrim_skeleton(str(out))
+            assert s2 is not None, f"failed to reload ptr_size={ptr_size} {f}"
+            assert s.bones == s2.bones, f"bones mismatch ptr_size={ptr_size} {f}"
+            assert s.parents == s2.parents, f"parents mismatch ptr_size={ptr_size} {f}"
+            assert s.lock_translation == s2.lock_translation, \
+                f"lock_translation mismatch ptr_size={ptr_size} {f}"
+            assert s.float_slots == s2.float_slots, \
+                f"float_slots mismatch ptr_size={ptr_size} {f}"
+            assert all(pose_eq(a, b) for a, b in zip(s.reference_pose, s2.reference_pose)), \
+                f"reference_pose mismatch ptr_size={ptr_size} {f}"
+            assert s2.name == s.bones[0], \
+                f"skeleton name should equal root bone for {f}"
+
+
 @test_category("SKIP")
 def TEST_HKX_SKELETON():
     """Test read/write of hkx skeleton files (in XML format)."""

@@ -27,6 +27,9 @@ from . import anim_skyrim
 PYN_HKX_BONES_PROP = 'PYN_HKX_BONES'
 PYN_HKX_GAME_PROP = 'PYN_HKX_GAME'
 PYN_HKX_PTR_SIZE_PROP = 'PYN_HKX_PTR_SIZE'
+PYN_HKX_LOCK_TRANSLATION_PROP = 'PYN_HKX_LOCK_TRANSLATION'
+PYN_HKX_FLOAT_SLOTS_PROP = 'PYN_HKX_FLOAT_SLOTS'
+PYN_HKX_REFERENCE_FLOATS_PROP = 'PYN_HKX_REFERENCE_FLOATS'
 PYN_HKX_ADDITIVE_PROP = 'PYN_HKX_ADDITIVE'
 
 
@@ -545,6 +548,12 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         else:
             arma[PYN_HKX_PTR_SIZE_PROP] = 4  # default LE
 
+        # Stash float slots (weapon visibility, etc.) on the armature object
+        if skel.float_slots:
+            arma[PYN_HKX_FLOAT_SLOTS_PROP] = ";".join(skel.float_slots)
+        if skel.reference_floats:
+            arma[PYN_HKX_REFERENCE_FLOATS_PROP] = list(skel.reference_floats)
+
         # Compute global transforms from local reference poses
         global_xfs = []
         for i, pose in enumerate(skel.reference_pose):
@@ -604,6 +613,19 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                         bone.parent = parent_bone
         finally:
             bpy.ops.object.mode_set(mode='OBJECT')
+
+        # Stash lockTranslation per bone (object mode required for arm_data.bones access)
+        if skel.lock_translation and len(skel.lock_translation) == len(skel.bones):
+            for i, name in enumerate(skel.bones):
+                if not name:
+                    continue
+                if self.rename_bones or self.rename_bones_niftools:
+                    bl_name = skyrimDict.blender_name(name)
+                else:
+                    bl_name = name
+                bone = arm_data.bones.get(bl_name)
+                if bone is not None:
+                    bone[PYN_HKX_LOCK_TRANSLATION_PROP] = bool(skel.lock_translation[i])
 
         bdefs.highlight_objects([arma], context)
         log.info(f"Imported Skyrim HKX skeleton: {arm_name} ({len(skel.bones)} bones)")

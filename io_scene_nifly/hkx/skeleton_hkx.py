@@ -26,6 +26,89 @@ log = logging.getLogger('pynifly')
 numseqpat = re.compile("[\d\.\s-]+")
 numberpat = re.compile("[\d\.-]+")
 
+
+def extract_skeleton_from_armature(arma, selected_bones=None):
+    """Extract a Skeleton dataclass from a Blender armature object.
+
+    selected_bones: optional list of bpy Bones to export. If None, exports all
+                    pose-mode-selected bones.
+    """
+    from .anim_fo4 import Skeleton, BonePose
+    from .import_hkx import (
+        PYN_HKX_LOCK_TRANSLATION_PROP,
+        PYN_HKX_FLOAT_SLOTS_PROP,
+        PYN_HKX_REFERENCE_FLOATS_PROP,
+    )
+
+    if selected_bones is None:
+        if hasattr(arma.pose.bones[0], 'select'):
+            selected_bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.select]
+        else:
+            selected_bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.bone.select]
+    if not selected_bones:
+        selected_bones = list(arma.data.bones)
+
+    bones = list(selected_bones)
+    bone_set = set(bones)
+
+    def find_export_parent(b):
+        bp = b.parent
+        while bp is not None:
+            if bp in bone_set:
+                return bp
+            bp = bp.parent
+        return None
+
+    # Order bones so a parent always precedes its children, matching the
+    # selection order otherwise.
+    skel = Skeleton()
+    skel.name = bones[0].name if bones else ""
+
+    parents = []
+    for b in bones:
+        p = find_export_parent(b)
+        parents.append(bones.index(p) if p in bones else -1)
+
+    for i, b in enumerate(bones):
+        skel.bones.append(b.name)
+        skel.parents.append(parents[i])
+
+        # lockTranslation custom prop, fall back to heuristic if missing
+        if PYN_HKX_LOCK_TRANSLATION_PROP in b:
+            lock = bool(b[PYN_HKX_LOCK_TRANSLATION_PROP])
+        else:
+            from .anim_skyrim import _default_lock_translation
+            lock = _default_lock_translation(b.name)
+        skel.lock_translation.append(lock)
+
+        # Reference pose: parent-relative TRS in armature space.
+        mx = b.matrix_local.copy()
+        p = find_export_parent(b)
+        if p is None and b.parent is not None:
+            p = b.parent
+        if p is not None:
+            mx = p.matrix_local.inverted() @ mx
+        loc = mx.translation
+        q = mx.to_quaternion()
+        sc = mx.to_scale()
+        skel.reference_pose.append(BonePose(
+            translation=[loc.x, loc.y, loc.z],
+            rotation=[q.x, q.y, q.z, q.w],
+            scale=[sc.x, sc.y, sc.z],
+        ))
+
+    # Float slots / reference floats from armature object custom props
+    fs = arma.get(PYN_HKX_FLOAT_SLOTS_PROP)
+    if fs:
+        skel.float_slots = fs.split(";") if isinstance(fs, str) else list(fs)
+    rf = arma.get(PYN_HKX_REFERENCE_FLOATS_PROP)
+    if rf:
+        skel.reference_floats = list(rf)
+    if skel.float_slots and not skel.reference_floats:
+        skel.reference_floats = [0.0] * len(skel.float_slots)
+
+    return skel
+
 class SkeletonArmature():
     def __init__(self, name):
         """Make an armature to import a skeleton XML into. 

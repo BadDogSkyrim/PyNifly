@@ -48,6 +48,9 @@ class Skeleton:
     bones: List[str] = field(default_factory=list)
     parents: List[int] = field(default_factory=list)
     reference_pose: List[BonePose] = field(default_factory=list)
+    lock_translation: List[bool] = field(default_factory=list)
+    float_slots: List[str] = field(default_factory=list)
+    reference_floats: List[float] = field(default_factory=list)
 
     def __repr__(self):
         return f"Skeleton('{self.name}', {len(self.bones)} bones)"
