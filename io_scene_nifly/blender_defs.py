@@ -660,13 +660,13 @@ def mesh_create_uv(the_mesh, uv_points):
     """ Create UV in Blender to match UVpoints from Nif
         uv_points = [(u, v)...] indexed by vertex index
         """
-    new_uv = [(0,0)] * len(the_mesh.loops)
+    flat_uv = [0.0] * (len(the_mesh.loops) * 2)
     for lp_idx, lp in enumerate(the_mesh.loops):
         vert_targeted = lp.vertex_index
-        new_uv[lp_idx] = (uv_points[vert_targeted][0], 1-uv_points[vert_targeted][1])
+        flat_uv[lp_idx * 2] = uv_points[vert_targeted][0]
+        flat_uv[lp_idx * 2 + 1] = 1 - uv_points[vert_targeted][1]
     new_uvlayer = the_mesh.uv_layers.new(do_init=False)
-    for i, this_uv in enumerate(new_uv):
-        new_uvlayer.data[i].uv = this_uv
+    new_uvlayer.data.foreach_set("uv", flat_uv)
 
 
 def get_setting_from(name, objlist, default):

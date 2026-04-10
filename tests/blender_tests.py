@@ -7171,42 +7171,57 @@ def TEST_SKEL_XML():
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_SKEL_TAIL_HKX():
     """Can import and export a HKX skeleton file."""
+    from io_scene_nifly.hkx import anim_skyrim
+
     testfile = TTB.test_file(r"tests\Skyrim\tailskeleton.hkx")
     outfile = TTB.test_file("tests/out/TEST_SKEL_TAIL_HKX.hkx")
 
-    bpy.ops.import_scene.pynifly_hkx(filepath=testfile, 
-                                     blender_xf=False, 
+    # Load ground truth from the XML skeleton
+    orig = anim_skyrim.load_skyrim_skeleton(testfile)
+    assert orig is not None, "Failed to load tail skeleton"
+
+    # Import via operator
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
+                                     blender_xf=False,
                                      rename_bones=False)
-    
+
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
     bpy.ops.object.select_all(action='DESELECT')
     BD.ObjectSelect([arma], active=True)
 
-    bpy.ops.object.mode_set(mode='POSE')
-    for b in arma.pose.bones:
-        if hasattr(b.bone, 'select'):
-            b.bone.select = True
-        else:
-            # Blender >= 5.0
-            b.select = True
+    # Export via operator
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile, game='SKYRIM_SE')
 
-    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+    # Read back and compare against ground truth
+    rt = anim_skyrim.load_skyrim_skeleton(outfile)
+    assert rt is not None, "Failed to reload exported skeleton"
+    assert len(rt.bones) == len(orig.bones), \
+        f"Bone count: {len(rt.bones)} vs {len(orig.bones)}"
 
-    hkx_in = pyn.hkxSkeletonFile(testfile)
-    hkx_out = pyn.hkxSkeletonFile(outfile)
-    tbin = hkx_in.nodes['TailBone03']
-    tbout = hkx_out.nodes['TailBone03']
-    assert tbin.parent.name == tbout.parent.name, "Have same parents"
-    assert tbin.properties.transform.NearEqual(tbout.properties.transform), "Have same transforms"
+    for i in range(len(orig.bones)):
+        assert rt.bones[i] == orig.bones[i], \
+            f"Bone {i} name: '{rt.bones[i]}' vs '{orig.bones[i]}'"
+        assert rt.parents[i] == orig.parents[i], \
+            f"Bone {orig.bones[i]} parent: {rt.parents[i]} vs {orig.parents[i]}"
+        a = orig.reference_pose[i]
+        b = rt.reference_pose[i]
+        for j in range(3):
+            assert abs(a.translation[j] - b.translation[j]) < 0.001, \
+                f"{orig.bones[i]} translation[{j}]: {a.translation[j]:.6f} vs {b.translation[j]:.6f}"
+        dot = sum(x * y for x, y in zip(a.rotation, b.rotation))
+        sign = 1 if dot >= 0 else -1
+        for j in range(4):
+            assert abs(a.rotation[j] - sign * b.rotation[j]) < 0.001, \
+                f"{orig.bones[i]} rotation[{j}]: {a.rotation[j]:.6f} vs {b.rotation[j]:.6f}"
 
-    # TT.hide_all()
-    bpy.ops.import_scene.pynifly_hkx(filepath=outfile, 
-                                     blender_xf=False, 
+    # Re-import the output and compare armature matrices
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
+                                     blender_xf=False,
                                      rename_bones=False)
-    
+
     armacheck = bpy.context.object
-    assert TTB.MatNearEqual(arma.data.bones['TailBone01'].matrix_local, 
+    assert TTB.MatNearEqual(arma.data.bones['TailBone01'].matrix_local,
                            armacheck.data.bones['TailBone01'].matrix_local), \
         f"Have matching transforms."
 
@@ -7214,41 +7229,57 @@ def TEST_SKEL_TAIL_HKX():
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_AUXBONES_EXTRACT():
     """Can extract an auxbones skeleton from a full skeleton."""
+    from io_scene_nifly.hkx import anim_skyrim
+
     testfile = TTB.test_file(r"tests\Skyrim\skeletonbeast_vanilla.nif")
     outfile = TTB.test_file("tests/out/TEST_AUXBONES_EXTRACT.hkx")
     checkfile = TTB.test_file(r"tests\Skyrim\tailskeleton.hkx")
 
-    bpy.ops.import_scene.pynifly(filepath=testfile, 
-                                 blender_xf=False, 
-                                 rename_bones=False, 
+    # Load the reference tail skeleton for comparison
+    check_skel = anim_skyrim.load_skyrim_skeleton(checkfile)
+    assert check_skel is not None, "Failed to load reference tail skeleton"
+
+    # Import the full beast skeleton NIF
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 blender_xf=False,
+                                 rename_bones=False,
                                  import_collisions=False)
-    
+
     arma = bpy.context.object
     assert arma and arma.type=='ARMATURE', f"Loaded armature: {arma}"
 
+    # Select only TailBone bones for export
     bpy.ops.object.mode_set(mode='POSE')
     for b in arma.pose.bones:
-        if hasattr(b.bone, 'select'):
-            b.bone.select = ("TailBone" in b.name)
+        sel = ("TailBone" in b.name)
+        if hasattr(b, 'select'):
+            b.select = sel
         else:
-            # Blender >= 5.0
-            b.select = ("TailBone" in b.name)
+            b.bone.select = sel
 
-    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile, game='SKYRIM_SE')
 
-    hkx_check = pyn.hkxSkeletonFile(checkfile)
-    hkx_out = pyn.hkxSkeletonFile(outfile)
-    assert len(hkx_check.nodes) == len(hkx_out.nodes), "All nodes exported"
-    for nodename in [n for n in hkx_check.nodes if n != hkx_check.rootName]:
-        nodecheck = hkx_check.nodes[nodename]
-        nodeout = hkx_out.nodes[nodename]
-        assert nodecheck.transform.NearEqual(nodeout.transform), \
-            f"Transforms match on {nodename}"
-        if nodecheck.parent:
-            assert nodecheck.parent.name == nodeout.parent.name, f"Bones have same parent"
-        else:
-            assert nodeout.parent == None, f"Neither bone has parent"
-    assert hkx_check.root.transform.NearEqual(hkx_out.root.transform), f"Root transforms match"
+    # Read back and compare against reference tail skeleton
+    out_skel = anim_skyrim.load_skyrim_skeleton(outfile)
+    assert out_skel is not None, "Failed to reload exported skeleton"
+    assert len(out_skel.bones) == len(check_skel.bones), \
+        f"Bone count: {len(out_skel.bones)} vs {len(check_skel.bones)}"
+
+    for i in range(len(check_skel.bones)):
+        assert out_skel.bones[i] == check_skel.bones[i], \
+            f"Bone {i} name: '{out_skel.bones[i]}' vs '{check_skel.bones[i]}'"
+        assert out_skel.parents[i] == check_skel.parents[i], \
+            f"Bone {check_skel.bones[i]} parent: {out_skel.parents[i]} vs {check_skel.parents[i]}"
+        a = check_skel.reference_pose[i]
+        b = out_skel.reference_pose[i]
+        for j in range(3):
+            assert abs(a.translation[j] - b.translation[j]) < 0.001, \
+                f"{check_skel.bones[i]} translation[{j}]: {a.translation[j]:.6f} vs {b.translation[j]:.6f}"
+        dot = sum(x * y for x, y in zip(a.rotation, b.rotation))
+        sign = 1 if dot >= 0 else -1
+        for j in range(4):
+            assert abs(a.rotation[j] - sign * b.rotation[j]) < 0.001, \
+                f"{check_skel.bones[i]} rotation[{j}]: {a.rotation[j]:.6f} vs {b.rotation[j]:.6f}"
 
 
 @TT.category('SKYRIMSE', 'HKX', 'ARMATURE')  

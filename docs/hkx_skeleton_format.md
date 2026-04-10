@@ -1,11 +1,14 @@
 # Skyrim HKX skeleton file format
 
 Notes on the binary `skeleton.hkx` format used by Skyrim LE and SE
-(`hk_2010.2.0-r1` packfile, classversion 8). Findings come from reverse
+(`hk_2010.2.0-r1` packfile, classversion 8). For the FO4 equivalent
+(hk_2014), see [`hkx_skeleton_format_fo4.md`](hkx_skeleton_format_fo4.md).
+
+Findings come from reverse
 engineering all 50 vanilla SE skeleton files; the writer in
 [`io_scene_nifly/hkx/anim_skyrim.py`](../io_scene_nifly/hkx/anim_skyrim.py)
 (`write_skyrim_skeleton`) and the parser in the same file
-(`_parse_skeleton_hkx`) are the authoritative implementations.
+(`_parse_skeleton_hkx`) implement parsing and writing.
 
 For the surrounding packfile container (file header, section headers,
 fixup tables, hkArray layout) see [`hkx_animation_format.md`](hkx_animation_format.md)
@@ -137,7 +140,7 @@ Bethesda's data — `NPC R Thigh` is labeled `[LThg]` and `NPC R Calf` is
 labeled `[LClf]` — preserved verbatim.
 
 The 1st-person skeleton is the *only* vanilla file with zero locked
-bones. Probably an oversight; in-game it doesn't matter because the
+bones. May be an oversight; in-game it doesn't matter because the
 1st-person camera doesn't run physics.
 
 ### `referenceFloats` and `floatSlots`
@@ -244,7 +247,7 @@ Root / COM / `x_NPC *` bones, lock everything else.
 
 `localFrames` is not preserved — no vanilla file uses it, and we'd
 need to round-trip `hkLocalFrame` as an opaque blob if a non-vanilla
-skeleton ever populates it. The importer warns instead.
+skeleton ever populates it. The importer warns instead if it finds a populated `localFrames`.
 
 **Bone ordering** is critical — animations reference bones by index.
 Blender does not preserve bone insertion order in `armature.data.bones`.
