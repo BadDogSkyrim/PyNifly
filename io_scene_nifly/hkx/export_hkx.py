@@ -297,7 +297,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
     
 
 class ExportSkelHKX(bpy.types.Operator, ExportHelper):
-    """Export Blender armature to a Skyrim HKX skeleton file (native, no hkxcmd)"""
+    """Export Blender armature to an HKX skeleton file (Skyrim LE/SE or FO4)"""
 
     bl_idname = "export_scene.skeleton_hkx"
     bl_label = 'Export skeleton HKX'
@@ -311,6 +311,7 @@ class ExportSkelHKX(bpy.types.Operator, ExportHelper):
         items=[
             ('SKYRIM_LE', "Skyrim LE", "Skyrim Legendary Edition (hk_2010, 32-bit pointers)"),
             ('SKYRIM_SE', "Skyrim SE", "Skyrim Special Edition (hk_2010, 64-bit pointers)"),
+            ('FO4', "Fallout 4", "Fallout 4 (hk_2014, 64-bit pointers)"),
         ],
         default='SKYRIM_SE') # type: ignore
 
@@ -322,6 +323,8 @@ class ExportSkelHKX(bpy.types.Operator, ExportHelper):
             if arm_game == 'SKYRIM':
                 ptr_size = obj.get(PYN_HKX_PTR_SIZE_PROP, 8)
                 self.game = 'SKYRIM_SE' if ptr_size == 8 else 'SKYRIM_LE'
+            elif arm_game == 'FO4':
+                self.game = 'FO4'
 
     @classmethod
     def poll(cls, context):
@@ -338,8 +341,11 @@ class ExportSkelHKX(bpy.types.Operator, ExportHelper):
         try:
             arma = context.object
             skel = skeleton_hkx.extract_skeleton_from_armature(arma)
-            ptr_size = 8 if self.game == 'SKYRIM_SE' else 4
-            anim_skyrim.write_skyrim_skeleton(self.filepath, skel, ptr_size=ptr_size)
+            if self.game == 'FO4':
+                anim_fo4.write_fo4_skeleton(self.filepath, skel)
+            else:
+                ptr_size = 8 if self.game == 'SKYRIM_SE' else 4
+                anim_skyrim.write_skyrim_skeleton(self.filepath, skel, ptr_size=ptr_size)
             log.info(f"Exported {self.game} skeleton: {self.filepath} ({len(skel.bones)} bones)")
 
             wm = context.window_manager

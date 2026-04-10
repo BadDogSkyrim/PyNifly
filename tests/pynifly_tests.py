@@ -2824,6 +2824,49 @@ def TEST_HKX_SKELETON_BLENDER_ROUNDTRIP():
                     f"{va} vs {vb} (ptr_size={ptr_size})"
 
 
+@test_category("HKX", "FO4")
+def TEST_HKX_FO4_SKELETON_ROUNDTRIP():
+    """FO4 skeleton HKX parse-write-reparse must preserve reference poses."""
+    import importlib.util
+
+    hkx_dir = Path(__file__).resolve().parents[1] / 'io_scene_nifly' / 'hkx'
+    def _load(name):
+        spec = importlib.util.spec_from_file_location(name, hkx_dir / f'{name}.py')
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    afo4 = _load('anim_fo4')
+
+    vanilla = Path(_test_file(r"tests/FO4/skeleton_vanilla.hkx"))
+    assert vanilla.exists(), f"Missing test fixture: {vanilla}"
+    out = Path(_test_file(r"tests/Out/TEST_HKX_FO4_SKELETON_ROUNDTRIP.hkx"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    orig = afo4.load_fo4_skeleton(str(vanilla))
+    assert orig is not None, "Failed to load vanilla FO4 skeleton"
+    assert len(orig.bones) == 95, f"Expected 95 bones, got {len(orig.bones)}"
+    assert len(orig.lock_translation) == len(orig.bones), \
+        f"lockTranslation length: {len(orig.lock_translation)} vs {len(orig.bones)}"
+
+    afo4.write_fo4_skeleton(str(out), orig)
+    rt = afo4.load_fo4_skeleton(str(out))
+    assert rt is not None, "Failed to reload FO4 skeleton"
+    assert orig.bones == rt.bones, "Bone names mismatch"
+    assert orig.parents == rt.parents, "Parents mismatch"
+    assert orig.lock_translation == rt.lock_translation, "lockTranslation mismatch"
+    assert orig.float_slots == rt.float_slots, "floatSlots mismatch"
+
+    for i in range(len(orig.bones)):
+        a = orig.reference_pose[i]
+        b = rt.reference_pose[i]
+        for j, (va, vb) in enumerate(zip(
+                a.translation + a.rotation + a.scale,
+                b.translation + b.rotation + b.scale)):
+            assert math.isclose(va, vb, abs_tol=1e-6), \
+                f"Pose mismatch bone {i} ({orig.bones[i]}) component {j}: {va} vs {vb}"
+
+
 @test_category("SKIP")
 def TEST_HKX_SKELETON():
     """Test read/write of hkx skeleton files (in XML format)."""

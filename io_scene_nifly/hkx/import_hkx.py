@@ -438,6 +438,25 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         finally:
             bpy.ops.object.mode_set(mode='OBJECT')
 
+        # Stash lockTranslation per bone
+        if skel.lock_translation and len(skel.lock_translation) == len(skel.bones):
+            for i, name in enumerate(skel.bones):
+                if not name:
+                    continue
+                if self.rename_bones or self.rename_bones_niftools:
+                    bl_name = fo4Dict.blender_name(name)
+                else:
+                    bl_name = name
+                bone = arm_data.bones.get(bl_name)
+                if bone is not None:
+                    bone[PYN_HKX_LOCK_TRANSLATION_PROP] = bool(skel.lock_translation[i])
+
+        # Stash float slots / reference floats on the armature object
+        if skel.float_slots:
+            arma[PYN_HKX_FLOAT_SLOTS_PROP] = ";".join(skel.float_slots)
+        if skel.reference_floats:
+            arma[PYN_HKX_REFERENCE_FLOATS_PROP] = list(skel.reference_floats)
+
         bdefs.highlight_objects([arma], context)
         log.info(f"Imported FO4 HKX skeleton: {arm_name} ({len(skel.bones)} bones)")
         return 'FINISHED'

@@ -7430,6 +7430,107 @@ def TEST_HKX_SKELETON_VANILLA_ROUNDTRIP():
     assert len(rt.bones) == len(orig.bones), "Bone count mismatch after full roundtrip"
 
 
+@TT.category('FO4', 'HKX', 'ARMATURE')
+def TEST_HKX_FO4_SKELETON_VANILLA_ROUNDTRIP():
+    """Import vanilla FO4 skeleton.hkx, extract from armature, compare poses."""
+    from io_scene_nifly.hkx import anim_fo4, skeleton_hkx
+
+    testfile = TTB.test_file(r"tests\FO4\skeleton_vanilla.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_FO4_SKELETON_VANILLA_ROUNDTRIP.hkx")
+
+    # Parse the vanilla HKX to get ground-truth reference poses
+    orig = anim_fo4.load_fo4_skeleton(testfile)
+    assert orig is not None, "Failed to load vanilla FO4 skeleton"
+    assert len(orig.bones) == 95, f"Expected 95 bones, got {len(orig.bones)}"
+
+    # Import the HKX into Blender
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
+                                      rename_bones=False,
+                                      rename_bones_niftools=False,
+                                      blender_xf=False,
+                                      create_collection=True)
+
+    arma = bpy.context.object
+    assert arma and arma.type == 'ARMATURE', f"Expected armature, got {arma}"
+
+    # Select all bones for export
+    bpy.ops.object.mode_set(mode='POSE')
+    for b in arma.pose.bones:
+        if hasattr(b, 'select'):
+            b.select = True
+        else:
+            b.bone.select = True
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # Extract skeleton from armature (same code path as export)
+    extracted = skeleton_hkx.extract_skeleton_from_armature(arma)
+
+    assert len(extracted.bones) == len(orig.bones), \
+        f"Bone count: {len(extracted.bones)} vs {len(orig.bones)}"
+
+    # q and -q represent the same rotation
+    def quat_diff(a_rot, b_rot):
+        dot = sum(x * y for x, y in zip(a_rot, b_rot))
+        sign = 1 if dot >= 0 else -1
+        return [abs(a_rot[j] - sign * b_rot[j]) for j in range(4)]
+
+    max_trans_err = 0.0
+    max_rot_err = 0.0
+    max_scale_err = 0.0
+    worst_bone = ""
+    worst_bone_rot = ""
+
+    for i in range(len(orig.bones)):
+        assert extracted.bones[i] == orig.bones[i], \
+            f"Bone {i} name: '{extracted.bones[i]}' vs '{orig.bones[i]}'"
+
+        a = orig.reference_pose[i]
+        b = extracted.reference_pose[i]
+
+        for j in range(3):
+            terr = abs(a.translation[j] - b.translation[j])
+            if terr > max_trans_err:
+                max_trans_err = terr
+                worst_bone = f"{orig.bones[i]} trans[{j}]"
+
+        rdiffs = quat_diff(a.rotation, b.rotation)
+        for j in range(4):
+            if rdiffs[j] > max_rot_err:
+                max_rot_err = rdiffs[j]
+                worst_bone_rot = f"{orig.bones[i]} rot[{j}]"
+
+        for j in range(3):
+            serr = abs(a.scale[j] - b.scale[j])
+            if serr > max_scale_err:
+                max_scale_err = serr
+
+    log.info(f"FO4 Max translation error: {max_trans_err:.8f} ({worst_bone})")
+    log.info(f"FO4 Max rotation error:    {max_rot_err:.8f} ({worst_bone_rot})")
+    log.info(f"FO4 Max scale error:       {max_scale_err:.8f}")
+
+    for i in range(len(orig.bones)):
+        a = orig.reference_pose[i]
+        b = extracted.reference_pose[i]
+        name = orig.bones[i]
+
+        for j in range(3):
+            assert abs(a.translation[j] - b.translation[j]) < 0.001, \
+                f"{name} translation[{j}]: {a.translation[j]:.6f} vs {b.translation[j]:.6f}"
+        rdiffs = quat_diff(a.rotation, b.rotation)
+        for j in range(4):
+            assert rdiffs[j] < 0.0002, \
+                f"{name} rotation[{j}]: {a.rotation[j]:.6f} vs {b.rotation[j]:.6f} (diff {rdiffs[j]:.6f})"
+        for j in range(3):
+            assert abs(a.scale[j] - b.scale[j]) < 0.001, \
+                f"{name} scale[{j}]: {a.scale[j]:.6f} vs {b.scale[j]:.6f}"
+
+    # Write it out and re-read to verify the full pipeline
+    anim_fo4.write_fo4_skeleton(outfile, extracted)
+    rt = anim_fo4.load_fo4_skeleton(outfile)
+    assert rt is not None, "Failed to reload exported FO4 skeleton"
+    assert len(rt.bones) == len(orig.bones), "Bone count mismatch after full roundtrip"
+
+
 @TT.category('FONV')
 @TT.expect_errors(("Could not find image shader node",))
 def TEST_FONV():

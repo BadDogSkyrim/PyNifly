@@ -210,6 +210,22 @@ output:
 Neither bug affects the in-game runtime — Skyrim loaded our broken
 files just fine — but they make the output un-debuggable via hkxcmd.
 
+## hkMemoryResourceContainer struct layout
+
+Empty in skeleton-only files. Layout:
+
+| Offset | Size | Field |
+|---|---|---|
+| `0x00` | base_sz | hkReferencedObject base |
+| base_sz | P | `name` (string ptr, typically null) |
+| base_sz + P | arr_sz | `resourceHandles` (empty) |
+| base_sz + P + arr_sz | P | unknown ptr (null) |
+| base_sz + 2*P + arr_sz | arr_sz | `externalLinks` (empty, flagged) |
+| base_sz + 2*P + 2*arr_sz | arr_sz | `objectData` (empty, flagged) |
+
+Total: `base_sz + 2*P + 3*arr_sz`. Empty arrays have
+`capacityAndFlags = 0x80000000`.
+
 ## Round-trip preservation in PyNifly
 
 Custom Blender properties are used to round-trip Havok-only fields
@@ -229,3 +245,9 @@ Root / COM / `x_NPC *` bones, lock everything else.
 `localFrames` is not preserved — no vanilla file uses it, and we'd
 need to round-trip `hkLocalFrame` as an opaque blob if a non-vanilla
 skeleton ever populates it. The importer warns instead.
+
+**Bone ordering** is critical — animations reference bones by index.
+Blender does not preserve bone insertion order in `armature.data.bones`.
+The importer stores the original HKX bone order in `PYN_HKX_BONES`
+(`;`-joined string on the armature object), and
+`extract_skeleton_from_armature` reorders by this property on export.
