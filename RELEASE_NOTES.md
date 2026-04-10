@@ -1,3 +1,30 @@
+# PyNifly 25.14.0 Release Notes
+
+## Native HKX Skeleton Export
+
+- **Native skeleton.hkx export for Skyrim LE, SE, and Fallout 4.** Skeleton
+  files are now written directly in binary HKX format without requiring hkxcmd.
+  Supports all vanilla skeleton features: bone hierarchy, reference poses,
+  lockTranslation flags, floatSlots, and referenceFloats.
+- **Bone ordering preserved on export.** The original HKX bone order is stored
+  on import and restored on export, ensuring animation compatibility (animations
+  reference bones by index).
+
+## Performance
+
+- **Blender 5.1 UV import fix.** Blender 5.1 introduced a ~400x slowdown in
+  per-element UV layer access. UV creation now uses `foreach_set` for bulk
+  assignment, restoring import speed on 5.1 (67s down to 0.04s for a 3BBB mesh)
+  and slightly improving 5.0 as well.
+
+## Documentation
+
+- New: [docs/hkx_skeleton_format_fo4.md](docs/hkx_skeleton_format_fo4.md) —
+  FO4 HKX skeleton binary format reference (hk_2014, vanilla survey of all 8
+  skeleton files).
+
+---
+
 # PyNifly 25.13.0 Release Notes
 
 ## FO4 Vertex Colors, Vertex Alpha, and Materials
