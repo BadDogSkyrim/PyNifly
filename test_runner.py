@@ -27,8 +27,8 @@ if 'tests.blender_tests' in sys.modules:
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_KF ,  ], # TEST_FACEGEN_SE
+    target_tests=[ TEST_HKX_SKELETON_VANILLA_ROUNDTRIP, TEST_HKX_FO4_SKELETON_VANILLA_ROUNDTRIP ],
     # categories={'FO4'},
-    test_all=True,
+    test_all=False,
     stop_on_fail=False,
     )
