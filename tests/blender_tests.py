@@ -7322,6 +7322,114 @@ def TEST_HKX_SKELETON_ROUNDTRIP():
             f"Bone {bone.name} parent differs: Original {original_parent} vs Reimported {reimported_parent}"
 
 
+@TT.category('SKYRIMSE', 'HKX', 'ARMATURE')
+def TEST_HKX_SKELETON_VANILLA_ROUNDTRIP():
+    """Import vanilla human skeleton.hkx, extract from armature, compare poses.
+
+    This catches errors in the Blender matrix decomposition path
+    (extract_skeleton_from_armature) that the pure-binary roundtrip can't see.
+    """
+    from io_scene_nifly.hkx import anim_skyrim, skeleton_hkx
+
+    testfile = TTB.test_file(r"tests\SkyrimSE\skeleton_vanilla.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_SKELETON_VANILLA_ROUNDTRIP.hkx")
+
+    # Parse the vanilla HKX to get ground-truth reference poses
+    orig = anim_skyrim.load_skyrim_skeleton(testfile)
+    assert orig is not None, "Failed to load vanilla skeleton"
+    assert len(orig.bones) == 99, f"Expected 99 bones, got {len(orig.bones)}"
+
+    # Import the HKX into Blender
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
+                                      rename_bones=False,
+                                      rename_bones_niftools=False,
+                                      blender_xf=False,
+                                      create_collection=True)
+
+    arma = bpy.context.object
+    assert arma and arma.type == 'ARMATURE', f"Expected armature, got {arma}"
+
+    # Select all bones for export
+    bpy.ops.object.mode_set(mode='POSE')
+    for b in arma.pose.bones:
+        if hasattr(b, 'select'):
+            b.select = True
+        else:
+            b.bone.select = True
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # Extract skeleton from armature (same code path as export)
+    extracted = skeleton_hkx.extract_skeleton_from_armature(arma)
+
+    assert len(extracted.bones) == len(orig.bones), \
+        f"Bone count: {len(extracted.bones)} vs {len(orig.bones)}"
+
+    # Compare each bone's reference pose against vanilla.
+    # q and -q represent the same rotation, so normalise sign before comparing.
+    def quat_diff(a_rot, b_rot):
+        """Return per-component errors after choosing the closer quaternion sign."""
+        dot = sum(x * y for x, y in zip(a_rot, b_rot))
+        sign = 1 if dot >= 0 else -1
+        return [abs(a_rot[j] - sign * b_rot[j]) for j in range(4)]
+
+    max_trans_err = 0.0
+    max_rot_err = 0.0
+    max_scale_err = 0.0
+    worst_bone = ""
+    worst_bone_rot = ""
+
+    for i in range(len(orig.bones)):
+        assert extracted.bones[i] == orig.bones[i], \
+            f"Bone {i} name: '{extracted.bones[i]}' vs '{orig.bones[i]}'"
+
+        a = orig.reference_pose[i]
+        b = extracted.reference_pose[i]
+
+        for j in range(3):
+            terr = abs(a.translation[j] - b.translation[j])
+            if terr > max_trans_err:
+                max_trans_err = terr
+                worst_bone = f"{orig.bones[i]} trans[{j}]"
+
+        rdiffs = quat_diff(a.rotation, b.rotation)
+        for j in range(4):
+            if rdiffs[j] > max_rot_err:
+                max_rot_err = rdiffs[j]
+                worst_bone_rot = f"{orig.bones[i]} rot[{j}]"
+
+        for j in range(3):
+            serr = abs(a.scale[j] - b.scale[j])
+            if serr > max_scale_err:
+                max_scale_err = serr
+
+    log.info(f"Max translation error: {max_trans_err:.8f} ({worst_bone})")
+    log.info(f"Max rotation error:    {max_rot_err:.8f} ({worst_bone_rot})")
+    log.info(f"Max scale error:       {max_scale_err:.8f}")
+
+    # Check with tolerances — these should be very tight for a clean roundtrip
+    for i in range(len(orig.bones)):
+        a = orig.reference_pose[i]
+        b = extracted.reference_pose[i]
+        name = orig.bones[i]
+
+        for j in range(3):
+            assert abs(a.translation[j] - b.translation[j]) < 0.001, \
+                f"{name} translation[{j}]: {a.translation[j]:.6f} vs {b.translation[j]:.6f}"
+        rdiffs = quat_diff(a.rotation, b.rotation)
+        for j in range(4):
+            assert rdiffs[j] < 0.0001, \
+                f"{name} rotation[{j}]: {a.rotation[j]:.6f} vs {b.rotation[j]:.6f} (diff {rdiffs[j]:.6f})"
+        for j in range(3):
+            assert abs(a.scale[j] - b.scale[j]) < 0.001, \
+                f"{name} scale[{j}]: {a.scale[j]:.6f} vs {b.scale[j]:.6f}"
+
+    # Also write it out and re-read to verify the full pipeline
+    anim_skyrim.write_skyrim_skeleton(outfile, extracted, ptr_size=8)
+    rt = anim_skyrim.load_skyrim_skeleton(outfile)
+    assert rt is not None, "Failed to reload exported skeleton"
+    assert len(rt.bones) == len(orig.bones), "Bone count mismatch after full roundtrip"
+
+
 @TT.category('FONV')
 @TT.expect_errors(("Could not find image shader node",))
 def TEST_FONV():

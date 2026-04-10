@@ -35,6 +35,7 @@ def extract_skeleton_from_armature(arma, selected_bones=None):
     """
     from .anim_fo4 import Skeleton, BonePose
     from .import_hkx import (
+        PYN_HKX_BONES_PROP,
         PYN_HKX_LOCK_TRANSLATION_PROP,
         PYN_HKX_FLOAT_SLOTS_PROP,
         PYN_HKX_REFERENCE_FLOATS_PROP,
@@ -47,6 +48,21 @@ def extract_skeleton_from_armature(arma, selected_bones=None):
             selected_bones = [arma.data.bones[x.name] for x in arma.pose.bones if x.bone.select]
     if not selected_bones:
         selected_bones = list(arma.data.bones)
+
+    # If the armature has a stored HKX bone order and we're exporting all (or
+    # nearly all) of those bones, reorder to match the original HKX indices.
+    # This preserves animation compatibility.
+    hkx_order = arma.get(PYN_HKX_BONES_PROP)
+    if hkx_order:
+        bone_names = hkx_order.split(";") if isinstance(hkx_order, str) else list(hkx_order)
+        selected_set = {b.name for b in selected_bones}
+        ordered = [arma.data.bones[n] for n in bone_names if n in selected_set]
+        # Add any bones not in the stored order (user-added bones) at the end
+        ordered_set = {b.name for b in ordered}
+        for b in selected_bones:
+            if b.name not in ordered_set:
+                ordered.append(b)
+        selected_bones = ordered
 
     bones = list(selected_bones)
     bone_set = set(bones)
