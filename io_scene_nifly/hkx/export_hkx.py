@@ -296,8 +296,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         return res.intersection({'CANCELLED'}, {'FINISHED'})
     
 
-class ExportSkelHKX(skeleton_hkx.ExportSkel):
-    """Export Blender armature to a skeleton HKX file"""
+class ExportSkelHKX(bpy.types.Operator, ExportHelper):
+    """Export Blender armature to an HKX skeleton file (Skyrim LE/SE or FO4)"""
 
     bl_idname = "export_scene.skeleton_hkx"
     bl_label = 'Export skeleton HKX'
@@ -305,49 +305,56 @@ class ExportSkelHKX(skeleton_hkx.ExportSkel):
 
     filename_ext = ".hkx"
 
+    game: bpy.props.EnumProperty(
+        name="Game",
+        description="Target game format for the exported skeleton HKX file",
+        items=[
+            ('SKYRIM_LE', "Skyrim LE", "Skyrim Legendary Edition (hk_2010, 32-bit pointers)"),
+            ('SKYRIM_SE', "Skyrim SE", "Skyrim Special Edition (hk_2010, 64-bit pointers)"),
+            ('FO4', "Fallout 4", "Fallout 4 (hk_2014, 64-bit pointers)"),
+        ],
+        default='SKYRIM_SE') # type: ignore
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        obj = bpy.context.object
+        if obj and obj.type == 'ARMATURE':
+            arm_game = obj.get(PYN_HKX_GAME_PROP, '')
+            if arm_game == 'SKYRIM':
+                ptr_size = obj.get(PYN_HKX_PTR_SIZE_PROP, 8)
+                self.game = 'SKYRIM_SE' if ptr_size == 8 else 'SKYRIM_LE'
+            elif arm_game == 'FO4':
+                self.game = 'FO4'
 
     @classmethod
     def poll(cls, context):
-        if (not context.object) or context.object.type != 'ARMATURE':
-            # log.error("Must select an armature to export animations.")
-            return False
-
-        if not hkxcmd_path:
-            log.error("hkxcmd.exe not found--skeleton export not available.")
-            return False
-
-        return True
-
+        return bool(context.object and context.object.type == 'ARMATURE')
 
     def invoke(self, context, event):
-        # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_skel_hkx:
-            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_skel_hkx) 
+            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_skel_hkx)
                                 / Path(self.filepath))
         return super().invoke(context, event)
 
     def execute(self, context):
         self.log_handler = LogHandler.New(bl_info, "EXPORT SKELETON", "HKX")
-
         try:
-            self.context = context
-            fp = Path(self.filepath)
-            out_filepath = fp
-            self.filepath = str(tmp_filepath(fp, ".xml"))
-            self.do_export()
+            arma = context.object
+            skel = skeleton_hkx.extract_skeleton_from_armature(arma)
+            if self.game == 'FO4':
+                anim_fo4.write_fo4_skeleton(self.filepath, skel)
+            else:
+                ptr_size = 8 if self.game == 'SKYRIM_SE' else 4
+                anim_skyrim.write_skyrim_skeleton(self.filepath, skel, ptr_size=ptr_size)
+            log.info(f"Exported {self.game} skeleton: {self.filepath} ({len(skel.bones)} bones)")
 
-            XMLFile.SetPath(hkxcmd_path)
-            XMLFile.xml_to_hkx(Path(self.filepath), out_filepath)
-
-            status = {'FINISHED'}
-            # Save the directory path for next time
             wm = context.window_manager
-            wm.pynifly_last_export_path_skel_hkx = str(out_filepath)
-            return status
-        except:
-            self.log_handler.log.exception("Import of HKX failed")
-            status = {'CANCELLED'}
-            self.log_handler.finish("IMPORT", str(out_filepath))
-
-        return status
+            wm.pynifly_last_export_path_skel_hkx = self.filepath
+            return {'FINISHED'}
+        except Exception:
+            self.log_handler.log.exception("Skeleton HKX export failed")
+            self.report({"ERROR"}, "Skeleton export failed, see system console")
+            return {'CANCELLED'}
+        finally:
+            self.log_handler.finish("EXPORT", self.filepath)
 

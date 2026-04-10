@@ -2613,7 +2613,7 @@ def TEST_TREE():
         assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
         assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
 
-    testfile = _test_file(r"tests\FO4\TreeMaplePreWar01Orange.nif")
+    testfile = _test_file(r"tests\FO4\meshes\TreeMaplePreWar01Orange.nif")
     outfile = _test_file(r"tests/Out/TEST_TREE.nif")
 
     nif = NifFile(testfile)
@@ -2709,6 +2709,162 @@ def TEST_SET_SKINTINT():
     helmetcheck = nifCheck.shape_dict["Helmet:0"]
     assert TT.is_eq(helmetcheck.shader.properties.Shader_Type, BSLSPShaderType.Skin_Tint), \
         f"shader type"
+
+
+@test_category("HKX", "SKYRIM")
+def TEST_HKX_SKELETON_ROUNDTRIP():
+    """Native Skyrim skeleton.hkx round-trip (LE + SE) against vanilla files."""
+    import importlib.util
+
+    hkx_dir = Path(__file__).resolve().parents[1] / 'io_scene_nifly' / 'hkx'
+    def _load(name):
+        spec = importlib.util.spec_from_file_location(name, hkx_dir / f'{name}.py')
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    _load('anim_fo4')
+    askyr = _load('anim_skyrim')
+
+    # Vanilla SE skeletons covering different shapes:
+    # human (lots of float slots + locks), wolf (no slots), atronach (mixed locks),
+    # draugr (some slots), 1st-person (zero locks).
+    candidates = [
+        'character/character assets/skeleton.hkx',
+        'character/_1stperson/characterassets/skeletonfirst.hkx',
+        'draugr/character assets/skeletons.hkx',
+        'canine/character assets wolf/skeleton.hkx',
+        'atronachfrost/character assets/skeleton.hkx',
+        'dragon/character assets/skeleton.hkx',
+    ]
+    base = Path(r'C:/Modding/SkyrimSEAssets/00 Vanilla Assets/meshes/actors')
+    files = [base / c for c in candidates if (base / c).exists()]
+    if not files:
+        print("(skipped — vanilla SE assets not available)")
+        return
+
+    out = Path(_test_file(r"tests/Out/TEST_HKX_SKELETON_ROUNDTRIP.hkx"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    def pose_eq(a, b):
+        for x, y in zip(a.translation + a.rotation + a.scale,
+                        b.translation + b.rotation + b.scale):
+            if not math.isclose(x, y, abs_tol=1e-6):
+                return False
+        return True
+
+    for f in files:
+        s = askyr.load_skyrim_skeleton(str(f))
+        assert s is not None, f"failed to load {f}"
+        assert len(s.bones) > 0, f"empty bone list for {f}"
+        assert len(s.lock_translation) == len(s.bones), f"lock_translation length mismatch for {f}"
+
+        for ptr_size in (4, 8):
+            askyr.write_skyrim_skeleton(str(out), s, ptr_size=ptr_size)
+            s2 = askyr.load_skyrim_skeleton(str(out))
+            assert s2 is not None, f"failed to reload ptr_size={ptr_size} {f}"
+            assert s.bones == s2.bones, f"bones mismatch ptr_size={ptr_size} {f}"
+            assert s.parents == s2.parents, f"parents mismatch ptr_size={ptr_size} {f}"
+            assert s.lock_translation == s2.lock_translation, \
+                f"lock_translation mismatch ptr_size={ptr_size} {f}"
+            assert s.float_slots == s2.float_slots, \
+                f"float_slots mismatch ptr_size={ptr_size} {f}"
+            assert all(pose_eq(a, b) for a, b in zip(s.reference_pose, s2.reference_pose)), \
+                f"reference_pose mismatch ptr_size={ptr_size} {f}"
+            assert s2.name == s.bones[0], \
+                f"skeleton name should equal root bone for {f}"
+
+
+@test_category("HKX", "SKYRIM")
+def TEST_HKX_SKELETON_BLENDER_ROUNDTRIP():
+    """Skeleton HKX parse-write-reparse must preserve reference poses.
+
+    Uses the vanilla human skeleton.hkx bundled in the test fixtures so the
+    test doesn't depend on unpacked game assets.  This is the pyn-level half;
+    the Blender-level half lives in blender_tests.py.
+    """
+    import importlib.util
+
+    hkx_dir = Path(__file__).resolve().parents[1] / 'io_scene_nifly' / 'hkx'
+    def _load(name):
+        spec = importlib.util.spec_from_file_location(name, hkx_dir / f'{name}.py')
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    _load('anim_fo4')
+    askyr = _load('anim_skyrim')
+
+    vanilla = Path(_test_file(r"tests/SkyrimSE/skeleton_vanilla.hkx"))
+    assert vanilla.exists(), f"Missing test fixture: {vanilla}"
+    out = Path(_test_file(r"tests/Out/TEST_HKX_SKELETON_BLENDER_ROUNDTRIP.hkx"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    orig = askyr.load_skyrim_skeleton(str(vanilla))
+    assert orig is not None, "Failed to load vanilla skeleton"
+    assert len(orig.bones) == 99, f"Expected 99 bones, got {len(orig.bones)}"
+
+    for ptr_size in (4, 8):
+        askyr.write_skyrim_skeleton(str(out), orig, ptr_size=ptr_size)
+        rt = askyr.load_skyrim_skeleton(str(out))
+        assert rt is not None, f"Failed to reload (ptr_size={ptr_size})"
+        assert orig.bones == rt.bones, f"Bone names mismatch (ptr_size={ptr_size})"
+        assert orig.parents == rt.parents, f"Parents mismatch (ptr_size={ptr_size})"
+        assert orig.lock_translation == rt.lock_translation, \
+            f"lockTranslation mismatch (ptr_size={ptr_size})"
+        assert orig.float_slots == rt.float_slots, \
+            f"floatSlots mismatch (ptr_size={ptr_size})"
+
+        for i, (a, b) in enumerate(zip(orig.reference_pose, rt.reference_pose)):
+            for j, (va, vb) in enumerate(zip(
+                    a.translation + a.rotation + a.scale,
+                    b.translation + b.rotation + b.scale)):
+                assert math.isclose(va, vb, abs_tol=1e-6), \
+                    f"Pose mismatch bone {i} ({orig.bones[i]}) component {j}: " \
+                    f"{va} vs {vb} (ptr_size={ptr_size})"
+
+
+@test_category("HKX", "FO4")
+def TEST_HKX_FO4_SKELETON_ROUNDTRIP():
+    """FO4 skeleton HKX parse-write-reparse must preserve reference poses."""
+    import importlib.util
+
+    hkx_dir = Path(__file__).resolve().parents[1] / 'io_scene_nifly' / 'hkx'
+    def _load(name):
+        spec = importlib.util.spec_from_file_location(name, hkx_dir / f'{name}.py')
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    afo4 = _load('anim_fo4')
+
+    vanilla = Path(_test_file(r"tests/FO4/skeleton_vanilla.hkx"))
+    assert vanilla.exists(), f"Missing test fixture: {vanilla}"
+    out = Path(_test_file(r"tests/Out/TEST_HKX_FO4_SKELETON_ROUNDTRIP.hkx"))
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    orig = afo4.load_fo4_skeleton(str(vanilla))
+    assert orig is not None, "Failed to load vanilla FO4 skeleton"
+    assert len(orig.bones) == 95, f"Expected 95 bones, got {len(orig.bones)}"
+    assert len(orig.lock_translation) == len(orig.bones), \
+        f"lockTranslation length: {len(orig.lock_translation)} vs {len(orig.bones)}"
+
+    afo4.write_fo4_skeleton(str(out), orig)
+    rt = afo4.load_fo4_skeleton(str(out))
+    assert rt is not None, "Failed to reload FO4 skeleton"
+    assert orig.bones == rt.bones, "Bone names mismatch"
+    assert orig.parents == rt.parents, "Parents mismatch"
+    assert orig.lock_translation == rt.lock_translation, "lockTranslation mismatch"
+    assert orig.float_slots == rt.float_slots, "floatSlots mismatch"
+
+    for i in range(len(orig.bones)):
+        a = orig.reference_pose[i]
+        b = rt.reference_pose[i]
+        for j, (va, vb) in enumerate(zip(
+                a.translation + a.rotation + a.scale,
+                b.translation + b.rotation + b.scale)):
+            assert math.isclose(va, vb, abs_tol=1e-6), \
+                f"Pose mismatch bone {i} ({orig.bones[i]}) component {j}: {va} vs {vb}"
 
 
 @test_category("SKIP")

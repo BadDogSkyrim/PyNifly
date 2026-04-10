@@ -48,6 +48,9 @@ class Skeleton:
     bones: List[str] = field(default_factory=list)
     parents: List[int] = field(default_factory=list)
     reference_pose: List[BonePose] = field(default_factory=list)
+    lock_translation: List[bool] = field(default_factory=list)
+    float_slots: List[str] = field(default_factory=list)
+    reference_floats: List[float] = field(default_factory=list)
 
     def __repr__(self):
         return f"Skeleton('{self.name}', {len(self.bones)} bones)"
@@ -1077,6 +1080,8 @@ def _parse_skeleton_hkx(data: bytes) -> Optional[Skeleton]:
                 skel.bones.append(_read_null_string(data, data_abs + str_target))
             else:
                 skel.bones.append('')
+            lt = data[data_abs + bone_rel + 8]
+            skel.lock_translation.append(bool(lt))
 
     # +0x38: referencePose (hkArray<hkQsTransform>) — each is 0x30 bytes: vec4 pos + vec4 rot + vec4 scale
     pose_count = _u32(data, s + 0x38 + 8)
@@ -1089,6 +1094,25 @@ def _parse_skeleton_hkx(data: bytes) -> Optional[Skeleton]:
             rx, ry, rz, rw = _f32(data, p+16), _f32(data, p+20), _f32(data, p+24), _f32(data, p+28)
             sx, sy, sz = _f32(data, p+32), _f32(data, p+36), _f32(data, p+40)
             skel.reference_pose.append(BonePose([tx, ty, tz], [rx, ry, rz, rw], [sx, sy, sz]))
+
+    # +0x48: referenceFloats (hkArray<float>)
+    rfloat_count = _u32(data, s + 0x48 + 8)
+    rfloat_content = fixups.get(skel_rel + 0x48)
+    if rfloat_content is not None and rfloat_count > 0:
+        rabs = data_abs + rfloat_content
+        skel.reference_floats = [_f32(data, rabs + i * 4) for i in range(rfloat_count)]
+
+    # +0x58: floatSlots (hkArray<hkStringPtr>)
+    fslot_count = _u32(data, s + 0x58 + 8)
+    fslot_content = fixups.get(skel_rel + 0x58)
+    if fslot_content is not None and fslot_count > 0:
+        for i in range(fslot_count):
+            slot_ptr_rel = fslot_content + i * 8
+            str_target = fixups.get(slot_ptr_rel)
+            if str_target is not None:
+                skel.float_slots.append(_read_null_string(data, data_abs + str_target))
+            else:
+                skel.float_slots.append('')
 
     return skel
 
@@ -2117,6 +2141,303 @@ def write_fo4_animation(filepath: str, anim: AnimationData) -> None:
     # 0xD0: section header 2 (0x40)
     # 0x110: classnames data
     # cn_end: data section
+    cn_start = 0x110
+    cn_end = cn_start + len(cn_data)
+    data_start = cn_end
+
+    local_fix_abs = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs + len(local_tbl)
+    virt_fix_abs = global_fix_abs + len(global_tbl)
+    data_end = virt_fix_abs + len(virt_tbl)
+
+    cn_name_off = name_offs['hkRootLevelContainer']
+    hdr = _anim_file_header(cn_name_off)
+
+    shdr0 = _anim_section_header('__classnames__', cn_start,
+                                  cn_start + len(cn_data), cn_start + len(cn_data),
+                                  cn_start + len(cn_data), cn_start + len(cn_data))
+    shdr1 = _anim_section_header('__types__', cn_end,
+                                  cn_end, cn_end, cn_end, cn_end)
+    shdr2 = _anim_section_header('__data__', data_start,
+                                  local_fix_abs, global_fix_abs,
+                                  virt_fix_abs, data_end)
+
+    result = hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
+
+    with open(filepath, 'wb') as f:
+        f.write(result)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  FO4 skeleton writer
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Class hashes for a skeleton-only FO4 HKX (hk_2014).
+# hkaSkeleton hash 0xFEC1CEDB extracted from vanilla FO4 skeleton.hkx.
+_SKEL_CLASS_ENTRIES_FO4: List[Tuple[int, str]] = [
+    (0x33D42383, 'hkClass'),
+    (0xB0EFA719, 'hkClassMember'),
+    (0x8A3609CF, 'hkClassEnum'),
+    (0xCE6F8A6C, 'hkClassEnumItem'),
+    (0x2772C11E, 'hkRootLevelContainer'),
+    (0x26859F4C, 'hkaAnimationContainer'),
+    (0xFEC1CEDB, 'hkaSkeleton'),
+    (0x1DE13A73, 'hkMemoryResourceContainer'),
+]
+
+
+def _build_skel_classnames_fo4() -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for a FO4 skeleton HKX."""
+    data = b''
+    name_offs: Dict[str, int] = {}
+    for hash_val, name in _SKEL_CLASS_ENTRIES_FO4:
+        name_offs[name] = len(data) + 5
+        data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
+    data = _pad16(data, fill=0xFF)
+    return data, name_offs
+
+
+def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
+    """Build the __data__ section for a FO4 skeleton HKX.
+
+    FO4 uses hk_2014 with 64-bit pointers exclusively.
+    hkaSkeleton has 7 arrays (the 7th is 'partitions', always empty).
+    """
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    def rel():
+        return len(data)
+
+    def write(b):
+        off = len(data)
+        data.extend(b)
+        return off
+
+    def write_string(s: str) -> int:
+        off = rel()
+        data.extend(s.encode('ascii') + b'\x00')
+        return off
+
+    def align16():
+        while len(data) % 16:
+            data.append(0)
+
+    def align_to(n):
+        while len(data) % n:
+            data.append(0)
+
+    P = 8
+    arr_sz = 16   # hkArray: ptr(8) + count(4) + cap(4)
+    base_sz = 16  # hkReferencedObject: vtable(8) + memSizeAndFlags(8)
+
+    bones = list(skel.bones)
+    nbones = len(bones)
+    parents = list(skel.parents) if skel.parents else [-1] * nbones
+    poses = list(skel.reference_pose)
+    while len(poses) < nbones:
+        poses.append(BonePose())
+    lock = list(skel.lock_translation) if skel.lock_translation else [False] * nbones
+    skel_name = bones[0] if bones else (skel.name or "Root")
+    float_slots = list(skel.float_slots)
+    ref_floats = list(skel.reference_floats)
+    if len(ref_floats) < len(float_slots):
+        ref_floats = ref_floats + [0.0] * (len(float_slots) - len(ref_floats))
+
+    # ═══ hkRootLevelContainer ═══
+    rlc_rel = rel()
+    fx.add_virtual(rlc_rel, 0, name_offs['hkRootLevelContainer'])
+    arr_rlc = write(_hkarray(2))
+    align16()
+
+    # NamedVariant data: 2 entries x 3 pointers
+    nv_data_rel = rel()
+    fx.add_local(arr_rlc, nv_data_rel)
+    nv0_name = write(bytes(P)); nv0_class = write(bytes(P)); nv0_variant = write(bytes(P))
+    nv1_name = write(bytes(P)); nv1_class = write(bytes(P)); nv1_variant = write(bytes(P))
+    align16()
+
+    # Variant strings
+    nv0_name_str = rel(); write_string("Merged Animation Container"); align_to(2)
+    nv0_class_str = rel(); write_string("hkaAnimationContainer"); align_to(2)
+    nv1_name_str = rel(); write_string("Resource Data"); align_to(2)
+    nv1_class_str = rel(); write_string("hkMemoryResourceContainer"); align16()
+
+    fx.add_local(nv0_name, nv0_name_str)
+    fx.add_local(nv0_class, nv0_class_str)
+    fx.add_local(nv1_name, nv1_name_str)
+    fx.add_local(nv1_class, nv1_class_str)
+
+    # ═══ hkaAnimationContainer ═══
+    ac_rel = rel()
+    fx.add_virtual(ac_rel, 0, name_offs['hkaAnimationContainer'])
+    fx.add_global(nv0_variant, 2, ac_rel)
+
+    write(bytes(base_sz))              # base class
+    arr_skels = write(_hkarray(1))     # skeletons
+    write(_hkarray(0))                 # animations
+    write(_hkarray(0))                 # bindings
+    write(_hkarray(0))                 # attachments
+    write(_hkarray(0))                 # skins
+    align16()
+
+    # Skeleton pointer array (1 entry)
+    skel_ptr_array_rel = rel()
+    fx.add_local(arr_skels, skel_ptr_array_rel)
+    skel_ptr = write(bytes(P))
+    align16()
+
+    # ═══ hkaSkeleton ═══
+    # Layout (hk_2014, P=8):
+    #   base(16) + name(8) + parentIndices(16) + bones(16) + referencePose(16)
+    #   + referenceFloats(16) + floatSlots(16) + localFrames(16) + partitions(16)
+    #   = 16 + 8 + 7*16 = 136 = 0x88 bytes
+    o_name = base_sz           # 0x10
+    o_pi = o_name + P          # 0x18
+    o_bones = o_pi + arr_sz    # 0x28
+    o_pose = o_bones + arr_sz  # 0x38
+    o_rfloats = o_pose + arr_sz    # 0x48
+    o_fslots = o_rfloats + arr_sz  # 0x58
+    o_lframes = o_fslots + arr_sz  # 0x68
+    o_parts = o_lframes + arr_sz   # 0x78
+    skel_struct_size = _align(o_parts + arr_sz, 16)  # 0x88 -> 0x90
+
+    skel_obj_rel = rel()
+    fx.add_virtual(skel_obj_rel, 0, name_offs['hkaSkeleton'])
+    fx.add_global(skel_ptr, 2, skel_obj_rel)
+
+    skel_buf = bytearray(skel_struct_size)
+    # parentIndices count/cap
+    struct.pack_into('<I', skel_buf, o_pi + P, nbones)
+    struct.pack_into('<I', skel_buf, o_pi + P + 4, nbones | 0x80000000)
+    # bones count/cap
+    struct.pack_into('<I', skel_buf, o_bones + P, nbones)
+    struct.pack_into('<I', skel_buf, o_bones + P + 4, nbones | 0x80000000)
+    # referencePose count/cap
+    struct.pack_into('<I', skel_buf, o_pose + P, nbones)
+    struct.pack_into('<I', skel_buf, o_pose + P + 4, nbones | 0x80000000)
+    # referenceFloats
+    if ref_floats:
+        struct.pack_into('<I', skel_buf, o_rfloats + P, len(ref_floats))
+        struct.pack_into('<I', skel_buf, o_rfloats + P + 4, len(ref_floats) | 0x80000000)
+    else:
+        struct.pack_into('<I', skel_buf, o_rfloats + P + 4, 0x80000000)
+    # floatSlots
+    if float_slots:
+        struct.pack_into('<I', skel_buf, o_fslots + P, len(float_slots))
+        struct.pack_into('<I', skel_buf, o_fslots + P + 4, len(float_slots) | 0x80000000)
+    else:
+        struct.pack_into('<I', skel_buf, o_fslots + P + 4, 0x80000000)
+    # localFrames empty
+    struct.pack_into('<I', skel_buf, o_lframes + P + 4, 0x80000000)
+    # partitions empty
+    struct.pack_into('<I', skel_buf, o_parts + P + 4, 0x80000000)
+    write(bytes(skel_buf))
+
+    # Skeleton name string
+    skel_name_rel = rel()
+    write_string(skel_name)
+    fx.add_local(skel_obj_rel + o_name, skel_name_rel)
+    align_to(2)
+
+    # parentIndices data (int16 array)
+    pi_data_rel = rel()
+    fx.add_local(skel_obj_rel + o_pi, pi_data_rel)
+    for p in parents:
+        write(_w_i16(p))
+    align_to(P)
+
+    # bones array — one hkaBone per bone (0x10 bytes each: ptr(8) + lockTranslation(4) + pad(4))
+    bone_stride = 0x10
+    bones_data_rel = rel()
+    fx.add_local(skel_obj_rel + o_bones, bones_data_rel)
+    bone_struct_offsets = []
+    for i in range(nbones):
+        bs_rel = rel()
+        bone_struct_offsets.append(bs_rel)
+        write(bytes(P))                                    # name ptr (placeholder)
+        write(struct.pack('<I', 1 if lock[i] else 0))      # lockTranslation
+        write(bytes(bone_stride - P - 4))                  # padding
+    align_to(2)
+
+    # bone name strings
+    for i in range(nbones):
+        align_to(2)
+        bn_rel = rel()
+        write_string(bones[i] or "")
+        fx.add_local(bone_struct_offsets[i], bn_rel)
+    align16()
+
+    # referencePose data — hkQsTransform (0x30 bytes each)
+    pose_data_rel = rel()
+    fx.add_local(skel_obj_rel + o_pose, pose_data_rel)
+    for bp in poses:
+        tx = bp.translation if bp.translation else [0.0, 0.0, 0.0]
+        rq = bp.rotation if bp.rotation else [0.0, 0.0, 0.0, 1.0]
+        sc = bp.scale if bp.scale else [1.0, 1.0, 1.0]
+        write(struct.pack('<ffff', tx[0], tx[1], tx[2], 0.0))
+        write(struct.pack('<ffff', rq[0], rq[1], rq[2], rq[3]))
+        write(struct.pack('<ffff', sc[0], sc[1], sc[2], 0.0))
+    align16()
+
+    # referenceFloats / floatSlots data
+    if ref_floats:
+        rf_rel = rel()
+        fx.add_local(skel_obj_rel + o_rfloats, rf_rel)
+        for v in ref_floats:
+            write(struct.pack('<f', v))
+        align_to(P)
+
+    if float_slots:
+        fs_arr_rel = rel()
+        fx.add_local(skel_obj_rel + o_fslots, fs_arr_rel)
+        slot_ptr_offsets = []
+        for _ in float_slots:
+            slot_ptr_offsets.append(rel())
+            write(bytes(P))
+        align_to(2)
+        for i, name in enumerate(float_slots):
+            sn_rel = rel()
+            write_string(name)
+            fx.add_local(slot_ptr_offsets[i], sn_rel)
+        align16()
+
+    align16()
+
+    # ═══ hkMemoryResourceContainer ═══
+    mrc_rel = rel()
+    fx.add_virtual(mrc_rel, 0, name_offs['hkMemoryResourceContainer'])
+    fx.add_global(nv1_variant, 2, mrc_rel)
+    mrc_buf = bytearray(80)
+    struct.pack_into('<I', mrc_buf, 0x2C, 0x80000000)  # externalLinks cap
+    struct.pack_into('<I', mrc_buf, 0x3C, 0x80000000)  # objectData cap
+    write(bytes(mrc_buf))
+    align16()
+
+    return bytes(data), fx
+
+
+def write_fo4_skeleton(filepath: str, skel: Skeleton) -> None:
+    """Write a Skeleton to a FO4 binary HKX file (hk_2014, 64-bit).
+
+    Parameters
+    ----------
+    filepath : str
+        Output path for the .hkx file.
+    skel : Skeleton
+        Must have bones, parents, and reference_pose populated.
+    """
+    if not skel.bones:
+        raise ValueError("Skeleton has no bones -- cannot export.")
+
+    cn_data, name_offs = _build_skel_classnames_fo4()
+    obj_data, fx = _build_skel_data_section_fo4(skel, name_offs)
+
+    local_tbl = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl = fx.build_virtual_table()
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
     cn_start = 0x110
     cn_end = cn_start + len(cn_data)
     data_start = cn_end

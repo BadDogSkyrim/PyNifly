@@ -7254,74 +7254,51 @@ def TEST_AUXBONES_EXTRACT():
 @TT.category('SKYRIMSE', 'HKX', 'ARMATURE')  
 def TEST_HKX_SKELETON_ROUNDTRIP():
     """Test HKX skeleton export/import round-trip maintains correct transforms."""
-    TTB.clear_all()
-    
-    # Create collection for original NIF import
-    original_collection = bpy.data.collections.new("Original_NIF")
-    bpy.context.scene.collection.children.link(original_collection)
-    
-    # Set original collection as active and ensure it's enabled
-    original_layer_collection = bpy.context.view_layer.layer_collection.children[original_collection.name]
-    original_layer_collection.exclude = False  # Make sure it's not excluded
-    bpy.context.view_layer.active_layer_collection = original_layer_collection
-    
-    # Import original NIF skeleton
     testfile = TTB.test_file(r"tests\Skyrim\skeever_skeleton.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_HKX_SKELETON_ROUNDTRIP.hkx")
-    
-    bpy.ops.import_scene.pynifly(filepath=testfile, 
-                                 blender_xf=False, 
+
+    # Import original NIF skeleton into its own collection
+    bpy.ops.import_scene.pynifly(filepath=testfile,
+                                 blender_xf=False,
                                  rename_bones=False,
-                                 rename_bones_niftools=False, 
-                                 import_collisions=False)
-    
+                                 rename_bones_niftools=False,
+                                 import_collisions=False,
+                                 create_collection=True)
+
     original_arma = bpy.context.object
-    assert original_arma and original_arma.type=='ARMATURE', f"Loaded original armature: {original_arma}"
-    
+    assert original_arma and original_arma.type == 'ARMATURE', \
+        f"Loaded original armature: {original_arma}"
+
     # Store original bone transforms for comparison
     original_transforms = {}
     original_parents = {}
     for bone in original_arma.data.bones:
         original_transforms[bone.name] = bone.matrix_local.copy()
         original_parents[bone.name] = bone.parent.name if bone.parent else None
-    
-    # Export as HKX skeleton - select all bones
+
+    # Export as HKX skeleton — select all bones
     bpy.ops.object.mode_set(mode='POSE')
     for b in original_arma.pose.bones:
         if hasattr(b, 'select'):
-            # Blender >= 5.0
-            b.select = True
+            b.select = True  # Blender >= 5.0
         else:
             b.bone.select = True
-    
+
     bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
-    
-    # Hide original collection and create new collection for reimport
-    original_layer_collection.hide_viewport = True
-    
-    # Create new collection for HKX import
-    reimport_collection = bpy.data.collections.new("HKX_Reimport")
-    bpy.context.scene.collection.children.link(reimport_collection)
-    
-    # Set new collection as active and ensure it's enabled
-    layer_collection = bpy.context.view_layer.layer_collection.children[reimport_collection.name]
-    layer_collection.exclude = False  # Make sure it's not excluded
-    bpy.context.view_layer.active_layer_collection = layer_collection
-    
-    # Import from HKX into new collection - disable bone renaming and coordinate transforms
-    bpy.ops.import_scene.pynifly_hkx(filepath=outfile, 
-                                      rename_bones=False,
-                                      rename_bones_niftools=False,
-                                      blender_xf=False)
-    
-    # Find the reimported armature in the new collection
-    reimported_arma = None
-    for obj in reimport_collection.objects:
-        if obj.type == 'ARMATURE':
-            reimported_arma = obj
-            break
-    
-    assert reimported_arma, "Failed to reimport armature from HKX"
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # Re-import the HKX skeleton into its own collection so bone names don't
+    # collide with the original armature.
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile,
+                                     rename_bones=False,
+                                     rename_bones_niftools=False,
+                                     blender_xf=False,
+                                     create_collection=True)
+
+    reimported_arma = bpy.context.object
+    assert reimported_arma and reimported_arma.type == 'ARMATURE', \
+        f"Failed to reimport armature from HKX: {reimported_arma}"
+    assert reimported_arma is not original_arma, "Reimport returned the same armature"
     
     # Verify bone count matches
     original_bone_names = set(original_transforms.keys())
@@ -7343,6 +7320,140 @@ def TEST_HKX_SKELETON_ROUNDTRIP():
         reimported_parent = bone.parent.name if bone.parent else None
         assert original_parent == reimported_parent, \
             f"Bone {bone.name} parent differs: Original {original_parent} vs Reimported {reimported_parent}"
+
+
+@TT.category('SKYRIMSE', 'HKX', 'ARMATURE')
+def TEST_HKX_SKELETON_VANILLA_ROUNDTRIP():
+    """Import vanilla skeleton.hkx via operator, export via operator, verify output."""
+    from io_scene_nifly.hkx import anim_skyrim
+
+    testfile = TTB.test_file(r"tests\SkyrimSE\skeleton_vanilla.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_SKELETON_VANILLA_ROUNDTRIP.hkx")
+
+    # Import via Blender operator
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
+                                      rename_bones=False,
+                                      rename_bones_niftools=False,
+                                      blender_xf=False,
+                                      create_collection=True)
+
+    arma = bpy.context.object
+    assert arma and arma.type == 'ARMATURE', f"Expected armature, got {arma}"
+
+    # Export via Blender operator
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile, game='SKYRIM_SE')
+
+    # Read back with library call and verify against hard-coded ground truth
+    rt = anim_skyrim.load_skyrim_skeleton(outfile)
+    assert rt is not None, "Failed to reload exported skeleton"
+    assert len(rt.bones) == 99, f"Expected 99 bones, got {len(rt.bones)}"
+
+    def quat_diff(a_rot, b_rot):
+        dot = sum(x * y for x, y in zip(a_rot, b_rot))
+        sign = 1 if dot >= 0 else -1
+        return [abs(a_rot[j] - sign * b_rot[j]) for j in range(4)]
+
+    # Hard-coded ground truth from vanilla skeleton_vanilla.hkx
+    # (bone_name, parent_idx, translation, rotation)
+    ground_truth = [
+        ('NPC Root [Root]', -1,
+         (0.0, 0.0, 0.0),
+         (0.0, 0.0, 0.0, 1.0)),
+        ('NPC Spine2 [Spn2]', 25,
+         (0.0, -0.017105, 9.864067),
+         (-0.120360, 0.0, -0.000001, 0.992730)),
+        ('WeaponSword', 5,
+         (-11.891473, 1.916892, 6.666046),
+         (0.682737, -0.372838, 0.571596, -0.261035)),
+        ('NPC R Hand [RHnd]', 32,
+         (0.000008, 0.000008, 16.046665),
+         (0.031782, 0.042821, 0.681437, 0.729931)),
+        ('NPC Head [Head]', 35,
+         (0.0, 0.000002, 7.392769),
+         (0.095523, 0.000446, -0.000063, 0.995427)),
+        ('NPC L Calf [LClf]', 6,
+         (0.0, 0.0, 35.595261),
+         (0.064981, 0.000190, 0.007632, 0.997857)),
+    ]
+
+    for name, expected_parent, expected_trans, expected_rot in ground_truth:
+        assert name in rt.bones, f"Bone '{name}' missing from output"
+        i = rt.bones.index(name)
+        assert rt.parents[i] == expected_parent, \
+            f"{name} parent: expected {expected_parent}, got {rt.parents[i]}"
+        p = rt.reference_pose[i]
+        for j in range(3):
+            assert abs(p.translation[j] - expected_trans[j]) < 0.001, \
+                f"{name} translation[{j}]: expected {expected_trans[j]:.6f}, got {p.translation[j]:.6f}"
+        rdiffs = quat_diff(p.rotation, expected_rot)
+        for j in range(4):
+            assert rdiffs[j] < 0.0002, \
+                f"{name} rotation[{j}]: expected {expected_rot[j]:.6f}, got {p.rotation[j]:.6f} (diff {rdiffs[j]:.6f})"
+
+
+@TT.category('FO4', 'HKX', 'ARMATURE')
+def TEST_HKX_FO4_SKELETON_VANILLA_ROUNDTRIP():
+    """Import vanilla FO4 skeleton.hkx via operator, export via operator, verify output."""
+    from io_scene_nifly.hkx import anim_fo4
+
+    testfile = TTB.test_file(r"tests\FO4\skeleton_vanilla.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_FO4_SKELETON_VANILLA_ROUNDTRIP.hkx")
+
+    # Import via Blender operator
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
+                                      rename_bones=False,
+                                      rename_bones_niftools=False,
+                                      blender_xf=False,
+                                      create_collection=True)
+
+    arma = bpy.context.object
+    assert arma and arma.type == 'ARMATURE', f"Expected armature, got {arma}"
+
+    # Export via Blender operator
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile, game='FO4')
+
+    # Read back with library call and verify against hard-coded ground truth
+    rt = anim_fo4.load_fo4_skeleton(outfile)
+    assert rt is not None, "Failed to reload exported FO4 skeleton"
+    assert len(rt.bones) == 95, f"Expected 95 bones, got {len(rt.bones)}"
+
+    def quat_diff(a_rot, b_rot):
+        dot = sum(x * y for x, y in zip(a_rot, b_rot))
+        sign = 1 if dot >= 0 else -1
+        return [abs(a_rot[j] - sign * b_rot[j]) for j in range(4)]
+
+    # Hard-coded ground truth from vanilla FO4 skeleton_vanilla.hkx
+    ground_truth = [
+        ('Root', -1,
+         (0.0, 0.0, 0.0),
+         (0.0, 0.0, 0.0, 1.0)),
+        ('Spine2', 9,
+         (8.704659, -0.000001, -0.000003),
+         (0.000001, 0.0, -0.087657, 0.996151)),
+        ('RArm_Hand', 24,
+         (6.152273, -0.000141, 0.000450),
+         (0.703169, 0.066461, -0.036850, 0.706950)),
+        ('Head', 12,
+         (8.224388, -0.000015, 0.000005),
+         (0.000003, 0.000013, -0.160131, 0.987096)),
+        ('LLeg_Calf', 3,
+         (31.595177, 0.000024, -0.000019),
+         (0.000013, -0.013113, -0.061473, 0.998023)),
+    ]
+
+    for name, expected_parent, expected_trans, expected_rot in ground_truth:
+        assert name in rt.bones, f"Bone '{name}' missing from output"
+        i = rt.bones.index(name)
+        assert rt.parents[i] == expected_parent, \
+            f"{name} parent: expected {expected_parent}, got {rt.parents[i]}"
+        p = rt.reference_pose[i]
+        for j in range(3):
+            assert abs(p.translation[j] - expected_trans[j]) < 0.001, \
+                f"{name} translation[{j}]: expected {expected_trans[j]:.6f}, got {p.translation[j]:.6f}"
+        rdiffs = quat_diff(p.rotation, expected_rot)
+        for j in range(4):
+            assert rdiffs[j] < 0.0002, \
+                f"{name} rotation[{j}]: expected {expected_rot[j]:.6f}, got {p.rotation[j]:.6f} (diff {rdiffs[j]:.6f})"
 
 
 @TT.category('FONV')
