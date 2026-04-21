@@ -362,8 +362,7 @@ class TriFile():
         Returns a new TriFile with the file conents.
         """
         log = logging.getLogger("pynifly")
-        log.level = logging.DEBUG
-        log.info(f"Reading tris from {file.name}")
+        log.debug(f"Reading tris from {file.name}")
 
         tri = TriFile(filepath=file.name)
 
