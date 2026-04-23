@@ -1,3 +1,29 @@
+# PyNifly Next Release Notes
+
+## Bugfixes (issue #392)
+
+- **`NifFile.initialize(root_name=...)` now sets the name correctly for
+  `NiControllerSequence` roots.** The name was previously stored on the block
+  but not registered in the header string table, so reads via `properties.nameID`
+  (which `NiSequence.name` uses) returned an empty string until the file was saved
+  and reopened. The `if`/`else if` chain in `SetNifVersionWrap` was also cleaned
+  up so non-default root types take only their own branch.
+- **`NiShape.set_partitions()` now accepts the index list returned by
+  `partition_tris` directly.** For Skyrim-style nifs the trilist may be either
+  partition IDs (the older idiom) or partition-list indices (what
+  `partition_tris` returns), auto-detected.
+
+## Breaking change
+
+- **`NifFile.createShapeFromData()` no longer flips the V coordinate on write.**
+  UVs are now passed through unchanged so direct API users get a clean
+  `createShapeFromData` → `shape.uvs` round-trip. Blender import/export still
+  round-trips correctly because the Blender export path now applies the flip
+  explicitly. Direct callers that were pre-flipping with `(u, 1-v)` to compensate
+  must remove that workaround.
+
+---
+
 # PyNifly 25.14.0 Release Notes
 
 ## Native HKX Skeleton Export
@@ -6,22 +32,24 @@
   files are now written directly in binary HKX format without requiring hkxcmd.
   Supports all vanilla skeleton features: bone hierarchy, reference poses,
   lockTranslation flags, floatSlots, and referenceFloats.
+
+  Previously, I've noted that the round trip probably loses important skeleton data. 
+  This release maintains all the data that I know of. See [docs/hkx_skeleton_format.md](docs/hkx_skeleton_format.md) 
+  and [docs/hkx_skeleton_format_fo4.md](docs/hkx_skeleton_format_fo4.md)
+  for the details. If you see anything there that you know is wrong or missing, let
+  me know.
+
 - **Bone ordering preserved on export.** The original HKX bone order is stored
   on import and restored on export, ensuring animation compatibility (animations
   reference bones by index).
 
 ## Performance
 
-- **Blender 5.1 UV import fix.** Blender 5.1 introduced a ~400x slowdown in
+- **Significant performance enhancements.** We've optimized the code in several areas.
+  In particular, Blender 5.1 introduced a ~400x slowdown in
   per-element UV layer access. UV creation now uses `foreach_set` for bulk
   assignment, restoring import speed on 5.1 (67s down to 0.04s for a 3BBB mesh)
-  and slightly improving 5.0 as well.
-
-## Documentation
-
-- New: [docs/hkx_skeleton_format_fo4.md](docs/hkx_skeleton_format_fo4.md) —
-  FO4 HKX skeleton binary format reference (hk_2014, vanilla survey of all 8
-  skeleton files).
+  and slightly improving earlier versions as well.
 
 ---
 

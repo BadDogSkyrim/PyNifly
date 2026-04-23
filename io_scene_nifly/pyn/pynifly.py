@@ -184,8 +184,8 @@ class FO4Segment(Partition):
 
 class FO4Subsegment(FO4Segment):
     fo4subsegm1 = re.compile(r'(FO4 Seg [0-9]+) \| ([^\|]+)( \| (.+))?\Z')
-    fo4subsegm = re.compile('\AFO4 *.*')
-    fo4bpm = re.compile('\AFO4 *(\d+) - ')
+    fo4subsegm = re.compile(r'\AFO4 *.*')
+    fo4bpm = re.compile(r'\AFO4 *(\d+) - ')
 
     def __init__(self, part_id, user_slot, material=-1, parent=None, namedict=fo4Dict, name=None):
         """ 
@@ -4356,7 +4356,10 @@ class NiShape(NiNode):
         """ Set the partitions for a shape
             partitionlist = list of Partition objects, either Skyrim or FO. Any Subsegments in the
                 list are ignored. Subsegments are found separately under Partitions.
-            trilist = 1:1 with shape tris, gives the ID of the tri's partition
+            trilist = 1:1 with shape tris. For Skyrim, each entry is either a partition ID
+                (e.g. 130, 143) or an index into partitionlist (0, 1, ...) — the values from
+                NiShape.partition_tris are accepted directly. For FO4, entries must be
+                segment/subsegment IDs (the partition_tris values).
             """
         if len(partitionlist) == 0:
             return
@@ -4393,27 +4396,34 @@ class NiShape(NiNode):
         tbuf = (c_uint16 * len(trilist))()
 
         if self.file.game in ['SKYRIM', 'SKYRIMSE']:
-            # the trilist passed in refers to partition IDs, but nifly wants indices into
-            # the given partition list.
+            # nifly wants indices into the partition list. The trilist may already be
+            # indices (as returned by partition_tris) or partition IDs (the older idiom).
             pbuf = (c_uint16 * 2 * len(parts))()
             for i, p in enumerate(parts):
                 pbuf[i][0] = 0
-                pbuf[i][1] = p.id 
+                pbuf[i][1] = p.id
                 parts_lookup[p.id] = i
 
+            # Auto-detect: if every value matches a partition ID, treat as IDs;
+            # otherwise if every value is a valid index, treat as indices.
+            n = len(parts)
+            all_ids = all(t in parts_lookup for t in trilist)
+            all_indices = all(0 <= t < n for t in trilist)
+            as_indices = all_indices and not all_ids
+
             for i, t in enumerate(trilist):
-                try:
-                    tbuf[i] = parts_lookup[trilist[i]]
-                except:
-                    # Report the error unless the id is 0--that means we couldn't assign the 
-                    # partition and that error has already been reported
-                    if not trilist[i] == 0:
-                        if i < len(trilist):
-                            log.error(f"Tri at index {i} assigned partition id {trilist[i]}, but no such partition defined")
+                if as_indices:
+                    tbuf[i] = t
+                else:
+                    try:
+                        tbuf[i] = parts_lookup[t]
+                    except KeyError:
+                        # Report the error unless the id is 0--that means we couldn't assign the
+                        # partition and that error has already been reported
+                        if t != 0:
+                            log.error(f"Tri at index {i} assigned partition id {t}, but no such partition defined")
                             log.error(f"Partitions are {parts_lookup.items()}")
-                        else:
-                            log.error(f"Tri at index {i} assigned partition, but only {len(trilist)} tris defined")
-                    tbuf[i] = pbuf[0][1] # Export with the first partition so we get something out
+                        tbuf[i] = pbuf[0][1] # Export with the first partition so we get something out
 
             nifly.setPartitions(self.file._handle, self._handle,
                                         pbuf, len(parts),
@@ -4715,7 +4725,7 @@ class NifFile:
 
         UVBUFDEF = c_float * 2 * len(uvs)
         uvbuf = UVBUFDEF()
-        for i, u in enumerate(uvs): uvbuf[i] = (u[0], 1-u[1])
+        for i, u in enumerate(uvs): uvbuf[i] = (u[0], u[1])
 
         shape_handle = nifly.createNifShapeFromData(
             self._handle, 

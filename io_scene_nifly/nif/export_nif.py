@@ -1393,8 +1393,10 @@ class NifExporter:
             else:
                 obj_name = self.unique_name(obj)
                 p = my_parent.nifnode if my_parent else None
-            new_shape = self.nif.createShapeFromData(obj_name, 
-                                                     verts, tris, uvmap_new, norms_exp,
+            # Blender uses v=0 at bottom (OpenGL); nif uses v=0 at top. Flip on the way out.
+            uvmap_nif = [(u, 1.0 - v) for u, v in uvmap_new]
+            new_shape = self.nif.createShapeFromData(obj_name,
+                                                     verts, tris, uvmap_nif, norms_exp,
                                                      props=props,
                                                      parent=p)
             if "pynNodeFlags" in obj:

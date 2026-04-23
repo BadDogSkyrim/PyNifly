@@ -214,9 +214,6 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
     """
     skinned = (len(old_shape.bone_weights) > 0)
 
-    # Somehow the UV needs inversion. Probably a bug but we've lived with it so long...
-    uv_inv = [(x, 1-y) for x, y in old_shape.uvs]
-
     if properties:
         new_prop:NiShapeBuf = properties
     else:
@@ -224,10 +221,10 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
 
     new_prop.nameID = new_prop.conrollerID = new_prop.collisionID = NODEID_NONE
     new_prop.skinInstanceID = new_prop.shaderPropertyID = new_prop.alphaPropertyID = NODEID_NONE
-    new_shape = new_nif.createShapeFromData(old_shape.name, 
+    new_shape = new_nif.createShapeFromData(old_shape.name,
                                             verts if verts else old_shape.verts,
                                             old_shape.tris,
-                                            uv_inv,
+                                            old_shape.uvs,
                                             old_shape.normals,
                                             props=new_prop,
                                             use_type=old_shape.properties.bufType,
@@ -572,6 +569,47 @@ def TEST_BodyRegression():
     f = NifFile("tests/FO4/BodyRegression/MaleBody.nif")
     assert len(f.shapes[0].verts) > 39000, "Have very many verts"
     assert len(f.shapes[0].tris) > 76000, "Have very many tris"
+
+
+def TEST_UV_ROUNDTRIP():
+    """createShapeFromData -> save -> reopen preserves UV coordinates exactly."""
+    outfile = _test_file(r"tests/Out/TEST_UV_ROUNDTRIP.nif")
+    verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
+    tris = [(0, 1, 2)]
+    uvs_in = [(0.1, 0.2), (0.5, 0.7), (0.9, 0.3)]
+    norms = [(0.0, 0.0, 1.0)] * 3
+
+    nif = NifFile()
+    nif.initialize("SKYRIMSE", outfile, root_type="BSFadeNode", root_name="root")
+    nif.createShapeFromData("Tri", verts, tris, uvs_in, norms, parent=nif.root)
+    nif.save()
+
+    check = NifFile(outfile)
+    uvs_out = list(check.shapes[0].uvs)
+    for i, (a, b) in enumerate(zip(uvs_in, uvs_out)):
+        assert TT.is_equiv(a[0], b[0], f"u of vertex {i}", e=1e-3)
+        assert TT.is_equiv(a[1], b[1], f"v of vertex {i}", e=1e-3)
+
+
+def TEST_INITIALIZE_ROOT_NAME():
+    """initialize() honors root_name and root_type for every supported root block."""
+    cases = [
+        ("NiNode",               "NiNode_root",      "NiNode"),
+        ("BSFadeNode",           "BSFadeNode_root",  "BSFadeNode"),
+        ("BSLeafAnimNode",       "BSLeafAnimNode_r", "BSLeafAnimNode"),
+        ("NiControllerSequence", "NiCS_root",        "NiControllerSequence"),
+    ]
+    for root_type, root_name, expected_block in cases:
+        outfile = _test_file(f"tests/Out/TEST_INITIALIZE_ROOT_NAME_{root_type}.nif")
+        nif = NifFile()
+        nif.initialize("SKYRIMSE", outfile, root_type=root_type, root_name=root_name)
+        assert TT.is_eq(nif.root.name, root_name, f"in-memory name for {root_type}")
+        assert TT.is_eq(nif.root.blockname, expected_block, f"in-memory block for {root_type}")
+        nif.save()
+
+        check = NifFile(outfile)
+        assert TT.is_eq(check.root.name, root_name, f"saved name for {root_type}")
+        assert TT.is_eq(check.root.blockname, expected_block, f"saved block for {root_type}")
 
 
 def TEST_CREATE_TETRA():
@@ -924,15 +962,33 @@ def TEST_PARTITIONS():
     nif2.initialize('SKYRIM', r"tests/Out/PartitionsMaleHead.nif")
     _export_shape(nif.shapes[0], nif2)
 
-    # set_partitions expects a list of partitions and a tri list.  The tri list references
-    # reference partitions by ID, because when there are segments and subsegments it
-    # gets very confusing.
-    trilist = [nif.shapes[0].partitions[t].id for t in nif.shapes[0].partition_tris]
-    nif2.shapes[0].set_partitions(nif.shapes[0].partitions, trilist)
+    # set_partitions accepts the index list returned by partition_tris directly.
+    nif2.shapes[0].set_partitions(
+        nif.shapes[0].partitions, nif.shapes[0].partition_tris)
     nif2.save()
 
     nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
     CheckNif(nif3, testfile)
+
+
+def TEST_PARTITIONS_BY_ID():
+    """set_partitions accepts trilist as partition IDs (back-compat)."""
+    testfile = r"tests/Skyrim/malehead.nif"
+    nif = NifFile(testfile)
+
+    nif2 = NifFile()
+    nif2.initialize('SKYRIM', r"tests/Out/TEST_PARTITIONS_BY_ID.nif")
+    _export_shape(nif.shapes[0], nif2)
+
+    # Original idiom: convert partition_tris (indices) to IDs before passing.
+    trilist = [nif.shapes[0].partitions[t].id for t in nif.shapes[0].partition_tris]
+    nif2.shapes[0].set_partitions(nif.shapes[0].partitions, trilist)
+    nif2.save()
+
+    nif3 = NifFile(r"tests/Out/TEST_PARTITIONS_BY_ID.nif")
+    src_ids = [nif.shapes[0].partitions[t].id for t in nif.shapes[0].partition_tris]
+    out_ids = [nif3.shapes[0].partitions[t].id for t in nif3.shapes[0].partition_tris]
+    assert TT.is_eq(out_ids, src_ids, "round-trip via IDs preserves partition assignment")
 
 
 def TEST_SEGMENTS_EMPTY():

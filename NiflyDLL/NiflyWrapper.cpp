@@ -273,36 +273,37 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
 
     nif->Create(version);
 
-    /* Replace root node with the correct type
+    /* Replace the default root node with the requested type. Register the name
+       in the header string table so it round-trips through nameID lookups
+       (NiSequence reads via nameID; without the index the name reads empty
+       until the file is saved and reopened).
     */
+    auto& hdr = nif->GetHeader();
     if (strcmp(rootType, "BSFadeNode") == 0) {
-        auto& hdr = nif->GetHeader();
         hdr.DeleteBlock(0u);
-
         auto rootNode = std::make_unique<BSFadeNode>();
         rootNode->name.get() = name;
+        rootNode->name.SetIndex(hdr.AddOrFindStringId(name));
         hdr.AddBlock(std::move(rootNode));
     }
-    if (strcmp(rootType, "BSLeafAnimNode") == 0) {
-        auto& hdr = nif->GetHeader();
+    else if (strcmp(rootType, "BSLeafAnimNode") == 0) {
         hdr.DeleteBlock(0u);
-
         auto rootNode = std::make_unique<BSLeafAnimNode>();
         rootNode->name.get() = name;
+        rootNode->name.SetIndex(hdr.AddOrFindStringId(name));
         hdr.AddBlock(std::move(rootNode));
     }
     else if (strcmp(rootType, "NiControllerSequence") == 0) {
-        auto& hdr = nif->GetHeader();
         hdr.DeleteBlock(0u);
-
         auto rootNode = std::make_unique<NiControllerSequence>();
         rootNode->name.get() = name;
+        rootNode->name.SetIndex(hdr.AddOrFindStringId(name));
         hdr.AddBlock(std::move(rootNode));
     }
     else {
-        auto& hdr = nif->GetHeader();
         auto rootNode = hdr.GetBlock<NiNode>(0u);
         rootNode->name.get() = name;
+        rootNode->name.SetIndex(hdr.AddOrFindStringId(name));
     }
 }
 
