@@ -1019,7 +1019,7 @@ class bhkCompressedMeshShape(bhkShape):
             count = nifly.getCollCompressedMeshShapeTris(
                 self.file._handle, self.properties.dataID, None, 0)
             if count > 0:
-                buf = (c_uint16 * (count * 3))()
+                buf = (c_uint32 * (count * 3))()
                 nifly.getCollCompressedMeshShapeTris(
                     self.file._handle, self.properties.dataID, buf, count)
                 self._triangles = [(buf[i*3], buf[i*3+1], buf[i*3+2])

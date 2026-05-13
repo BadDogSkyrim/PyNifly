@@ -3611,6 +3611,30 @@ def TEST_SKYRIM_LE_MOPP_IMPORT():
 
 
 @test_category("SKYRIM", "MOPP")
+def TEST_SE_COMPRESSED_MESH_LARGE():
+    """Import an SE compressed-mesh collision with >65k vertices. Triangle indices
+    must not be truncated to uint16 — high-numbered verts must be reachable."""
+    nif = NifFile(r"tests/SkyrimSE/SEVMageTower05.nif")
+    cs = nif.root.collision_object.body.shape
+    assert TT.is_eq(cs.blockname, "bhkMoppBvTreeShape", "Shape is MOPP")
+    child = cs.child
+    assert TT.is_eq(child.blockname, "bhkCompressedMeshShape",
+                    "Child is bhkCompressedMeshShape")
+
+    verts = child.vertices
+    tris = child.triangles
+    assert TT.is_gt(len(verts), 65535,
+                    f"Test fixture must have >65k verts to exercise the bug; got {len(verts)}")
+
+    # If indices were stored as uint16, max triangle index would be stuck at 65535.
+    # A well-formed mesh references its highest verts; the max index must be >= 65536.
+    max_index = max(max(t) for t in tris)
+    assert TT.is_gt(max_index, 65535,
+                    f"Max triangle index ({max_index}) shows uint16 truncation "
+                    f"(verts={len(verts)})")
+
+
+@test_category("SKYRIM", "MOPP")
 def TEST_MOPP_ROUNDTRIP_LE():
     """Round-trip MOPP write for Skyrim LE: create NIF with MOPP, read it back."""
     # Simple box in Havok space

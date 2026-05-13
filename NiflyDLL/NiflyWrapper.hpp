@@ -136,7 +136,7 @@ extern "C" NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float*
 extern "C" NIFLY_API int getCollPackedStripsShapeVerts(void* nifref, int dataIndex, float* buf, int buflen);
 extern "C" NIFLY_API int getCollPackedStripsShapeTris(void* nifref, int dataIndex, uint16_t* buf, int buflen);
 extern "C" NIFLY_API int getCollCompressedMeshShapeVerts(void* nifref, int dataIndex, float* buf, int buflen);
-extern "C" NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint16_t* buf, int buflen);
+extern "C" NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint32_t* buf, int buflen);
 extern "C" NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t * buf, int buflen);
 extern "C" NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_id);
 extern "C" NIFLY_API void setCollConvexTransformShapeChild(void* nifref, const uint32_t id, uint32_t child_id);

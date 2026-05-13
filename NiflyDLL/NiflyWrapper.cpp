@@ -4119,10 +4119,11 @@ NIFLY_API int getCollCompressedMeshShapeVerts(void* nifref, int dataIndex, float
     return total;
 }
 
-NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint16_t* buf, int buflen) {
+NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint32_t* buf, int buflen) {
     /* Return triangles from bhkCompressedMeshShapeData.
        BigTris come first, then chunk tris (decomposed from triangle strips).
-       Chunk tris use indices offset by (bigVertCount + prior chunk verts). */
+       Chunk tris use indices offset by (bigVertCount + prior chunk verts).
+       Indices are uint32 because total vertex count can exceed 65535. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader& hdr = nif->GetHeader();
     auto* data = hdr.GetBlock<bhkCompressedMeshShapeData>(dataIndex);
@@ -4155,18 +4156,18 @@ NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint16
         buf[j++] = bt.triangle2;
         buf[j++] = bt.triangle3;
     }
-    int vertOffset = (int)data->bigVerts.size();
+    uint32_t vertOffset = (uint32_t)data->bigVerts.size();
     for (auto& chunk : data->chunks) {
-        int nv = (int)chunk.verts.size() / 3;
+        uint32_t nv = (uint32_t)chunk.verts.size() / 3;
         int idx = 0;
         // Decompose triangle strips
         for (int s = 0; s < (int)chunk.strips.size(); s++) {
             int stripLen = chunk.strips[s];
             for (int k = 0; k + 2 < stripLen; k++) {
                 if (j + 3 > buflen * 3) break;
-                uint16_t a = chunk.indices[idx + k];
-                uint16_t b = chunk.indices[idx + k + 1];
-                uint16_t c = chunk.indices[idx + k + 2];
+                uint32_t a = chunk.indices[idx + k];
+                uint32_t b = chunk.indices[idx + k + 1];
+                uint32_t c = chunk.indices[idx + k + 2];
                 if (k & 1) {
                     // Odd triangle: flip winding
                     buf[j++] = a + vertOffset;
@@ -4184,9 +4185,9 @@ NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint16
         int remaining = (int)chunk.indices.size() - idx;
         for (int i = 0; i + 2 < remaining; i += 3) {
             if (j + 3 > buflen * 3) break;
-            buf[j++] = chunk.indices[idx + i] + vertOffset;
-            buf[j++] = chunk.indices[idx + i + 1] + vertOffset;
-            buf[j++] = chunk.indices[idx + i + 2] + vertOffset;
+            buf[j++] = (uint32_t)chunk.indices[idx + i] + vertOffset;
+            buf[j++] = (uint32_t)chunk.indices[idx + i + 1] + vertOffset;
+            buf[j++] = (uint32_t)chunk.indices[idx + i + 2] + vertOffset;
         }
         vertOffset += nv;
     }
