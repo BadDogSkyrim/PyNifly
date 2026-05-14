@@ -387,23 +387,22 @@ def _encode_bound_lower(bound_min: float, origin_axis: float, largest_dim: float
 
 
 def _emit_leaf(output_id: int) -> bytearray:
-    """Emit leaf opcodes for a given output ID."""
+    """Emit leaf opcodes for a given output ID.
+
+    bhkCompressedMeshShape packs output IDs as
+        ((chunk_idx+1) << bits_per_w_index) | (winding << bits_per_index) | tri_in_chunk
+    With vanilla bits_per_w_index=18, meshes with >63 chunks produce IDs >24 bits.
+    The single-byte LEAF opcodes (0x30..0x4F, 0x50, 0x51, 0x52) only carry up to
+    24 bits, so for safety we always emit SET_OUTPUT (0x0B) to load the full
+    32-bit base, then LEAF 0 (0x30). Six bytes per leaf, always correct.
+    """
     code = bytearray()
-    if output_id <= 0x1F:
-        # Opcodes 0x30..0x4F encode output IDs 0..31 in a single byte
-        code.append(0x30 + output_id)
-    elif output_id <= 0xFF:
-        code.append(0x50)
-        code.append(output_id)
-    elif output_id <= 0xFFFF:
-        code.append(0x51)
-        code.append((output_id >> 8) & 0xFF)
-        code.append(output_id & 0xFF)
-    else:
-        code.append(0x52)
-        code.append((output_id >> 16) & 0xFF)
-        code.append((output_id >> 8) & 0xFF)
-        code.append(output_id & 0xFF)
+    code.append(0x0B)
+    code.append((output_id >> 24) & 0xFF)
+    code.append((output_id >> 16) & 0xFF)
+    code.append((output_id >> 8) & 0xFF)
+    code.append(output_id & 0xFF)
+    code.append(0x30)  # LEAF with relative offset 0; full ID came from SET_OUTPUT
     return code
 
 
@@ -480,25 +479,99 @@ def _encode_node(node: _BVHNode, origin, largest_dim) -> bytearray:
         code.append((right_offset >> 8) & 0xFF)
         code.append(right_offset & 0xFF)
     else:
-        # Tree too large for even 2-byte jump — collect all leaf tris from both subtrees.
-        import logging
-        logging.getLogger("pynifly").warning(
-            f"MOPP subtree exceeds 64K bytes ({right_offset}); "
-            f"collision tree may be degraded")
-        def _collect_leaves(n):
-            if n.left is None and n.right is None:
-                return list(n.tris)
-            result = []
-            if n.left: result.extend(_collect_leaves(n.left))
-            if n.right: result.extend(_collect_leaves(n.right))
-            return result
-        for tri in _collect_leaves(node):
-            code.extend(_emit_leaf(tri.output_id))
-        return code
+        # left_code exceeds the 16-bit SPLIT16 jump — restructure this whole
+        # subtree as a left-leaning "spine" of SPLITs, each carving off a
+        # spatial chunk small enough to fit a normal sub-BVH.
+        return _encode_spine(node, origin, largest_dim)
 
     code.extend(left_code)
     code.extend(right_code)
 
+    return code
+
+
+# Worst-case bytecode per leaf is ~14 bytes (3 axis FILTERs × 3 bytes +
+# up to 5-byte LEAF opcode). With overhead for the BVH SPLITs (~4 bytes
+# per inner node), 2000 leaves comfortably fit in 64KB.
+_SPINE_CHUNK_LEAVES = 2000
+
+
+def _collect_leaves(node):
+    if node.left is None and node.right is None:
+        return list(node.tris)
+    out = []
+    if node.left:
+        out.extend(_collect_leaves(node.left))
+    if node.right:
+        out.extend(_collect_leaves(node.right))
+    return out
+
+
+def _encode_spine(node, origin, largest_dim):
+    """Encode `node`'s entire leaf set as a left-leaning SPLIT chain.
+
+    Each chunk along the chain is a small sub-BVH whose encoded size fits in
+    SPLIT16's 16-bit left-branch jump. The chain itself nests right-branches,
+    which have no size limit because the walker reads them to end-of-range.
+    """
+    leaves = _collect_leaves(node)
+    if not leaves:
+        return bytearray()
+
+    extents = [
+        max(t.bbox_max[a] for t in leaves) - min(t.bbox_min[a] for t in leaves)
+        for a in range(3)
+    ]
+    spine_axis = max(range(3), key=lambda a: extents[a])
+    leaves.sort(key=lambda t: t.centroid[spine_axis])
+
+    chunks = [leaves[i:i + _SPINE_CHUNK_LEAVES]
+              for i in range(0, len(leaves), _SPINE_CHUNK_LEAVES)]
+
+    return _emit_spine_chain(chunks, spine_axis, origin, largest_dim)
+
+
+def _emit_spine_chain(chunks, axis, origin, largest_dim):
+    """Recursively emit a left-leaning SPLIT chain over an ordered list of
+    leaf chunks. Chunk 0 is the spatial "leftmost" group along `axis`."""
+    if len(chunks) == 1:
+        # Tail of the spine: build a normal BVH over the last chunk.
+        tail_bvh = _build_bvh(chunks[0], origin, largest_dim)
+        return _encode_node(tail_bvh, origin, largest_dim)
+
+    head_leaves = chunks[0]
+    head_bvh = _build_bvh(head_leaves, origin, largest_dim)
+    head_code = _encode_node(head_bvh, origin, largest_dim)
+    rest_code = _emit_spine_chain(chunks[1:], axis, origin, largest_dim)
+
+    bb = _encode_bound_upper(
+        max(t.bbox_max[axis] for t in head_leaves),
+        origin[axis], largest_dim)
+    rest_min = min(t.bbox_min[axis] for c in chunks[1:] for t in c)
+    aa = _encode_bound_lower(rest_min, origin[axis], largest_dim)
+
+    head_len = len(head_code)
+    code = bytearray()
+    if head_len <= 255:
+        code.append(0x10 + axis)
+        code.append(bb)
+        code.append(aa)
+        code.append(head_len)
+    elif head_len <= 65535:
+        code.append(0x23 + axis)
+        code.append(bb)
+        code.append(aa)
+        code.append(0)
+        code.append(0)
+        code.append((head_len >> 8) & 0xFF)
+        code.append(head_len & 0xFF)
+    else:
+        raise RuntimeError(
+            f"MOPP spine chunk encoded to {head_len} bytes; "
+            f"reduce _SPINE_CHUNK_LEAVES")
+
+    code.extend(head_code)
+    code.extend(rest_code)
     return code
 
 

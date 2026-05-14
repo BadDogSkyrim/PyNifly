@@ -837,6 +837,7 @@ struct BHKCompressedMeshShapeBuf {
 	uint8_t materialType;
 	uint32_t userData;
 	float unkFloat;
+	uint32_t targetID;	// NiNode this collision belongs to (typically root)
 };
 
 struct ConnectPointBuf {

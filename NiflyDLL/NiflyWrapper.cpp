@@ -19,7 +19,7 @@
 #include "NiflyFunctions.hpp"
 #include "NiflyWrapper.hpp"
 
-const int NiflyDDLVersion[3] = { 25, 15, 0 };
+const int NiflyDDLVersion[3] = { 25, 15, 1 };
  
 using namespace nifly; 
 
@@ -4067,6 +4067,7 @@ int getCollCompressedMeshShapeProps(void* nifref, uint32_t nodeIndex, void* inbu
     buf->dataID = sh->dataRef.index;
     buf->userData = sh->userData;
     buf->unkFloat = sh->unkFloat;
+    buf->targetID = sh->targetRef.index;
 
     auto* data = hdr->GetBlock<bhkCompressedMeshShapeData>(sh->dataRef.index);
     if (data) {
@@ -4301,6 +4302,7 @@ int addCollCompressedMeshShape(void* nifref, const char* name, void* buffer, uin
     sh->radius2 = buf->radius;
     sh->userData = buf->userData;
     sh->unkFloat = buf->unkFloat;
+    sh->targetRef.index = buf->targetID;
 
     // Create the data block and link it
     auto dataBlock = std::make_unique<bhkCompressedMeshShapeData>();

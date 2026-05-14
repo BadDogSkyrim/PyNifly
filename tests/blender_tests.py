@@ -9996,6 +9996,87 @@ def TEST_COLLISION_MOPP_MOUNTAINPEAK():
     log.info(f"Reimported: {re_vert_count} verts, {re_tri_count} tris — OK")
 
 
+@TT.category('SKYRIM', 'MOPP')
+@TT.expect_errors(("Could not find texture", "Could not load"))
+def TEST_COLLISION_MOPP_SEVMAGETOWER():
+    """Very large MOPP collision round-trip: SEVMageTower05 (>65k verts).
+    Exercises both uint32-wide triangle indices and the >64KB MOPP spine encoder.
+    No "exceeds 64K" degradation warning should be emitted, the Target field on
+    the bhkCompressedMeshShape should point to the root node, and the reimport
+    must succeed."""
+    import logging
+    testfile = TTB.test_file(r"tests\SkyrimSE\SEVMageTower05.nif")
+    outfile = TTB.test_file(
+        r"tests/Out/TEST_COLLISION_MOPP_SEVMAGETOWER.nif", output=True)
+
+    nif_orig = pyn.NifFile(testfile)
+    orig_root = nif_orig.rootNode
+    orig_mopp = orig_root.collision_object.body.shape
+    orig_cmesh = orig_mopp.child
+    orig_verts = orig_cmesh.vertices
+    orig_tris = orig_cmesh.triangles
+    log.info(f"Original: {len(orig_verts)} verts, {len(orig_tris)} tris")
+    assert TT.is_gt(len(orig_verts), 65535, "fixture really has >65k verts")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_collection=True)
+    import_coll = bpy.context.collection
+
+    coll_objs = [o for o in import_coll.all_objects
+                 if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(coll_objs), 0, "collision imported")
+
+    # Capture MOPP warnings during export to confirm the spine encoder kicks
+    # in cleanly (no "exceeds 64K" messages).
+    warnings_seen = []
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            warnings_seen.append(record.getMessage())
+    cap = _Cap(level=logging.WARNING)
+    pyn_log = logging.getLogger("pynifly")
+    pyn_log.addHandler(cap)
+    try:
+        BD.ObjectSelect(list(import_coll.all_objects), active=True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+    finally:
+        pyn_log.removeHandler(cap)
+
+    degraded = [w for w in warnings_seen if "exceeds 64K" in w]
+    assert TT.is_eq(degraded, [],
+                    f"No MOPP degradation warnings (got {len(degraded)}: "
+                    f"{degraded[:1]})")
+
+    nif_out = pyn.NifFile(outfile)
+    out_mopp = nif_out.rootNode.collision_object.body.shape
+    assert TT.is_eq(out_mopp.blockname, "bhkMoppBvTreeShape", "MOPP shape type")
+    out_cmesh = out_mopp.child
+    assert TT.is_eq(out_cmesh.blockname, "bhkCompressedMeshShape",
+                    "child shape type")
+    assert TT.is_eq(out_cmesh.properties.targetID, nif_out.rootNode.id,
+                    f"Target points to root (got {out_cmesh.properties.targetID}, "
+                    f"expected {nif_out.rootNode.id})")
+
+    out_tris = out_cmesh.triangles
+    assert TT.is_eq(len(out_tris), len(orig_tris), "exported tri count")
+    max_out_index = max(max(t) for t in out_tris)
+    assert TT.is_gt(max_out_index, 65535,
+                    f"exported triangles reference >65535 vertex indices "
+                    f"(max {max_out_index})")
+
+    out_mopp_data, _, _ = out_mopp.mopp_data
+    assert TT.is_gt(len(out_mopp_data), 0, "MOPP bytecode generated")
+    log.info(f"Exported MOPP: {len(out_mopp_data)} bytes")
+
+    # Reimport sanity check
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.import_scene.pynifly(filepath=outfile, create_collection=True)
+    reimport_coll = bpy.context.collection
+    re_coll = [o for o in reimport_coll.all_objects
+               if o.name.startswith("bhkCompressedMeshShape")]
+    assert TT.is_gt(len(re_coll), 0, "reimported collision found")
+    assert TT.is_eq(len(re_coll[0].data.polygons), len(orig_tris),
+                    "reimported tri count")
+
+
 def show_all_tests():
     for t in [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]:
         print(f"{t.__name__:25}{t.__doc__}")

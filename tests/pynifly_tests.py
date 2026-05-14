@@ -3635,6 +3635,132 @@ def TEST_SE_COMPRESSED_MESH_LARGE():
 
 
 @test_category("SKYRIM", "MOPP")
+def TEST_MOPP_COMPRESSED_MESH_TARGET_FIELD():
+    """bhkCompressedMeshShape.Target must point to the root NIF node.
+    Vanilla SE nifs set this to the NiNode the collision is attached to."""
+    havok_verts = [
+        (-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
+        (-0.5, -0.5,  0.5), (0.5, -0.5,  0.5), (0.5, 0.5,  0.5), (-0.5, 0.5,  0.5),
+    ]
+    tris = [
+        (0,1,2), (0,2,3), (4,6,5), (4,7,6),
+        (0,4,5), (0,5,1), (2,6,7), (2,7,3),
+        (0,3,7), (0,7,4), (1,5,6), (1,6,2),
+    ]
+
+    outfile = _test_file(r"tests/Out/TEST_MOPP_COMPRESSED_MESH_TARGET_FIELD.nif")
+    outnif = NifFile()
+    outnif.initialize("SKYRIMSE", outfile)
+    outnif.createShapeFromData(
+        "TestCube",
+        [(v[0]*70, v[1]*70, v[2]*70) for v in havok_verts],
+        tris, [[0.0, 0.0]] * len(havok_verts), [(0, 0, 1)] * len(havok_verts),
+        parent=outnif.root)
+    coll = outnif.root.add_collision(None)
+    rb_props = bhkWorldObject.get_buffer('bhkRigidBody')
+    rb = coll.add_body(rb_props)
+    bhkMoppBvTreeShape.Create(
+        outnif, havok_verts, tris, "SKYRIMSE", radius=0.005, parent=rb)
+    outnif.save()
+
+    check = NifFile(outfile)
+    child = check.root.collision_object.body.shape.child
+    assert TT.is_eq(child.blockname, "bhkCompressedMeshShape",
+                    "Child is bhkCompressedMeshShape")
+    assert TT.is_eq(child.properties.targetID, check.root.id,
+                    f"Target points to root (got {child.properties.targetID}, "
+                    f"expected root id {check.root.id})")
+
+
+@test_category("SKYRIM", "MOPP")
+def TEST_MOPP_OUTPUT_IDS_OVER_24_BITS():
+    """Output IDs >24 bits must round-trip without truncation through the leaf
+    opcode. bhkCompressedMeshShape encodes (chunk_idx+1)<<18 | winding<<17 |
+    tri_in_chunk, so a 150-chunk mesh yields OIDs over 0xFFFFFF; the engine
+    crashes when leaves silently truncate the top bits."""
+    from pyn.mopp_compiler import compile_mopp
+    from scripts.mopp_verifier import walk_mopp
+
+    # Simple two-triangle mesh, but with output_ids beyond 24 bits.
+    verts = [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+             (0.0, 1.0, 0.0), (1.0, 1.0, 0.0)]
+    tris = [(0, 1, 2), (1, 3, 2)]
+    big_ids = [0x02000000, 0x025E00FE]  # both > 0xFFFFFF
+
+    code, origin, scale = compile_mopp(
+        verts, tris, radius=0.005, output_ids=big_ids)
+    largest_dim = 254.0 * 256.0 * 256.0 / scale
+
+    # Walk the centroid of each triangle and verify the FULL 32-bit OID
+    # comes out, not a 24-bit-truncated version.
+    for i, (a, b, c) in enumerate(tris):
+        cx = (verts[a][0] + verts[b][0] + verts[c][0]) / 3.0
+        cy = (verts[a][1] + verts[b][1] + verts[c][1]) / 3.0
+        cz = (verts[a][2] + verts[b][2] + verts[c][2]) / 3.0
+        seen = walk_mopp(code, origin, largest_dim, (cx, cy, cz))
+        assert TT.is_contains(big_ids[i], seen,
+                               f"tri {i} OID 0x{big_ids[i]:08X} present in walk; "
+                               f"got {sorted(hex(s) for s in seen)}")
+
+
+@test_category("SKYRIM", "MOPP")
+def TEST_MOPP_LARGE_NO_DEGRADATION():
+    """MOPP compiler must encode large meshes without degrading to a flat leaf list.
+    A subtree whose encoded bytecode exceeds 64KB used to trigger a fallback that
+    collected every leaf flat; the compiler should now restructure to stay within
+    the 16-bit jump limits and preserve real BVH walks."""
+    import logging
+    from pyn.mopp_compiler import compile_mopp
+    from scripts.mopp_verifier import verify_surface_reachability
+
+    # Generate a procedural grid mesh big enough to overflow the SPLIT16 jump
+    # (each leaf ≈ 12 bytes → ~5400 leaves per subtree fills 64KB; we need
+    # the root left-child to exceed that). 100×100 grid → 19800 tris ≈ 119KB
+    # per half-subtree → guaranteed overflow with the old encoder.
+    N = 100
+    verts = [(float(i), float(j), 0.0)
+             for j in range(N) for i in range(N)]
+    tris = []
+    for j in range(N - 1):
+        for i in range(N - 1):
+            a = j * N + i
+            b = j * N + i + 1
+            c = (j + 1) * N + i
+            d = (j + 1) * N + i + 1
+            tris.append((a, b, c))
+            tris.append((b, d, c))
+
+    # Capture any warnings the compiler emits during this run
+    warnings_seen = []
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            warnings_seen.append(record.getMessage())
+    cap = _Cap(level=logging.WARNING)
+    pyn_log = logging.getLogger("pynifly")
+    pyn_log.addHandler(cap)
+    try:
+        code, origin, scale = compile_mopp(
+            verts, tris, radius=0.005, output_ids=list(range(len(tris))))
+    finally:
+        pyn_log.removeHandler(cap)
+
+    degraded = [w for w in warnings_seen if "exceeds 64K" in w]
+    assert TT.is_eq(degraded, [],
+                    f"No MOPP degradation warning expected; got "
+                    f"{len(degraded)} (first: {degraded[:1]})")
+
+    # The compiled MOPP must reach every triangle. Use a small sample count
+    # to keep the test fast on the big mesh.
+    largest_dim = 254.0 * 256.0 * 256.0 / scale
+    ok, msgs = verify_surface_reachability(
+        code, origin, largest_dim, verts, tris,
+        radius=0.005, samples_per_tri=2)
+    for m in msgs[-5:]:
+        log.debug(m)
+    assert ok, f"All {len(tris)} triangles reachable in large compiled MOPP"
+
+
+@test_category("SKYRIM", "MOPP")
 def TEST_MOPP_ROUNDTRIP_LE():
     """Round-trip MOPP write for Skyrim LE: create NIF with MOPP, read it back."""
     # Simple box in Havok space

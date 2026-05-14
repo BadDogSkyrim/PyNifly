@@ -663,7 +663,8 @@ class bhkMoppBvTreeShape(bhkShape):
                 face_materials = [material] * len(tris)
             child, output_ids = bhkCompressedMeshShape.Create(
                 file, verts, tris, radius=radius,
-                face_materials=face_materials, parent=mopp_shape)
+                face_materials=face_materials, parent=mopp_shape,
+                target=file.rootNode)
 
         # Compile MOPP bytecode
         mopp_bytes, origin, scale = compile_mopp(verts, tris, radius=radius,
@@ -797,7 +798,8 @@ class bhkCompressedMeshShape(bhkShape):
         self._triangles = None
 
     @classmethod
-    def Create(cls, file, verts, tris, radius=0.005, face_materials=None, parent=None):
+    def Create(cls, file, verts, tris, radius=0.005, face_materials=None,
+               parent=None, target=None):
         """Create a bhkCompressedMeshShape with chunked geometry data.
 
         Segments the mesh into chunks (<=255 verts, <=255 tris each),
@@ -810,6 +812,8 @@ class bhkCompressedMeshShape(bhkShape):
             radius: Collision radius.
             face_materials: Optional per-face HavokMaterial uint32 list.
             parent: Parent block (bhkMoppBvTreeShape).
+            target: NiNode this collision belongs to. Defaults to file.rootNode.
+                Vanilla SE nifs set Target to the root node.
 
         Returns:
             (bhkCompressedMeshShape, output_ids)
@@ -855,6 +859,8 @@ class bhkCompressedMeshShape(bhkShape):
         mask_w_index = 0x3FFFF
 
         # Set up buffer with data-block params and create shape + data blocks
+        if target is None:
+            target = file.rootNode
         buf = bhkCompressedMeshShapeBuf()
         buf.radius = radius
         buf.bitsPerIndex = bits_per_index
@@ -863,6 +869,7 @@ class bhkCompressedMeshShape(bhkShape):
         buf.maskWIndex = mask_w_index
         buf.error = 0.001  # standard quantization tolerance for Skyrim SE
         buf.materialType = 1 if face_materials else 0
+        buf.targetID = target.id if target else NODEID_NONE
         shape_id = check_msg(nifly.addBlock, file._handle, None, byref(buf),
                              parent.id if parent else NODEID_NONE)
 

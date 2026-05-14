@@ -519,6 +519,7 @@ class bhkCompressedMeshShapeBuf(pynStructure):
         ('materialType', c_uint8),
         ('userData', c_uint32),
         ('unkFloat', c_float),
+        ('targetID', c_uint32),
     ]
     def __init__(self, values=None):
         super().__init__(values=values)
