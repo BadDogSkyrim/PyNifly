@@ -1313,6 +1313,42 @@ def TEST_SHADER():
 
 
 @test_category('SHADER')
+def TEST_SHADER_TYPE_OVERRIDE():
+    """Shader_Type is the source of truth for the BSLightingShaderType field
+    written to the NIF, even if the buffer's bslspShaderType field disagrees.
+
+    Reproduces a real bug: a Blender material imported from a face NIF carries a
+    lingering bslspShaderType custom property = Face_Tint. Later the user changes
+    the user-facing Shader_Type to Default and exports. The output should be a
+    Default-shader-type NIF, not Face_Tint.
+    """
+    outfile = _test_file(r"tests/out/TEST_SHADER_TYPE_OVERRIDE.nif")
+
+    nifOut = NifFile()
+    nifOut.initialize('SKYRIMSE', outfile)
+    verts = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
+    tris = [(0, 1, 2)]
+    uvs = [(0, 0), (1, 0), (0, 1)]
+    norms = [(0, 0, 1)] * 3
+    shape = nifOut.createShapeFromData(
+        "Test", verts, tris, uvs, norms,
+        props=BSTriShape.getbuf())
+
+    p = shape.shader.properties.copy()
+    p.Shader_Type = BSLSPShaderType.Default
+    p.bslspShaderType = BSLSPShaderType.Face_Tint   # lingering stale value
+    shape.shader.properties = p
+
+    nifOut.save()
+
+    nifCheck = NifFile(outfile)
+    TT.assert_eq(
+        nifCheck.shapes[0].shader.properties.Shader_Type,
+        BSLSPShaderType.Default,
+        "Shader_Type after roundtrip")
+
+
+@test_category('SHADER')
 def TEST_SHADER_SCAFFOLD():
     testfile = r"tests\FO4\ScaffFrame1x2Str01.nif"
     nif = NifFile(testfile, materialsRoot=r"C:\Modding\FalloutAssets\00 FO4 Assets")

@@ -1786,7 +1786,10 @@ int copyNiShader(NifFile* nif, BSShaderProperty* bssh, const char* name, NiShade
 
     if (name) bssh->name.get() = name;
     bssh->bBSLightingShaderProperty = buf->bBSLightingShaderProperty;
-    bssh->bslspShaderType = buf->bslspShaderType;
+    // For Skyrim/SE/FO4 BSLightingShaderProperty, the user-visible "Shader Type"
+    // (BSLightingShaderType enum) is bslspShaderType. Drive it from buf->Shader_Type
+    // — the single user-facing field — so a stale buf->bslspShaderType never wins.
+    bssh->bslspShaderType = buf->Shader_Type;
     bssh->controllerRef.index = buf->controllerID;
 
     bssh->shaderFlags = buf->shaderFlags;
