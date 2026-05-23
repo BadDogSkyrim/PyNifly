@@ -1216,6 +1216,75 @@ def TEST_BRIARHEART_ROOT_EXPORT():
         f"BriarheartFlesh missing arm bones (used={sorted(used)}, missing={sorted(missing)})"
 
 
+@TT.category('SKYRIMSE', 'ARMATURE')
+def TEST_EXPORT_BONE_ROTATION_RESPECTS_SETTING():
+    """Export must apply its own rotate_bones_pretty setting, not whatever stale
+    value BD.game_rotations happens to hold from the last import.
+
+    Bug: BD.game_rotations is a module-level global set by the IMPORT path
+    based on rotate_bones_pretty. The EXPORT path collects self.rotate_bones_pretty
+    but never pushes it into BD.game_rotations — it just reads whatever's there.
+    So if a session imports nif A with rotate_bones_pretty=True (sets global to
+    _pretty), then opens a blend whose armature was imported with
+    rotate_bones_pretty=False (bones stored raw, matching vanilla orientation),
+    exporting that blend writes wrong bone rotations because get_bone_xform
+    multiplies raw bones by Rx(-90°) it shouldn't apply.
+
+    Symptom: NifSkope renders the exported nif fine with skinning off, but warps
+    badly with skinning on — and any tool that rewrites bone positions from a
+    skeleton DB (Outfit Studio, the game) will warp the mesh.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\Briarheart.blend")
+    outfile = TTB.test_file(r"tests/Out/TEST_EXPORT_BONE_ROTATION_RESPECTS_SETTING.nif")
+
+    with bpy.data.libraries.load(testfile) as (data_from, data_to):
+        data_to.objects = [obj for obj in data_from.objects]
+    for obj in data_to.objects:
+        bpy.context.scene.collection.objects.link(obj)
+
+    # Briarheart.blend's armatures were imported with rotate_bones_pretty=False,
+    # so their bones' matrix_local matches the vanilla nif orientation directly.
+    # Simulate session contamination: force the global to the WRONG state, as if
+    # an earlier import in this session had used rotate_bones_pretty=True.
+    BD.game_rotations = BD.game_rotations_pretty
+
+    root = bpy.data.objects["BriarHeart:ROOT"]
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE',
+                                 rotate_bones_pretty=False)
+
+    # Vanilla rotations for these bones (from vanilla skeleton.nif).
+    expected = {
+        "NPC Spine1 [Spn1]": [
+            [1.0, 0.0, 0.0],
+            [0.0, 0.994, -0.107],
+            [0.0, 0.107, 0.994]],
+        "NPC Spine2 [Spn2]": [
+            [1.0, 0.0, 0.0],
+            [0.0, 0.991, 0.134],
+            [0.0, -0.134, 0.991]],
+        "NPC L UpperArm [LUar]": [
+            [-0.907, -0.077, -0.413],
+            [-0.087, 0.996, 0.006],
+            [0.411, 0.041, -0.911]],
+    }
+
+    out_nif = pyn.NifFile(outfile)
+    bad = []
+    for bn, exp_R in expected.items():
+        assert bn in out_nif.nodes, f"Bone {bn} present in exported nif"
+        out_R = out_nif.nodes[bn].global_transform.rotation
+        for i in range(3):
+            for j in range(3):
+                if abs(out_R[i][j] - exp_R[i][j]) > 0.01:
+                    bad.append((bn, i, j, out_R[i][j], exp_R[i][j]))
+    assert not bad, (
+        "Exported bone rotation differs from vanilla (export ignored its "
+        "rotate_bones_pretty setting and used the stale module global):\n"
+        + "\n".join(f"  {bn}[{i}][{j}]: exported={o:.4f}  expected={e:.4f}"
+                    for bn, i, j, o, e in bad))
+
+
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_WEIGHTS_EXPORT():
     """Exporting this head weights all verts correctly"""

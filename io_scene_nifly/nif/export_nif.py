@@ -1666,9 +1666,22 @@ class NifExporter:
 
         log.info(str(self))
         pynifly.NifFile.clear_log()
-        self.export_file_set('')
-        if self.facebones:
-            self.export_file_set('_faceBones')
+
+        # BD.game_rotations is a module-level global that get_bone_xform reads to
+        # decide whether to apply the pretty-bone Rx rotation. The import path
+        # stamps it based on rotate_bones_pretty; export must do the same so that
+        # bone rotations written to the nif match the bones in Blender, regardless
+        # of whatever the most recent import in this session left behind.
+        saved_game_rotations = BD.game_rotations
+        BD.game_rotations = (BD.game_rotations_pretty
+                             if self.settings.rotate_bones_pretty
+                             else BD.game_rotations_none)
+        try:
+            self.export_file_set('')
+            if self.facebones:
+                self.export_file_set('_faceBones')
+        finally:
+            BD.game_rotations = saved_game_rotations
         msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
                            pynifly.NifFile.message_log().split('\n')))
         if msgs:
@@ -1802,31 +1815,49 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
     def _discover_game(self, objlist):
         """
-        Given objects being exported, return any game they specify. Saves the  
+        Given objects being exported, return any game they specify. Saves the
         armatures it finds in self.armatures.
         """
+        # Walk through objlist plus the descendants of any EMPTY in it so that
+        # selecting just a pynRoot still surfaces the armatures used by its
+        # children's modifiers.
+        def expand(objs):
+            seen = set()
+            stack = list(objs)
+            while stack:
+                o = stack.pop()
+                if o is None or o.name in seen:
+                    continue
+                seen.add(o.name)
+                yield o
+                if o.type == 'EMPTY':
+                    stack.extend(o.children)
+        expanded = list(expand(objlist))
+
         self.armatures = []
         # Prefer the game specified by a selected armature.
-        for obj in objlist:
+        for obj in expanded:
             if obj.type == 'ARMATURE':
-                self.armatures.append(obj)
+                if obj not in self.armatures:
+                    self.armatures.append(obj)
                 g = obj.get(PYN_GAME_PROP, "")
-                if g: 
+                if g:
                     return g
 
         # Then look for armatures controlling an object being exported.
-        for obj in objlist:
+        for obj in expanded:
             for m in obj.modifiers:
                 if m.type == 'ARMATURE' and m.object:
-                    self.armatures.append(m.object)
+                    if m.object not in self.armatures:
+                        self.armatures.append(m.object)
                     g = m.object.get(PYN_GAME_PROP, "")
-                    if g: 
+                    if g:
                         return g
 
         # Then look for a game specified by the object.
-        for obj in objlist:
+        for obj in expanded:
             g = obj.get(PYN_GAME_PROP, "")
-            if g: 
+            if g:
                 return g
             
         # Finally, if there are armatures but none specify a game, make a best guess based on the bones.
@@ -1846,26 +1877,32 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             prefs = bpy.context.preferences.addons[base_package].preferences
         except KeyError:
             prefs = ExportSettings()
-        
+
         obj = self.objects_to_export[0]
         lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
         obj_root = lst[0] if lst else None
 
+        # `_discover_game` (called just before this) populates self.armatures via
+        # expansion through EMPTY children, so use that list — self.export_armature
+        # is set later, after this method runs.
+        armatures = self.armatures or []
+        first_arma = armatures[0] if armatures else None
+
         self.blender_xf = BD.get_setting_from(
-            PYN_BLENDER_XF_PROP, 
-            (obj_root, obj, self.export_armature), 
+            PYN_BLENDER_XF_PROP,
+            (obj_root, obj, first_arma),
             default=prefs.blender_xf)
         self.rename_bones = BD.get_setting_from(
             PYN_RENAME_BONES_PROP,
-            [self.export_armature] + self.objects_to_export,
+            armatures + self.objects_to_export,
             default=prefs.rename_bones)
         self.rename_bones_niftools = BD.get_setting_from(
             PYN_RENAME_BONES_NIFTOOLS_PROP,
-            [self.export_armature] + self.objects_to_export,
+            armatures + self.objects_to_export,
             default=prefs.rename_bones_niftools)
         self.rotate_bones_pretty = BD.get_setting_from(
             PYN_ROTATE_BONES_PRETTY_PROP,
-            [self.export_armature] + self.objects_to_export,
+            armatures + self.objects_to_export,
             default=prefs.rotate_bones_pretty)
         self.write_bodytri = BD.get_setting_from(
             PYN_WRITE_BODYTRI_ED_PROP,
