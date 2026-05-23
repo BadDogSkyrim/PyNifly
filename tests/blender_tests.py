@@ -1179,6 +1179,43 @@ def TEST_EXPORT_WEIGHTS():
     assert len(bnif.shapes) == 1, f"Wrote one shape: {bnif.shape_dict.keys()}"
 
 
+@TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
+def TEST_BRIARHEART_ROOT_EXPORT():
+    """Exporting a root with mixed armature sources picks the mesh-modifier armature."""
+    # Briarheart.blend has BriarHeart:ROOT (EMPTY pynRoot) whose children include both
+    # a stub armature (BriarHeart_0.nif:ARMATURE, 13 bones) and three skinned meshes
+    # whose Armature modifiers point to a separate, complete armature (56 bones) that
+    # lives under a different root. When the user exports BriarHeart:ROOT, the
+    # mesh-declared armature must win over the child stub — otherwise bone weights
+    # for bones missing from the stub get dropped.
+    testfile = TTB.test_file(r"tests\SkyrimSE\Briarheart.blend")
+    outfile = TTB.test_file(r"tests/Out/TEST_BRIARHEART_ROOT_EXPORT.nif")
+
+    with bpy.data.libraries.load(testfile) as (data_from, data_to):
+        data_to.objects = [obj for obj in data_from.objects]
+    for obj in data_to.objects:
+        bpy.context.scene.collection.objects.link(obj)
+
+    root = bpy.data.objects["BriarHeart:ROOT"]
+    BD.ObjectSelect([root], active=True)
+
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    nifcheck = pyn.NifFile(outfile)
+    flesh = nifcheck.shape_dict.get("BriarheartFlesh")
+    assert flesh is not None, f"Have BriarheartFlesh shape: {list(nifcheck.shape_dict.keys())}"
+
+    # BriarheartFlesh has weights on Clavicle.L, UpperArm.L, UpperarmTwist1.L,
+    # Spine1, Spine2. UpperArm.L and UpperarmTwist1.L are NOT in the 13-bone stub
+    # — only present in the full 56-bone armature reached via the mesh's modifier.
+    # If the stub wins, those two bones get filtered out by trim_to_four.
+    used = set(flesh.get_used_bones())
+    required = {"NPC L UpperArm [LUar]", "NPC L UpperarmTwist1 [LUt1]"}
+    missing = required - used
+    assert not missing, \
+        f"BriarheartFlesh missing arm bones (used={sorted(used)}, missing={sorted(missing)})"
+
+
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
 def TEST_WEIGHTS_EXPORT():
     """Exporting this head weights all verts correctly"""

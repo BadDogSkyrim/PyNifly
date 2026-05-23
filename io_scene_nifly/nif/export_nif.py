@@ -379,6 +379,11 @@ class NifExporter:
         self.warnings = set()
         self.armature = None
         self.facebones = None
+        # Track whether the chosen armature/facebones came from a mesh's armature
+        # modifier (authoritative) vs from a bare ARMATURE object encountered during
+        # recursion (fallback). Modifier-discovered armatures override fallbacks.
+        self._armature_via_modifier = False
+        self._facebones_via_modifier = False
         self.settings = ExportSettings()
         self.active_obj = None
         self.scale = scale
@@ -520,13 +525,24 @@ class NifExporter:
                     vector_blocks=vector_blocks, parent=robj.nifnode)
 
 
-    def add_armature(self, arma):
-        """Add an armature to the export"""
+    def add_armature(self, arma, via_modifier=False):
+        """Add an armature to the export.
+
+        via_modifier=True means the armature was discovered via a mesh's armature
+        modifier and is authoritative — it overrides any prior armature added as a
+        fallback (e.g. a bare ARMATURE child of a root EMPTY).
+        """
         facebones_arma = (self.game in ['FO4', 'FO76']) and (BD.is_facebones(arma.data.bones.keys()))
-        if facebones_arma and self.facebones is None:
-            self.facebones = arma
-        if (not facebones_arma) and (self.armature is None):
-            self.armature = arma 
+        if facebones_arma:
+            if self.facebones is None or (via_modifier and not self._facebones_via_modifier):
+                self.facebones = arma
+                if via_modifier:
+                    self._facebones_via_modifier = True
+        else:
+            if self.armature is None or (via_modifier and not self._armature_via_modifier):
+                self.armature = arma
+                if via_modifier:
+                    self._armature_via_modifier = True
 
 
     def add_object(self, obj):
@@ -555,7 +571,7 @@ class NifExporter:
                     if mod.type == 'ARMATURE' and mod.object:
                         # Don't add any of the armature's other children unless they were
                         # independently selected.
-                        self.add_armature(mod.object)
+                        self.add_armature(mod.object, via_modifier=True)
             elif obj.name.startswith("BSBound:"):
                 self.bound = obj
 
