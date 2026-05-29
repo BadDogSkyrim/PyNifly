@@ -3883,6 +3883,38 @@ def TEST_TRIP():
     assert TT.is_contains("BTShoulders", bodymorphs.keys(), f"morphs")
 
 
+@TT.category('FO4', 'BODYPART', 'TRI')
+def TEST_TRIP_REIMPORT():
+    """Re-importing an FO4 nif that carries a BODYTRI + .tri loads the trip
+    morphs as shape keys.
+
+    Regression: import_tris passed find_trip's *path* straight to import_trip,
+    which expects a loaded TripFile, crashing with
+    'WindowsPath has no attribute shapes'. Export under a 'meshes' dir so the
+    BODYTRI ref resolves on re-import (find_trip needs a 'meshes' segment).
+    """
+    outfile = TTB.test_file(r"tests/Out/meshes/TEST_TRIP_REIMPORT.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    TTB.append_from_file("BaseMaleBody", True, r"tests\FO4\BodyTalk.blend", r"\Object", "BaseMaleBody")
+    bpy.ops.object.select_all(action='DESELECT')
+    body = TTB.find_shape("BaseMaleBody")
+    body.select_set(True)
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', write_bodytri=True)
+
+    # Fresh scene, then re-import the exported nif: the BODYTRI -> .tri must
+    # load as shape keys without the TripFile crash.
+    TTB.clear_all()
+    res = bpy.ops.import_scene.pynifly(filepath=outfile)
+    assert 'FINISHED' in res, "re-import with BODYTRI succeeds (no TripFile crash)"
+    body2 = TTB.find_shape("BaseMaleBody")
+    assert body2 is not None, "body re-imported"
+    assert body2.data.shape_keys is not None, "trip morphs loaded as shape keys"
+    assert TT.is_gt(len(body2.data.shape_keys.key_blocks), 1,
+                    "multiple morph shape keys loaded from the trip")
+
+
 @TT.category('SKYRIM', 'OSD')
 def TEST_OSD_IMPORT():
     """Can import a BodySlide OSD file as shape keys."""

@@ -1903,7 +1903,8 @@ class NifImporter():
         imported_meshes = [x for x in self.objects_created.blender_objects() if x.type == 'MESH']
         tpf = find_trip(self.nif)
         if tpf:
-            import_trip(tpf, imported_meshes)
+            # find_trip returns the file path; import_trip needs a loaded TripFile.
+            import_trip(open_tri(tpf), imported_meshes)
         elif len(imported_meshes) == 1:
             # No tri files if there's a trip file;
             # must be only a single mesh to have a tri file.
