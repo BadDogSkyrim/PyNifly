@@ -2052,9 +2052,11 @@ class NifImporter():
                         c.influence = 1.0
 
         # FO4 cut-disk visualization runs last so the armature is bound to the
-        # mesh by the time we look it up.
-        for the_shape, the_object in self._pending_cut_disks:
-            self.create_cut_offset_disks(the_shape, the_object)
+        # mesh by the time we look it up. The cut data is stored on the mesh
+        # regardless; this only controls the disks.
+        if getattr(self.settings, 'import_cutpoints', True):
+            for the_shape, the_object in self._pending_cut_disks:
+                self.create_cut_offset_disks(the_shape, the_object)
         self._pending_cut_disks = []
 
 
@@ -2139,6 +2141,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         description="Import any tri files that appear to be associated with the nif.",
         default=ImportSettings.__dataclass_fields__["import_tris"].default) # type: ignore
 
+    import_cutpoints: bpy.props.BoolProperty(
+        name="Import FO4 cutpoints",
+        description=("Visualize FO4 dismemberment cut offsets as editable disks. "
+                     "Cut data is preserved on the mesh either way."),
+        default=ImportSettings.__dataclass_fields__["import_cutpoints"].default) # type: ignore
+
     rename_bones_niftools: bpy.props.BoolProperty(
         name="Rename bones as per NifTools",
         description="Rename bones using NifTools' naming scheme to conform to Blender's left/right conventions.",
@@ -2211,6 +2219,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         self.rotate_bones_pretty = pyniflyPrefs.rotate_bones_pretty
         self.import_tris = pyniflyPrefs.import_tris
         self.import_shapekeys = pyniflyPrefs.import_shapekeys
+        self.import_cutpoints = pyniflyPrefs.import_cutpoints
 
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.
@@ -2326,5 +2335,5 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         return self.status
 
     def __str__(self):
-        return f"ImportNif: create_bones={self.create_bones}, rename_bones={self.rename_bones}, rotate_bones_pretty={self.rotate_bones_pretty}, rename_bones_niftools={self.rename_bones_niftools}, import_shapekeys={self.import_shapekeys}, import_animations={self.import_animations}, import_collisions={self.import_collisions}, import_tris={self.import_tris}, apply_skinning={self.apply_skinning}, smart_editor_markers={self.smart_editor_markers}, import_pose={self.import_pose}, create_collection={self.create_collection}, reference_skel='{self.reference_skel}'"
+        return f"ImportNif: create_bones={self.create_bones}, rename_bones={self.rename_bones}, rotate_bones_pretty={self.rotate_bones_pretty}, rename_bones_niftools={self.rename_bones_niftools}, import_shapekeys={self.import_shapekeys}, import_animations={self.import_animations}, import_collisions={self.import_collisions}, import_tris={self.import_tris}, import_cutpoints={self.import_cutpoints}, apply_skinning={self.apply_skinning}, smart_editor_markers={self.smart_editor_markers}, import_pose={self.import_pose}, create_collection={self.create_collection}, reference_skel='{self.reference_skel}'"
     

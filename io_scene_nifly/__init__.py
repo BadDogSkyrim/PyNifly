@@ -132,6 +132,21 @@ class PyNiflyPreferences(AddonPreferences):
         default=False
     ) # type: ignore
 
+    import_cutpoints: BoolProperty(
+        name="Import FO4 dismember cutpoints",
+        description=("Visualize FO4 dismemberment cut offsets as editable disks on import. "
+                    "The cut data is preserved on the mesh either way; this only controls "
+                    "whether the disks are created."),
+        default=True
+    ) # type: ignore
+
+    write_bodytri: BoolProperty(
+        name="Export BODYTRI extra data",
+        description=("On FO4 export, write an extra-data node pointing to the BODYTRI file when "
+                    "there are bodytri shape keys. Not needed for BodySlide, which writes its own."),
+        default=True
+    ) # type: ignore
+
 
     def draw(self, context):
         layout = self.layout
@@ -149,6 +164,8 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "import_tris")
         layout.prop(self, "import_shapekeys")
         layout.prop(self, "blender_xf")
+        layout.prop(self, "import_cutpoints")
+        layout.prop(self, "write_bodytri")
 
 def register():
     bpy.utils.register_class(PyNiflyPreferences)

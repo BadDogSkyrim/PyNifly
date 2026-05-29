@@ -28,8 +28,12 @@ class ImportSettings:
     # skeletons. Generally not useful for non-human skeletons. 
     create_bones: bool = True
 
-    # Import tri files that match nif files when found. Per-import user preference. 
+    # Import tri files that match nif files when found. Per-import user preference.
     import_tris: bool = True
+
+    # Visualize FO4 dismemberment cut offsets as editable disks. Cut data is
+    # preserved on the mesh regardless. Per-import user preference.
+    import_cutpoints: bool = True
 
     # Import animations embedded in a nif file. Per-import user preference. 
     import_animations: bool = True

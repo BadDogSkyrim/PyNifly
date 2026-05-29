@@ -2372,6 +2372,23 @@ def TEST_FO4_CUT_DISKS_EXPORT_DUP_COLLECTION():
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
 @TT.expect_errors(('Some faces have been assigned to more than one partition',))
+def TEST_FO4_CUT_DISKS_IMPORT_OPTION():
+    """import_cutpoints=False suppresses the cut-disk visualization, but the cut
+    data is still preserved on the mesh (so it round-trips on export)."""
+    testfile = TTB.test_file(r"tests/FO4/VanillaMaleBody.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_cutpoints=False)
+
+    body = bpy.data.objects.get("BaseMaleBody:0")
+    assert body is not None, "imported body"
+    assert 'FO4_CUT_OFFSETS' in body.keys(), "cut data preserved with viz disabled"
+    assert bpy.data.collections.get(f"{body.name}_Cutpoints") is None, \
+        "no Cutpoints collection when import_cutpoints is False"
+    disks = [o for o in bpy.data.objects if 'FO4_CUTPOINT' in o]
+    assert TT.is_eq(len(disks), 0, f"no cut disks created (got {len(disks)})")
+
+
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FO4_SSF_GENERATED():
     """Phase 4: cut offsets are supplied from bone geometry and an SSF file is
     written alongside the exported NIF.

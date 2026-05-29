@@ -2147,7 +2147,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         self.write_bodytri = BD.get_setting_from(
             PYN_WRITE_BODYTRI_ED_PROP,
             [obj],
-            default=ExportSettings.__dataclass_fields__["write_bodytri"].default)
+            default=prefs.write_bodytri)
         self.preserve_hierarchy = BD.get_setting_from(
             PYN_PRESERVE_HIERARCHY_PROP,
             [obj],
