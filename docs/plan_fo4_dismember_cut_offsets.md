@@ -277,11 +277,19 @@ Stop for visual testing here before phase 6. In particular we will test that the
 
 ## Phase 6: Handling cutpoints on export
 
-On export, we should use the cutpoint collection (if any) to create cutpoints. 
-- The cutpoint parent bone identifies the bone. The cutpoint disk's distance from the bone is the cut value. Our existing PYN_ROTATE_BONES_PRETTY custom property tells us whether to use +X or +Y.
-- The cutpoint custom property identifies the material. If missing we look it up in FO4_MATERIAL_TO_BONE. If not there, we generate our own hash with a warning
+On export (`_fo4_cutpoints_from_disks`), the cutpoint disks are authoritative:
+- The cutpoint parent bone identifies the bone. The disk's distance from the bone head along the limb axis is the cut value. `PYN_ROTATE_BONES_PRETTY` tells us +X or +Y.
+- The `FO4_CUT_MATERIAL` prop identifies the material; if missing, the `FO4_MATERIAL_TO_BONE` inverse (bone→hash). A disk applies only to the shape that carries its material as a subsegment; non-matching disks are skipped silently (selected disks are global, and a body often exports next to eyeball/head shapes that share the armature).
+- Disk sources: the `<obj>_Cutpoints` collection **and** any selected `FO4_CUTPOINT` disks (stashed during the add_object walk), unioned and deduped. Collection name-matching strips Blender's `.001`/`.002` suffix via `niflytools.blender_basename` (so a duplicated `CanineMaleBody_Cutpoints.001` still matches).
 
-If there are no cutpoint disks in the export, use the stashed custom properties if any.
+If there are no cutpoint disks, fall back to the round-trip `FO4_CUT_OFFSETS` prop, then the supply formula.
+
+**Done** — selected-disk export + `.001`-strip implemented and tested
+(`TEST_FO4_CUT_DISKS_EXPORT`, `_SELECTED`, `_DUP_COLLECTION`). Dropped the
+"generate our own hash" idea: a synthetic material can't attach to a nonexistent
+subsegment, so unknown-material disks are skipped (debug log) rather than
+fabricating a hash. From-scratch dismember authoring (creating new segments)
+remains out of scope.
 
 ## Phase 7: Non-humans
 

@@ -2245,6 +2245,133 @@ def TEST_FO4_CUT_DISKS_GHOUL():
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
 @TT.expect_errors(('Some faces have been assigned to more than one partition',))
+def TEST_FO4_CUT_DISKS_EXPORT():
+    """Phase 6: the cutpoint disks are authoritative on export. Moving a disk
+    changes the cut offset written to the NIF — the edited disk geometry drives
+    the export, overriding the round-tripped FO4_CUT_OFFSETS prop.
+    """
+    testfile = TTB.test_file(r"tests/FO4/VanillaMaleBody.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FO4_CUT_DISKS_EXPORT.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = bpy.data.objects.get("BaseMaleBody:0")
+    arma = body.find_armature()
+    assert body is not None and arma is not None, "imported body + armature"
+
+    # The first Up Arm.R disk sits at the vanilla cut 7.6055 along the bone.
+    disk = bpy.data.objects.get("Cutpoint Arm_UpperArm.R 0")
+    assert disk is not None, "Up Arm.R cut disk 0 exists"
+    bone = arma.data.bones["Arm_UpperArm.R"]
+    pretty = bool(arma.get("PYN_ROTATE_BONES_PRETTY", False))
+    axis_local = bone.matrix_local.to_3x3().col[1 if pretty else 0].normalized()
+    axis_world = (arma.matrix_world.to_3x3() @ axis_local).normalized()
+
+    # Slide the disk +5.0 distally along the bone: 7.6055 -> ~12.6055, a value
+    # neither the round-trip prop nor the supply formula would ever produce.
+    MOVE = 5.0
+    disk.matrix_world = Matrix.Translation(axis_world * MOVE) @ disk.matrix_world
+
+    body.select_set(True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
+
+    nif2 = pyn.NifFile(outfile)
+    shape = nif2.shapes[0]
+    UPARM = 0xb2e2764f
+    cuts = []
+    for seg in shape.partitions:
+        for ss in getattr(seg, 'subsegments', []):
+            if ss.material == UPARM and ss.cut_offsets:
+                cuts.extend(ss.cut_offsets)
+    assert TT.is_eq(len(cuts), 4, f"Up Arm.R bearer still carries 4 cuts (got {cuts})")
+    # The moved disk's value is present; the original 7.6055 is gone.
+    assert any(abs(c - 12.6055) < 0.1 for c in cuts), \
+        f"moved disk reflected in export (~12.6 expected, got {sorted(cuts)})"
+    assert not any(abs(c - 7.6055) < 0.1 for c in cuts), \
+        f"original cut position vacated by the move (got {sorted(cuts)})"
+
+    # An SSF was generated and the shape points at it.
+    assert nif2.shapes[0].segment_file, "segment_file points at generated SSF"
+
+
+def _uparm_r_cuts(nif):
+    """Helper: sorted cut offsets on the Up Arm.R bearer (material 0xb2e2764f)."""
+    UPARM = 0xb2e2764f
+    cuts = []
+    for seg in nif.shapes[0].partitions:
+        for ss in getattr(seg, 'subsegments', []):
+            if ss.material == UPARM and ss.cut_offsets:
+                cuts.extend(ss.cut_offsets)
+    return sorted(cuts)
+
+
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
+def TEST_FO4_CUT_DISKS_EXPORT_SELECTED():
+    """Selected cutpoint disks export even when they aren't in the body's
+    name-matched collection. Models the "copy vanilla cutpoints onto another
+    body" workflow: the donor disks live in a differently-named collection, so
+    only the selection drives the export.
+    """
+    testfile = TTB.test_file(r"tests/FO4/VanillaMaleBody.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FO4_CUT_DISKS_EXPORT_SELECTED.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = bpy.data.objects.get("BaseMaleBody:0")
+
+    # Break the collection name-match and the round-trip prop, so the ONLY way
+    # cuts can reach the export is via the selected disks.
+    coll = bpy.data.collections.get(f"{body.name}_Cutpoints")
+    assert coll is not None, "cut disks imported"
+    coll.name = "Donor_Cutpoints"
+    if 'FO4_CUT_OFFSETS' in body.keys():
+        del body['FO4_CUT_OFFSETS']
+
+    bpy.ops.object.select_all(action='DESELECT')
+    body.select_set(True)
+    for d in coll.objects:
+        d.select_set(True)
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
+
+    cuts = _uparm_r_cuts(pyn.NifFile(outfile))
+    # Disk path (selected) reproduces vanilla's exact 4 cuts; the formula
+    # fallback would instead emit 6 cuts starting ~3.78.
+    assert TT.is_eq(len(cuts), 4, f"Up Arm.R has vanilla's 4 cuts (got {cuts})")
+    assert all(abs(c - e) < 0.05 for c, e in
+               zip(cuts, [7.6055, 9.5069, 11.4083, 13.3096])), \
+        f"cuts match vanilla, i.e. came from the selected disks (got {cuts})"
+
+
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
+def TEST_FO4_CUT_DISKS_EXPORT_DUP_COLLECTION():
+    """The cutpoint collection name-match tolerates Blender's .001 suffix.
+    Duplicating a body yields e.g. CanineMaleBody_Cutpoints.001; the exact
+    lookup misses it, so we strip the disambiguation suffix before matching.
+    """
+    testfile = TTB.test_file(r"tests/FO4/VanillaMaleBody.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FO4_CUT_DISKS_EXPORT_DUP.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = bpy.data.objects.get("BaseMaleBody:0")
+
+    coll = bpy.data.collections.get(f"{body.name}_Cutpoints")
+    assert coll is not None, "cut disks imported"
+    coll.name = f"{body.name}_Cutpoints.001"   # simulate Blender duplicate suffix
+    if 'FO4_CUT_OFFSETS' in body.keys():
+        del body['FO4_CUT_OFFSETS']
+
+    bpy.ops.object.select_all(action='DESELECT')
+    body.select_set(True)                       # disks NOT selected — collection match must find them
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
+
+    cuts = _uparm_r_cuts(pyn.NifFile(outfile))
+    assert TT.is_eq(len(cuts), 4, f"Up Arm.R has vanilla's 4 cuts (got {cuts})")
+    assert all(abs(c - e) < 0.05 for c, e in
+               zip(cuts, [7.6055, 9.5069, 11.4083, 13.3096])), \
+        f"cuts match vanilla, i.e. the .001 collection was matched (got {cuts})"
+
+
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FO4_SSF_GENERATED():
     """Phase 4: cut offsets are supplied from bone geometry and an SSF file is
     written alongside the exported NIF.
@@ -2261,10 +2388,17 @@ def TEST_FO4_SSF_GENERATED():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    # Force the supply step to regenerate cuts from geometry (don't ride the
-    # round-trip prop).
+    # Force the supply *formula* to regenerate cuts from geometry: drop the
+    # round-trip prop AND the cutpoint disks (otherwise the Phase 6 disk path
+    # would drive the export). This mirrors a body that arrived with no SSF and
+    # no cuts at all — the dog-body case the supply step exists for.
     if 'FO4_CUT_OFFSETS' in obj.keys():
         del obj['FO4_CUT_OFFSETS']
+    disk_coll = bpy.data.collections.get(f"{obj.name}_Cutpoints")
+    if disk_coll:
+        for d in list(disk_coll.objects):
+            bpy.data.objects.remove(d, do_unlink=True)
+        bpy.data.collections.remove(disk_coll)
 
     obj.select_set(True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")

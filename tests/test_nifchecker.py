@@ -213,12 +213,13 @@ def Check_fo4MaleBody(nif:NifFile):
     # the shape, so it's the same size as number of tris in shape
     TT.assert_eq(len(nif.shapes[0].partition_tris), 2698, "number of partition tris")
 
-    # Shape has a segment file external to the nif. On export PyNifly generates
-    # the SSF next to the NIF with the same basename (vanilla pattern) and points
-    # segment_file at it, so the ref's basename matches the NIF's.
-    TT.assert_eq(os.path.basename(nif.shapes[0].segment_file.lower()),
-                 os.path.splitext(os.path.basename(nif.filepath.lower()))[0] + ".ssf",
-                 "segment file is the generated SSF next to the nif")
+    # Shape has a segment file external to the nif. Either the original vanilla
+    # ref (MaleBody.ssf), or — when this is a PyNifly export — the generated SSF
+    # sitting next to the NIF with the NIF's own basename.
+    sf_base = os.path.basename(nif.shapes[0].segment_file.lower())
+    nif_base = os.path.splitext(os.path.basename(nif.filepath.lower()))[0] + ".ssf"
+    assert sf_base in ("malebody.ssf", nif_base), \
+        f"segment file is the vanilla or generated SSF (got '{sf_base}')"
 
     # Subsegments hang off the segment/partition they are a part of.  They are given
     # names based on their "material" property.  That name includes the name of their
