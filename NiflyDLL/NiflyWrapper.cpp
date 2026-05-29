@@ -2078,6 +2078,38 @@ NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, uint32_t* 
 return 0;
 }
 
+NIFLY_API int getSubsegmentCutOffsets(void* nifref, void* shaperef, int subsegID,
+                                      float* buf, int buflen) {
+    /*
+        Return cut offsets (per-subsegment BSGeometryPerSegmentSharedData "extra data"
+        floats) for the subsegment with the given partID. These are the slice-plane
+        positions along the dismember bone that enable runtime dismemberment.
+
+        Returns the number of cut offsets. Fills buf if non-null and buflen large
+        enough. Pass buf=nullptr to query the count. Only for FO4-style nifs.
+    */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiShape* shape = static_cast<NiShape*>(shaperef);
+    NifSegmentationInfo segInfo;
+    std::vector<int> indices;
+
+    if (!nif->GetShapeSegments(shape, segInfo, indices)) return 0;
+
+    for (auto& s : segInfo.segs) {
+        for (auto& sub : s.subs) {
+            if (sub.partID == subsegID) {
+                int n = int(sub.extraData.size());
+                if (buf) {
+                    int copyN = (n < buflen) ? n : buflen;
+                    for (int i = 0; i < copyN; i++) buf[i] = sub.extraData[i];
+                }
+                return n;
+            }
+        }
+    }
+    return 0;
+}
+
 NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, int partLen) {
     /*
         Return a list of partitions associated with the shape. Only for skyrim-style nifs.
@@ -2150,7 +2182,9 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
     uint16_t* segData, int segDataLen,
     uint32_t* subsegData, int subsegDataLen,
     uint16_t* tris, int triLen,
-    const char* filename)
+    const char* filename,
+    uint32_t* cutCounts, int cutCountsLen,
+    float* cutData, int cutDataLen)
     /*
     * Create segments and subsegments in the nif
     * segData = [part_id, ...] list of internal IDs for each segment
@@ -2158,6 +2192,11 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
     * tris = [part_id, ...] matches 1:1 with the shape's tris, indicates which subsegment
     *   it's a part of
     * filename = null-terminated filename
+    * cutCounts = [count, ...] one entry per subsegment (same order as subsegData),
+    *   giving how many cut-offset floats this subsegment owns. Pass nullptr/0 to
+    *   write no cut offsets (backward-compatible default).
+    * cutData = concatenated cut-offset floats; sliced into per-subsegment groups
+    *   by cutCounts (sum(cutCounts) must equal cutDataLen).
     */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -2175,12 +2214,20 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
             allParts.insert(seg->partID);
         }
 
+        int cutCursor = 0;  // index into cutData
         for (int i = 0, j = 0; i < subsegDataLen; i++) {
             NifSubSegmentInfo sseg;
             sseg.partID = subsegData[j++];
             uint32_t parentID = subsegData[j++];
             sseg.userSlotID = subsegData[j++];
             sseg.material = subsegData[j++];
+
+            // Pull this subsegment's slice of cutData if the caller supplied any.
+            if (cutCounts && i < cutCountsLen) {
+                int n = int(cutCounts[i]);
+                for (int k = 0; k < n && cutCursor < cutDataLen; k++)
+                    sseg.extraData.push_back(cutData[cutCursor++]);
+            }
 
             for (auto& seg : inf.segs) {
                 if (seg.partID == parentID) {

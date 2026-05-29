@@ -1,0 +1,40 @@
+{
+   "FeralGhoulBase:0" : {
+      "BaseBoneName" : "DISABLED",
+      "DeltaBones" : [
+         {
+            "BoneDeltaList" : [ 132608, 132352 ],
+            "BoneName" : "RForeArm1"
+         },
+         {
+            "BoneDeltaList" : [ 394752, 394496 ],
+            "BoneName" : "LCALF"
+         },
+         {
+            "BoneDeltaList" : [ 263680, 263424 ],
+            "BoneName" : "LForeArm1"
+         },
+         {
+            "BoneDeltaList" : [ 329216, 328960 ],
+            "BoneName" : "RCALF"
+         },
+         {
+            "BoneDeltaList" : [ 393728 ],
+            "BoneName" : "LTHIGH"
+         },
+         {
+            "BoneDeltaList" : [ 262656 ],
+            "BoneName" : "LUPPERARM"
+         },
+         {
+            "BoneDeltaList" : [ 328192 ],
+            "BoneName" : "RTHIGH"
+         },
+         {
+            "BoneDeltaList" : [ 131584 ],
+            "BoneName" : "RUPPERARM"
+         }
+      ],
+      "uiNumDeltas" : 12
+   }
+}

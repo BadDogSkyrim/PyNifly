@@ -1080,6 +1080,261 @@ def TEST_BP_SEGMENTS():
     CheckNif(nif3, testfile)
 
 
+@test_category('FO4', 'PARTITION')
+def TEST_FO4_CUT_OFFSETS_READ():
+    """Can read per-subsegment cut offsets from vanilla MaleBody.nif.
+
+    Cut offsets are the slice-plane positions that enable runtime dismemberment.
+    They are stored per-subsegment in BSGeometryPerSegmentSharedData and were not
+    previously exposed by the pyn layer. This test pins the read path against
+    vanilla bearer subsegments — fails until getSubsegmentCutOffsets is wired up.
+    """
+    nif = NifFile(r"tests/FO4/VanillaMaleBody.nif")
+    shape = nif.shapes[0]
+
+    # Walk all subsegments and index by name.
+    subs_by_name = {}
+    for seg in shape.partitions:
+        for ss in seg.subsegments:
+            subs_by_name[ss.name] = ss
+
+    # Up Arm.R bearer — middle of three identically-named subsegments in seg 2.
+    upper = subs_by_name["FO4 Seg 002 | 001 | Up Arm.R"]
+    assert TT.is_equiv(upper.cut_offsets,
+                       [7.6055, 9.5069, 11.4083, 13.3096],
+                       "Up Arm.R bearer cut offsets", e=0.001)
+
+    # Lo Arm.R — the only subsegment of its material, carries cuts itself.
+    lower = subs_by_name["FO4 Seg 002 | 003 | Lo Arm.R"]
+    assert TT.is_equiv(lower.cut_offsets,
+                       [5.6032, 7.4710, 9.3387, 11.2065, 13.0742],
+                       "Lo Arm.R bearer cut offsets", e=0.001)
+
+    # Non-bearer subsegments must report no cuts.
+    nonbearer = subs_by_name["FO4 Seg 002 | 000 | Up Arm.R"]
+    assert TT.is_eq(list(nonbearer.cut_offsets), [],
+                    "non-bearer subsegment has no cut offsets")
+
+
+@test_category('FO4', 'PARTITION')
+def TEST_FO4_CUT_OFFSETS_ROUNDTRIP():
+    """Cut offsets survive a pyn-layer write/read round-trip.
+
+    Reads vanilla MaleBody, exports the body shape through the standard
+    _export_shape + set_partitions path (handing back the partitions we just
+    read, including their cut_offsets), saves, re-reads, and asserts the
+    cut-offset payload is preserved on every subsegment that originally had one.
+    All 37 cut floats expected back on the same vertex groups.
+    """
+    src = NifFile(r"tests/FO4/VanillaMaleBody.nif")
+    outfile = r"tests/Out/TEST_FO4_CUT_OFFSETS_ROUNDTRIP.nif"
+
+    out = NifFile()
+    out.initialize('FO4', outfile)
+    new_shape = _export_shape(src.shapes[0], out)
+    new_shape.segment_file = src.shapes[0].segment_file
+    new_shape.set_partitions(src.shapes[0].partitions,
+                             src.shapes[0].partition_tris)
+    out.save()
+
+    chk = NifFile(outfile)
+    chk_subs = {}
+    for seg in chk.shapes[0].partitions:
+        for ss in seg.subsegments:
+            chk_subs[ss.name] = ss
+
+    # Total cuts across the shape must match vanilla's 37 floats.
+    total_cuts = sum(len(ss.cut_offsets) for ss in chk_subs.values())
+    assert TT.is_eq(total_cuts, 37, "total cut offsets preserved across shape")
+
+    # Spot-check both arms' bearers carry the right values.
+    upper = chk_subs["FO4 Seg 002 | 001 | Up Arm.R"]
+    assert TT.is_equiv(upper.cut_offsets,
+                       [7.6055, 9.5069, 11.4083, 13.3096],
+                       "round-tripped Up Arm.R bearer", e=0.001)
+    lower = chk_subs["FO4 Seg 002 | 003 | Lo Arm.R"]
+    assert TT.is_equiv(lower.cut_offsets,
+                       [5.6032, 7.4710, 9.3387, 11.2065, 13.0742],
+                       "round-tripped Lo Arm.R bearer", e=0.001)
+
+
+@test_category('FO4', 'PARTITION')
+def TEST_FO4_DISMEMBER_HELPERS():
+    """Unit tests for the dismember-geometry helpers used by export.
+
+    Bone proximity, along-bone projection, cut-offset generation, and SSF
+    encoding/dict assembly — all pure functions, no Blender needed.
+    """
+    from pyn.dismember import (
+        nearest_bone, along_bone, bone_length,
+        cut_offsets_for_span, encode_ssf_ref, build_ssf_shape_entry,
+    )
+
+    # --- bone proximity / along-bone -----------------------------------
+    # Two bones laid along Y axis: upper arm 0..10, forearm 10..20.
+    bones = {
+        "UpArm":   ((0, 0, 0),  (0, 10, 0)),
+        "ForeArm": ((0, 10, 0), (0, 20, 0)),
+    }
+    # A point at y=3 sits clearly on the upper arm.
+    assert TT.is_eq(nearest_bone((0.1, 3, 0), bones), "UpArm",
+                    "proximal point picks upper arm")
+    # A point at y=15 sits clearly on the forearm.
+    assert TT.is_eq(nearest_bone((0.1, 15, 0), bones), "ForeArm",
+                    "distal point picks forearm")
+
+    # along_bone is the projection distance from the joint.
+    assert TT.is_equiv(along_bone((0.5, 7.0, 0), (0, 0, 0), (0, 10, 0)),
+                       7.0, "along_bone matches y", e=0.001)
+    assert TT.is_equiv(bone_length((0, 0, 0), (0, 10, 0)),
+                       10.0, "bone_length is segment length", e=0.001)
+
+    # --- cut-offset formula --------------------------------------------
+    # Vanilla human upper arm: bone length 17.97, span 7.6..13.3 -> k=4..7.
+    cuts = cut_offsets_for_span(17.97, 7.6, 13.31)
+    expected = [round(17.97 / 9.5 * k, 4) for k in (4, 5, 6, 7)]
+    assert TT.is_equiv(cuts, expected, "upper-arm cuts k=4..7", e=0.001)
+
+    # A subseg covering the whole bone yields more cuts (capped at 8).
+    full = cut_offsets_for_span(17.97, 0.0, 17.97)
+    assert TT.is_eq(len(full), 8, "max 8 cuts per subsegment cap")
+
+    # Degenerate inputs are safe.
+    assert TT.is_eq(cut_offsets_for_span(0.0, 0, 1), [],
+                    "zero-length bone yields no cuts")
+    assert TT.is_eq(cut_offsets_for_span(10.0, 5, 3), [],
+                    "inverted span (min>max) yields no cuts")
+
+    # --- SSF encoding --------------------------------------------------
+    # Vanilla LArm_UpperArm: seg 4, sub 1 -> 262400 (0x040100).
+    assert TT.is_eq(encode_ssf_ref(4, 1), 0x040100,
+                    "LArm_UpperArm ref encoding")
+    assert TT.is_eq(encode_ssf_ref(2, 3), 0x020300,
+                    "RArm_ForeArm1 ref encoding")
+
+    # SSF shape entry assembly.
+    entry = build_ssf_shape_entry(
+        {"RArm_UpperArm": encode_ssf_ref(2, 1),
+         "LArm_UpperArm": encode_ssf_ref(4, 1)})
+    assert TT.is_eq(entry["BaseBoneName"], "DISABLED",
+                    "default BaseBoneName")
+    assert TT.is_eq(entry["uiNumDeltas"], 2, "uiNumDeltas count")
+    assert TT.is_eq(len(entry["DeltaBones"]), 2, "DeltaBones list length")
+    names = sorted(d["BoneName"] for d in entry["DeltaBones"])
+    assert TT.is_eq(names, ["LArm_UpperArm", "RArm_UpperArm"],
+                    "bone names in DeltaBones")
+
+
+@test_category('FO4', 'PARTITION')
+def TEST_FO4_DISMEMBER_SUPPLY():
+    """supply_for_shape fills missing cut offsets and builds the SSF map."""
+    from pyn.dismember import supply_for_shape
+
+    # Build a minimal partition skeleton: one segment, one material with two
+    # subsegs (proximal + distal of an upper-arm-like bone along Y from 0..18).
+    seg = FO4Segment(part_id=2, index=2, name="FO4 Seg 002")
+    UPARM = 0xb2e2764f
+    proximal = FO4Subsegment(part_id=3, user_slot=0, material=UPARM, parent=seg,
+                             name="FO4 Seg 002 | 000 | Up Arm.R")
+    distal = FO4Subsegment(part_id=4, user_slot=0, material=UPARM, parent=seg,
+                           name="FO4 Seg 002 | 001 | Up Arm.R")
+    partitions = {seg.name: seg, proximal.name: proximal, distal.name: distal}
+
+    # Verts: proximal subseg verts at y=2..6 (shoulder-side), distal at y=10..15.
+    subseg_verts = {
+        proximal.name: [(0.1, y, 0) for y in (2, 3, 4, 5, 6)],
+        distal.name:   [(0.1, y, 0) for y in (10, 11, 12, 13, 14, 15)],
+    }
+    bones = {"RArm_UpperArm": ((0, 0, 0), (0, 18, 0))}  # length 18, midpoint at y=9
+    hash_to_bone = {UPARM: "RArm_UpperArm"}
+
+    bone_to_bearer = supply_for_shape(partitions, subseg_verts, bones, hash_to_bone)
+
+    # Bearer must be the distal subseg (centroid y~12.5, closer to mid y=9 than
+    # proximal's centroid y=4). It sits at index 1 within seg.subsegments.
+    assert TT.is_eq(bone_to_bearer.get("RArm_UpperArm"), (2, 1),
+                    "bearer SSF ref: seg=2, sub=1 (distal)")
+
+    # Distal got cuts; proximal did not.
+    assert TT.is_gt(len(distal.cut_offsets), 0, "distal bearer got cuts")
+    assert TT.is_eq(proximal.cut_offsets, [], "non-bearer left untouched")
+
+    # Cuts cluster around the distal span (10..15). The floor-edge policy may
+    # include one grid point up to ~one step (bone_len/9.5 ≈ 1.9) below span_min.
+    step = 18 / 9.5
+    for v in distal.cut_offsets:
+        assert (10 - step) <= v <= 15 + 0.1, f"cut {v} far from distal span [10,15]"
+
+    # Round-trip wins: a bearer that already carries cuts is left alone.
+    seg2 = FO4Segment(part_id=4, index=4, name="FO4 Seg 004")
+    LARM = 0xfc03dc25
+    keep = FO4Subsegment(part_id=5, user_slot=0, material=LARM, parent=seg2,
+                         name="FO4 Seg 004 | 000 | Up Arm.L")
+    keep.cut_offsets = [1.1, 2.2, 3.3]
+    rt_partitions = {seg2.name: seg2, keep.name: keep}
+    rt_verts = {keep.name: [(0, y, 0) for y in (2, 4, 6)]}
+    supply_for_shape(rt_partitions, rt_verts,
+                     {"LArm_UpperArm": ((0, 0, 0), (0, 18, 0))},
+                     {LARM: "LArm_UpperArm"})
+    assert TT.is_eq(keep.cut_offsets, [1.1, 2.2, 3.3],
+                    "existing cut_offsets preserved (round-trip wins)")
+
+
+@test_category('FO4', 'PARTITION')
+def TEST_FO4_SSF_READ():
+    """Read an SSF (segment file) and map each subsegment ref to its bone.
+
+    SSF is JSON: per shape, a list of DeltaBones, each a BoneName plus a
+    BoneDeltaList of encoded (segment, subsegment) refs. decode_ssf_ref must
+    invert encode_ssf_ref; parse_ssf yields {shape: {(seg, sub): bone}} so
+    import can attach a subsegment's cut offsets to the right skeleton bone.
+    """
+    import json
+    from pyn.dismember import (decode_ssf_ref, parse_ssf,
+                               encode_ssf_ref, build_ssf_shape_entry)
+
+    # decode is the exact inverse of encode, for the documented vanilla values.
+    assert TT.is_eq(decode_ssf_ref(0x040100), (4, 1), "LArm_UpperArm ref decode")
+    assert TT.is_eq(decode_ssf_ref(131840), (2, 3), "RArm_ForeArm1 ref decode")
+    for seg, sub in [(2, 1), (4, 3), (5, 1), (6, 3), (0, 0)]:
+        assert TT.is_eq(decode_ssf_ref(encode_ssf_ref(seg, sub)), (seg, sub),
+                        f"decode-of-encode round-trip ({seg},{sub})")
+
+    # Parse the exact vanilla MaleBody.ssf content (known byte-for-byte).
+    vanilla = '''{
+   "BaseMaleBody:0" : {
+      "BaseBoneName" : "DISABLED",
+      "DeltaBones" : [
+         { "BoneDeltaList" : [ 262400 ], "BoneName" : "LArm_UpperArm" },
+         { "BoneDeltaList" : [ 393472 ], "BoneName" : "LLeg_Thigh" },
+         { "BoneDeltaList" : [ 327936 ], "BoneName" : "RLeg_Thigh" },
+         { "BoneDeltaList" : [ 131840 ], "BoneName" : "RArm_ForeArm1" },
+         { "BoneDeltaList" : [ 328448 ], "BoneName" : "RLeg_Calf" },
+         { "BoneDeltaList" : [ 131328 ], "BoneName" : "RArm_UpperArm" },
+         { "BoneDeltaList" : [ 262912 ], "BoneName" : "LArm_ForeArm1" },
+         { "BoneDeltaList" : [ 393984 ], "BoneName" : "LLeg_Calf" }
+      ],
+      "uiNumDeltas" : 8
+   }
+}'''
+    parsed = parse_ssf(vanilla)
+    assert TT.is_eq(set(parsed.keys()), {"BaseMaleBody:0"}, "one shape entry")
+    m = parsed["BaseMaleBody:0"]
+    assert TT.is_eq(m[(2, 1)], "RArm_UpperArm", "seg2/sub1 -> RArm_UpperArm")
+    assert TT.is_eq(m[(2, 3)], "RArm_ForeArm1", "seg2/sub3 -> RArm_ForeArm1")
+    assert TT.is_eq(m[(4, 1)], "LArm_UpperArm", "seg4/sub1 -> LArm_UpperArm")
+    assert TT.is_eq(m[(6, 3)], "LLeg_Calf", "seg6/sub3 -> LLeg_Calf")
+    assert TT.is_eq(len(m), 8, "all 8 subseg refs mapped")
+
+    # Round-trip with the writer: build -> dumps -> parse recovers the map.
+    entry = build_ssf_shape_entry(
+        {"RArm_UpperArm": encode_ssf_ref(2, 1),
+         "RArm_ForeArm1": encode_ssf_ref(2, 3)})
+    rt = parse_ssf(json.dumps({"BaseMaleBody:0": entry}))["BaseMaleBody:0"]
+    assert TT.is_eq(rt[(2, 1)], "RArm_UpperArm", "writer->reader up arm")
+    assert TT.is_eq(rt[(2, 3)], "RArm_ForeArm1", "writer->reader forearm")
+
+
 @test_category('FO4', 'SKYRIM', 'PARTITION',)
 def TEST_PARTITION_NAMES():
     """Can parse various forms of partition name"""

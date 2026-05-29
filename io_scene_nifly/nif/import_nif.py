@@ -173,6 +173,22 @@ def mesh_create_partition_groups(the_shape, the_object):
     if len(the_shape.segment_file) > 0:
         the_object['FO4_SEGMENT_FILE'] = the_shape.segment_file
 
+    # Cut offsets (the slice-plane positions that enable runtime dismemberment)
+    # are a sparse per-subsegment payload not recoverable from Blender geometry,
+    # so stash them on the object as a JSON dict keyed by vertex-group name.
+    # Only non-empty lists are stored.
+    cut_offsets = {}
+    for p in the_shape.partitions:
+        for sseg in getattr(p, "subsegments", ()):
+            co = getattr(sseg, "cut_offsets", None) or []
+            if co:
+                # Round to 4 decimals — float32 storage gives us noise tails
+                # like 7.1323652267456055 that aren't meaningful.
+                cut_offsets[sseg.name] = [round(v, 4) for v in co]
+    if cut_offsets:
+        import json
+        the_object['FO4_CUT_OFFSETS'] = json.dumps(cut_offsets)
+
 
 def mesh_create_lod_groups(the_shape, the_object):
     """Create cumulative vertex groups for BSMeshLODTriShape LOD levels.
@@ -314,6 +330,10 @@ class NifImporter():
 
         self.armature = None # Armature used for current shape import
         if target_armatures: self.armature = next(iter(target_armatures))
+        # FO4 cut-disk visualization: shapes are queued during import (when the
+        # armature isn't yet bound to the mesh) and processed in a final pass
+        # at the end of execute(), once self.armature is set up.
+        self._pending_cut_disks = []
         self.context = bpy.context
         self.is_facegen = False
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
@@ -910,7 +930,194 @@ class NifImporter():
             new_vg = vg.new(name=self.blender_name(bone_name))
             for v, w in the_shape.bone_weights[bone_name]:
                 new_vg.add((v,), w, 'ADD')
-    
+
+
+    def create_cut_offset_disks(self, the_shape, the_object):
+        """Visualize FO4 dismemberment cut offsets as thin cylindrical disks
+        perpendicular to the dismember bone at each cut distance.
+
+        Bone identity comes from the shape's SSF (segment file): it maps each
+        (segment, subsegment) reference to the skeleton bone that severs there.
+        We resolve the SSF path the same way materials/textures are resolved and
+        read it with `parse_ssf`. If the SSF can't be found, cut visualization is
+        skipped entirely (the cut data is still carried on the mesh's
+        FO4_CUT_OFFSETS prop, so export can still write it).
+
+        The cut *direction* (the bone's limb axis) comes from bone orientation,
+        not the bone hierarchy: a body mesh's armature only holds the bones that
+        skin it, so parent/child chains are incomplete — only a full skeleton.nif
+        has them. Blender bone local +Y is head->tail, which is the limb axis
+        when bones were imported with rotate-bones-pretty ON; with it OFF the
+        bones are default-direction stubs and the limb axis is local +X. Which
+        applies is recorded per-armature in PYN_ROTATE_BONES_PRETTY.
+
+        Each disk records its dismember material ("Bone ID") in a custom prop so
+        export recovers it without re-deriving. Disks are named "<bone> <n>",
+        linked into a "<obj>_Cutpoints" collection nested under the mesh's own
+        collection, and bone-parented so they follow pose.
+        """
+        if 'FO4_CUT_OFFSETS' not in the_object.keys():
+            return
+        cuts_map = json.loads(the_object['FO4_CUT_OFFSETS'])
+        if not cuts_map:
+            return
+
+        # Prefer the mesh's actual armature binding; fall back to the
+        # importer's current armature. Either is set by end-of-execute().
+        arma = the_object.find_armature() or self.armature
+        if arma is None:
+            log.debug(f"create_cut_offset_disks({the_object.name}): no armature, skipping")
+            return
+        arma_bones = arma.data.bones
+        arma_bone_names = set(arma_bones.keys())
+
+        # --- Resolve and read the SSF to map subseg -> severing bone ---------
+        from ..pyn.niflytools import find_referenced_file
+        from ..pyn.dismember import parse_ssf
+        seg_file = (getattr(the_shape, "segment_file", "")
+                    or the_object.get('FO4_SEGMENT_FILE', "") or "")
+        if not seg_file:
+            log.warning(
+                f"{the_object.name}: no segment file (.ssf) referenced; cut "
+                "offsets are preserved on FO4_CUT_OFFSETS but not visualized.")
+            return
+        # Prefer an SSF sitting next to the NIF (PyNifly's own export writes
+        # `<nifbase>.ssf` as a sibling); otherwise resolve like a material file.
+        sibling = os.path.join(os.path.dirname(self.nif.filepath),
+                               os.path.basename(seg_file))
+        if os.path.exists(sibling):
+            ssf_path = sibling
+        else:
+            altpaths = shader_io.ShaderImporter._build_alt_pathlist_for_game(self.nif.game)
+            ssf_path = find_referenced_file(
+                seg_file, nifpath=self.nif.filepath, root='meshes',
+                alt_pathlist=altpaths)
+        if not ssf_path:
+            log.warning(
+                f"{the_object.name}: could not find segment file '{seg_file}'; "
+                "cut offsets are preserved on FO4_CUT_OFFSETS but not visualized. "
+                "Put the .ssf alongside the NIF or in a configured game data path.")
+            return
+        with open(ssf_path, 'r', encoding='utf-8') as f:
+            ssf = parse_ssf(f.read())
+        # Pick this shape's entry; fall back to the sole entry if the shape name
+        # doesn't match a top-level SSF key (custom bodies often rename shapes).
+        subseg_to_bone = ssf.get(the_shape.name)
+        if subseg_to_bone is None:
+            if len(ssf) == 1:
+                subseg_to_bone = next(iter(ssf.values()))
+            else:
+                log.warning(
+                    f"{the_object.name}: shape '{the_shape.name}' not found in "
+                    f"SSF '{ssf_path}' (keys {list(ssf.keys())}); skipping cut viz.")
+                return
+
+        # subseg vg name -> (seg_index, subseg_position) matching the SSF refs,
+        # and -> dismember material hash (for the per-disk prop). seg.index is
+        # the positional segment index nifly assigns (0-based) and the subseg
+        # position is its order within the segment — exactly the SSF convention.
+        name_to_ref = {}
+        name_to_material = {}
+        for seg in the_shape.partitions:
+            for pos, ss in enumerate(getattr(seg, "subsegments", []) or []):
+                name_to_ref[ss.name] = (seg.index, pos)
+                name_to_material[ss.name] = getattr(ss, "material", None)
+
+        # +Y is the limb axis when bones were imported "pretty", else +X.
+        pretty = bool(arma.get(PYN_ROTATE_BONES_PRETTY_PROP, False))
+        axis_col = 1 if pretty else 0
+
+        m2arma = arma.matrix_world.inverted() @ the_object.matrix_world
+        z_up = Vector((0, 0, 1))
+
+        # Cutpoint collection, nested under the mesh's own collection (the
+        # import collection if one was created). Created lazily; removed at the
+        # end if nothing landed in it.
+        parent_coll = (the_object.users_collection[0]
+                       if the_object.users_collection else bpy.context.collection)
+        coll_name = f"{the_object.name}_Cutpoints"
+        coll = bpy.data.collections.get(coll_name)
+        if coll is None:
+            coll = bpy.data.collections.new(coll_name)
+            parent_coll.children.link(coll)
+
+        for vg_name, cut_list in cuts_map.items():
+            if not cut_list:
+                continue
+            vg = the_object.vertex_groups.get(vg_name)
+            if vg is None:
+                continue
+
+            ref = name_to_ref.get(vg_name)
+            nif_bone = subseg_to_bone.get(ref) if ref is not None else None
+            if not nif_bone:
+                log.warning(
+                    f"{the_object.name}: subseg '{vg_name}' (seg/sub {ref}) has "
+                    "no bone in the SSF; skipping its cuts.")
+                continue
+            bl_bone = self.blender_name(nif_bone)
+            if bl_bone not in arma_bone_names:
+                log.warning(
+                    f"{the_object.name}: SSF bone '{nif_bone}' -> '{bl_bone}' is "
+                    f"not in the armature; skipping cuts for subseg '{vg_name}'.")
+                continue
+            bone = arma_bones[bl_bone]
+
+            # Bone head is the joint (cut origin); limb axis from orientation.
+            origin = bone.head_local.copy()
+            axis = bone.matrix_local.to_3x3().col[axis_col].normalized()
+
+            # Collect this subseg's verts in armature-local space for the disk
+            # radius (85th-percentile perpendicular distance from the axis).
+            vg_idx = vg.index
+            perp = []
+            for v in the_object.data.vertices:
+                if not any(g.group == vg_idx and g.weight > 0 for g in v.groups):
+                    continue
+                ap = (m2arma @ v.co) - origin
+                perp.append((ap - axis * ap.dot(axis)).length)
+            perp.sort()
+            fallback_r = bone.length * 0.15
+            radius = perp[int(len(perp) * 0.85)] if perp else fallback_r
+            if radius <= 0:
+                radius = fallback_r
+
+            material = name_to_material.get(vg_name)
+            for i, cut in enumerate(cut_list):
+                bpy.ops.mesh.primitive_cylinder_add(
+                    radius=radius * 1.05, depth=0.1,
+                    location=(0, 0, 0), vertices=24)
+                disk = bpy.context.active_object
+                disk.name = f"Cutpoint {bl_bone} {i}"
+                # Mark as a cutpoint helper so export never treats it as a shape
+                # (Phase 6 export also keys off this to recover cuts).
+                disk['FO4_CUTPOINT'] = True
+                # Stash the material (uint32 hash) as a hex string — too big for
+                # Blender's 32-bit int custom props. Export reads it back.
+                if material is not None and material not in (-1, 0xffffffff):
+                    disk['FO4_CUT_MATERIAL'] = f"0x{material:08x}"
+
+                # Target matrix in armature-local space: cylinder Z aligned to
+                # the bone axis, positioned at origin + axis*cut (distal).
+                arm_local = (
+                    Matrix.Translation(origin + axis * cut)
+                    @ z_up.rotation_difference(axis).to_matrix().to_4x4())
+
+                for c in list(disk.users_collection):
+                    c.objects.unlink(disk)
+                coll.objects.link(disk)
+
+                disk.parent = arma
+                disk.parent_type = 'BONE'
+                disk.parent_bone = bl_bone
+                # Refresh the parent's pose matrix before computing matrix_basis
+                # from matrix_world.
+                bpy.context.view_layer.update()
+                disk.matrix_world = arma.matrix_world @ arm_local
+
+        if not coll.objects:
+            bpy.data.collections.remove(coll)
+
 
     def set_object_xf(self, the_shape, new_object):
         # Set the object transform to reflect the skin transform in the nif. This
@@ -973,6 +1180,9 @@ class NifImporter():
                 BD.mesh_create_uv(new_object.data, the_shape.uvs)
                 self.mesh_create_bone_groups(the_shape, new_object)
                 mesh_create_partition_groups(the_shape, new_object)
+                # Queue for end-of-import cut-disk creation (needs the armature).
+                if 'FO4_CUT_OFFSETS' in new_object.keys():
+                    self._pending_cut_disks.append((the_shape, new_object))
                 mesh_create_lod_groups(the_shape, new_object)
                 for f in new_mesh.polygons:
                     f.use_smooth = True
@@ -1839,6 +2049,12 @@ class NifImporter():
                             and c.target
                             and c.target.get('pynCollisionBlockname') == 'bhkCollisionObject'):
                         c.influence = 1.0
+
+        # FO4 cut-disk visualization runs last so the armature is bound to the
+        # mesh by the time we look it up.
+        for the_shape, the_object in self._pending_cut_disks:
+            self.create_cut_offset_disks(the_shape, the_object)
+        self._pending_cut_disks = []
 
 
     @classmethod

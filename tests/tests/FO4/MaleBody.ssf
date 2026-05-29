@@ -1,0 +1,40 @@
+{
+   "BaseMaleBody:0" : {
+      "BaseBoneName" : "DISABLED",
+      "DeltaBones" : [
+         {
+            "BoneDeltaList" : [ 262400 ],
+            "BoneName" : "LArm_UpperArm"
+         },
+         {
+            "BoneDeltaList" : [ 393472 ],
+            "BoneName" : "LLeg_Thigh"
+         },
+         {
+            "BoneDeltaList" : [ 327936 ],
+            "BoneName" : "RLeg_Thigh"
+         },
+         {
+            "BoneDeltaList" : [ 131840 ],
+            "BoneName" : "RArm_ForeArm1"
+         },
+         {
+            "BoneDeltaList" : [ 328448 ],
+            "BoneName" : "RLeg_Calf"
+         },
+         {
+            "BoneDeltaList" : [ 131328 ],
+            "BoneName" : "RArm_UpperArm"
+         },
+         {
+            "BoneDeltaList" : [ 262912 ],
+            "BoneName" : "LArm_ForeArm1"
+         },
+         {
+            "BoneDeltaList" : [ 393984 ],
+            "BoneName" : "LLeg_Calf"
+         }
+      ],
+      "uiNumDeltas" : 8
+   }
+}

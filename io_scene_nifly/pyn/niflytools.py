@@ -1724,7 +1724,7 @@ fo4BoneIDs = {
     "Behemoth Calf.R": 0xa411c600,
     "Behemoth Foot.R": 0xac900af3,
     "Behemoth Calf.L": 0xc0135fe3,
-    "Behemoth Foot.R": 0x95f7bba8,
+    "Behemoth Foot.L": 0x95f7bba8,
     "Robot 3 Torso": 0x3d6644aa,
     "HP-Neck": 0x3D6644AA
     }

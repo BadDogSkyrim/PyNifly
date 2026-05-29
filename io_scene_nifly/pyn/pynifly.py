@@ -188,9 +188,9 @@ class FO4Subsegment(FO4Segment):
     fo4bpm = re.compile(r'\AFO4 *(\d+) - ')
 
     def __init__(self, part_id, user_slot, material=-1, parent=None, namedict=fo4Dict, name=None):
-        """ 
+        """
         part_id = unique id used inside the nif
-        user_slot = user index 
+        user_slot = user index
         material = bone ID
         parent = parent segment
         namedict = dictionary to use
@@ -199,6 +199,10 @@ class FO4Subsegment(FO4Segment):
         super().__init__(part_id, user_slot, 0, namedict, name)
         self.user_slot = user_slot
         self.material = material
+        # Slice-plane positions along the dismember bone (the "cut offsets" in
+        # BSGeometryPerSegmentSharedData). Empty on most subsegments; only the
+        # bearer of each material carries a non-empty list (0-8 floats).
+        self.cut_offsets = []
         if name:
             self._name = name
         else:
@@ -4059,11 +4063,20 @@ class NiShape(NiNode):
             buf2 = (c_uint32 * 3 * p.subseg_count)()
             ssn = nifly.getSubsegments(self.file._handle, self._handle, p.id, buf2, p.subseg_count)
             for i in range(ssn):
-                ss = FO4Subsegment(part_id=buf2[i][0], 
-                                   user_slot=buf2[i][1], 
-                                   material=buf2[i][2], 
-                                   parent=p, 
+                ss = FO4Subsegment(part_id=buf2[i][0],
+                                   user_slot=buf2[i][1],
+                                   material=buf2[i][2],
+                                   parent=p,
                                    namedict=self.file.dict)
+                # Pull cut offsets (slice-plane positions) for this subsegment.
+                # Len+Data pattern: query count, then fill if any.
+                cn = nifly.getSubsegmentCutOffsets(
+                    self.file._handle, self._handle, ss.id, None, 0)
+                if cn > 0:
+                    cbuf = (c_float * cn)()
+                    nifly.getSubsegmentCutOffsets(
+                        self.file._handle, self._handle, ss.id, cbuf, cn)
+                    ss.cut_offsets = [cbuf[k] for k in range(cn)]
 
     @property
     def partitions(self):
@@ -4446,18 +4459,31 @@ class NiShape(NiNode):
                 tbuf[i] = trilist[i]
 
             sslist = []
+            cutcounts = []   # one entry per subsegment, parallel to sslist quads
+            cutdata = []     # concatenated cut-offset floats
             for seg in parts:
                 for sseg in seg.subsegments:
                     sslist.extend([sseg.id, seg.id, sseg.user_slot, sseg.material])
+                    co = getattr(sseg, "cut_offsets", None) or []
+                    cutcounts.append(len(co))
+                    cutdata.extend(co)
             sbuf = (c_uint32 * len(sslist))()
             for i, s in enumerate(sslist):
                 sbuf[i] = s
+            ccbuf = (c_uint32 * len(cutcounts))()
+            for i, n in enumerate(cutcounts):
+                ccbuf[i] = n
+            cdbuf = (c_float * len(cutdata))()
+            for i, v in enumerate(cutdata):
+                cdbuf[i] = v
 
             nifly.setSegments(self.file._handle, self._handle,
                                       pbuf, len(parts),
                                       sbuf, int(len(sslist)/4),
                                       tbuf, len(trilist),
-                                      self._segment_file.encode('utf-8'))
+                                      self._segment_file.encode('utf-8'),
+                                      ccbuf, len(cutcounts),
+                                      cdbuf, len(cutdata))
 
     def set_colors(self, colors):
         buf = (c_float * 4 * len(colors))()

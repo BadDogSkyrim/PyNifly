@@ -191,10 +191,22 @@ def is_partition(name):
 
 
 def partitions_from_vert_groups(obj, game):
-    """ Return dictionary of Partition objects for all vertex groups that match the partition 
+    """ Return dictionary of Partition objects for all vertex groups that match the partition
         name pattern. These are all partition objects including subsegments.
     """
     val = {}
+    # Cut offsets travel on the object as a JSON dict keyed by subseg vg name
+    # (FO4_CUT_OFFSETS, set on import). Decode once; default to empty so older
+    # objects round-trip with no cuts (the supply step in Phase 4 will fill in).
+    cut_offsets_map = {}
+    if game in ['FO4', 'FO76', 'FO3' 'FONV']:
+        raw = obj.get('FO4_CUT_OFFSETS')
+        if raw:
+            import json
+            try:
+                cut_offsets_map = json.loads(raw)
+            except (ValueError, TypeError):
+                cut_offsets_map = {}
     if obj.vertex_groups:
         vg_sorted = sorted([g.name for g in obj.vertex_groups])
         for nm in vg_sorted:
@@ -209,19 +221,23 @@ def partitions_from_vert_groups(obj, game):
                 if segid >= 0:
                     val[vg.name] = pynifly.FO4Segment(part_id=len(val), index=segid, name=vg.name)
                 else:
-                    # Check if this is a subsegment. All segs sort before their subsegs, 
+                    # Check if this is a subsegment. All segs sort before their subsegs,
                     # so it will already have been created if it exists separately
                     parent_name, subseg_id, material = pynifly.FO4Subsegment.name_match(vg.name)
                     if parent_name:
                         if not parent_name in val:
                             # Create parent segments if not there
                             val[parent_name] = pynifly.FO4Segment(
-                                part_id=len(val), 
-                                index=pynifly.FO4Segment.name_match(parent_name), 
+                                part_id=len(val),
+                                index=pynifly.FO4Segment.name_match(parent_name),
                                 name=parent_name)
                         p = val[parent_name]
-                        val[vg.name] = pynifly.FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
-    
+                        ss = pynifly.FO4Subsegment(len(val), subseg_id, material, p, name=vg.name)
+                        co = cut_offsets_map.get(vg.name)
+                        if co:
+                            ss.cut_offsets = list(co)
+                        val[vg.name] = ss
+
     return val
 
 
@@ -399,6 +415,10 @@ class NifExporter:
         self.decal_data = set()
         self.grouping_nodes = set()
         self.bsx_flag = None
+        # FO4 SSF accumulator: shape_name -> JSON-ready entry dict, built up
+        # across shape exports and written to a single SSF file alongside the
+        # NIF after self.nif.save().
+        self._fo4_ssf_entries = {}
         self.bone_lod = None
         self.bound = None
         self.inv_marker = None
@@ -467,6 +487,92 @@ class NifExporter:
             return self.nif.nif_name(blender_name)
         else:
             return blender_name
+
+    # ---- FO4 dismemberment cut offsets + SSF -------------------------------
+
+    def _fo4_ssf_disk_path(self):
+        """Disk path where we'll write the generated SSF: <nifdir>/<nifbase>.ssf."""
+        return os.path.splitext(self.filepath)[0] + ".ssf"
+
+    def _fo4_ssf_ref_for_nif(self):
+        """Path string to embed in the NIF's segment_file field. Like vanilla,
+        the SSF sits next to the NIF with the same basename (see
+        _fo4_ssf_disk_path). When the NIF is under a 'meshes' directory the
+        engine resolves the ref relative to its Data root, so we emit the chunk
+        starting at 'meshes' with .nif swapped for .ssf. Otherwise there's no
+        Data root to be relative to, so we emit the absolute .ssf path.
+        """
+        parts = self.filepath.replace("\\", "/").split("/")
+        for i, seg in enumerate(parts):
+            if seg.lower() == "meshes":
+                rel = "\\".join(parts[i:])
+                return os.path.splitext(rel)[0] + ".ssf"
+        return os.path.splitext(self.filepath)[0] + ".ssf"
+
+    def _fo4_supply_and_ssf(self, obj, arma, partitions, shape_name):
+        """For an FO4 shape: fill missing cut offsets on bearer subsegments
+        and return the SSF entry dict (or None if nothing to write).
+        """
+        from io_scene_nifly.pyn import dismember as DM
+
+        # Build the dismember bone line segments from the armature, using
+        # head_local positions (armature LOCAL space, == bind pose). Each
+        # entry is keyed by *nif* bone name (what the materials table uses) but
+        # looked up in the armature by the (possibly renamed) Blender label.
+        bones = {}
+        arma_bones = arma.data.bones
+        for parent, child in DM.FO4_HUMAN_DISMEMBER_CHILDREN.items():
+            pb = arma_bones.get(self.nif.blender_name(parent)) or arma_bones.get(parent)
+            cb = arma_bones.get(self.nif.blender_name(child)) or arma_bones.get(child)
+            if pb is None or cb is None:
+                continue
+            ph = pb.head_local
+            ch = cb.head_local
+            bones[parent] = ((ph.x, ph.y, ph.z), (ch.x, ch.y, ch.z))
+
+        if not bones:
+            return None
+
+        # Collect vert positions per subsegment vertex group, in armature-local
+        # space (matching the bone positions above).
+        m2arma = arma.matrix_world.inverted() @ obj.matrix_world
+        verts_world = [m2arma @ v.co for v in obj.data.vertices]
+        subseg_verts = {}
+        for name, part in partitions.items():
+            if type(part).__name__ != "FO4Subsegment":
+                continue
+            vg = obj.vertex_groups.get(name)
+            if vg is None:
+                continue
+            grp_idx = vg.index
+            vs = []
+            for vi, v in enumerate(obj.data.vertices):
+                for g in v.groups:
+                    if g.group == grp_idx and g.weight > 0:
+                        p = verts_world[vi]
+                        vs.append((p.x, p.y, p.z))
+                        break
+            if vs:
+                subseg_verts[name] = vs
+
+        bone_to_bearer = DM.supply_for_shape(
+            partitions, subseg_verts, bones, DM.FO4_MATERIAL_TO_BONE)
+        if not bone_to_bearer:
+            return None
+
+        encoded = {bn: DM.encode_ssf_ref(seg_i, sub_i)
+                   for bn, (seg_i, sub_i) in bone_to_bearer.items()}
+        return DM.build_ssf_shape_entry(encoded)
+
+    def _fo4_write_ssf(self):
+        """Write accumulated SSF entries to <nifdir>/<nifbase>.ssf as JSON."""
+        if not self._fo4_ssf_entries:
+            return
+        ssf_path = self._fo4_ssf_disk_path()
+        import json
+        with open(ssf_path, "w", encoding="utf-8") as f:
+            json.dump(self._fo4_ssf_entries, f, indent=3)
+        log.info(f"..Wrote FO4 SSF {ssf_path}")
 
     def unique_name(self, obj):
         """
@@ -562,6 +668,9 @@ class NifExporter:
                 self.add_object(c)
 
         elif obj.type == 'MESH':
+            if 'FO4_CUTPOINT' in obj:
+                # FO4 dismember cut-offset visualization disk — never a shape.
+                return
             if not obj.name.startswith("BSBound:") \
                     and obj.get('pynRigidBody') != 'bhkPhysicsSystem' \
                     and not obj.rigid_body:
@@ -1458,6 +1567,18 @@ class NifExporter:
                     if 'FO4_SEGMENT_FILE' in obj.keys():
                         new_shape.segment_file = obj['FO4_SEGMENT_FILE']
 
+                    # FO4: supply missing cut offsets from bone geometry and
+                    # record the bone->bearer-ref map for the SSF we'll write
+                    # after the NIF is saved.
+                    if self.game == 'FO4' and arma is not None:
+                        ssf_entry = self._fo4_supply_and_ssf(
+                            obj, arma, partitions, new_shape.name)
+                        if ssf_entry:
+                            self._fo4_ssf_entries[new_shape.name] = ssf_entry
+                            # Override the segment_file ref with our own SSF
+                            # path so the engine finds the file we'll write.
+                            new_shape.segment_file = self._fo4_ssf_ref_for_nif()
+
                     new_shape.set_partitions(
                         [p for p in partitions.values() if p.id in partition_map],
                         partition_map)
@@ -1611,6 +1732,7 @@ class NifExporter:
 
         self.nif.save()
         log.info(f"..Wrote {fpath}")
+        self._fo4_write_ssf()
         msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
                             self.nif.message_log().split('\n')))
         if msgs:
