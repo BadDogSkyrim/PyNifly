@@ -10134,6 +10134,33 @@ def TEST_NISWITCHNODE_IMPORT():
     assert TT.is_eq(flags, [1, 3], "Switch flags preserved on import")
 
 
+@TT.category('SKYRIMSE', 'TREE')
+def TEST_TREE_EXPORT():
+    """Skinned tree exports without unweighted-vertex errors.
+
+    The leaf-card shapes live under a NiSwitchNode's unskinned (LOD) branch and
+    carry no bone weights. The exporter passes the file armature to every shape;
+    these must export as static geometry rather than being skinned (which would
+    report every vertex as unweighted and abort the export).
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_TREE_EXPORT.nif", output=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    for o in bpy.data.objects:
+        o.select_set(True)
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    bpy.context.view_layer.objects.active = root
+    # Raises if any shape reports unweighted vertices.
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    nifout = pyn.NifFile(outfile)
+    skinned = [s for s in nifout.shapes if s.bone_names]
+    unskinned = [s for s in nifout.shapes if not s.bone_names]
+    assert TT.is_gt(len(skinned), 1, f"Skinned body shapes exported: {len(skinned)}")
+    assert TT.is_gt(len(unskinned), 1, f"Static LOD shapes exported unskinned: {len(unskinned)}")
+
+
 @TT.category('SKYRIMSE', 'COLLISION')
 def TEST_PRETTY_BONE_COLLISION():
     """Pretty bones + a bone-mounted collision must keep pose == rest.

@@ -139,8 +139,22 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
     return verts, weights, morphdict
 
 
+def _under_switchnode(obj):
+    """True if obj is parented (directly or transitively) under a NiSwitchNode empty.
+
+    Such a shape, when it carries no bone weights, is the switch's unskinned LOD
+    branch and should export as static geometry rather than a skinned shape.
+    """
+    p = obj.parent
+    while p is not None:
+        if p.get('pynBlockName') == 'NiSwitchNode':
+            return True
+        p = p.parent
+    return False
+
+
 def tag_unweighted(obj, bones):
-    """ Find and return verts that are not weighted to any of the given bones 
+    """ Find and return verts that are not weighted to any of the given bones
         result = (v_index, ...) list of indices into the vertex list
     """
     unweighted_verts = []
@@ -1566,6 +1580,16 @@ class NifExporter:
 
             # Prepare for reporting any bone weight errors
             is_skinned = (arma is not None)
+            # A shape with no bone vertex groups that lives under a NiSwitchNode is
+            # the switch's unskinned (LOD / "second child") branch -- e.g. the leaf
+            # cards on a skinned tree. The exporter passes the file's armature to
+            # every shape, which would otherwise skin these and report all their
+            # vertices as unweighted. Export them as static geometry instead.
+            if is_skinned \
+                    and not any(vg.name in arma.data.bones for vg in obj.vertex_groups) \
+                    and _under_switchnode(obj):
+                is_skinned = False
+                arma = None
             unweighted = []
             if BD.UNWEIGHTED_VERTEX_GROUP in obj.vertex_groups:
                 obj.vertex_groups.remove(obj.vertex_groups[BD.UNWEIGHTED_VERTEX_GROUP])
