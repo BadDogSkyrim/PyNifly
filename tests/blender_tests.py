@@ -10090,6 +10090,45 @@ def TEST_PRETTY_BONE_POSITIONS():
                 f"Bone '{bone_name}' transform preserved:\n{xf_out}\n!=\n{xf_orig}"
 
 
+@TT.category('SKYRIMSE', 'COLLISION')
+def TEST_PRETTY_BONE_COLLISION():
+    """Pretty bones + a bone-mounted collision must keep pose == rest.
+
+    A bhkCollisionObject on a bone adds a COPY_TRANSFORMS constraint that drives
+    the bone (enabled to influence 1.0 after poses are set). If the collision is
+    placed at the raw node transform while the bone is pretty-rotated, the
+    constraint drags the bone off its rest, so pose != rest. treeaspen03's
+    TrunkBone has a capsule collision and a near-gimbal orientation, which made
+    this visible: importing with pretty bones must keep every bone's pose
+    matching its rest.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile, rotate_bones_pretty=True)
+    bpy.context.view_layer.update()
+
+    armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    assert armatures, "Imported a skinned tree with an armature"
+
+    # Confirm the scenario is actually present: a bone carries a collision
+    # constraint (otherwise the test wouldn't exercise the bug).
+    has_constraint = any(c.name == 'bhkCollisionConstraint'
+                         for arma in armatures
+                         for pb in arma.pose.bones
+                         for c in pb.constraints)
+    assert has_constraint, "A bone carries a bhkCollisionConstraint (the trigger)"
+
+    mismatches = []
+    for arma in armatures:
+        for pb in arma.pose.bones:
+            rest = arma.data.bones[pb.name].matrix_local
+            diff = max(abs(rest[i][j] - pb.matrix[i][j])
+                       for i in range(4) for j in range(4))
+            if diff > 0.001:
+                mismatches.append(f"{arma.name}/{pb.name}: maxdiff={diff:.3f}")
+    assert not mismatches, \
+        "Pretty bone pose must equal rest even with a bone collision:\n" + "\n".join(mismatches)
+
+
 @TT.category('SKYRIMSE')
 def TEST_COLLISION_TAIL():
     """Tail collision mesh cap faces should round-trip without gaps."""

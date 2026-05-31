@@ -11,6 +11,7 @@ from ..pyn.nifconstants import (
     bhkCOFlags)
 from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix,
                             find_box_info, append_if_new, MatrixLocRotScale)
+from .. import blender_defs as BD
 from ..util.reprobj import ReprObject
 from ..pyn.pynifly import *
 
@@ -838,7 +839,15 @@ class CollisionHandler():
             return None
 
         if bone:
-            xf = importer.import_xf @ transform_to_matrix(bone.global_transform)
+            # Place the collision in the bone's frame INCLUDING the pretty bone
+            # rotation, so it stays attached to the (cosmetically rotated) bone.
+            # The COPY_TRANSFORMS constraint that lets the collision drive the
+            # bone then resolves to the bone's rest pose instead of dragging it
+            # to the raw node orientation. game_rotations[..][0] is identity when
+            # rotate_bones_pretty is off, so non-pretty imports are unchanged.
+            game = parent_handler.nif.game
+            pretty_rot = BD.game_rotations[BD.game_axes[game]][0]
+            xf = importer.import_xf @ transform_to_matrix(bone.global_transform) @ pretty_rot
         else:
             xf = parentObj.matrix_world
 
