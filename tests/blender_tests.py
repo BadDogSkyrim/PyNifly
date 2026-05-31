@@ -4908,6 +4908,32 @@ def TEST_TREE():
                      "LOD2 triangles reference the same vertices after round-trip")
 
 
+@TT.category('SKYRIM', 'TREE')
+def TEST_TREE_SKINNED_BONES():
+    """Skinned tree imports one vertex group per unique bone (no .001 duplicates).
+
+    treeaspen03.nif's skinned shapes store a partition-palette-aligned bone list
+    (each bone repeated once per SkinPartition). The importer must collapse
+    those repeats to a single vertex group per bone, with weights aggregated.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    BONES = {"TrunkBone", "BranchBoughBone01", "BranchBone01",
+             "BranchBoughBone02", "BranchBone02"}
+
+    skinned = [o for o in bpy.data.objects
+               if o.type == 'MESH' and any(vg.name == "TrunkBone" for vg in o.vertex_groups)]
+    assert len(skinned) >= 1, "Found at least one skinned tree mesh"
+
+    for mesh in skinned:
+        names = [vg.name for vg in mesh.vertex_groups]
+        dupes = [n for n in names if any(n.startswith(b + ".") for b in BONES)]
+        assert not dupes, f"{mesh.name} has duplicate bone vgroups: {dupes}"
+        bone_vgs = {n for n in names if n in BONES}
+        assert bone_vgs == BONES, f"{mesh.name} has all 5 unique bones, no more: {sorted(bone_vgs)}"
+
+
 @TT.category('FO4', 'LOD', 'SHADER')
 @TT.expect_errors(("Unable to find a suitable DXT compression",
                    "Falling back to uncompressed",))

@@ -2977,6 +2977,77 @@ def TEST_TREE():
     check_tree(nifCheck)
 
 
+@test_category('SKYRIM', 'TREE')
+def TEST_TREE_CHILD_ORDER():
+    """getNodeChildren returns the real Children array, in NIF order, no nulls.
+
+    Vanilla treeaspen03.nif has two nested NiSwitchNodes. getNodeChildren must
+    return exactly each switch's two real children in array order (skinned
+    branch first, unskinned branch second per the switch invariant), dropping
+    the NODEID_NONE padding slots, and must return 0 (not crash) for a shape.
+    """
+    testfile = _test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    nif = NifFile(testfile)
+
+    def blockname(node_id):
+        buf = ctypes.create_string_buffer(128)
+        nifly.getBlockname(nif._handle, node_id, buf, 128)
+        return buf.value.decode('utf-8')
+
+    def children_of(node_id):
+        buf = (ctypes.c_int * 64)()
+        n = nifly.getNodeChildren(nif._handle, node_id, 64, buf)
+        return [buf[i] for i in range(n)]
+
+    # Block ids are stable for this vanilla fixture.
+    # Outer switch (id 3): LOD0 branch (4, skinned descendants) then LOD2 (37).
+    # Inner switch (id 5): skinned branch (6) then LOD1 (31).
+    assert blockname(3) == "NiSwitchNode", "id 3 is the outer NiSwitchNode"
+    assert blockname(5) == "NiSwitchNode", "id 5 is the inner NiSwitchNode"
+
+    assert children_of(3) == [4, 37], f"Outer switch children in order: {children_of(3)}"
+    assert children_of(5) == [6, 31], f"Inner switch children in order: {children_of(5)}"
+
+    # A shape (BSTriShape :7, id 18) is not a node: 0 children, no crash.
+    assert blockname(18) == "BSTriShape", "id 18 is the skinned BSTriShape"
+    assert children_of(18) == [], "Shapes have no node children (and don't crash)"
+
+
+@test_category('SKYRIM', 'TREE')
+def TEST_TREE_BONE_AGGREGATION():
+    """Skinned-tree bones are deduped by node id; weights summed across partitions.
+
+    Vanilla skinned trees store a partition-palette-aligned bone list: the same
+    bone node repeats once per SkinPartition, each repeat carrying a DISJOINT
+    set of vertex weights. The shape must expose 5 unique bones, and each bone's
+    weights must aggregate all repeats (not just the last one).
+    """
+    testfile = _test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    nif = NifFile(testfile)
+    sh = next(s for s in nif.shapes if s.id == 18)   # BSTriShape :7
+
+    # Raw list is the 13-entry partition-aligned palette (unchanged).
+    assert len(sh.bone_names) == 13, f"raw bone_names is the 13 palette entries: {len(sh.bone_names)}"
+    assert len(sh.bone_ids) == 13, f"raw bone_ids is 13: {len(sh.bone_ids)}"
+
+    # Deduped by node id -> 5 unique bones.
+    uniq = sh.unique_bone_names
+    assert len(uniq) == 5, f"5 unique bones: {uniq}"
+    assert set(uniq) == {"TrunkBone", "BranchBoughBone01", "BranchBone01",
+                         "BranchBoughBone02", "BranchBone02"}, f"unique bone names: {uniq}"
+
+    # bone_weights keyed by the 5 unique names; weights aggregated across repeats.
+    bw = sh.bone_weights
+    assert len(bw) == 5, f"5 bone-weight entries: {list(bw.keys())}"
+    # TrunkBone spans palette positions 0/5/8 = 142+10+239 = 391 distinct verts.
+    assert len(bw["TrunkBone"]) == 391, f"TrunkBone aggregated to 391 verts: {len(bw['TrunkBone'])}"
+    assert len(bw["BranchBoughBone02"]) == 246, f"BranchBoughBone02 -> 246: {len(bw['BranchBoughBone02'])}"
+    # No vertex should appear twice within a bone (summed into one entry).
+    for nm, pairs in bw.items():
+        verts = [v for v, w in pairs]
+        assert len(verts) == len(set(verts)), f"{nm} has each vertex once"
+
+
 def TEST_DOCKSTEPSDOWNEND():
     """Test that BSLODTriShape nodes load correctly."""
     def check_dock(nif):

@@ -568,29 +568,27 @@ NIFLY_API void* getNodeParent(void* theNif, void* node) {
 }
 
 NIFLY_API int getNodeChildren(void* nifRef, int nodeID, int buflen, int* buf)
-/* Return children of the given node in the given list. 
-    Note the children returned map to anything under the node in the NifSkope hierarchy, not
-    just the nodes pointed to by the "Children" property.
-    Returns the number of children actually found. 
+/* Return the node's real children -- the entries of its "Children" array -- in
+    NIF (declaration) order, skipping empty (NODEID_NONE) slots. Only the
+    Children property is returned; collision, extra data, multibound and bone
+    refs are reached via their own accessors. Returns the count of real children
+    (which may exceed buflen; buf is filled up to buflen).
 */
 {
     NifFile* nif = static_cast<NifFile*>(nifRef);
     NiHeader* hdr = &nif->GetHeader();
     NiNode* parent = hdr->GetBlock<NiNode>(nodeID);
+    if (!parent) return 0;  // not a node (e.g. a shape) -> no node children
 
-    std::set<nifly::NiRef*> children;
-    parent->GetChildRefs(children);
-
-    int i = 0;
     int childCount = 0;
-    for (auto& child : children) {
-        if (i < buflen)
-            buf[i++] = child->index;
-        else
-            break;
+    for (uint32_t i = 0; i < parent->childRefs.GetSize(); i++) {
+        uint32_t childID = parent->childRefs.GetBlockRef(i);
+        if (childID == NIF_NPOS) continue;  // drop empty slots
+        if (childCount < buflen) buf[childCount] = childID;
+        childCount++;
     }
 
-    return int(children.size());
+    return childCount;
 }
 
 NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent) {

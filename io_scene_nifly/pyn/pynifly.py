@@ -3982,6 +3982,7 @@ class NiShape(NiNode):
                          properties=properties, name=name)
         self._bone_ids = None
         self._bone_names = None
+        self._unique_bone_names = None
         self._normals = None
         self._colors = None
         self._scale = 1.0
@@ -4236,6 +4237,24 @@ class NiShape(NiNode):
             self._bone_ids = list(buf)
         return self._bone_ids
 
+    @property
+    def unique_bone_names(self):
+        """Bone names deduplicated by node id, in first-occurrence order.
+
+        The raw bone_names/bone_ids lists are partition-palette-aligned: a bone
+        node repeats once per SkinPartition (skinned trees especially). This
+        collapses those repeats to one name per distinct node.
+        """
+        if self._unique_bone_names is None:
+            seen = set()
+            result = []
+            for nm, bid in zip(self.bone_names, self.bone_ids):
+                if bid not in seen:
+                    seen.add(bid)
+                    result.append(nm)
+            self._unique_bone_names = result
+        return self._unique_bone_names
+
     def _bone_weights(self, bone_id):
         # Weights for all vertices (that are weighted to it)
         BUFSIZE = nifly.getShapeBoneWeightsCount(self.file._handle, self._handle, bone_id)
@@ -4250,11 +4269,23 @@ class NiShape(NiNode):
     def bone_weights(self):
         """ Dictionary of bone weights
             returns {bone-name: [(vertex-index, weight), ...], ...}
+
+            Weights are aggregated by node id: the bone list is
+            partition-palette-aligned, so a bone repeated across SkinPartitions
+            carries a disjoint set of vertex weights at each palette position.
+            Summing per vertex across those positions keeps every weight (a
+            name-keyed overwrite would drop all but the last position).
             """
         if self._weights is None:
-            self._weights = {}
-            for bone_idx, name in enumerate(self.bone_names):
-                self._weights[name] = self._bone_weights(bone_idx)
+            by_id = {}     # node id -> {vertex: summed weight}
+            id_name = {}   # node id -> name (first occurrence)
+            for pos, (name, bid) in enumerate(zip(self.bone_names, self.bone_ids)):
+                id_name.setdefault(bid, name)
+                verts = by_id.setdefault(bid, {})
+                for v, w in self._bone_weights(pos):
+                    verts[v] = verts.get(v, 0.0) + w
+            self._weights = {id_name[bid]: list(verts.items())
+                             for bid, verts in by_id.items()}
         return self._weights
 
     def get_used_bones(self):

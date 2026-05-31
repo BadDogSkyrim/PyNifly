@@ -795,7 +795,10 @@ class NifImporter():
         # Use the data API rather than bpy.ops.object.add — the operator triggers a
         # dependency-graph update on every call, which adds up fast on collision/
         # controller-heavy nifs (e.g. 244 calls = ~0.5s on FO4 GearDoor).
-        obj = bpy.data.objects.new(ninode.name, None)
+        # Nameless nif nodes would default to Blender's "Object.NNN"; fall back to
+        # the block name ("NiNode.NNN" etc.) so the outliner stays meaningful. The
+        # true nif name (possibly empty) is preserved in pynNodeName below.
+        obj = bpy.data.objects.new(ninode.name or ninode.blockname, None)
         obj.empty_display_size = 1.0
         bpy.context.collection.objects.link(obj)
         # Downstream code expects this object to be active (mirroring what
@@ -924,9 +927,15 @@ class NifImporter():
 
 
     def mesh_create_bone_groups(self, the_shape, the_object):
-        """ Create groups to capture bone weights """
+        """ Create groups to capture bone weights.
+
+        Iterate the unique bones (deduped by node id): the raw bone list is
+        partition-palette-aligned and repeats bones, which would otherwise
+        produce duplicate '.001'/'.002' vertex groups. bone_weights is keyed by
+        the same unique names and already aggregates across the repeats.
+        """
         vg = the_object.vertex_groups
-        for bone_name in the_shape.bone_names:
+        for bone_name in the_shape.unique_bone_names:
             new_vg = vg.new(name=self.blender_name(bone_name))
             for v, w in the_shape.bone_weights[bone_name]:
                 new_vg.add((v,), w, 'ADD')
@@ -1147,11 +1156,16 @@ class NifImporter():
             else:
                 v = [(n[0]*self.scale, n[1]*self.scale, n[2]*self.scale) for n in the_shape.verts]
 
-            new_mesh = bpy.data.meshes.new(the_shape.name)
+            # Nameless shapes (e.g. vanilla skinned-tree BSTriShapes) would default
+            # to "Object.NNN"; fall back to the block name. The true nif name
+            # (possibly empty) is kept in pynNodeName for round-trip.
+            shape_name = the_shape.name or the_shape.blockname
+            new_mesh = bpy.data.meshes.new(shape_name)
             new_mesh.from_pydata(v, [], t)
             new_mesh.update(calc_edges=True, calc_edges_loose=True)
-            new_object = bpy.data.objects.new(the_shape.name, new_mesh)
+            new_object = bpy.data.objects.new(shape_name, new_mesh)
             new_object['pynBlockName'] = the_shape.blockname
+            new_object['pynNodeName'] = the_shape.name
             the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
             try:
                 new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
@@ -1281,7 +1295,7 @@ class NifImporter():
         offset_xf = None
         offset_consistent = True
 
-        for b in shape.bone_names:
+        for b in shape.unique_bone_names:
             blend_name = self.blender_name(b)
             if blend_name in arma.data.bones:
                 shape_bone_xf = (
