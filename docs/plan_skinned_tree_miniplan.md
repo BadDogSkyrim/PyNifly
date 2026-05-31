@@ -169,9 +169,15 @@ Model on **`BSValueNode`** (fixed-field node) and **`BSBoneLODExtraData`** (node
   findNodeByName and writes the pointer arrays. treeaspen03: Bones1=['TrunkBone']
   (armature root), Bones2 = the 4 branch bones — confirms Hugh's hypothesis.
   Tests: TEST_BSTREENODE (pyn), TEST_BSTREENODE_ROUNDTRIP (Blender).
-- **Phase 6 — `TEST_VANILLA_TREEASPEN_ROUNDTRIP`** (one combined test): 5 vgs
-  for `:7`, single armature, block-name + all extras survive
-  import→export→re-import.
+- **Phase 6 — `TEST_VANILLA_TREEASPEN_ROUNDTRIP`** ✅ DONE. Combined Blender
+  round-trip: single armature, both NiSwitchNodes + flags, BSMultiBound OBB,
+  BSTreeNode bones all survive import→export→re-read. Plus the remaining Phase 3
+  piece: **skinned-first child ordering enforced on export** via C++
+  `setNodeChildren` + `_reorder_switch_children` (walks the exported nif, puts
+  the skinned-descendant branch as child[0] so child[1] is unskinned per the
+  invariant; warns if neither child is skinned). The order already came out
+  right for treeaspen03 emergently, but it's now guaranteed. Test asserts the
+  invariant on the exported nif.
 
 **Deferred:** `BSKTreeAspenGreen01.nif`'s 0-tri-header anomaly stays parked (no
 vanilla tree has it; unknown if the engine even renders it).

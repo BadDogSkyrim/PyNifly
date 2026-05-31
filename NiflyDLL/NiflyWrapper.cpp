@@ -842,6 +842,17 @@ NIFLY_API void setBSTreeNodeBones(void* nifref, uint32_t id, int which,
     for (int i = 0; i < count; i++) arr.AddBlockRef(ids[i]);
 }
 
+/* Replace a node's Children array with exactly the given ids, in order. Used to
+   enforce NiSwitchNode child ordering (skinned branch first) on export. */
+NIFLY_API void setNodeChildren(void* nifref, int nodeID, int* ids, int count) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiNode* node = hdr->GetBlock<NiNode>(nodeID);
+    if (!node) return;
+    node->childRefs.Clear();
+    for (int i = 0; i < count; i++) node->childRefs.AddBlockRef(ids[i]);
+}
+
 
 int assignControllerSequence(void* f, uint32_t id, void* b) {
     NifFile* nif = static_cast<NifFile*>(f);

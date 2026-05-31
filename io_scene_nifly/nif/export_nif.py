@@ -1423,6 +1423,51 @@ class NifExporter:
             controller.ControllerHandler.export_animated_obj(self, ref)
         return ref
 
+    def _reorder_switch_children(self):
+        """Enforce the NiSwitchNode invariant on export: the second child must
+        have no skinned descendants. Put the skinned-descendant branch first so
+        the engine renders it; warn if neither child is skinned (order arbitrary).
+        """
+        from ctypes import c_int, create_string_buffer
+        h = self.nif._handle
+        shape_skin = {sh.id: bool(sh.bone_names) for sh in self.nif.shapes}
+
+        def blockname(nid):
+            b = create_string_buffer(128)
+            pynifly.nifly.getBlockname(h, nid, b, 128)
+            return b.value.decode('utf-8')
+
+        def children(nid):
+            buf = (c_int * 128)()
+            n = pynifly.nifly.getNodeChildren(h, nid, 128, buf)
+            return [buf[i] for i in range(max(n, 0))]
+
+        def subtree_skinned(nid):
+            if nid in shape_skin:
+                return shape_skin[nid]
+            return any(subtree_skinned(c) for c in children(nid))
+
+        switches = []
+        def collect(nid):
+            if blockname(nid) == 'NiSwitchNode':
+                switches.append(nid)
+            for c in children(nid):
+                collect(c)
+        collect(self.nif.rootNode.id)
+
+        for sid in switches:
+            ch = children(sid)
+            if len(ch) != 2:
+                continue
+            sk = [subtree_skinned(c) for c in ch]
+            if not any(sk):
+                log.warning(f"NiSwitchNode {sid} has no skinned child; "
+                            f"child order left as-is")
+                continue
+            if sk[1] and not sk[0]:
+                ordered = (c_int * 2)(ch[1], ch[0])
+                pynifly.nifly.setNodeChildren(h, sid, ordered, 2)
+
     def _export_bstreenode_bones(self):
         """If the root is a BSTreeNode, resolve its Bones1/Bones2 nif-name lists
         (stashed on import) to the exported bone nodes and write the pointer
@@ -1921,6 +1966,7 @@ class NifExporter:
                                   parent=self.nif.root)
 
         self._export_bstreenode_bones()
+        self._reorder_switch_children()
         if self.root_object:
             collision.CollisionHandler.export_collisions(self, self.root_object)
         self.export_extra_data()

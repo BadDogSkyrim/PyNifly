@@ -10222,6 +10222,71 @@ def TEST_BSTREENODE_ROUNDTRIP():
     assert TT.is_eq(len(tn.bones2), 4, f"Bones2 round-trips (4 bones): {tn.bones2}")
 
 
+@TT.category('SKYRIMSE', 'TREE')
+def TEST_VANILLA_TREEASPEN_ROUNDTRIP():
+    """Full vanilla skinned tree: import -> export -> re-read, structurally intact.
+
+    Integration of the whole skinned-tree effort: single armature, NiSwitchNode
+    flags + skinned-first child ordering (invariant: child[1] is unskinned),
+    BSMultiBound OBB, and BSTreeNode Bones1/Bones2.
+    """
+    from ctypes import c_int, create_string_buffer
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_VANILLA_TREEASPEN.nif", output=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    assert TT.is_eq(len(armatures), 1, "Single armature for the whole tree")
+
+    for o in bpy.data.objects:
+        o.select_set(True)
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    bpy.context.view_layer.objects.active = root
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    nif = pyn.NifFile(outfile)
+    h = nif._handle
+    shape_skin = {sh.id: bool(sh.bone_names) for sh in nif.shapes}
+
+    def blockname(nid):
+        b = create_string_buffer(128); pyn.nifly.getBlockname(h, nid, b, 128)
+        return b.value.decode('utf-8')
+
+    def children(nid):
+        buf = (c_int * 64)(); n = pyn.nifly.getNodeChildren(h, nid, 64, buf)
+        return [buf[i] for i in range(n)]
+
+    def subtree_skinned(nid):
+        if nid in shape_skin:
+            return shape_skin[nid]
+        return any(subtree_skinned(c) for c in children(nid))
+
+    switch_ids = []
+    def collect(nid):
+        if blockname(nid) == 'NiSwitchNode':
+            switch_ids.append(nid)
+        for c in children(nid):
+            collect(c)
+    collect(nif.rootNode.id)
+
+    # Both NiSwitchNodes, flags preserved, invariant holds (child[1] unskinned).
+    assert TT.is_eq(len(switch_ids), 2, "Both NiSwitchNodes exported")
+    flags = sorted(nif.read_node(id=s).switch_flags for s in switch_ids)
+    assert TT.is_eq(flags, [1, 3], "Switch flags preserved")
+    for sid in switch_ids:
+        ch = children(sid)
+        assert TT.is_eq(len(ch), 2, f"Switch {sid} has exactly 2 children")
+        assert subtree_skinned(ch[0]), f"Switch {sid} child[0] is the skinned branch"
+        assert not subtree_skinned(ch[1]), f"Switch {sid} child[1] is unskinned (invariant)"
+
+    # BSMultiBound OBB and BSTreeNode bones preserved.
+    mbn = next(n for n in nif.nodes.values() if n.blockname == 'BSMultiBoundNode')
+    assert mbn.multibound.data.blockname == 'BSMultiBoundOBB', "BSMultiBound OBB preserved"
+    tn = nif.read_node(id=0)
+    assert tn.blockname == 'BSTreeNode', "Root BSTreeNode preserved"
+    assert TT.is_eq(tn.bones1, ['TrunkBone'], "BSTreeNode Bones1 preserved")
+
+
 @TT.category('SKYRIMSE', 'COLLISION')
 def TEST_PRETTY_BONE_COLLISION():
     """Pretty bones + a bone-mounted collision must keep pose == rest.

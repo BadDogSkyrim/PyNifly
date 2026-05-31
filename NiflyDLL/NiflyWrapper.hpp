@@ -182,6 +182,7 @@ extern "C" NIFLY_API int getBoneLODInfo(void* nifref, uint32_t id, void* lodbuf,
 extern "C" NIFLY_API int setBoneLOD(void* nifref, int id, int buflen, BSBoneLODInfoBuf* buf);
 extern "C" NIFLY_API int getBSTreeNodeBones(void* nifref, uint32_t id, int which, uint32_t* buf, int buflen);
 extern "C" NIFLY_API void setBSTreeNodeBones(void* nifref, uint32_t id, int which, uint32_t* ids, int count);
+extern "C" NIFLY_API void setNodeChildren(void* nifref, int nodeID, int* ids, int count);
 extern "C" NIFLY_API void setIntegerExtraData(void* nifref, void* shaperef, char* name, uint32_t value);
 
 // MOPP bytecode read
