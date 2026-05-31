@@ -45,6 +45,11 @@ UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 COLOR_MAP_NAME = "Col"
 
+# Structural special node types that import as "<name>:<blocktype>" Empties so
+# the outliner shows the type. Excludes nodes referenced by name (e.g.
+# BSValueNode, an animation action-slot target).
+SPECIAL_NODE_BLOCKTYPES = {'NiSwitchNode', 'BSMultiBoundNode', 'BSTreeNode'}
+
 ARMATURE_BONE_GROUPS = ['NPC', 'CME']
 
 CAMERA_LENS = 80
@@ -795,10 +800,18 @@ class NifImporter():
         # Use the data API rather than bpy.ops.object.add — the operator triggers a
         # dependency-graph update on every call, which adds up fast on collision/
         # controller-heavy nifs (e.g. 244 calls = ~0.5s on FO4 GearDoor).
-        # Nameless nif nodes would default to Blender's "Object.NNN"; fall back to
-        # the block name ("NiNode.NNN" etc.) so the outliner stays meaningful. The
-        # true nif name (possibly empty) is preserved in pynNodeName below.
-        obj = bpy.data.objects.new(ninode.name or ninode.blockname, None)
+        # Structural special node types are named "<name>:<blocktype>" so the
+        # outliner shows the type, matching the extra-data/root convention. Scoped
+        # to a set (not all non-NiNode) so nodes referenced by name elsewhere --
+        # e.g. BSValueNode addon nodes targeted by animation action slots -- keep
+        # their bare name. Plain nameless NiNodes fall back to the block name. The
+        # true nif name (possibly empty) is preserved in pynNodeName below; export
+        # strips the ":<blocktype>" suffix back off.
+        if ninode.blockname in SPECIAL_NODE_BLOCKTYPES and ninode.name:
+            obj_name = ninode.name + ":" + ninode.blockname
+        else:
+            obj_name = ninode.name or ninode.blockname
+        obj = bpy.data.objects.new(obj_name, None)
         obj.empty_display_size = 1.0
         bpy.context.collection.objects.link(obj)
         # Downstream code expects this object to be active (mirroring what
@@ -968,10 +981,12 @@ class NifImporter():
         verts = [(-1,-1,-1), (1,-1,-1), (1,1,-1), (-1,1,-1),
                  (-1,-1, 1), (1,-1, 1), (1,1, 1), (-1,1, 1)]
         faces = [(0,1,2,3), (4,7,6,5), (0,4,5,1), (1,5,6,2), (2,6,7,3), (3,7,4,0)]
-        mesh = bpy.data.meshes.new(node_obj.name + "_MultiBound")
+        cube_name = (ninode.name + ":BSMultiBoundOBB") if ninode.name \
+                    else "BSMultiBoundOBB"
+        mesh = bpy.data.meshes.new(cube_name)
         mesh.from_pydata(verts, [], faces)
         mesh.update()
-        cube = bpy.data.objects.new(node_obj.name + "_MultiBound", mesh)
+        cube = bpy.data.objects.new(cube_name, mesh)
         cube['pynBlockName'] = 'BSMultiBoundOBB'
         cube['pynMultiBoundOBB'] = True
         cube.display_type = 'WIRE'

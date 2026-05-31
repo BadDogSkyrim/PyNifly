@@ -1405,9 +1405,14 @@ class NifExporter:
                     props.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
                 except Exception as e:
                     log.warning(f"Error setting node flags for {obj.name}: {e}")
+            # Strip the ":<blocktype>" suffix that import adds to special nodes
+            # (e.g. "FadeNode Anim:BSMultiBoundNode" -> "FadeNode Anim").
+            node_name = BD.nonunique_name(obj.name)
+            if nodetype != 'NiNode' and node_name.endswith(":" + nodetype):
+                node_name = node_name[:-(len(nodetype) + 1)]
             ninode = self.nif.add_block(
-                name=BD.nonunique_name(obj.name), 
-                buf=props, 
+                name=node_name,
+                buf=props,
                 parent=parent.nifnode if parent else None)
             # ninode = self.nif.add_node(obj.name, xf, parent.nifnode if parent else None)
             ref = ReprObject(obj, ninode) 
