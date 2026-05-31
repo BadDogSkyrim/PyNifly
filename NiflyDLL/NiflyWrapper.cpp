@@ -692,6 +692,118 @@ int addNiSwitchNode(void* f, const char* name, void* properties, uint32_t parent
 }
 
 
+int getBSMultiBoundNode(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiNodeBuf* nodebuf = static_cast<NiNodeBuf*>(inbuf);
+    BSMultiBoundNodeBuf* buf = static_cast<BSMultiBoundNodeBuf*>(inbuf);
+    nifly::BSMultiBoundNode* node = hdr->GetBlock<BSMultiBoundNode>(id);
+
+    CheckID(node);
+    CheckBuf(buf, BUFFER_TYPES::BSMultiBoundNodeBufType, BSMultiBoundNodeBuf);
+
+    getNode(nifref, node, nodebuf);
+    buf->cullingMode = static_cast<uint32_t>(node->cullingMode);
+    buf->multiBoundID = node->multiBoundRef.index;
+    return 0;
+}
+
+int addBSMultiBoundNode(void* f, const char* name, void* properties, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(f);
+    NiHeader* hdr = &nif->GetHeader();
+    NiNode* parentNode = hdr->GetBlock<NiNode>(parent);
+    BSMultiBoundNodeBuf* buf = static_cast<BSMultiBoundNodeBuf*>(properties);
+
+    CheckBuf(buf, BUFFER_TYPES::BSMultiBoundNodeBufType, BSMultiBoundNodeBuf);
+
+    MatTransform xf;
+    for (int i = 0; i < 3; i++) xf.translation[i] = buf->translation[i];
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            xf.rotation[i][j] = buf->rotation[i][j];
+
+    auto theNode = std::make_unique<BSMultiBoundNode>();
+    theNode->name.get() = name;
+    theNode->SetTransformToParent(xf);
+    theNode->flags = buf->flags;
+    theNode->cullingMode = static_cast<BSCPCullingType>(buf->cullingMode);
+    theNode->multiBoundRef.index = buf->multiBoundID;
+    uint32_t newNodeId = hdr->AddBlock(std::move(theNode));
+    parentNode->childRefs.AddBlockRef(newNodeId);
+
+    return newNodeId;
+}
+
+
+int getBSMultiBound(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSMultiBoundBuf* buf = static_cast<BSMultiBoundBuf*>(inbuf);
+    nifly::BSMultiBound* b = hdr->GetBlock<BSMultiBound>(id);
+
+    CheckID(b);
+    CheckBuf(buf, BUFFER_TYPES::BSMultiBoundBufType, BSMultiBoundBuf);
+
+    buf->ID = id;
+    buf->dataID = b->dataRef.index;
+    return 0;
+}
+
+int addBSMultiBound(void* f, const char* name, void* properties, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(f);
+    NiHeader* hdr = &nif->GetHeader();
+    BSMultiBoundBuf* buf = static_cast<BSMultiBoundBuf*>(properties);
+
+    CheckBuf(buf, BUFFER_TYPES::BSMultiBoundBufType, BSMultiBoundBuf);
+
+    // BSMultiBound is referenced (via the node's multiBoundRef), not a child --
+    // parent is ignored; the referrer links it by the returned id.
+    auto b = std::make_unique<BSMultiBound>();
+    b->dataRef.index = buf->dataID;
+    return hdr->AddBlock(std::move(b));
+}
+
+
+int getBSMultiBoundOBB(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSMultiBoundOBBBuf* buf = static_cast<BSMultiBoundOBBBuf*>(inbuf);
+    nifly::BSMultiBoundOBB* b = hdr->GetBlock<BSMultiBoundOBB>(id);
+
+    CheckID(b);
+    CheckBuf(buf, BUFFER_TYPES::BSMultiBoundOBBBufType, BSMultiBoundOBBBuf);
+
+    buf->ID = id;
+    for (int i = 0; i < 3; i++) {
+        buf->center[i] = b->center[i];
+        buf->size[i] = b->size[i];
+    }
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            buf->rotation[r][c] = b->rotation[r][c];
+    return 0;
+}
+
+int addBSMultiBoundOBB(void* f, const char* name, void* properties, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(f);
+    NiHeader* hdr = &nif->GetHeader();
+    BSMultiBoundOBBBuf* buf = static_cast<BSMultiBoundOBBBuf*>(properties);
+
+    CheckBuf(buf, BUFFER_TYPES::BSMultiBoundOBBBufType, BSMultiBoundOBBBuf);
+
+    // Referenced (via BSMultiBound's dataRef), not a child -- parent ignored.
+    auto b = std::make_unique<BSMultiBoundOBB>();
+    for (int i = 0; i < 3; i++) {
+        b->center[i] = buf->center[i];
+        b->size[i] = buf->size[i];
+    }
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            b->rotation[r][c] = buf->rotation[r][c];
+    return hdr->AddBlock(std::move(b));
+}
+
+
 int assignControllerSequence(void* f, uint32_t id, void* b) {
     NifFile* nif = static_cast<NifFile*>(f);
     NiHeader* hdr = &nif->GetHeader();
@@ -6517,6 +6629,9 @@ BlockGetterFunction getterFunctions[] = {
     getCollCompressedMeshShapeProps, //bhkCompressedMeshShapeBufType
     getBSDecalPlacementVectorExtraData, //BSDecalPlacementVectorExtraDataBufType
     getNiSwitchNode, //NiSwitchNodeBufType
+    getBSMultiBoundNode, //BSMultiBoundNodeBufType
+    getBSMultiBound, //BSMultiBoundBufType
+    getBSMultiBoundOBB, //BSMultiBoundOBBBufType
     nullptr //END
 };
 
@@ -6613,6 +6728,9 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkCompressedMeshShapeBufType (set via setCollCompressedMesh*)
     nullptr, //BSDecalPlacementVectorExtraDataBufType (set via addDecalVector*)
     nullptr, //NiSwitchNodeBufType (created via addNiSwitchNode)
+    nullptr, //BSMultiBoundNodeBufType (created via addBSMultiBoundNode)
+    nullptr, //BSMultiBoundBufType (created via addBSMultiBound)
+    nullptr, //BSMultiBoundOBBBufType (created via addBSMultiBoundOBB)
     nullptr //END
 };
 
@@ -6708,6 +6826,9 @@ BlockCreatorFunction creatorFunctions[] = {
     addCollCompressedMeshShape, //bhkCompressedMeshShapeBufType
     addBSDecalPlacementVectorExtraData, //BSDecalPlacementVectorExtraDataBufType
     addNiSwitchNode, //NiSwitchNodeBufType
+    addBSMultiBoundNode, //BSMultiBoundNodeBufType
+    addBSMultiBound, //BSMultiBoundBufType
+    addBSMultiBoundOBB, //BSMultiBoundOBBBufType
     nullptr //end
 };
 

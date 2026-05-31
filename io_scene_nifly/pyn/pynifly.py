@@ -1495,7 +1495,65 @@ class BSMasterParticleSystem(NiNode):
     pass
 
 class BSMultiBoundNode(NiNode):
-    pass
+    buffer_type = PynBufferTypes.BSMultiBoundNodeBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSMultiBoundNodeBuf(values)
+
+    @property
+    def culling_mode(self):
+        """BSCPCullingType (0=normal, 1=allpass, 2=allfail, 3=ignore, 4=force)."""
+        return self.properties.cullingMode
+
+    @culling_mode.setter
+    def culling_mode(self, value):
+        self.properties.cullingMode = value
+
+    @property
+    def multibound(self):
+        """The BSMultiBound block referenced by this node, or None."""
+        mbid = self.properties.multiBoundID
+        if mbid == NODEID_NONE:
+            return None
+        return self.file.read_node(id=mbid)
+
+
+class BSMultiBound(NiObject):
+    buffer_type = PynBufferTypes.BSMultiBoundBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSMultiBoundBuf(values)
+
+    @property
+    def data(self):
+        """The BSMultiBoundData (e.g. BSMultiBoundOBB) block, or None."""
+        did = self.properties.dataID
+        if did == NODEID_NONE:
+            return None
+        return self.file.read_node(id=did)
+
+
+class BSMultiBoundOBB(NiObject):
+    buffer_type = PynBufferTypes.BSMultiBoundOBBBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BSMultiBoundOBBBuf(values)
+
+    @property
+    def center(self):
+        return self.properties.center
+
+    @property
+    def size(self):
+        return self.properties.size
+
+    @property
+    def rotation(self):
+        return self.properties.rotation
+
 
 class BSOrderedNode(NiNode):
     pass

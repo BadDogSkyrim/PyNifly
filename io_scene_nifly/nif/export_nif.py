@@ -799,6 +799,10 @@ class NifExporter:
                 if obj not in self._cutpoint_disks:
                     self._cutpoint_disks.append(obj)
                 return
+            if obj.get('pynMultiBoundOBB'):
+                # OBB bounding-box cube for a BSMultiBoundNode — exported as part of
+                # the node (BSMultiBound -> BSMultiBoundOBB blocks), not a mesh shape.
+                return
             if not obj.name.startswith("BSBound:") \
                     and obj.get('pynRigidBody') != 'bhkPhysicsSystem' \
                     and not obj.rigid_body:
@@ -1394,6 +1398,8 @@ class NifExporter:
             props = pynifly.NiObject.block_types[nodetype].getbuf(values=obj)
             xf = BD.make_transformbuf(BD.apply_scale_xf(obj.matrix_local, 1))
             props.transform = xf
+            if nodetype == 'BSMultiBoundNode':
+                self._export_multibound(obj, props)
             if "pynNodeFlags" in obj:
                 try:
                     props.flags = NiAVFlags.parse(obj["pynNodeFlags"]).value
@@ -1411,7 +1417,33 @@ class NifExporter:
         if self.settings.export_animations:
             controller.ControllerHandler.export_animated_obj(self, ref)
         return ref
-   
+
+    def _export_multibound(self, obj, node_props):
+        """Build the BSMultiBound -> BSMultiBoundOBB chain from the OBB cube child
+        and point the BSMultiBoundNode's multiBoundRef (node_props.multiBoundID)
+        at it. The cube's local transform encodes the OBB: center = location,
+        rotation = the 3x3, half-extents = scale.
+        """
+        cube = next((c for c in obj.children if c.get('pynMultiBoundOBB')), None)
+        if cube is None:
+            node_props.multiBoundID = pynifly.NODEID_NONE
+            return
+        loc, rot, scale = cube.matrix_local.decompose()
+        rm = rot.to_matrix()
+        obb_buf = pynifly.BSMultiBoundOBBBuf()
+        obb_buf.center = pynifly.VECTOR3(*loc)
+        obb_buf.size = pynifly.VECTOR3(*scale)
+        obb_buf.rotation = pynifly.MATRIX3(pynifly.VECTOR3(*rm[0]),
+                                           pynifly.VECTOR3(*rm[1]),
+                                           pynifly.VECTOR3(*rm[2]))
+        obb_id = pynifly.nifly.addBlock(
+            self.nif._handle, None, pynifly.byref(obb_buf), pynifly.NODEID_NONE)
+        mb_buf = pynifly.BSMultiBoundBuf()
+        mb_buf.dataID = obb_id
+        mb_id = pynifly.nifly.addBlock(
+            self.nif._handle, None, pynifly.byref(mb_buf), pynifly.NODEID_NONE)
+        node_props.multiBoundID = mb_id
+
 
     def export_shape_parents(self, obj) -> pynifly.NiNode:
         """Export any parent NiNodes the shape might need 

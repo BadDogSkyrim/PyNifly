@@ -10161,6 +10161,38 @@ def TEST_TREE_EXPORT():
     assert TT.is_gt(len(unskinned), 1, f"Static LOD shapes exported unskinned: {len(unskinned)}")
 
 
+@TT.category('SKYRIMSE', 'TREE')
+def TEST_BSMULTIBOUND_ROUNDTRIP():
+    """BSMultiBoundNode OBB imports as a wire cube and round-trips on export.
+
+    The OBB bounding box becomes a child cube whose local transform encodes
+    center/rotation/half-extents; export rebuilds BSMultiBound -> BSMultiBoundOBB.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_BSMULTIBOUND.nif", output=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    cube = next((o for o in bpy.data.objects if o.get('pynMultiBoundOBB')), None)
+    assert cube is not None, "OBB cube created on import"
+    assert cube.parent.get('pynBlockName') == 'BSMultiBoundNode', "cube parented to MBN"
+    # dimensions = 2 x half-extents (size = 372.5, 433.43, 504.0)
+    assert TT.is_equiv(tuple(cube.dimensions), (745.0, 866.87, 1008.0),
+                        "OBB cube dimensions = 2x half-extents", e=1.0)
+
+    for o in bpy.data.objects:
+        o.select_set(True)
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    bpy.context.view_layer.objects.active = root
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    nifout = pyn.NifFile(outfile)
+    mbn = next(n for n in nifout.nodes.values() if n.blockname == 'BSMultiBoundNode')
+    obb = mbn.multibound.data
+    assert obb.blockname == 'BSMultiBoundOBB', "OBB block recreated"
+    assert TT.is_equiv(tuple(obb.size), (372.5, 433.43, 504.0),
+                        "OBB half-extents round-trip", e=0.5)
+
+
 @TT.category('SKYRIMSE', 'COLLISION')
 def TEST_PRETTY_BONE_COLLISION():
     """Pretty bones + a bone-mounted collision must keep pose == rest.

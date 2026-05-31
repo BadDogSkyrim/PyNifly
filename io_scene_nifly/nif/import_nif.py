@@ -863,6 +863,12 @@ class NifImporter():
             log.exception(f"Error importing extra data {ninode.name}")
 
         try:
+            if ninode.blockname == 'BSMultiBoundNode':
+                self.import_multibound_obb(ninode, obj)
+        except:
+            log.exception(f"Error importing multibound {ninode.name}")
+
+        try:
             if self.root_object != obj and ninode.controller and self.settings.import_animations: 
                 # import animations if this isn't the root node. If it is, they may reference
                 # any of the root's children and so wait until those can be imported.
@@ -939,6 +945,39 @@ class NifImporter():
             new_vg = vg.new(name=self.blender_name(bone_name))
             for v, w in the_shape.bone_weights[bone_name]:
                 new_vg.add((v,), w, 'ADD')
+
+
+    def import_multibound_obb(self, ninode, node_obj):
+        """Represent a BSMultiBoundNode's OBB as a wireframe cube child.
+
+        The cube's local transform encodes the OBB: location = center,
+        rotation = the 3x3, scale = the half-extents (so dimensions = 2x size).
+        Export decomposes it back. Marked so it isn't exported as a mesh shape.
+        """
+        mb = ninode.multibound
+        if mb is None:
+            return
+        obb = mb.data
+        if obb is None or obb.blockname != 'BSMultiBoundOBB':
+            return  # AABB / Sphere variants not represented yet
+
+        center = Vector(obb.center[:])
+        size = Vector(obb.size[:])
+        rot = Matrix([obb.rotation[0][:], obb.rotation[1][:], obb.rotation[2][:]])
+
+        verts = [(-1,-1,-1), (1,-1,-1), (1,1,-1), (-1,1,-1),
+                 (-1,-1, 1), (1,-1, 1), (1,1, 1), (-1,1, 1)]
+        faces = [(0,1,2,3), (4,7,6,5), (0,4,5,1), (1,5,6,2), (2,6,7,3), (3,7,4,0)]
+        mesh = bpy.data.meshes.new(node_obj.name + "_MultiBound")
+        mesh.from_pydata(verts, [], faces)
+        mesh.update()
+        cube = bpy.data.objects.new(node_obj.name + "_MultiBound", mesh)
+        cube['pynBlockName'] = 'BSMultiBoundOBB'
+        cube['pynMultiBoundOBB'] = True
+        cube.display_type = 'WIRE'
+        cube.matrix_local = BD.MatrixLocRotScale(center, rot, size)
+        cube.parent = node_obj
+        BD.link_to_collection(self.collection, cube)
 
 
     def create_cut_offset_disks(self, the_shape, the_object):

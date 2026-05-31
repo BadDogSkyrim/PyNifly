@@ -99,6 +99,9 @@ enum BUFFER_TYPES : uint16_t {
 	bhkCompressedMeshShapeBufType,
 	BSDecalPlacementVectorExtraDataBufType,
 	NiSwitchNodeBufType,
+	BSMultiBoundNodeBufType,
+	BSMultiBoundBufType,
+	BSMultiBoundOBBBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -406,6 +409,41 @@ struct NiSwitchNodeBuf {
 	uint16_t effectCount;
 	uint16_t switchFlags;
 	uint32_t switchActiveIndex;
+};
+
+struct BSMultiBoundNodeBuf {
+	uint16_t bufSize = sizeof(BSMultiBoundNodeBuf);
+	uint16_t bufType = BUFFER_TYPES::BSMultiBoundNodeBufType;
+	uint32_t ID;
+	uint32_t nameID;
+	uint32_t controllerID;
+	uint16_t extraDataCount;
+	uint32_t flags;
+	//MatTransform transform;
+	float translation[3];
+	float rotation[3][3];
+	float scale;
+	uint32_t collisionID;
+	uint16_t childCount;
+	uint16_t effectCount;
+	uint32_t cullingMode;
+	uint32_t multiBoundID;
+};
+
+struct BSMultiBoundBuf {
+	uint16_t bufSize = sizeof(BSMultiBoundBuf);
+	uint16_t bufType = BUFFER_TYPES::BSMultiBoundBufType;
+	uint32_t ID;
+	uint32_t dataID;
+};
+
+struct BSMultiBoundOBBBuf {
+	uint16_t bufSize = sizeof(BSMultiBoundOBBBuf);
+	uint16_t bufType = BUFFER_TYPES::BSMultiBoundOBBBufType;
+	uint32_t ID;
+	float center[3];
+	float size[3];
+	float rotation[3][3];
 };
 
 struct BSInvMarkerBuf {

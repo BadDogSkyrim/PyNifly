@@ -3080,6 +3080,52 @@ def TEST_NISWITCHNODE():
     assert sw.active_index == 2, f"round-tripped active_index: {sw.active_index}"
 
 
+@test_category('SKYRIM', 'TREE')
+def TEST_BSMULTIBOUND():
+    """BSMultiBoundNode -> BSMultiBound -> BSMultiBoundOBB read and round-trip."""
+    # Read path: treeaspen03's multibound chain.
+    testfile = _test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    nif = NifFile(testfile)
+    mbn = nif.read_node(id=2)
+    assert mbn.blockname == "BSMultiBoundNode", "id 2 is a BSMultiBoundNode"
+    assert mbn.culling_mode == 0, f"cullingMode: {mbn.culling_mode}"
+    mb = mbn.multibound
+    assert mb.blockname == "BSMultiBound", f"multibound block: {mb.blockname}"
+    obb = mb.data
+    assert obb.blockname == "BSMultiBoundOBB", f"obb block: {obb.blockname}"
+    assert TT.is_equiv(tuple(obb.size), (372.5, 433.43, 504.0), "OBB size", e=0.1)
+
+    # Write path: build the chain with chosen values, round-trip.
+    outfile = _test_file(r"tests/Out/TEST_BSMULTIBOUND.nif")
+    nifout = NifFile()
+    nifout.initialize('SKYRIMSE', outfile, "NiNode", "Scene Root")
+
+    obb_buf = BSMultiBoundOBBBuf()
+    obb_buf.center = VECTOR3(1.0, 2.0, 3.0)
+    obb_buf.size = VECTOR3(10.0, 20.0, 30.0)
+    obb_buf.rotation = MATRIX3((0, 1, 0), (-1, 0, 0), (0, 0, 1))
+    obb_id = nifly.addBlock(nifout._handle, b"", byref(obb_buf), NODEID_NONE)
+
+    mb_buf = BSMultiBoundBuf()
+    mb_buf.dataID = obb_id
+    mb_id = nifly.addBlock(nifout._handle, b"", byref(mb_buf), NODEID_NONE)
+
+    node_buf = BSMultiBoundNodeBuf()
+    node_buf.cullingMode = 2
+    node_buf.multiBoundID = mb_id
+    nifly.addBlock(nifout._handle, b"TestMBN", byref(node_buf), nifout.rootNode.id)
+    nifout.save()
+
+    check = NifFile(outfile)
+    cmbn = check.nodes["TestMBN"]
+    assert cmbn.blockname == "BSMultiBoundNode", f"round-trip block: {cmbn.blockname}"
+    assert cmbn.culling_mode == 2, f"round-trip cullingMode: {cmbn.culling_mode}"
+    cobb = cmbn.multibound.data
+    assert TT.is_equiv(tuple(cobb.center), (1.0, 2.0, 3.0), "round-trip center", e=0.01)
+    assert TT.is_equiv(tuple(cobb.size), (10.0, 20.0, 30.0), "round-trip size", e=0.01)
+    assert TT.is_equiv(tuple(cobb.rotation[0]), (0, 1, 0), "round-trip rotation row0", e=0.01)
+
+
 def TEST_DOCKSTEPSDOWNEND():
     """Test that BSLODTriShape nodes load correctly."""
     def check_dock(nif):

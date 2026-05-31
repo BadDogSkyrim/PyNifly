@@ -147,7 +147,17 @@ Model on **`BSValueNode`** (fixed-field node) and **`BSBoneLODExtraData`** (node
   **warning**.
 - Switches can nest (treeaspen03 has outer LOD0/LOD2 split, inner skinned/LOD1
   split). The invariant holds per-switch.
-- **Phase 4 — `BSMultiBound{Node,OBB}`** (DLL + cube-mesh repr).
+- **Phase 4 — `BSMultiBound{Node,OBB}`** ✅ DONE. 3 buffer types (74/75/76):
+  BSMultiBoundNodeBuf (cullingMode + multiBoundID ref), BSMultiBoundBuf (dataID
+  ref), BSMultiBoundOBBBuf (center/size/rotation). C++ getters + creators (refs
+  linked in the creators, not childRefs — referenced blocks ignore the parent
+  arg). Import: OBB → wireframe cube child (matrix_local = center / 3x3 /
+  half-extents; marked pynMultiBoundOBB, skipped as a shape on export). Export:
+  `_export_multibound` rebuilds OBB+BSMultiBound from the cube and sets the
+  node's multiBoundID. NOTE: build the OBB/BSMultiBound via `nifly.addBlock`
+  directly, NOT `nif.add_block` — the latter wraps the new non-node block in a
+  NiObject whose getNodeByID returns a dangling pointer (C++ exception). Tests:
+  TEST_BSMULTIBOUND (pyn), TEST_BSMULTIBOUND_ROUNDTRIP (Blender). 229 green.
 - **Phase 5 — `BSTreeNode`** (DLL + variable-length bone arrays).
 - **Phase 6 — `TEST_VANILLA_TREEASPEN_ROUNDTRIP`** (one combined test): 5 vgs
   for `:7`, single armature, block-name + all extras survive
