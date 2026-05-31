@@ -1423,6 +1423,26 @@ class NifExporter:
             controller.ControllerHandler.export_animated_obj(self, ref)
         return ref
 
+    def _export_bstreenode_bones(self):
+        """If the root is a BSTreeNode, resolve its Bones1/Bones2 nif-name lists
+        (stashed on import) to the exported bone nodes and write the pointer
+        arrays. Run after the armature bones are written so they exist."""
+        root_obj = self.root_object
+        if root_obj is None or root_obj.get('pynBlockName') != 'BSTreeNode':
+            return
+        treenode = pynifly.BSTreeNode(file=self.nif, id=0)
+        for which, prop in ((1, 'pynBSTreeBones1'), (2, 'pynBSTreeBones2')):
+            if prop not in root_obj:
+                continue
+            ids = []
+            for nm in json.loads(root_obj[prop]):
+                h = pynifly.nifly.findNodeByName(self.nif._handle, nm.encode('utf-8'))
+                if h:
+                    ids.append(pynifly.nifly.getBlockID(self.nif._handle, h))
+                else:
+                    log.warning(f"BSTreeNode bone '{nm}' not in exported nif")
+            treenode.set_bone_ids(which, ids)
+
     def _export_multibound(self, obj, node_props):
         """Build the BSMultiBound -> BSMultiBoundOBB chain from the OBB cube child
         and point the BSMultiBoundNode's multiBoundRef (node_props.multiBoundID)
@@ -1900,6 +1920,7 @@ class NifExporter:
                                   string_value=truncate_filename(self.trippath, "meshes"),
                                   parent=self.nif.root)
 
+        self._export_bstreenode_bones()
         if self.root_object:
             collision.CollisionHandler.export_collisions(self, self.root_object)
         self.export_extra_data()

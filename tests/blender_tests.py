@@ -10193,6 +10193,35 @@ def TEST_BSMULTIBOUND_ROUNDTRIP():
                         "OBB half-extents round-trip", e=0.5)
 
 
+@TT.category('SKYRIMSE', 'TREE')
+def TEST_BSTREENODE_ROUNDTRIP():
+    """BSTreeNode Bones1/Bones2 pointer arrays survive import -> export.
+
+    Bones1 is the armature root, Bones2 the remaining bones. They import as
+    nif-name lists on the root Empty and export re-resolves them to nodes.
+    """
+    import json
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_BSTREENODE.nif", output=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    assert root.get('pynBlockName') == 'BSTreeNode', "Root is a BSTreeNode"
+    assert TT.is_eq(json.loads(root['pynBSTreeBones1']), ['TrunkBone'],
+                     "Bones1 stored on import")
+
+    for o in bpy.data.objects:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = root
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    nifout = pyn.NifFile(outfile)
+    tn = nifout.read_node(id=0)
+    assert tn.blockname == 'BSTreeNode', f"Exported root is BSTreeNode: {tn.blockname}"
+    assert TT.is_eq(tn.bones1, ['TrunkBone'], "Bones1 round-trips")
+    assert TT.is_eq(len(tn.bones2), 4, f"Bones2 round-trips (4 bones): {tn.bones2}")
+
+
 @TT.category('SKYRIMSE', 'COLLISION')
 def TEST_PRETTY_BONE_COLLISION():
     """Pretty bones + a bone-mounted collision must keep pose == rest.

@@ -158,7 +158,17 @@ Model on **`BSValueNode`** (fixed-field node) and **`BSBoneLODExtraData`** (node
   directly, NOT `nif.add_block` — the latter wraps the new non-node block in a
   NiObject whose getNodeByID returns a dangling pointer (C++ exception). Tests:
   TEST_BSMULTIBOUND (pyn), TEST_BSMULTIBOUND_ROUNDTRIP (Blender). 229 green.
-- **Phase 5 — `BSTreeNode`** (DLL + variable-length bone arrays).
+- **Phase 5 — `BSTreeNode`** ✅ DONE. Bones1/Bones2 are variable-length
+  node-pointer arrays, so NO new buffer type — standalone `getBSTreeNodeBones`/
+  `setBSTreeNodeBones(nif, id, which, ...)` Len+Data functions (declared
+  `extern "C" NIFLY_API` in NiflyWrapper.hpp — required or ctypes can't find the
+  symbol). Also added BSTreeNode to `SetNifVersionWrap` so a BSTreeNode root can
+  be created. pyn BSTreeNode.bones1/bones2 (name lists), set_bone_ids(which,ids).
+  Import stashes `pynBSTreeBones1/2` JSON name lists on the root Empty; export
+  `_export_bstreenode_bones` (after bones are written) resolves names via
+  findNodeByName and writes the pointer arrays. treeaspen03: Bones1=['TrunkBone']
+  (armature root), Bones2 = the 4 branch bones — confirms Hugh's hypothesis.
+  Tests: TEST_BSTREENODE (pyn), TEST_BSTREENODE_ROUNDTRIP (Blender).
 - **Phase 6 — `TEST_VANILLA_TREEASPEN_ROUNDTRIP`** (one combined test): 5 vgs
   for `:7`, single armature, block-name + all extras survive
   import→export→re-import.

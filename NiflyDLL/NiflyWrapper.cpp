@@ -293,6 +293,13 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
         rootNode->name.SetIndex(hdr.AddOrFindStringId(name));
         hdr.AddBlock(std::move(rootNode));
     }
+    else if (strcmp(rootType, "BSTreeNode") == 0) {
+        hdr.DeleteBlock(0u);
+        auto rootNode = std::make_unique<BSTreeNode>();
+        rootNode->name.get() = name;
+        rootNode->name.SetIndex(hdr.AddOrFindStringId(name));
+        hdr.AddBlock(std::move(rootNode));
+    }
     else if (strcmp(rootType, "NiControllerSequence") == 0) {
         hdr.DeleteBlock(0u);
         auto rootNode = std::make_unique<NiControllerSequence>();
@@ -801,6 +808,38 @@ int addBSMultiBoundOBB(void* f, const char* name, void* properties, uint32_t par
         for (int c = 0; c < 3; c++)
             b->rotation[r][c] = buf->rotation[r][c];
     return hdr->AddBlock(std::move(b));
+}
+
+
+/* BSTreeNode Bones1/Bones2 are variable-length node-pointer arrays, accessed via
+   a Len+Data getter (which=1 or 2). The node itself reads/writes as a plain
+   NiNode; these handle the two bone arrays. */
+NIFLY_API int getBSTreeNodeBones(void* nifref, uint32_t id, int which,
+                                 uint32_t* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSTreeNode* node = hdr->GetBlock<BSTreeNode>(id);
+    if (!node) return 0;
+    NiBlockRefArray<NiNode>& arr = (which == 1) ? node->bones1 : node->bones2;
+    int n = 0;
+    for (uint32_t i = 0; i < arr.GetSize(); i++) {
+        uint32_t bid = arr.GetBlockRef(i);
+        if (bid == NIF_NPOS) continue;
+        if (buf && n < buflen) buf[n] = bid;
+        n++;
+    }
+    return n;
+}
+
+NIFLY_API void setBSTreeNodeBones(void* nifref, uint32_t id, int which,
+                                  uint32_t* ids, int count) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BSTreeNode* node = hdr->GetBlock<BSTreeNode>(id);
+    if (!node) return;
+    NiBlockRefArray<NiNode>& arr = (which == 1) ? node->bones1 : node->bones2;
+    arr.Clear();
+    for (int i = 0; i < count; i++) arr.AddBlockRef(ids[i]);
 }
 
 

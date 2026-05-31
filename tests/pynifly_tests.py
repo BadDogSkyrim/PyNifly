@@ -3126,6 +3126,38 @@ def TEST_BSMULTIBOUND():
     assert TT.is_equiv(tuple(cobb.rotation[0]), (0, 1, 0), "round-trip rotation row0", e=0.01)
 
 
+@test_category('SKYRIM', 'TREE')
+def TEST_BSTREENODE():
+    """BSTreeNode Bones1/Bones2 pointer arrays read and round-trip."""
+    # Read path: treeaspen03's root BSTreeNode.
+    testfile = _test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    nif = NifFile(testfile)
+    tn = nif.read_node(id=0)
+    assert tn.blockname == "BSTreeNode", f"root is BSTreeNode: {tn.blockname}"
+    assert tn.bones1 == ['TrunkBone'], f"Bones1 (armature root): {tn.bones1}"
+    assert tn.bones2 == ['BranchBoughBone01', 'BranchBone01',
+                         'BranchBoughBone02', 'BranchBone02'], f"Bones2: {tn.bones2}"
+
+    # Write path: BSTreeNode root with child bones, set Bones1/Bones2, round-trip.
+    outfile = _test_file(r"tests/Out/TEST_BSTREENODE.nif")
+    nifout = NifFile()
+    nifout.initialize('SKYRIMSE', outfile, "BSTreeNode", "Root")
+    root = nifout.read_node(id=0)   # dispatched BSTreeNode (rootNode is a plain NiNode)
+    xf = TransformBuf(); xf.set_identity()
+    b1 = nifout.add_node("Trunk", xf, root)
+    b2 = nifout.add_node("BranchA", xf, root)
+    b3 = nifout.add_node("BranchB", xf, root)
+    root.set_bone_ids(1, [b1.id])
+    root.set_bone_ids(2, [b2.id, b3.id])
+    nifout.save()
+
+    check = NifFile(outfile)
+    ctn = check.read_node(id=0)
+    assert ctn.blockname == "BSTreeNode", f"round-trip root: {ctn.blockname}"
+    assert ctn.bones1 == ['Trunk'], f"round-trip Bones1: {ctn.bones1}"
+    assert ctn.bones2 == ['BranchA', 'BranchB'], f"round-trip Bones2: {ctn.bones2}"
+
+
 def TEST_DOCKSTEPSDOWNEND():
     """Test that BSLODTriShape nodes load correctly."""
     def check_dock(nif):

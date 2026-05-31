@@ -1562,7 +1562,34 @@ class BSRangeNode(NiNode):
     pass
 
 class BSTreeNode(NiNode):
-    pass
+    """Root node of a skinned tree. Carries Bones1/Bones2 node-pointer arrays
+    (Bones1 is typically the armature root; Bones2 the remaining bones)."""
+
+    def _get_bone_names(self, which):
+        n = nifly.getBSTreeNodeBones(self.file._handle, self.id, which, None, 0)
+        if n <= 0:
+            return []
+        buf = (c_uint32 * n)()
+        nifly.getBSTreeNodeBones(self.file._handle, self.id, which, buf, n)
+        names = []
+        for bid in buf:
+            node = self.file.read_node(id=bid)
+            if node and node.name:
+                names.append(node.name)
+        return names
+
+    @property
+    def bones1(self):
+        return self._get_bone_names(1)
+
+    @property
+    def bones2(self):
+        return self._get_bone_names(2)
+
+    def set_bone_ids(self, which, node_ids):
+        """Set Bones1 (which=1) or Bones2 (which=2) to the given node ids."""
+        arr = (c_uint32 * len(node_ids))(*node_ids)
+        nifly.setBSTreeNodeBones(self.file._handle, self.id, which, arr, len(node_ids))
 
 
 class BSValueNode(NiNode):

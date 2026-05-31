@@ -882,6 +882,15 @@ class NifImporter():
             log.exception(f"Error importing multibound {ninode.name}")
 
         try:
+            if ninode.blockname == 'BSTreeNode':
+                # Bones1 (armature root) + Bones2 (the rest) node-pointer arrays,
+                # stored as nif-name lists; export re-resolves them to nodes.
+                obj['pynBSTreeBones1'] = json.dumps(ninode.bones1)
+                obj['pynBSTreeBones2'] = json.dumps(ninode.bones2)
+        except:
+            log.exception(f"Error importing BSTreeNode bones {ninode.name}")
+
+        try:
             if self.root_object != obj and ninode.controller and self.settings.import_animations: 
                 # import animations if this isn't the root node. If it is, they may reference
                 # any of the root's children and so wait until those can be imported.
