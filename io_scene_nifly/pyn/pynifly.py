@@ -1531,7 +1531,29 @@ class NiSortAdjustNode(NiNode):
     pass
 
 class NiSwitchNode(NiNode):
-    pass
+    buffer_type = PynBufferTypes.NiSwitchNodeBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return NiSwitchNodeBuf(values)
+
+    @property
+    def switch_flags(self):
+        """NiSwitchFlags: 0=UPDATE_ONLY_ACTIVE_CHILD, 1=UPDATE_CONTROLLERS."""
+        return self.properties.switchFlags
+
+    @switch_flags.setter
+    def switch_flags(self, value):
+        self.properties.switchFlags = value
+
+    @property
+    def active_index(self):
+        """Index of the active child."""
+        return self.properties.switchActiveIndex
+
+    @active_index.setter
+    def active_index(self, value):
+        self.properties.switchActiveIndex = value
 
 class NiKeyFrameData(NiObject):
     pass

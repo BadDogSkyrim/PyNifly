@@ -3048,6 +3048,38 @@ def TEST_TREE_BONE_AGGREGATION():
         assert len(verts) == len(set(verts)), f"{nm} has each vertex once"
 
 
+@test_category('SKYRIM', 'TREE')
+def TEST_NISWITCHNODE():
+    """NiSwitchNode switch flags + active index are read and round-trip."""
+    # Read path: vanilla treeaspen03 has two nested NiSwitchNodes.
+    testfile = _test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    nif = NifFile(testfile)
+    sw_outer = nif.read_node(id=3)
+    assert sw_outer.blockname == "NiSwitchNode", "id 3 is a NiSwitchNode"
+    assert sw_outer.switch_flags == 3, f"outer switch_flags: {sw_outer.switch_flags}"
+    assert sw_outer.active_index == 0, f"outer active_index: {sw_outer.active_index}"
+    sw_inner = nif.read_node(id=5)
+    assert sw_inner.switch_flags == 1, f"inner switch_flags: {sw_inner.switch_flags}"
+    assert sw_inner.active_index == 0, f"inner active_index: {sw_inner.active_index}"
+
+    # Write path: create a NiSwitchNode with chosen values, round-trip.
+    outfile = _test_file(r"tests/Out/TEST_NISWITCHNODE.nif")
+    nifout = NifFile()
+    nifout.initialize('SKYRIMSE', outfile, "NiNode", "Scene Root")
+    buf = NiSwitchNodeBuf()
+    buf.switchFlags = 7
+    buf.switchActiveIndex = 2
+    nifly.addBlock(nifout._handle, "TestSwitch".encode('utf-8'),
+                   byref(buf), nifout.rootNode.id)
+    nifout.save()
+
+    check = NifFile(outfile)
+    sw = check.nodes["TestSwitch"]
+    assert sw.blockname == "NiSwitchNode", f"round-tripped block type: {sw.blockname}"
+    assert sw.switch_flags == 7, f"round-tripped switch_flags: {sw.switch_flags}"
+    assert sw.active_index == 2, f"round-tripped active_index: {sw.active_index}"
+
+
 def TEST_DOCKSTEPSDOWNEND():
     """Test that BSLODTriShape nodes load correctly."""
     def check_dock(nif):

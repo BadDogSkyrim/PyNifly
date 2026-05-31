@@ -93,7 +93,8 @@ class PynBufferTypes(IntEnum):
     bhkPackedNiTriStripsShapeBufType = 70
     bhkCompressedMeshShapeBufType = 71
     BSDecalPlacementVectorExtraDataBufType = 72
-    COUNT = 73
+    NiSwitchNodeBufType = 73
+    COUNT = 74
 
 
 class NiShaderBuf(pynStructure):
@@ -912,6 +913,37 @@ class BSValueNodeBuf(pynStructure):
         self.transform.set_identity()
         super().__init__(values=values)
         self.bufType = PynBufferTypes.BSValueNodeBufType
+        self.nameID = self.controllerID = self.collisionID = NODEID_NONE
+
+    def copy(self, exclude=[]):
+        c = super().copy(exclude=exclude)
+        c.nameID = NODEID_NONE
+        c.controllerID = NODEID_NONE
+        c.collisionID = NODEID_NONE
+        return c
+
+
+class NiSwitchNodeBuf(pynStructure):
+    _fields_ = [
+        ('bufSize', c_uint16),
+        ('bufType', c_uint16),
+        ('id', c_uint32),
+        ("nameID", c_uint32),
+        ("controllerID", c_uint32),
+        ("extraDataCount", c_uint16),
+        ("flags", c_uint32),
+        ("transform", TransformBuf),
+        ("collisionID", c_uint32),
+        ("childCount", c_uint16),
+        ("effectCount", c_uint16),
+        # NiSwitchNode extras:
+        ("switchFlags", c_uint16),    # NiSwitchFlags: 0=UPDATE_ONLY_ACTIVE_CHILD, 1=UPDATE_CONTROLLERS
+        ("switchActiveIndex", c_uint32),
+    ]
+    def __init__(self, values=None):
+        self.transform.set_identity()
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiSwitchNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
 
     def copy(self, exclude=[]):

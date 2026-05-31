@@ -99,9 +99,20 @@ Model on **`BSValueNode`** (fixed-field node) and **`BSBoneLODExtraData`** (node
     `skinned_child`/`unskinned_child` so users never intuit order.
   - Test: `getNodeChildren` on the two switches returns exactly `[4,37]` /
     `[6,31]`; no `-1`; shapes return 0 children without crashing.
-- **Phase 3 — `NiSwitchNode`** (first DLL block; smallest, proves the recipe
-  end-to-end). Determine child order from skinnedness per the invariant below,
-  not from raw child order, for the all-unskinned case.
+- **Phase 3 — `NiSwitchNode`** ✅ switch-flags DONE (DLL recipe proven
+  end-to-end). Added NiSwitchNodeBuf (switchFlags u16 + switchActiveIndex u32) to
+  nifdefs.py + NiflyDefs.hpp (NiSwitchNodeBufType=73); getNiSwitchNode/
+  addNiSwitchNode in NiflyWrapper.cpp wired into getter+creator tables (setter
+  nullptr); NiSwitchNode pyn class exposes switch_flags/active_index. Import/
+  export round-trip is AUTOMATIC via the generic extract→getbuf(values=obj) path
+  (switchFlags stored as a custom prop when non-zero). Tests: TEST_NISWITCHNODE
+  (pyn read+create round-trip), TEST_NISWITCHNODE_IMPORT (Blender props).
+  treeaspen03: outer flags=3, inner flags=1, both active_index=0.
+  **Still TODO for Phase 3:** the child1/child2 pyn API + the skinned-first/
+  unskinned-second child-ordering on export (the invariant below). Not needed
+  for round-tripping the flags; needed when we rebuild the switch hierarchy on
+  export. Full Blender export round-trip deferred to Phase 6 (tree-mesh export
+  currently errors on unweighted verts — separate issue).
 
 ## Import-naming oddities (surfaced by tree import, 2026-05-30)
 

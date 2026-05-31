@@ -10116,6 +10116,24 @@ def TEST_PRETTY_BONE_POSITIONS():
                 f"Bone '{bone_name}' transform preserved:\n{xf_out}\n!=\n{xf_orig}"
 
 
+@TT.category('SKYRIMSE', 'TREE')
+def TEST_NISWITCHNODE_IMPORT():
+    """NiSwitchNode switch flags survive import as custom props on the Empty.
+
+    treeaspen03 has two nested NiSwitchNodes (outer flags=3, inner flags=1).
+    They import as Empties carrying the switch flags, so export can recreate the
+    block (export uses the generic pynBlockName -> getbuf(values=obj) path).
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    switches = [o for o in bpy.data.objects
+                if o.get('pynBlockName') == 'NiSwitchNode']
+    assert TT.is_eq(len(switches), 2, "Two NiSwitchNode empties imported")
+    flags = sorted(s['switchFlags'] for s in switches)
+    assert TT.is_eq(flags, [1, 3], "Switch flags preserved on import")
+
+
 @TT.category('SKYRIMSE', 'COLLISION')
 def TEST_PRETTY_BONE_COLLISION():
     """Pretty bones + a bone-mounted collision must keep pose == rest.

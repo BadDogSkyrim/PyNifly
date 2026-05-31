@@ -647,6 +647,51 @@ int addBSValueNode(void* f, const char* name, void* properties, uint32_t parent)
 }
 
 
+int getNiSwitchNode(void* nifref, uint32_t id, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiNodeBuf* nodebuf = static_cast<NiNodeBuf*>(inbuf);
+    NiSwitchNodeBuf* buf = static_cast<NiSwitchNodeBuf*>(inbuf);
+    nifly::NiSwitchNode* node = hdr->GetBlock<NiSwitchNode>(id);
+
+    CheckID(node);
+    CheckBuf(buf, BUFFER_TYPES::NiSwitchNodeBufType, NiSwitchNodeBuf);
+
+    getNode(nifref, node, nodebuf);
+    // NiSwitchNode::flags shadows NiAVObject::flags; getNode read the base flags
+    // via the NiNode* static type, so node->flags here is the switch flags.
+    buf->switchFlags = static_cast<uint16_t>(node->flags);
+    buf->switchActiveIndex = node->index;
+    return 0;
+}
+
+int addNiSwitchNode(void* f, const char* name, void* properties, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(f);
+    NiHeader* hdr = &nif->GetHeader();
+    NiNode* parentNode = hdr->GetBlock<NiNode>(parent);
+    NiSwitchNodeBuf* buf = static_cast<NiSwitchNodeBuf*>(properties);
+
+    CheckBuf(buf, BUFFER_TYPES::NiSwitchNodeBufType, NiSwitchNodeBuf);
+
+    MatTransform xf;
+    for (int i = 0; i < 3; i++) xf.translation[i] = buf->translation[i];
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++)
+            xf.rotation[i][j] = buf->rotation[i][j];
+
+    auto theNode = std::make_unique<NiSwitchNode>();
+    theNode->name.get() = name;
+    theNode->SetTransformToParent(xf);
+    theNode->NiAVObject::flags = buf->flags;                          // base AV flags
+    theNode->flags = static_cast<NiSwitchFlags>(buf->switchFlags);    // switch flags (shadowing)
+    theNode->index = buf->switchActiveIndex;
+    uint32_t newNodeId = hdr->AddBlock(std::move(theNode));
+    parentNode->childRefs.AddBlockRef(newNodeId);
+
+    return newNodeId;
+}
+
+
 int assignControllerSequence(void* f, uint32_t id, void* b) {
     NifFile* nif = static_cast<NifFile*>(f);
     NiHeader* hdr = &nif->GetHeader();
@@ -6471,6 +6516,7 @@ BlockGetterFunction getterFunctions[] = {
     getCollPackedStripsShapeProps, //bhkPackedNiTriStripsShapeBufType
     getCollCompressedMeshShapeProps, //bhkCompressedMeshShapeBufType
     getBSDecalPlacementVectorExtraData, //BSDecalPlacementVectorExtraDataBufType
+    getNiSwitchNode, //NiSwitchNodeBufType
     nullptr //END
 };
 
@@ -6566,6 +6612,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //bhkPackedNiTriStripsShapeBufType (set via setCollPackedStrips*)
     nullptr, //bhkCompressedMeshShapeBufType (set via setCollCompressedMesh*)
     nullptr, //BSDecalPlacementVectorExtraDataBufType (set via addDecalVector*)
+    nullptr, //NiSwitchNodeBufType (created via addNiSwitchNode)
     nullptr //END
 };
 
@@ -6660,6 +6707,7 @@ BlockCreatorFunction creatorFunctions[] = {
     addCollPackedStripsShape, //bhkPackedNiTriStripsShapeBufType
     addCollCompressedMeshShape, //bhkCompressedMeshShapeBufType
     addBSDecalPlacementVectorExtraData, //BSDecalPlacementVectorExtraDataBufType
+    addNiSwitchNode, //NiSwitchNodeBufType
     nullptr //end
 };
 

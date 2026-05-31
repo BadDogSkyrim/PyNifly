@@ -98,6 +98,7 @@ enum BUFFER_TYPES : uint16_t {
 	bhkPackedNiTriStripsShapeBufType,
 	bhkCompressedMeshShapeBufType,
 	BSDecalPlacementVectorExtraDataBufType,
+	NiSwitchNodeBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -386,6 +387,25 @@ struct BSValueNodeBuf {
 	uint16_t effectCount;
 	int32_t value;
 	uint8_t valueNodeFlags;
+};
+
+struct NiSwitchNodeBuf {
+	uint16_t bufSize = sizeof(NiSwitchNodeBuf);
+	uint16_t bufType = BUFFER_TYPES::NiSwitchNodeBufType;
+	uint32_t ID;
+	uint32_t nameID;
+	uint32_t controllerID;
+	uint16_t extraDataCount;
+	uint32_t flags;
+	//MatTransform transform;
+	float translation[3];
+	float rotation[3][3];
+	float scale;
+	uint32_t collisionID;
+	uint16_t childCount;
+	uint16_t effectCount;
+	uint16_t switchFlags;
+	uint32_t switchActiveIndex;
 };
 
 struct BSInvMarkerBuf {
