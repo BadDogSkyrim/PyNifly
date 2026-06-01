@@ -289,7 +289,33 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 	NiVersion& version = nif->GetHeader().GetVersion();
 
 	NiShape* shapeResult = nullptr;
-	if (version.IsSSE()) {
+	if (version.IsSSE() && buf->bufType == BUFFER_TYPES::NiTriShapeBufType) {
+		// SSE files can legitimately contain NiTriShapes -- e.g. the lowest-LOD
+		// billboards of vanilla skinned trees. Build NiTriShape + NiTriShapeData.
+		auto nifTriShape = std::make_unique<NiTriShape>();
+		nifTriShape->name.get() = shapeName;
+
+		auto nifShapeData = std::make_unique<NiTriShapeData>();
+		nifShapeData->Create(version, v, t, uv, norms);
+		nifTriShape->SetGeomData(nifShapeData.get());
+		int dataID = nif->GetHeader().AddBlock(std::move(nifShapeData));
+		nifTriShape->DataRef()->index = dataID;
+		nifTriShape->SetSkinned(false);
+
+		if (buf->shaderPropertyID != NO_SHADER_REF) {
+			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
+			auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
+			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+			nifShader->SetSkinned(false);
+			int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+			nifTriShape->ShaderPropertyRef()->index = shaderID;
+		}
+
+		shapeResult = nifTriShape.get();
+		int shapeID = nif->GetHeader().AddBlock(std::move(nifTriShape));
+		parentNode->childRefs.AddBlockRef(shapeID);
+	}
+	else if (version.IsSSE()) {
 		std::unique_ptr<BSTriShape> triShape;
 		bool isSkinned = false;
 

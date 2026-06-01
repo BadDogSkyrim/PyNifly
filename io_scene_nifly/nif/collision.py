@@ -11,6 +11,7 @@ from ..pyn.nifconstants import (
     bhkCOFlags)
 from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix,
                             find_box_info, append_if_new, MatrixLocRotScale)
+from ..pyn.niflytools import MatNearEqual
 from .. import blender_defs as BD
 from ..util.reprobj import ReprObject
 from ..pyn.pynifly import *
@@ -1052,17 +1053,22 @@ class CollisionHandler():
 
     def export_bhkListShape(self, s, xform):
         """
-        Collisions actually come from the list shape's children. Since collision shapes
-        don't have transforms themselves, there has to be an intermediate
-        bhkConvexTransform shape to position them.
+        Collisions come from the list shape's children. A child that carries its
+        own position in its geometry (e.g. a capsule, whose endpoints encode where
+        it is) goes straight in the list, matching vanilla. Only a child with a
+        non-identity transform relative to the list needs an intermediate
+        bhkConvexTransformShape to position it.
         """
         props = bhkListShapeProps(s)
         cshape = self.nif.add_shape(props)
 
         xf = s.matrix_local @ xform
-        for ch in s.children: 
+        for ch in s.children:
             if ch.name.startswith("bhk"):
-                shapenode, nodetransl, noderot = self.export_bhkConvexTransformShape(ch, xf)
+                if MatNearEqual(ch.matrix_local, Matrix.Identity(4)):
+                    shapenode, _, _ = self.export_collision_shape([ch], xf)
+                else:
+                    shapenode, _, _ = self.export_bhkConvexTransformShape(ch, xf)
                 if shapenode:
                     cshape.add_child(shapenode)
 

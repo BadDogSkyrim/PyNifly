@@ -10287,6 +10287,43 @@ def TEST_VANILLA_TREEASPEN_ROUNDTRIP():
     assert TT.is_eq(tn.bones1, ['TrunkBone'], "BSTreeNode Bones1 preserved")
 
 
+@TT.category('SKYRIMSE', 'TREE', 'COLLISION')
+def TEST_TREE_EXPORT_FIDELITY():
+    """Exported tree matches vanilla block types.
+
+    Two regressions guarded here: (1) the lowest-LOD billboards must stay
+    NiTriShape (SSE export used to force everything to BSTriShape); (2) the trunk
+    capsules go bare in the bhkListShape -- export must NOT wrap each in a
+    bhkConvexTransformShape (those aren't in the Blender scene; they were being
+    fabricated on export).
+    """
+    from ctypes import create_string_buffer
+    from collections import Counter
+    testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_TREE_EXPORT_FIDELITY.nif", output=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    for o in bpy.data.objects:
+        o.select_set(True)
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    bpy.context.view_layer.objects.active = root
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    nif = pyn.NifFile(outfile); h = nif._handle
+    c = Counter(); i = 0
+    while True:
+        b = create_string_buffer(128); pyn.nifly.getBlockname(h, i, b, 128)
+        nm = b.value.decode()
+        if not nm:
+            break
+        c[nm] += 1; i += 1
+        if i > 300:
+            break
+    assert TT.is_eq(c['NiTriShape'], 2, f"LOD billboards stay NiTriShape: {c['NiTriShape']}")
+    assert TT.is_eq(c['bhkConvexTransformShape'], 0,
+                     f"No fabricated bhkConvexTransformShape: {c['bhkConvexTransformShape']}")
+    assert TT.is_eq(c['bhkCapsuleShape'], 3, f"All 3 capsules exported bare: {c['bhkCapsuleShape']}")
+
+
 @TT.category('SKYRIMSE', 'COLLISION')
 def TEST_PRETTY_BONE_COLLISION():
     """Pretty bones + a bone-mounted collision must keep pose == rest.
