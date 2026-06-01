@@ -341,6 +341,7 @@ class NifImporter():
         self._pending_cut_disks = []
         self.context = bpy.context
         self.is_facegen = False
+        self.is_skinned_tree = False
         self.is_new_armature = True # Armature is derived from current nif; set false if adding to existing arma
         self.created_child_cp = None
         self.bones = set()
@@ -1487,6 +1488,14 @@ class NifImporter():
                             arma.pose.bones[blname].scale = Vector((nif_scale,)*3)
                         continue
 
+                    if self.is_skinned_tree and not self.settings.import_pose:
+                        # Tree bone: rest is the skin bind position. Keep pose == rest
+                        # so the tree imports undeformed, even when the bone NiNode is
+                        # out of sync with the bind (treepineforest02's TrunkBone is
+                        # authored at the origin but binds ~601 units away).
+                        arma.pose.bones[blname].matrix_basis = Matrix()
+                        continue
+
                     bone_xf = BD.transform_to_matrix(nif_bone.global_transform)
 
                     if self.is_facegen:
@@ -1864,8 +1873,18 @@ class NifImporter():
             return
 
         self.is_facegen = ("BSFaceGenNiNodeSkinned" in self.nif.nodes)
-        if self.is_facegen: 
+        if self.is_facegen:
             self.settings.import_pose = False
+
+        # A skinned tree (BSTreeNode root and/or a NiSwitchNode) is authored at rest,
+        # not posed: its bone NiNodes describe the standing tree. Some vanilla trees
+        # (treepineforest02) leave a bone NiNode out of sync with its skin bind, which
+        # would otherwise drag the pose off rest and deform the mesh. Flag the nif so
+        # set_bone_poses keeps pose == rest for these bones.
+        self.is_skinned_tree = (
+            self.nif.rootNode.blockname == 'BSTreeNode'
+            or any(n.blockname == 'NiSwitchNode' for n in self.nif.nodes.values()))
+
         # Import the root node
         self.import_ninode(None, self.nif.rootNode)
 

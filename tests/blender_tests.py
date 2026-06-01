@@ -10388,6 +10388,37 @@ def TEST_PRETTY_BONE_COLLISION():
 
 
 @TT.category('SKYRIMSE')
+def TEST_TREE_DIVERGENT_BIND_POSE():
+    """A skinned tree whose bone NiNode and skin bind position disagree must still
+    import with pose == rest (import_pose=False).
+
+    treepineforest02 authors TrunkBone's NiNode at the origin while the skin binds
+    it ~601 units away. With import_pose=False the bone rest is the bind position,
+    so the pose must stay at rest -- it must NOT be dragged to the divergent NiNode
+    (which produced a 601-unit pose/rest gap on TrunkBone and a spurious second
+    armature). Pose == rest for every bone in every armature.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\treepineforest02.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, rotate_bones_pretty=True)
+    bpy.context.view_layer.update()
+    armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    assert armatures, "Imported a skinned tree with an armature"
+
+    mismatches = []
+    for arma in armatures:
+        for pb in arma.pose.bones:
+            rest = arma.data.bones[pb.name].matrix_local
+            diff = max(abs(rest[i][j] - pb.matrix[i][j])
+                       for i in range(4) for j in range(4))
+            if diff > 0.01:
+                mismatches.append(f"{arma.name}/{pb.name}: maxdiff={diff:.3f}")
+    assert not mismatches, \
+        "Tree bone pose must equal rest even when NiNode and bind disagree:\n" \
+        + "\n".join(mismatches)
+
+
+@TT.category('SKYRIMSE')
 def TEST_COLLISION_TAIL():
     """Tail collision mesh cap faces should round-trip without gaps."""
     testfile = TTB.test_file(r"tests\SkyrimSE\Tail Collision.nif")
