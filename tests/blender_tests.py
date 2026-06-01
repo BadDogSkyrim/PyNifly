@@ -10333,16 +10333,20 @@ def TEST_PRETTY_BONE_COLLISION():
     is placed at the bone's real (un-pretty) world position so it follows the mesh;
     the constraint that would drive the bone to it is left disabled under pretty
     bones, so the cosmetically-rotated bone keeps its rest pose (no mesh deform).
-    Two things must hold: (1) every bone's pose == rest; (2) the collision capsule
-    lands at the same world position with pretty on as with pretty off (it must NOT
-    swing with the cosmetic bone rotation -- that put off-axis branch capsules 90
-    deg off their branch).
+    Two things must hold: (1) every bone's pose == rest; (2) all three trunk
+    capsules land at the same world geometry with pretty on as with pretty off
+    (full vertex sets, so a swing would be caught) -- they must NOT follow the
+    cosmetic bone rotation, which put off-axis branch capsules 90 deg off branch.
     """
     testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
 
-    def capsule_v0_world():
-        cap = next(o for o in bpy.data.objects if o.name.startswith('bhkCapsule'))
-        return (cap.matrix_world @ cap.data.vertices[0].co).copy()
+    def capsules_world():
+        """All bhkCapsuleShape objects' full vertex sets in world space, sorted by
+        name so pretty and non-pretty imports line up."""
+        caps = sorted((o for o in bpy.data.objects
+                       if o.name.startswith('bhkCapsule')), key=lambda o: o.name)
+        return [[(o.matrix_world @ v.co).copy() for v in o.data.vertices]
+                for o in caps]
 
     # Pretty: pose must equal rest, and a bone collision constraint must exist.
     bpy.ops.import_scene.pynifly(filepath=testfile, rotate_bones_pretty=True)
@@ -10364,15 +10368,23 @@ def TEST_PRETTY_BONE_COLLISION():
     assert not mismatches, \
         "Pretty bone pose must equal rest even with a bone collision:\n" + "\n".join(mismatches)
 
-    pretty_cap = capsule_v0_world()
+    pretty_caps = capsules_world()
+    assert TT.is_eq(len(pretty_caps), 3, f"All 3 trunk capsules imported: {len(pretty_caps)}")
 
-    # Non-pretty: the collision must be at the same world position (pretty-invariant).
+    # Non-pretty: every capsule must land at the same world geometry (not just
+    # position -- full vertex sets, so a 90 deg swing would be caught too).
     TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=testfile, rotate_bones_pretty=False)
     bpy.context.view_layer.update()
-    plain_cap = capsule_v0_world()
-    assert NT.VNearEqual(pretty_cap, plain_cap, 0.01), \
-        f"Bone collision must not swing with pretty rotation: pretty={pretty_cap[:]} plain={plain_cap[:]}"
+    plain_caps = capsules_world()
+    assert TT.is_eq(len(plain_caps), 3, f"All 3 capsules (non-pretty): {len(plain_caps)}")
+
+    for ci, (pc, plc) in enumerate(zip(pretty_caps, plain_caps)):
+        assert TT.is_eq(len(pc), len(plc), f"Capsule {ci} same vertex count")
+        for vi, (pv, plv) in enumerate(zip(pc, plc)):
+            assert NT.VNearEqual(pv, plv, 0.01), \
+                f"Capsule {ci} vert {vi} must be pretty-invariant: " \
+                f"pretty={pv[:]} plain={plv[:]}"
 
 
 @TT.category('SKYRIMSE')
