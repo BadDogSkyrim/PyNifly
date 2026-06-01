@@ -2117,16 +2117,20 @@ class NifImporter():
         for arma in self.target_armatures:
             self.set_all_bone_poses(arma, self.nif)
 
-        # Enable influence on standard bone collision constraints.
-        # Only bhkCollisionObject drives the bone; blend, SP, and other
-        # collision types stay at influence=0.
-        for arma in self.target_armatures:
-            for pb in arma.pose.bones:
-                for c in pb.constraints:
-                    if (c.name == 'bhkCollisionConstraint'
-                            and c.target
-                            and c.target.get('pynCollisionBlockname') == 'bhkCollisionObject'):
-                        c.influence = 1.0
+        # Enable influence on standard bone collision constraints so the collision
+        # drives the bone. Only bhkCollisionObject drives the bone; blend, SP, and
+        # other collision types stay at influence=0.
+        # Skip this when bones are pretty-rotated: the collision sits at the bone's
+        # real (un-pretty) position, so driving the bone to it would pull the
+        # cosmetically-rotated bone off its rest pose and deform the skinned mesh.
+        if not self.settings.rotate_bones_pretty:
+            for arma in self.target_armatures:
+                for pb in arma.pose.bones:
+                    for c in pb.constraints:
+                        if (c.name == 'bhkCollisionConstraint'
+                                and c.target
+                                and c.target.get('pynCollisionBlockname') == 'bhkCollisionObject'):
+                            c.influence = 1.0
 
         # FO4 cut-disk visualization runs last so the armature is bound to the
         # mesh by the time we look it up. The cut data is stored on the mesh

@@ -10326,30 +10326,32 @@ def TEST_TREE_EXPORT_FIDELITY():
 
 @TT.category('SKYRIMSE', 'COLLISION')
 def TEST_PRETTY_BONE_COLLISION():
-    """Pretty bones + a bone-mounted collision must keep pose == rest.
+    """Pretty bones + a bone-mounted collision: pose == rest AND the collision
+    sits at the bone's real (un-pretty) position.
 
-    A bhkCollisionObject on a bone adds a COPY_TRANSFORMS constraint that drives
-    the bone (enabled to influence 1.0 after poses are set). If the collision is
-    placed at the raw node transform while the bone is pretty-rotated, the
-    constraint drags the bone off its rest, so pose != rest. treeaspen03's
-    TrunkBone has a capsule collision and a near-gimbal orientation, which made
-    this visible: importing with pretty bones must keep every bone's pose
-    matching its rest.
+    A bhkCollisionObject on a bone adds a COPY_TRANSFORMS constraint. The collision
+    is placed at the bone's real (un-pretty) world position so it follows the mesh;
+    the constraint that would drive the bone to it is left disabled under pretty
+    bones, so the cosmetically-rotated bone keeps its rest pose (no mesh deform).
+    Two things must hold: (1) every bone's pose == rest; (2) the collision capsule
+    lands at the same world position with pretty on as with pretty off (it must NOT
+    swing with the cosmetic bone rotation -- that put off-axis branch capsules 90
+    deg off their branch).
     """
     testfile = TTB.test_file(r"tests\SkyrimSE\treeaspen03.nif")
+
+    def capsule_v0_world():
+        cap = next(o for o in bpy.data.objects if o.name.startswith('bhkCapsule'))
+        return (cap.matrix_world @ cap.data.vertices[0].co).copy()
+
+    # Pretty: pose must equal rest, and a bone collision constraint must exist.
     bpy.ops.import_scene.pynifly(filepath=testfile, rotate_bones_pretty=True)
     bpy.context.view_layer.update()
-
     armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
     assert armatures, "Imported a skinned tree with an armature"
-
-    # Confirm the scenario is actually present: a bone carries a collision
-    # constraint (otherwise the test wouldn't exercise the bug).
-    has_constraint = any(c.name == 'bhkCollisionConstraint'
-                         for arma in armatures
-                         for pb in arma.pose.bones
-                         for c in pb.constraints)
-    assert has_constraint, "A bone carries a bhkCollisionConstraint (the trigger)"
+    assert any(c.name == 'bhkCollisionConstraint'
+               for arma in armatures for pb in arma.pose.bones
+               for c in pb.constraints), "A bone carries a bhkCollisionConstraint"
 
     mismatches = []
     for arma in armatures:
@@ -10361,6 +10363,16 @@ def TEST_PRETTY_BONE_COLLISION():
                 mismatches.append(f"{arma.name}/{pb.name}: maxdiff={diff:.3f}")
     assert not mismatches, \
         "Pretty bone pose must equal rest even with a bone collision:\n" + "\n".join(mismatches)
+
+    pretty_cap = capsule_v0_world()
+
+    # Non-pretty: the collision must be at the same world position (pretty-invariant).
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=testfile, rotate_bones_pretty=False)
+    bpy.context.view_layer.update()
+    plain_cap = capsule_v0_world()
+    assert NT.VNearEqual(pretty_cap, plain_cap, 0.01), \
+        f"Bone collision must not swing with pretty rotation: pretty={pretty_cap[:]} plain={plain_cap[:]}"
 
 
 @TT.category('SKYRIMSE')

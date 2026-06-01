@@ -840,15 +840,14 @@ class CollisionHandler():
             return None
 
         if bone:
-            # Place the collision in the bone's frame INCLUDING the pretty bone
-            # rotation, so it stays attached to the (cosmetically rotated) bone.
-            # The COPY_TRANSFORMS constraint that lets the collision drive the
-            # bone then resolves to the bone's rest pose instead of dragging it
-            # to the raw node orientation. game_rotations[..][0] is identity when
-            # rotate_bones_pretty is off, so non-pretty imports are unchanged.
-            game = parent_handler.nif.game
-            pretty_rot = BD.game_rotations[BD.game_axes[game]][0]
-            xf = importer.import_xf @ transform_to_matrix(bone.global_transform) @ pretty_rot
+            # Place the collision at the bone's real (un-pretty) world position so
+            # it follows the mesh geometry, not the cosmetic pretty bone rotation.
+            # (A pretty rotation here is invisible on a symmetric trunk capsule but
+            # swings an off-axis branch capsule 90 deg off the branch.) The
+            # collision constraint that would otherwise drag the pretty bone to
+            # this position is left disabled for pretty imports -- see
+            # import_nif.py where bhkCollisionConstraint influence is enabled.
+            xf = importer.import_xf @ transform_to_matrix(bone.global_transform)
         else:
             xf = parentObj.matrix_world
 
