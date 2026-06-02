@@ -36,10 +36,23 @@ def extract_skeleton_from_armature(arma, selected_bones=None):
     from .anim_fo4 import Skeleton, BonePose
     from .import_hkx import (
         PYN_HKX_BONES_PROP,
+        PYN_HKX_GAME_PROP,
         PYN_HKX_LOCK_TRANSLATION_PROP,
         PYN_HKX_FLOAT_SLOTS_PROP,
         PYN_HKX_REFERENCE_FLOATS_PROP,
+        PYN_ROTATE_BONES_PRETTY_PROP,
     )
+
+    # If bones were imported with pretty rotation, each bone's matrix_local has a
+    # constant per-game rotation R baked in.  Strip it so the reference pose is
+    # written in raw NIF space.  matrix_local is armature-space (absolute), so
+    # G_nif = matrix_local @ R⁻¹ for every bone, and parent-relative falls out.
+    pretty = bool(arma.get(PYN_ROTATE_BONES_PRETTY_PROP, False))
+    if pretty:
+        game = arma.get(PYN_HKX_GAME_PROP, 'SKYRIM')
+        R_inv = bdefs.game_rotations_pretty[bdefs.game_axes[game]][1]
+    else:
+        R_inv = Matrix.Identity(4)
 
     if selected_bones is None:
         if hasattr(arma.pose.bones[0], 'select'):
@@ -97,13 +110,14 @@ def extract_skeleton_from_armature(arma, selected_bones=None):
             lock = _default_lock_translation(b.name)
         skel.lock_translation.append(lock)
 
-        # Reference pose: parent-relative TRS in armature space.
-        mx = b.matrix_local.copy()
+        # Reference pose: parent-relative TRS in raw NIF space (R⁻¹ strips any
+        # pretty-bone rotation; it's identity when pretty is off).
+        mx = b.matrix_local @ R_inv
         p = find_export_parent(b)
         if p is None and b.parent is not None:
             p = b.parent
         if p is not None:
-            mx = p.matrix_local.inverted() @ mx
+            mx = (p.matrix_local @ R_inv).inverted() @ mx
         loc = mx.translation
         q = mx.to_quaternion()
         sc = mx.to_scale()

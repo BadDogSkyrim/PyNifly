@@ -105,9 +105,10 @@ class PyNiflyPreferences(AddonPreferences):
     ) # type: ignore
 
     rotate_bones_pretty: BoolProperty(
-        name="Bone orientation matches skeleton structure",
-        description=("Bone orientation matches limbs in humanoid skeletons. " +
-                    "Should have no other effect. Disable if you see problems."),
+        name="Orient bones along limb",
+        description=("Align bones along limb (head to tail), for a natural-looking, "
+                    "easy-to-pose skeleton. Display only; no effect on the imported or "
+                    "exported result. Disable if you see problems."),
         options={'HIDDEN'},
         default=False
     ) # type: ignore

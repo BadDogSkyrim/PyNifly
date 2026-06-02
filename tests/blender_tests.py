@@ -7632,6 +7632,142 @@ def TEST_SKEL_HKX_IMPORT():
     BD.ObjectSelect([arma], active=True)
 
 
+def _hkx_skel_globals(skel):
+    """Compute NIF-space global transforms for every bone in a loaded HKX skeleton.
+
+    Mirrors the importer's reference-pose walk; used as ground truth in tests.
+    """
+    globals_ = []
+    for i, p in enumerate(skel.reference_pose):
+        q = Quaternion((p.rotation[3], p.rotation[0], p.rotation[1], p.rotation[2]))
+        loc = Matrix.Translation(Vector(p.translation)) @ q.to_matrix().to_4x4()
+        pidx = skel.parents[i] if i < len(skel.parents) else -1
+        globals_.append(globals_[pidx] @ loc if 0 <= pidx < len(globals_) else loc)
+    return globals_
+
+
+@TT.category('SKYRIM', 'FO4', 'HKX', 'ARMATURE')
+@TT.parameterize(("game",     "blendxf",  "pretty"),
+                 [('SKYRIM',  "NATURAL",  "NIF"),
+                  ('SKYRIM',  "BLENDER",  "NIF"),
+                  ('SKYRIM',  "NATURAL",  "PRETTY"),
+                  ('SKYRIM',  "BLENDER",  "PRETTY"),
+                  ('FO4',     "NATURAL",  "NIF"),
+                  ('FO4',     "BLENDER",  "NIF"),
+                  ('FO4',     "NATURAL",  "PRETTY"),
+                  ('FO4',     "BLENDER",  "PRETTY"),
+                  ])
+def TEST_HKX_SKEL_ORIENT(game, blendxf, pretty):
+    """HKX skeleton import honors blender-orientation and pretty-bone settings (issue #377).
+
+    The blender transform must ride on the armature OBJECT (so the skeleton scales
+    and rotates to match a blender_xf NIF import), while the bones stay in NIF space
+    -- optionally with the per-game pretty rotation baked in.
+    """
+    from io_scene_nifly.hkx import anim_skyrim, anim_fo4
+
+    is_blender = (blendxf == "BLENDER")
+    is_pretty = (pretty == "PRETTY")
+
+    if game == 'SKYRIM':
+        testfile = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+        skel = anim_skyrim.load_skyrim_skeleton(testfile)
+        axis = 'Z'
+        root_name, head_name = "NPC Root [Root]", "NPC Head [Head]"
+    else:
+        testfile = TTB.test_file(r"tests\FO4\skeleton_vanilla.hkx")
+        skel = anim_fo4.load_fo4_skeleton(testfile)
+        axis = 'X'
+        root_name, head_name = "Root", "Head"
+
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile,
+                                     blender_xf=is_blender,
+                                     rotate_bones_pretty=is_pretty,
+                                     rename_bones=False)
+
+    arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
+
+    # 1. The blender transform lives on the armature object, not the bones.
+    expected_obj = BD.blender_import_xf if is_blender else Matrix.Identity(4)
+    assert TTB.MatNearEqual(arma.matrix_world, expected_obj, epsilon=0.0001), \
+        f"Armature object transform ({blendxf}):\n{arma.matrix_world}\n!=\n{expected_obj}"
+
+    # 2. Bones stay in NIF space (plus pretty rotation), independent of blender_xf.
+    gxf = _hkx_skel_globals(skel)
+    R = BD.game_rotations_pretty[axis][0] if is_pretty else Matrix.Identity(4)
+    for nif_name in (root_name, head_name):
+        idx = skel.bones.index(nif_name)
+        expected_local = gxf[idx] @ R
+        bone = arma.data.bones[nif_name]
+        assert TTB.MatNearEqual(bone.matrix_local, expected_local, epsilon=0.001), \
+            f"Bone '{nif_name}' matrix_local ({blendxf}/{pretty}):" \
+            f"\n{bone.matrix_local}\n!=\n{expected_local}"
+
+    # 3. World position scales/rotates with blender_xf (and is pretty-invariant,
+    #    since the pretty rotation has no translation component).
+    head_idx = skel.bones.index(head_name)
+    head_world = (arma.matrix_world @ arma.data.bones[head_name].matrix_local).translation
+    expected_world = (expected_obj @ gxf[head_idx]).translation
+    assert NT.VNearEqual(head_world, expected_world, 0.001), \
+        f"Head bone world position ({blendxf}/{pretty}): {head_world[:]} != {expected_world[:]}"
+
+
+@TT.category('SKYRIM', 'FO4', 'HKX', 'ARMATURE')
+@TT.parameterize(("game",     "blendxf",  "pretty"),
+                 [('SKYRIM',  "NATURAL",  "NIF"),
+                  ('SKYRIM',  "BLENDER",  "NIF"),
+                  ('SKYRIM',  "NATURAL",  "PRETTY"),
+                  ('SKYRIM',  "BLENDER",  "PRETTY"),
+                  ('FO4',     "NATURAL",  "NIF"),
+                  ('FO4',     "BLENDER",  "NIF"),
+                  ('FO4',     "NATURAL",  "PRETTY"),
+                  ('FO4',     "BLENDER",  "PRETTY"),
+                  ])
+def TEST_HKX_SKEL_ORIENT_ROUNDTRIP(game, blendxf, pretty):
+    """A skeleton imported under any blender_xf/pretty combo exports back to its
+    original raw-NIF reference pose (issue #377 export side)."""
+    from io_scene_nifly.hkx import anim_skyrim, anim_fo4
+
+    is_blender = (blendxf == "BLENDER")
+    is_pretty = (pretty == "PRETTY")
+
+    if game == 'SKYRIM':
+        testfile = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+        load = anim_skyrim.load_skyrim_skeleton
+    else:
+        testfile = TTB.test_file(r"tests\FO4\skeleton_vanilla.hkx")
+        load = anim_fo4.load_fo4_skeleton
+    outfile = TTB.test_file(rf"tests\Out\TEST_HKX_SKEL_ORIENT_RT_{game}_{blendxf}_{pretty}.hkx")
+
+    bpy.ops.import_scene.pynifly_hkx(filepath=testfile, rename_bones=False,
+                                     blender_xf=is_blender, rotate_bones_pretty=is_pretty)
+    arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.object.mode_set(mode='POSE')
+    for b in arma.pose.bones:
+        (b if hasattr(b, 'select') else b.bone).select = True
+    bpy.ops.export_scene.skeleton_hkx(filepath=outfile)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    src = load(testfile)
+    out = load(outfile)
+    src_pose = {n: src.reference_pose[i] for i, n in enumerate(src.bones)}
+    out_pose = {n: out.reference_pose[i] for i, n in enumerate(out.bones)}
+
+    for name, sp in src_pose.items():
+        op = out_pose[name]
+        assert NT.VNearEqual(sp.translation, op.translation, 0.01), \
+            f"{game} {blendxf}/{pretty}: bone '{name}' translation {sp.translation} != {op.translation}"
+        # Quaternions are sign-ambiguous.
+        dot = sum(a * b for a, b in zip(sp.rotation, op.rotation))
+        sign = 1 if dot >= 0 else -1
+        for j in range(4):
+            assert abs(sp.rotation[j] - sign * op.rotation[j]) < 0.01, \
+                f"{game} {blendxf}/{pretty}: bone '{name}' rotation[{j}] " \
+                f"{sp.rotation[j]:.5f} != {op.rotation[j]:.5f}"
+
+
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_SKEL_XML():
     """Can export selected bones as a skeleton XML file."""
@@ -9729,6 +9865,118 @@ def TEST_SKYRIM_ANIM_IMPORT():
     # Verify annotation markers were imported
     markers = bpy.context.scene.timeline_markers
     assert TT.is_ge(len(markers), 3, "At least 3 annotation markers")
+
+
+@TT.category('SKYRIM', 'FO4', 'HKX', 'ARMATURE')
+@TT.parameterize("game", ['SKYRIM', 'FO4'])
+def TEST_HKX_ANIM_ORIENT(game):
+    """HKX animation import is correct under every blender_xf / pretty combination (issue #377).
+
+    The pretty rotation only changes how a bone is *represented*, so the posed
+    bones must land in the same world positions whether pretty is on or off; the
+    blender transform must scale/rotate those world positions to match a
+    blender_xf NIF import.  We import the same skeleton+animation under all four
+    combinations and compare the resulting world-space pose.
+    """
+    if game == 'SKYRIM':
+        hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+        hkx_anim = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
+    else:
+        hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+        hkx_anim = TTB.test_file(r"tests\FO4\Animations\Death1.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    def import_and_sample(is_blender, is_pretty):
+        TTB.clear_all()
+        bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False,
+                                         blender_xf=is_blender,
+                                         rotate_bones_pretty=is_pretty)
+        arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+        BD.ObjectSelect([arma], active=True)
+        bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False,
+                                         blender_xf=is_blender,
+                                         rotate_bones_pretty=is_pretty)
+        act = arma.animation_data.action
+        frame = max(2, int(act.frame_end) // 2)
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        return {pb.name: (arma.matrix_world @ pb.matrix).translation.copy()
+                for pb in arma.pose.bones}
+
+    nat_nif    = import_and_sample(False, False)
+    nat_pretty = import_and_sample(False, True)
+    bl_nif     = import_and_sample(True,  False)
+    bl_pretty  = import_and_sample(True,  True)
+
+    assert len(nat_nif) > 20, f"Sampled a real skeleton ({len(nat_nif)} bones)"
+
+    # Pretty must be representation-only: same world pose with it on or off.
+    for name in nat_nif:
+        assert NT.VNearEqual(nat_nif[name], nat_pretty[name], 0.01), \
+            f"{game} bone '{name}' moved when pretty toggled (natural): " \
+            f"{nat_nif[name][:]} != {nat_pretty[name][:]}"
+        assert NT.VNearEqual(bl_nif[name], bl_pretty[name], 0.01), \
+            f"{game} bone '{name}' moved when pretty toggled (blender): " \
+            f"{bl_nif[name][:]} != {bl_pretty[name][:]}"
+
+    # blender_xf must scale/rotate the world pose exactly like a NIF import.
+    for name in nat_nif:
+        expected = BD.blender_import_xf @ nat_nif[name]
+        assert NT.VNearEqual(bl_nif[name], expected, 0.01), \
+            f"{game} bone '{name}' world pose not transformed by blender_xf: " \
+            f"{bl_nif[name][:]} != {expected[:]}"
+
+
+@TT.category('SKYRIM', 'FO4', 'HKX', 'ARMATURE')
+@TT.parameterize("game", ['SKYRIM', 'FO4'])
+def TEST_HKX_ANIM_ORIENT_ROUNDTRIP(game):
+    """Animation export reverses the pretty-bone rotation: a pretty import →
+    export → re-import leaves the world-space pose unchanged (issue #377)."""
+    if game == 'SKYRIM':
+        hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+        hkx_anim = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
+    else:
+        hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+        hkx_anim = TTB.test_file(r"tests\FO4\Animations\Death1.hkx")
+    outfile = TTB.test_file(rf"tests\Out\TEST_HKX_ANIM_ORIENT_RT_{game}.hkx")
+
+    bpy.context.scene.render.fps = 30
+
+    # Import skeleton + animation with pretty bones on.
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False,
+                                     rotate_bones_pretty=True)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False,
+                                     rotate_bones_pretty=True)
+
+    frame = max(2, int(arma.animation_data.action.frame_end) // 2)
+
+    def sample():
+        bpy.context.scene.frame_set(frame)
+        bpy.context.view_layer.update()
+        return {pb.name: (arma.matrix_world @ pb.matrix).translation.copy()
+                for pb in arma.pose.bones}
+
+    before = sample()
+
+    # Export the animation and re-import onto the same (pretty) armature.
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    for a in list(bpy.data.actions):
+        bpy.data.actions.remove(a)
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=outfile, rename_bones=False,
+                                     rotate_bones_pretty=True)
+
+    after = sample()
+
+    # Tolerance covers inherent HKX rotation quantization, which dominates on
+    # bones far from the root (fingers) and is identical with pretty on or off.
+    # Exact pretty correctness is proven by TEST_HKX_ANIM_ORIENT.
+    for name, b in before.items():
+        assert NT.VNearEqual(b, after[name], 0.06), \
+            f"{game} bone '{name}' world pose changed by anim roundtrip: {b[:]} != {after[name][:]}"
 
 
 @TT.category('SKYRIM', 'HKX')

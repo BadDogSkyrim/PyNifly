@@ -67,6 +67,13 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         description="Use Blender's orientation and scale",
         default=ImportSettings.__dataclass_fields__["blender_xf"].default) # type: ignore
 
+    rotate_bones_pretty: bpy.props.BoolProperty(
+        name="Orient bones along limb",
+        description="Align bones along limb (head to tail), for a natural-looking, "
+                    "easy-to-pose skeleton. Display only; no effect on the imported "
+                    "mesh or animation.",
+        default=ImportSettings.__dataclass_fields__["rotate_bones_pretty"].default) # type: ignore
+
     rename_bones: bpy.props.BoolProperty(
         name="Rename bones",
         description="Rename bones to conform to Blender's left/right conventions.",
@@ -119,6 +126,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         self.rename_bones = pyniflyPrefs.rename_bones
         self.rename_bones_niftools = pyniflyPrefs.rename_bones_niftools
         self.blender_xf = pyniflyPrefs.blender_xf
+        self.rotate_bones_pretty = pyniflyPrefs.rotate_bones_pretty
 
         # Override addon preferences with whatever the selected armature needs.
         obj = bpy.context.object
@@ -127,6 +135,8 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
             self.rename_bones = obj.get('PYN_RENAME_BONES', self.rename_bones)
             self.rename_bones_niftools = obj.get('PYN_RENAME_BONES_NIFTOOLS', self.rename_bones_niftools)
             self.blender_xf = obj.get('PYN_BLENDER_XF', self.blender_xf)
+            self.rotate_bones_pretty = obj.get(
+                PYN_ROTATE_BONES_PRETTY_PROP, self.rotate_bones_pretty)
 
         return super().invoke(context, event)
 
@@ -164,6 +174,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         self.import_flags.rename_bones = self.rename_bones
         self.import_flags.rename_bones_niftools = self.rename_bones_niftools
         self.import_flags.blender_xf = self.blender_xf
+        self.import_flags.rotate_bones_pretty = self.rotate_bones_pretty
 
         try:
             self.log_handler = bdefs.LogHandler.New(bl_info, "IMPORT", "HKX")
@@ -349,10 +360,11 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         """Create a Blender armature from an HKX skeleton."""
         from mathutils import Matrix, Quaternion, Vector
 
-        # HKX animation import computes deltas as rest_q_inv @ q_anim where q_anim
-        # is a raw bone-local quaternion (no game rotation).  The rest transform must
-        # be in the same space, so build bones WITHOUT pretty rotation.
-        bdefs.game_rotations = bdefs.game_rotations_none
+        # Pretty rotation reorients bones for display; it bakes a per-game rotation
+        # into each bone, which animation import compensates for (see
+        # apply_fo4_animation).  With it off, bones are in raw NIF space.
+        bdefs.game_rotations = (bdefs.game_rotations_pretty if self.rotate_bones_pretty
+                                else bdefs.game_rotations_none)
 
         arm_name = bdefs.arma_name(skel.name or self.hkx_filepath.stem)
         arm_data = bpy.data.armatures.new(arm_name)
@@ -366,7 +378,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         # Store import settings on the armature (match NIF importer properties)
         arma[PYN_RENAME_BONES_PROP] = self.rename_bones
         arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.rename_bones_niftools
-        arma[PYN_ROTATE_BONES_PRETTY_PROP] = False
+        arma[PYN_ROTATE_BONES_PRETTY_PROP] = self.rotate_bones_pretty
         arma[PYN_BLENDER_XF_PROP] = self.blender_xf
 
         # Store the HKX bone name list (NIF names) for animation import
@@ -456,6 +468,12 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
             arma[PYN_HKX_FLOAT_SLOTS_PROP] = ";".join(skel.float_slots)
         if skel.reference_floats:
             arma[PYN_HKX_REFERENCE_FLOATS_PROP] = list(skel.reference_floats)
+
+        # Blender orientation/scale rides on the armature OBJECT transform (matching
+        # how the NIF importer puts it on the root object), leaving bones in NIF
+        # space.  Animation deltas are pose-bone-local, so they're unaffected.
+        if self.blender_xf:
+            arma.matrix_basis = bdefs.blender_import_xf
 
         bdefs.highlight_objects([arma], context)
         log.info(f"Imported FO4 HKX skeleton: {arm_name} ({len(skel.bones)} bones)")
@@ -559,10 +577,11 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         """Create a Blender armature from a Skyrim HKX skeleton."""
         from mathutils import Matrix, Quaternion, Vector
 
-        # HKX animation import computes deltas as rest_q_inv @ q_anim where q_anim
-        # is a raw bone-local quaternion (no game rotation).  The rest transform must
-        # be in the same space, so build bones WITHOUT pretty rotation.
-        bdefs.game_rotations = bdefs.game_rotations_none
+        # Pretty rotation reorients bones for display; it bakes a per-game rotation
+        # into each bone, which animation import compensates for (see
+        # apply_fo4_animation).  With it off, bones are in raw NIF space.
+        bdefs.game_rotations = (bdefs.game_rotations_pretty if self.rotate_bones_pretty
+                                else bdefs.game_rotations_none)
 
         arm_name = bdefs.arma_name(skel.name or self.hkx_filepath.stem)
         arm_data = bpy.data.armatures.new(arm_name)
@@ -575,7 +594,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
 
         arma[PYN_RENAME_BONES_PROP] = self.rename_bones
         arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.rename_bones_niftools
-        arma[PYN_ROTATE_BONES_PRETTY_PROP] = False
+        arma[PYN_ROTATE_BONES_PRETTY_PROP] = self.rotate_bones_pretty
         arma[PYN_BLENDER_XF_PROP] = self.blender_xf
         arma[PYN_HKX_BONES_PROP] = ";".join(skel.bones)
         arma[PYN_HKX_GAME_PROP] = 'SKYRIM'
@@ -666,6 +685,12 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                 bone = arm_data.bones.get(bl_name)
                 if bone is not None:
                     bone[PYN_HKX_LOCK_TRANSLATION_PROP] = bool(skel.lock_translation[i])
+
+        # Blender orientation/scale rides on the armature OBJECT transform (matching
+        # how the NIF importer puts it on the root object), leaving bones in NIF
+        # space.  Animation deltas are pose-bone-local, so they're unaffected.
+        if self.blender_xf:
+            arma.matrix_basis = bdefs.blender_import_xf
 
         bdefs.highlight_objects([arma], context)
         log.info(f"Imported Skyrim HKX skeleton: {arm_name} ({len(skel.bones)} bones)")
@@ -791,6 +816,19 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
     if additive:
         log.info("Animation is ADDITIVE (blend_hint=1)")
 
+    # When the skeleton was imported with pretty-bone rotation, each bone has a
+    # constant per-game rotation R baked into its rest, so the HKX bone-local
+    # values (raw NIF space) must be carried into that rotated space before the
+    # rest-relative delta is taken.  For a non-root bone the bone-local transform
+    # conjugates by R (R⁻¹·X·R); the root has no rotated parent so only the right
+    # factor applies (X·R).  With pretty off, R is identity and this is a no-op.
+    pretty = bool(armature.get(PYN_ROTATE_BONES_PRETTY_PROP, False))
+    if pretty:
+        game = armature.get(PYN_HKX_GAME_PROP, 'SKYRIM')
+        R = bdefs.game_rotations_pretty[bdefs.game_axes[game]][0]
+        r = R.to_quaternion()
+        r_inv = r.inverted()
+
     # Clear residual pose transforms only for bones that will be animated,
     # so partial animations (e.g. auxbones) don't reset unrelated bones.
     animated_names = set()
@@ -870,6 +908,8 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
         rest_q, rest_t = _bone_rest_local(bone)
         rest_q_inv = rest_q.inverted()
 
+        is_root = bone.parent is None
+
         # ── Rotation fcurves ──
         if track.rotations:
             rot_curves = [
@@ -880,6 +920,12 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
                 frame = f + 1  # Blender frames are 1-based
                 # HKX quat is [x, y, z, w]; convert to Blender Quaternion (w, x, y, z)
                 q_anim = Quaternion((quat[3], quat[0], quat[1], quat[2]))
+                if pretty:
+                    # Carry the raw value into pretty bone space (see header).
+                    if additive or not is_root:
+                        q_anim = r_inv @ q_anim @ r
+                    else:
+                        q_anim = q_anim @ r
                 if additive:
                     q_delta = q_anim
                 else:
@@ -898,6 +944,10 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
             for f, loc in enumerate(track.translations):
                 frame = f + 1
                 v_anim = Vector(loc)
+                if pretty and (additive or not is_root):
+                    # Root keeps its translation (only the right R factor, no
+                    # rotated parent); other bones rotate into pretty space.
+                    v_anim = r_inv @ v_anim
                 if additive:
                     v_delta = v_anim
                 else:
@@ -967,6 +1017,14 @@ def extract_fo4_animation(armature, fps=None):
     game = armature.get(PYN_HKX_GAME_PROP, 'FO4')
     bone_dict = skyrimDict if game == 'SKYRIM' else fo4Dict
     additive = armature.get(PYN_HKX_ADDITIVE_PROP, False)
+
+    # Reverse the pretty-bone rotation (see apply_fo4_animation) so track values
+    # are written in raw NIF space.  No-op when pretty is off.
+    pretty = bool(armature.get(PYN_ROTATE_BONES_PRETTY_PROP, False))
+    if pretty:
+        R = bdefs.game_rotations_pretty[bdefs.game_axes[game]][0]
+        r = R.to_quaternion()
+        r_inv = r.inverted()
 
     # Resolve bone list — use stored HKX bone names if available
     hkx_bones_str = armature.get(PYN_HKX_BONES_PROP)
@@ -1047,6 +1105,16 @@ def extract_fo4_animation(armature, fps=None):
             rest_q_inv = rest_q.inverted()
             q = rest_q_inv @ q
             v = rest_q_inv @ (v - rest_t)
+
+        if pretty:
+            # Carry the bone-local value out of pretty space back to NIF space
+            # (inverse of apply_fo4_animation).  Absolute root: only the right
+            # factor; everything else (and any delta) conjugates.
+            if additive or eval_pb.parent is not None:
+                q = r @ q @ r_inv
+                v = r @ v
+            else:
+                q = q @ r_inv
 
         return [q.x, q.y, q.z, q.w], [v.x, v.y, v.z], [s.x, s.y, s.z]
 

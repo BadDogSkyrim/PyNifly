@@ -1,5 +1,88 @@
 # PyNifly Next Release Notes
 
+## Bugfix: HKX skeletons and animations honor orientation settings (issue #377)
+
+- **HKX skeleton import now respects "Blender-friendly scene orientation."**
+  Importing `skeleton.hkx` with that option on used to leave the skeleton at full
+  NIF scale and orientation, mismatched against a Blender-oriented NIF import.
+  The skeleton now scales and rotates to match, and any animation loaded onto it
+  follows automatically. Works for Skyrim LE/SE and Fallout 4.
+- **HKX skeleton import now supports "rotate bones pretty."** Bones can be brought
+  in with the display-friendly orientation, just like NIF import. Animation import
+  and export compensate for the pretty rotation, so animations play correctly and
+  round-trip whether pretty bones are on or off.
+
+# PyNifly 27.1.0 Release Notes
+
+## New function: Skyrim skinned trees
+
+- **Vanilla skinned trees now import and export with full fidelity.** Trees such
+  as `treeaspen03` and `treepineforest02` round-trip through Blender, load in the
+  Creation Kit, and animate in-game. The special block types are preserved:
+  - **`NiSwitchNode`** (LOD / billboard switching) with its switch flags and
+    active index. The invariant is enforced on export: a `NiSwitchNode` has
+    exactly two children, and the second child has no skinned descendants.
+  - **`BSMultiBoundNode` / `BSMultiBound` / `BSMultiBoundOBB`** culling bounds,
+    including the oriented bounding box, represented in Blender and round-tripped exactly.
+  - **`BSTreeNode`** with its `Bones1` / `Bones2` bone-group lists.
+- **Bone references are deduplicated and aggregated by ID.** Vanilla trees list
+  the same bone several times across skin partitions; these are now collapsed to
+  a single Blender bone with aggregated weights.
+- **Special tree nodes are named `<name>:<blocktype>` in the outliner** (e.g.
+  `FadeNode Anim:BSMultiBoundNode`) so their special role is visible.
+- **Unskinned shapes under a `NiSwitchNode`** (the LOD billboards) export as
+  static `NiTriShape`, not skinned shapes.
+
+## New function: FO4 dismemberment
+
+- **Dismember cut offsets are handled correctly.** FO4 segmented meshes that
+  define cut offsets (where a limb separates when dismembered) now round-trip:
+  the offsets are preserved on the `FO4_CUT_OFFSETS` mesh property and written
+  back out on export.
+- **Cut points are visualized on import.** When a segment file (`.ssf`) can be found, 
+  cuts are shown as disks perpendicular to the bearer bone, grouped under a `<mesh>_Cutpoints` collection (toggle them all via
+  the eye icon) and bone-parented so the disks follow the pose. The bearer bone
+  for each cut is read from the mesh's `.ssf` segment file — found alongside the
+  NIF, or through the configured game data paths — so this works the same way for
+  human and creature meshes. If no segment file can be found the visualization is
+  skipped with a warning; the cut offsets still round-trip on the mesh property.
+- **The segment file (`.ssf`) is written on export.** When a mesh carries cut
+  points pynifly writes the matching `<nif-basename>.ssf` next to the exported
+  NIF (the vanilla naming), built from the cutpoint disks — or, if you've removed
+  the disks, from the mesh's segments. Move, add, or delete a disk and both the
+  exported cuts and the `.ssf` follow. Note, the cutpoints must either be selected *or* 
+  a collection with the correct name must exist.
+
+## Bugfix: Pretty bones and bone-mounted collisions
+
+- **Pretty bone orientation no longer introduces a difference between pose and rest.** Importing with
+  "rotate bones pretty" on, a bone that carries a collision used to end up posed
+  away from its rest position. Pose now equals rest.
+- **Bone collisions are placed at the bone's real position**, not the cosmetic
+  pretty frame. Branch capsules on a pretty-imported tree used to sit ~90°
+  off the branch; they now follow the mesh regardless of the pretty setting.
+- **Skinned trees whose bone NiNode and skin bind disagree import undeformed.**
+  Some vanilla trees (`treepineforest02`) author a bone's NiNode at the origin
+  while binding it hundreds of units away. The mesh now imports with pose equal
+  to rest instead of being deformed off its authored geometry.
+
+## Other bugfixes
+
+- **`NiTriShape` exports correctly on Skyrim SE.** SSE shapes authored as
+  `NiTriShape` are now written as `NiTriShape` rather than being forced to
+  `BSTriShape`, fixing Creation Kit rejection of some meshes.
+- **No more fabricated `bhkConvexTransformShape`.** Bone collision capsules in a
+  `bhkListShape` are exported bare, as in vanilla, instead of being wrapped in a
+  spurious identity `bhkConvexTransformShape` on export.
+- **TRIP morph import fixed.** The TRIP file is now loaded before being passed to
+  the morph importer, so TRIP morphs import correctly.
+- **New "import cutpoints" option** surfaced (along with "write bodytri") in the
+  add-on preferences.
+
+---
+
+# PyNifly 26.0.0 Release Notes
+
 ## Bugfixes (issue #392)
 
 - **`NifFile.initialize(root_name=...)` now sets the name correctly for

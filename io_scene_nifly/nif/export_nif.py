@@ -2127,8 +2127,9 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         default=ExportSettings.__dataclass_fields__["rename_bones"].default) # type: ignore
 
     rotate_bones_pretty: bpy.props.BoolProperty(
-        name="Pretty bone orientation",
-        description="Orient bones to show structure.",
+        name="Orient bones along limb",
+        description="Set to match how the skeleton was imported: bones aligned along "
+                    "limb (head to tail) for display. No effect on the exported result.",
         default=ExportSettings.__dataclass_fields__["rotate_bones_pretty"].default) # type: ignore
 
     rename_bones_niftools: bpy.props.BoolProperty(
