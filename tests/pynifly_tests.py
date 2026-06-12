@@ -1568,6 +1568,46 @@ def TEST_SHADER():
 
 
 @test_category('SHADER')
+def TEST_FO4_SKINNED_SHADER_FLAG():
+    """FO4 shader flags survive the BGSM-material property reconstruction.
+
+    Regression (introduced when FO4 materials began driving shader properties):
+    reading .properties on a shape with a BGSM material zeroed Shader_Flags_1 and
+    rebuilt it from only the bits the material represents, dropping NIF-level
+    flags the material can't express -- notably SLSF1_Skinned.
+
+    Unlike the Skyrim Check_malehead flag check, this exercises the FO4 path
+    where the material file actually loads, so it guards the whole
+    material->properties reconstruction, not just the skinned bit.
+    """
+    nif = NifFile(r"tests\FO4\BodyTalk3.nif")
+    shape = nif.shapes[0]
+
+    # The material must actually be found, or the reconstruction path -- the thing
+    # under test -- never runs.
+    TT.assert_eq(bool(shape.shader.materials), True, "BGSM material resolved")
+
+    # SLSF1_Skinned is a NIF-level flag with no material counterpart; it must be
+    # carried over from the shader block untouched.
+    TT.assert_eq(
+        shape.shader.properties.shaderflags1_test(ShaderFlags1.SKINNED), True,
+        "SLSF1_Skinned preserved through material load")
+
+    # Pin the whole field: material-owned bits come from the BGSM (skin material
+    # turns FACEGEN_RGB_TINT on and OWN_EMIT off relative to the block), while
+    # non-material bits (SPECULAR, SKINNED, CAST_SHADOWS, ZBUFFER_TEST) survive.
+    f1_expected = (ShaderFlags1.SPECULAR
+                   | ShaderFlags1.SKINNED
+                   | ShaderFlags1.CAST_SHADOWS
+                   | ShaderFlags1.FACEGEN_RGB_TINT
+                   | ShaderFlags1.ZBUFFER_TEST)
+    TT.assert_eq(shape.shader.properties.Shader_Flags_1, f1_expected, "Shader_Flags_1")
+
+    f2_expected = ShaderFlags2.ZBUFFER_WRITE | ShaderFlags2.ASSUME_SHADOWMASK
+    TT.assert_eq(shape.shader.properties.Shader_Flags_2, f2_expected, "Shader_Flags_2")
+
+
+@test_category('SHADER')
 def TEST_SHADER_TYPE_OVERRIDE():
     """Shader_Type is the source of truth for the BSLightingShaderType field
     written to the NIF, even if the buffer's bslspShaderType field disagrees.

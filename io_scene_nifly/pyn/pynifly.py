@@ -3800,9 +3800,11 @@ class NiShaderFO4(NiShader):
         p.subsurfaceRolloff = self._materials.subsurfaceRolloff
         p.fresnelPower = self._materials.fresnelPower
 
-        # Shader flags 1
-        p.Shader_Flags_1 = 0
-        p.Shader_Flags_2 = 0
+        # Shader flags 1/2. The material is authoritative only for the bits it
+        # actually represents (set/cleared individually below). Don't zero the
+        # whole field first: NIF-level flags that no material property maps to --
+        # notably SLSF1_Skinned -- live in the shader block and must survive the
+        # material load. Starting from the block value preserves them.
         if self._materials.decal:
             p.shaderflags1_set(ShaderFlags1.DECAL)
         else:
@@ -3963,80 +3965,6 @@ class NiShaderFO4(NiShader):
         else:
             return super().textures
         
-    @property
-    def shaderflags1(self):
-        if self._materials:
-            v = 0
-            v &= ~ShaderFlags1FO4.DECAL | (
-                ShaderFlags1FO4.DECAL if self._materials.decal else 0)
-            v &= ~ShaderFlags1FO4.ENVIRONMENT_MAPPING | (
-                ShaderFlags1FO4.ENVIRONMENT_MAPPING if self._materials.environmentMapping else 0)
-            v &= ~ShaderFlags1FO4.ZBUFFER_TEST | (
-                ShaderFlags1FO4.ZBUFFER_TEST if self._materials.zbuffertest else 0)
-            if self._materials.signature == b'BGSM':
-                v &= ~ShaderFlags1FO4.CAST_SHADOWS | (
-                    ShaderFlags1FO4.CAST_SHADOWS if self._materials.castShadows else 0)
-                v &= ~ShaderFlags1FO4.EXTERNAL_EMITTANCE | (
-                    ShaderFlags1FO4.EXTERNAL_EMITTANCE if self._materials.externalEmittance else 0)
-                v &= ~ShaderFlags1FO4.EYE_ENVIRONMENT_MAPPING | (
-                    ShaderFlags1FO4.EYE_ENVIRONMENT_MAPPING if self._materials.environmentMappingEye else 0)
-                v &= ~ShaderFlags1FO4.HAIR | (
-                    ShaderFlags1FO4.HAIR if self._materials.hair else 0)
-                v &= ~ShaderFlags1FO4.OWN_EMIT | (
-                    ShaderFlags1FO4.OWN_EMIT if self._materials.emitEnabled else 0)
-                v &= ~ShaderFlags1FO4.MODEL_SPACE_NORMALS | (
-                    ShaderFlags1FO4.MODEL_SPACE_NORMALS if self._materials.modelSpaceNormals else 0)
-                v &= ~ShaderFlags1FO4.RGB_FALLOFF | (
-                    ShaderFlags1FO4.RGB_FALLOFF if self._materials.receiveShadows else 0)
-                v &= ~ShaderFlags1FO4.SPECULAR | (
-                    ShaderFlags1FO4.SPECULAR if self._materials.specularEnabled else 0)
-            if self._materials.signature == b'BGEM':
-                v &= ~ShaderFlags1FO4.USE_FALLOFF | (
-                    ShaderFlags1FO4.USE_FALLOFF if self._materials.falloffEnabled else 0)
-            return v
-        else:
-            return self.properties.Shader_Flags_1
-    
-    @property
-    def shaderflags2(self):
-        """
-        Return shader flags. Get flags held in the materials file from there, if any; get
-        the rest from the shader flags in the nif.
-        """
-        if self.materials:
-            v = 0
-            v &= ~ShaderFlags2FO4.DOUBLE_SIDED | (
-                ShaderFlags2FO4.DOUBLE_SIDED if self._materials.twoSided else 0)
-            v &= ~ShaderFlags2FO4.GLOW_MAP | (
-                ShaderFlags2FO4.GLOW_MAP if self._materials.glowmap else 0)
-            v &= ~ShaderFlags2FO4.ZBUFFER_WRITE | (
-                ShaderFlags2FO4.ZBUFFER_WRITE if self._materials.zbufferwrite else 0)
-            if self._materials.signature == b'BGSM':
-                v &= ~ShaderFlags2FO4.ANISOTROPIC_LIGHTING | (
-                    ShaderFlags2FO4.ANISOTROPIC_LIGHTING if self._materials.anisoLighting else 0)
-                v &= ~ShaderFlags2FO4.TRANSFORM_CHANGED | (
-                    ShaderFlags2FO4.TRANSFORM_CHANGED if self._materials.assumeShadowmask else 0)
-                v &= ~ShaderFlags2FO4.VATS_TARGET_DRAW_ALL | (
-                    ShaderFlags2FO4.VATS_TARGET_DRAW_ALL if self._materials.backLighting else 0)
-                v &= ~ShaderFlags2FO4.GRADIENT_REMAP | (
-                    ShaderFlags2FO4.GRADIENT_REMAP if self._materials.rimLighting else 0)
-                v &= ~ShaderFlags2FO4.ALPHA_TEST | (
-                    ShaderFlags2FO4.ALPHA_TEST if self._materials.subsurfaceLighting else 0)
-                v &= ~ShaderFlags2FO4.TREE_ANIM | (
-                    ShaderFlags2FO4.TREE_ANIM if self._materials.tree else 0)
-            if self._materials.signature == b'BGEM':
-                v &= ~ShaderFlags2FO4.EFFECT_LIGHTING | (
-                    ShaderFlags2FO4.EFFECT_LIGHTING if self._materials.effectLightingEnabled else 0)
-            return v
-        else:
-            return self.properties.Shader_Flags_2
-        
-    def flags1_test(self, flag):
-        return (self.shaderflags1 & flag) != 0
-    
-    def flags2_test(self, flag):
-        return (self.shaderflags2 & flag) != 0
-
 
 # --- NifShape --- #
 class NiShape(NiNode):
