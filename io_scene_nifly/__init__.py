@@ -168,11 +168,32 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "import_cutpoints")
         layout.prop(self, "write_bodytri")
 
+def _configure_logging():
+    """Configure console output for the 'pynifly' logger.
+
+    The library modules deliberately no longer call logging.basicConfig (a library
+    must not hijack the host app's root logging). Configuring a console handler is
+    the application's job, so the add-on does it here. Without this, Python's
+    last-resort handler swallows everything below WARNING and INFO progress
+    messages never reach the command window.
+
+    The handler itself is left at NOTSET so verbosity is driven by the logger
+    level: INFO normally, DEBUG when developing/running tests.
+    """
+    log.setLevel(logging.DEBUG if DEBUGGING else logging.INFO)
+    if not any(isinstance(h, logging.StreamHandler) for h in log.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+        log.addHandler(handler)
+    # We emit through our own handler; don't also propagate to the root logger
+    # (avoids duplicate lines if the host configured root logging).
+    log.propagate = False
+
+
 def register():
     bpy.utils.register_class(PyNiflyPreferences)
 
-    if DEBUGGING:
-        log.setLevel(logging.DEBUG)
+    _configure_logging()
 
     hkx.register()
     kf.register()

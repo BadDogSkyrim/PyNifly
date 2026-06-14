@@ -174,7 +174,7 @@ void TCopyPartitions(void* targetNif, void* targetShape, void* sourceNif, void* 
 		getSegmentFile(sourceNif, sourceShape, fnbuf, 1024);
 
 		setSegments(targetNif, targetShape, segData, segCount, subsegData, ssIndex / 3,
-			partTris, triCount, fnbuf);
+			partTris, triCount, fnbuf, nullptr, 0, nullptr, 0);
 	}
 	else {
 		uint16_t partitionInfo[maxSegs *2];
@@ -1597,7 +1597,8 @@ namespace NiflyDLLTests
 			for (int i = 0; i < tlen; i++) { tripart[i] = 3; }
 			setSegments(newNif, newHelm, segData, 2, subsegData, 1,
 				tripart, tlen,
-				"Meshes\\Armor\\FlightHelmet\\HelmetOut.ssf");
+				"Meshes\\Armor\\FlightHelmet\\HelmetOut.ssf",
+				nullptr, 0, nullptr, 0);
 
 			void* headNode = findNodeByName(nif, "HEAD");
 			MatTransform headXF;
@@ -2737,7 +2738,8 @@ namespace NiflyDLLTests
 				segs, segsLen,
 				subsegs, subsegsLen,
 				trimap, triCount,
-				"phonysegmentfile.ssf");
+				"phonysegmentfile.ssf",
+				nullptr, 0, nullptr, 0);
 			Assert::IsTrue(getMessageLog(nullptr, 0) > 0, L"Expected errors writen to log");
 
 			saveNif(nifOut, (testRoot / "Out/writeBadPartitions.nif").u8string().c_str());
@@ -2934,7 +2936,8 @@ namespace NiflyDLLTests
 				segs, segsLen,
 				nullptr, 0,
 				trimap, triCount,
-				"phonysegmentfile.ssf");
+				"phonysegmentfile.ssf",
+				nullptr, 0, nullptr, 0);
 
 			saveNif(nifOut, (testRoot / "Out/writeEmptySegments.nif").u8string().c_str());
 
@@ -3030,7 +3033,8 @@ namespace NiflyDLLTests
 				segsOut, segsLen,
 				subsegs, subSegsLen,
 				trimapOut, partTriCount,
-				"phonysegmentfile.ssf");
+				"phonysegmentfile.ssf",
+				nullptr, 0, nullptr, 0);
 
 			saveNif(nifOut, (testRoot / "Out/writeMiddleEmptySegment.nif").u8string().c_str());
 
@@ -4649,7 +4653,7 @@ namespace NiflyDLLTests
 			Assert::AreEqual(1126, int(td.buf.lodSize0), L"Have correct lodSize0");
 		}
 		TEST_METHOD(readWriteTree) {
-			std::filesystem::path testfile = testRoot / "FO4" / "TreeMaplePreWar01Orange.nif";
+			std::filesystem::path testfile = testRoot / "FO4" / "Meshes" / "TreeMaplePreWar01Orange.nif";
 			std::filesystem::path outfile = testRoot / "Out" / "testWrapper_readWriteTree.nif";
 			TreeData tree, treeCheck;
 
@@ -5238,6 +5242,32 @@ namespace NiflyDLLTests
 
 			destroy(nif);
 			destroy(nifCheck);
+		};
+
+		TEST_METHOD(readFacegenTextures) {
+			/* CK facegen output has no materials file, so the shape's textures must
+			   be read from the nif's own BSShaderTextureSet. FO4 nifs normally carry
+			   a material (textures come from there), so this block-read path is
+			   otherwise never exercised -- and it currently returns empty. */
+			std::filesystem::path testfile = testRoot / "FO4/Meshes/FoxFemaleHead_nomat.nif";
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif, L"NIF file loaded");
+
+			void* shapes[5];
+			int shapeCount = getShapes(nif, shapes, 5, 0);
+			Assert::AreEqual(1, shapeCount, L"Expected one shape");
+			void* shape = shapes[0];
+
+			char diff[256], norm[256], spec[256];
+			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 0, diff, 256), 0, L"ERROR: getting diffuse texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 1, norm, 256), 0, L"ERROR: getting normal texture");
+			Assert::AreNotEqual(getShaderTextureSlot(nif, shape, 7, spec, 256), 0, L"ERROR: getting specular texture");
+
+			Assert::IsTrue(strcmp(diff, "textures\\FFO\\Lykaios\\Head\\lykaiosfemalehead_d.dds") == 0, L"diffuse path");
+			Assert::IsTrue(strcmp(norm, "textures\\FFO\\Lykaios\\Head\\lykaiosfemalehead_n.dds") == 0, L"normal path");
+			Assert::IsTrue(strcmp(spec, "textures\\FFO\\Lykaios\\Head\\lykaiosfemalehead_s.dds") == 0, L"specular path");
+
+			destroy(nif);
 		};
 
 		TEST_METHOD(readWriteInsFloorMat) {

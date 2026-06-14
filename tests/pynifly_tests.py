@@ -1593,18 +1593,228 @@ def TEST_FO4_SKINNED_SHADER_FLAG():
         shape.shader.properties.shaderflags1_test(ShaderFlags1.SKINNED), True,
         "SLSF1_Skinned preserved through material load")
 
+    # OWN_EMIT (SLSF1, bit 22) and TRANSFORM_CHANGED (SLSF2, bit 7) are NIF-level
+    # flags the BGSM does not represent: vanilla FO4 blocks carry OWN_EMIT while
+    # the material's emitEnabled is False, and nothing in the material maps to
+    # TRANSFORM_CHANGED. Both must survive the material load, not get dropped or
+    # driven off an unrelated material field.
+    TT.assert_eq(shape.shader.flag_own_emit, True, "OWN_EMIT preserved")
+    TT.assert_eq(shape.shader.flag_transform_changed, True, "TRANSFORM_CHANGED preserved")
+
     # Pin the whole field: material-owned bits come from the BGSM (skin material
-    # turns FACEGEN_RGB_TINT on and OWN_EMIT off relative to the block), while
-    # non-material bits (SPECULAR, SKINNED, CAST_SHADOWS, ZBUFFER_TEST) survive.
+    # turns FACEGEN_RGB_TINT on relative to the block), while non-material bits
+    # (SPECULAR, SKINNED, CAST_SHADOWS, OWN_EMIT, ZBUFFER_TEST) survive.
     f1_expected = (ShaderFlags1.SPECULAR
                    | ShaderFlags1.SKINNED
                    | ShaderFlags1.CAST_SHADOWS
+                   | ShaderFlags1.OWN_EMIT
                    | ShaderFlags1.FACEGEN_RGB_TINT
                    | ShaderFlags1.ZBUFFER_TEST)
     TT.assert_eq(shape.shader.properties.Shader_Flags_1, f1_expected, "Shader_Flags_1")
 
     f2_expected = ShaderFlags2.ZBUFFER_WRITE | ShaderFlags2.ASSUME_SHADOWMASK
     TT.assert_eq(shape.shader.properties.Shader_Flags_2, f2_expected, "Shader_Flags_2")
+
+
+@test_category('SHADER')
+@TT.parameterize(("relpath", "has_material"),
+                 [(r"tests\FO4\Meshes\FoxFemaleHead.nif", True),
+                  (r"tests\FO4\Meshes\FoxFemaleHead_nomat.nif", False)])
+def TEST_FO4_SHADER_PROPERTIES(relpath, has_material):
+    """Every FO4 shader property, flag, getter, and convenience routine reads
+    correctly -- and identically whether the values come from the BGSM material or
+    straight from the NIF block.
+
+    FoxFemaleHead.nif references its material; FoxFemaleHead_nomat.nif is the same
+    shape with the reference removed. Material reconstruction must reproduce the
+    block, so the values pinned below hold for both. (The values are a fixed shape
+    in a fixed game; we pin every one explicitly rather than loop.)
+
+    Several flag_* getters named for FO4 flags (HAIR, RGB_FALLOFF, ALPHA_TEST,
+    GRADIENT_REMAP, VATS_TARGET_DRAW_ALL, TRANSFORM_CHANGED) tested those bits
+    against the Skyrim ShaderFlags1/2 enums, which name them differently or not at
+    all, so accessing them raised AttributeError; each must resolve to its FO4 bit.
+    """
+    shader = NifFile(relpath).shapes[0].shader
+    TT.assert_eq(bool(shader.materials), has_material, "material loaded as expected")
+    p = shader.properties
+
+    # --- raw property fields ---
+    TT.assert_eq(p.bBSLightingShaderProperty, b'\x01', "bBSLightingShaderProperty")
+    TT.assert_eq(p.bslspShaderType, 4, "bslspShaderType")
+    TT.assert_eq(p.extraDataCount, 0, "extraDataCount")
+    TT.assert_eq(p.shaderFlags, 1, "shaderFlags")
+    TT.assert_eq(p.Shader_Type, 4, "Shader_Type")
+    TT.assert_eq(p.Shader_Flags_1, 2151679491, "Shader_Flags_1")
+    TT.assert_eq(p.Shader_Flags_2, 129, "Shader_Flags_2")
+    TT.assert_equiv(p.Env_Map_Scale, 1.0, "Env_Map_Scale")
+    TT.assert_eq(p.numSF1, 0, "numSF1")
+    TT.assert_eq(p.numSF2, 0, "numSF2")
+    TT.assert_equiv(p.UV_Offset_U, 0.0, "UV_Offset_U")
+    TT.assert_equiv(p.UV_Offset_V, 0.0, "UV_Offset_V")
+    TT.assert_equiv(p.UV_Scale_U, 1.0, "UV_Scale_U")
+    TT.assert_equiv(p.UV_Scale_V, 1.0, "UV_Scale_V")
+    TT.assert_equiv(p.Emissive_Color, [0.06275, 0.12549, 0.18824, 0.0], "Emissive_Color")
+    TT.assert_equiv(p.Emissive_Mult, 1.0, "Emissive_Mult")
+    TT.assert_eq(p.textureClampMode, 3, "textureClampMode")
+    TT.assert_equiv(p.Alpha, 1.0, "Alpha")
+    TT.assert_equiv(p.Refraction_Str, 0.0, "Refraction_Str")
+    TT.assert_equiv(p.Glossiness, 1.0, "Glossiness")
+    TT.assert_equiv(p.Spec_Color, [0.94117, 0.87843, 0.81568], "Spec_Color")
+    TT.assert_equiv(p.Spec_Str, 1.0, "Spec_Str")
+    TT.assert_equiv(p.Soft_Lighting, 0.3, "Soft_Lighting")
+    # Rim_Light_Power is NOT compared: it maps to nifly's Skyrim-only rimlightPower
+    # field, which FO4 nifs don't store. With a material it's the BGSM's rimPower;
+    # without one it's nifly's default (2.0). So it can't match by source. (The FO4
+    # rim field is rimlightPower2, checked above.)
+    TT.assert_equiv(p.subsurfaceRolloff, 0.3, "subsurfaceRolloff")
+    TT.assert_equiv(p.rimlightPower2, 3.4028234663852886e+38, "rimlightPower2")  # FLT_MAX
+    TT.assert_equiv(p.backlightPower, 0.05, "backlightPower")
+    TT.assert_equiv(p.grayscaleToPaletteScale, 1.0, "grayscaleToPaletteScale")
+    TT.assert_equiv(p.fresnelPower, 5.0, "fresnelPower")
+    TT.assert_equiv(p.wetnessSpecScale, 0.6, "wetnessSpecScale")
+    TT.assert_equiv(p.wetnessSpecPower, 1.4, "wetnessSpecPower")
+    TT.assert_equiv(p.wetnessMinVar, 0.2, "wetnessMinVar")
+    TT.assert_equiv(p.wetnessEnvmapScale, 1.0, "wetnessEnvmapScale")
+    TT.assert_equiv(p.wetnessFresnelPower, 1.6, "wetnessFresnelPower")
+    TT.assert_equiv(p.wetnessMetalness, 0.0, "wetnessMetalness")
+    TT.assert_equiv(p.wetnessUnknown1, 0.0, "wetnessUnknown1")
+    TT.assert_equiv(p.wetnessUnknown2, 0.0, "wetnessUnknown2")
+    TT.assert_equiv(p.lumEmittance, 100.0, "lumEmittance")
+    TT.assert_equiv(p.exposureOffset, 13.5, "exposureOffset")
+    TT.assert_equiv(p.finalExposureMin, 2.0, "finalExposureMin")
+    TT.assert_equiv(p.finalExposureMax, 3.0, "finalExposureMax")
+    TT.assert_eq(p.doTranslucency, b'\x00', "doTranslucency")
+    TT.assert_equiv(p.subsurfaceColor, [0.0, 0.0, 0.0], "subsurfaceColor")
+    TT.assert_equiv(p.transmissiveScale, 1.0, "transmissiveScale")
+    TT.assert_equiv(p.turbulence, 0.0, "turbulence")
+    TT.assert_eq(p.thickObject, b'\x00', "thickObject")
+    TT.assert_eq(p.mixAlbedo, b'\x00', "mixAlbedo")
+    TT.assert_eq(p.hasTextureArrays, b'\x00', "hasTextureArrays")
+    TT.assert_eq(p.numTextureArrays, 0, "numTextureArrays")
+    TT.assert_eq(p.useSSR, b'\x00', "useSSR")
+    TT.assert_eq(p.wetnessUseSSR, b'\x00', "wetnessUseSSR")
+    TT.assert_equiv(p.skinTintColor, [1.0, 1.0, 1.0], "skinTintColor")
+    TT.assert_equiv(p.Skin_Tint_Alpha, 0.0, "Skin_Tint_Alpha")
+    TT.assert_equiv(p.hairTintColor, [1.0, 1.0, 1.0], "hairTintColor")
+    TT.assert_equiv(p.maxPasses, 1.0, "maxPasses")
+    TT.assert_equiv(p.scale, 1.0, "scale")
+    TT.assert_equiv(p.parallaxInnerLayerThickness, 0.0, "parallaxInnerLayerThickness")
+    TT.assert_equiv(p.parallaxRefractionScale, 1.0, "parallaxRefractionScale")
+    TT.assert_equiv(p.parallaxInnerLayerTextureScale, [1.0, 1.0], "parallaxInnerLayerTextureScale")
+    TT.assert_equiv(p.parallaxEnvmapStrength, 1.0, "parallaxEnvmapStrength")
+    TT.assert_equiv(p.sparkleParameters, [0.0, 0.0, 0.0, 0.0], "sparkleParameters")
+    # Eye fields (eyeCubemapScale, eyeLeftReflectionCenter, eyeRightReflectionCenter)
+    # and the BSEffectShaderProperty fields are not valid on this lighting shader --
+    # their values are undefined here -- so they are not checked. A NIF that actually
+    # uses the effect shader could exercise those separately.
+
+    # --- flag getters (every one) ---
+    TT.assert_eq(shader.flag_alpha_test, False, "flag_alpha_test")
+    TT.assert_eq(shader.flag_anisotropic_lighting, False, "flag_anisotropic_lighting")
+    TT.assert_eq(shader.flag_cast_shadows, True, "flag_cast_shadows")
+    TT.assert_eq(shader.flag_decal, False, "flag_decal")
+    TT.assert_eq(shader.flag_double_sided, False, "flag_double_sided")
+    TT.assert_eq(shader.flag_effect_lighting, False, "flag_effect_lighting")
+    TT.assert_eq(shader.flag_environment_mapping, False, "flag_environment_mapping")
+    TT.assert_eq(shader.flag_external_emittance, False, "flag_external_emittance")
+    TT.assert_eq(shader.flag_eye_environment_mapping, False, "flag_eye_environment_mapping")
+    TT.assert_eq(shader.flag_facegen_RBG_tint, False, "flag_facegen_RBG_tint")
+    TT.assert_eq(shader.flag_glow_map, False, "flag_glow_map")
+    TT.assert_eq(shader.flag_gradient_remap, False, "flag_gradient_remap")
+    TT.assert_eq(shader.flag_greyscale_alpha, False, "flag_greyscale_alpha")
+    TT.assert_eq(shader.flag_greyscale_color, False, "flag_greyscale_color")
+    TT.assert_eq(shader.flag_hair, False, "flag_hair")
+    TT.assert_eq(shader.flag_model_space_normals, False, "flag_model_space_normals")
+    TT.assert_eq(shader.flag_no_fade, False, "flag_no_fade")
+    TT.assert_eq(shader.flag_own_emit, True, "flag_own_emit")
+    TT.assert_eq(shader.flag_rgb_falloff, False, "flag_rgb_falloff")
+    TT.assert_eq(shader.flag_rim_lighting, False, "flag_rim_lighting")
+    TT.assert_eq(shader.flag_soft_lighting, False, "flag_soft_lighting")
+    TT.assert_eq(shader.flag_specular, True, "flag_specular")
+    TT.assert_eq(shader.flag_transform_changed, True, "flag_transform_changed")
+    TT.assert_eq(shader.flag_tree_anim, False, "flag_tree_anim")
+    TT.assert_eq(shader.flag_use_falloff, False, "flag_use_falloff")
+    TT.assert_eq(shader.flag_vats_target_draw_all, False, "flag_vats_target_draw_all")
+    TT.assert_eq(shader.flag_vertex_alpha, False, "flag_vertex_alpha")
+    TT.assert_eq(shader.flag_vertex_colors, False, "flag_vertex_colors")
+    TT.assert_eq(shader.flag_zbuffer_test, True, "flag_zbuffer_test")
+    TT.assert_eq(shader.flag_zbuffer_write, True, "flag_zbuffer_write")
+
+    # --- convenience routines ---
+    TT.assert_eq(shader.texture_clamp_mode, 3, "texture_clamp_mode")
+    TT.assert_eq(p.clamp_mode_s, 1, "clamp_mode_s")
+    TT.assert_eq(p.clamp_mode_t, 1, "clamp_mode_t")
+    # textures are intentionally NOT compared here: with a material they come from
+    # the BGSM ("FFO/Lykaios/...") and without one from the block's texture set
+    # ("textures\\FFO\\Lykaios\\..."), so they differ by source/format. The block
+    # path is covered by TEST_FO4_NOMAT_TEXTURES.
+
+
+@test_category('SHADER')
+def TEST_FO4_FLAG_GETTER_SET():
+    """A previously-broken getter reads True where the block sets the bit.
+
+    The with/without-material checks can't tell a correct getter from one wired to
+    a perpetually-unset bit, so pin one True case: RGB_FALLOFF (FO4 SLSF1 bit 8,
+    RECEIVE_SHADOWS in Skyrim) is set on this shape.
+    """
+    chair = NifFile(r"tests\FO4\FederalistChairOffice01.nif")
+    TT.assert_eq(chair.shapes[0].shader.flag_rgb_falloff, True, "RGB_FALLOFF set reads True")
+
+
+@test_category('SHADER')
+def TEST_FO4_NOMAT_TEXTURES():
+    """An FO4 shape with no materials file reads its textures from the nif block.
+
+    FO4 nifs normally carry a BGSM material, so textures come from there
+    (NiShaderFO4.textures -> materials.textures) and the block's BSShaderTextureSet
+    is never consulted. Facegen / no-material output has no material, so textures
+    must come from the block. That fall-through path was untested -- the DLL was
+    returning empty texture slots even though the paths are in the nif.
+    """
+    nif = NifFile(r"tests\FO4\Meshes\FoxFemaleHead_nomat.nif")
+    shader = nif.shapes[0].shader
+    TT.assert_eq(bool(shader.materials), False, "no material referenced")
+    txt = shader.textures
+    TT.assert_eq(txt.get('Diffuse'), 'textures\\FFO\\Lykaios\\Head\\lykaiosfemalehead_d.dds', "Diffuse")
+    TT.assert_eq(txt.get('Normal'), 'textures\\FFO\\Lykaios\\Head\\lykaiosfemalehead_n.dds', "Normal")
+    TT.assert_eq(txt.get('Specular'), 'textures\\FFO\\Lykaios\\Head\\lykaiosfemalehead_s.dds', "Specular")
+
+
+@test_category('SHADER')
+def TEST_FO4_MATERIAL_FLOAT_PROPS():
+    """FO4 float shader props are reconstructed from the BGSM correctly.
+
+    grayscaleToPaletteScale is material-owned and feeds the grayscale-to-palette
+    node on import; it was never copied from the material, so the block default
+    (1.0) leaked through instead of the material's real value.
+
+    The wetnessControl_* values use -1.0 in the BGSM as an "unspecified" sentinel
+    while the NIF block holds the real effective values. They must NOT be
+    clobbered with the sentinel during the material load.
+    """
+    nif = NifFile(r"tests\FO4\BodyTalk3.nif")
+    shader = nif.shapes[0].shader
+    TT.assert_eq(bool(shader.materials), True, "BGSM material resolved")
+
+    # Material's grayscaleToPaletteScale (0.502) must win over the block default.
+    TT.assert_equiv(shader.properties.grayscaleToPaletteScale, 0.502,
+                    "grayscaleToPaletteScale from material")
+
+    # The material leaves wetness unset (-1.0); the block's real values survive.
+    wetness_expected = {
+        'wetnessSpecScale': 0.6,
+        'wetnessSpecPower': 1.4,
+        'wetnessMinVar': 0.2,
+        'wetnessEnvmapScale': 1.0,
+        'wetnessFresnelPower': 1.6,
+        'wetnessMetalness': 0.0,
+    }
+    for fld, expected in wetness_expected.items():
+        val = getattr(shader.properties, fld)
+        TT.assert_equiv_not(val, -1.0, f"{fld} not clobbered by material sentinel")
+        TT.assert_equiv(val, expected, f"{fld} preserved from block")
 
 
 @test_category('SHADER')

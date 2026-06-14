@@ -3505,6 +3505,13 @@ class NiShader(NiProperty):
                     or self.properties.shaderflags1_test(ShaderFlags1.SPECULAR)):
                     self._textures["Specular"] = self._readtexture(f, s, 8)
 
+                # The root material path lives in the shader block (rootMaterialNameID),
+                # not the texture set. Expose it here so the block-read path matches
+                # the material-read path, which also returns RootMaterialPath.
+                if self.properties.rootMaterialNameID != NODEID_NONE:
+                    self._textures["RootMaterialPath"] = self.file.get_string(
+                        self.properties.rootMaterialNameID)
+
             if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
                 self._textures['Diffuse'] = self.properties.sourceTexture.decode()
                 self._textures['Greyscale'] = self.properties.greyscaleTexture.decode()
@@ -3605,7 +3612,8 @@ class NiShader(NiProperty):
 
     @property
     def flag_hair(self):
-        return self.properties.shaderflags1_test(ShaderFlags1.HAIR)
+        # FO4 SLSF1 bit 18 (Skyrim names this bit HAIR_SOFT_LIGHTING).
+        return self.properties.shaderflags1_test(ShaderFlags1FO4.HAIR)
 
     @property
     def flag_own_emit(self):
@@ -3617,7 +3625,8 @@ class NiShader(NiProperty):
 
     @property
     def flag_rgb_falloff(self):
-        return self.properties.shaderflags1_test(ShaderFlags1.RGB_FALLOFF)
+        # FO4-only SLSF1 bit 8 (Skyrim names this bit RECEIVE_SHADOWS).
+        return self.properties.shaderflags1_test(ShaderFlags1FO4.RGB_FALLOFF)
 
     @property
     def flag_specular(self):
@@ -3653,19 +3662,25 @@ class NiShader(NiProperty):
 
     @property
     def flag_transform_changed(self):
-        return self.properties.shaderflags2_test(ShaderFlags2.TRANSFORM_CHANGED)
+        # FO4 SLSF2 bit 7. The Skyrim ShaderFlags2 enum names this same bit
+        # ASSUME_SHADOWMASK and has no TRANSFORM_CHANGED member, so referencing it
+        # there raised AttributeError; use the FO4 enum for this FO4-only flag.
+        return self.properties.shaderflags2_test(ShaderFlags2FO4.TRANSFORM_CHANGED)
 
     @property
     def flag_vats_target_draw_all(self):
-        return self.properties.shaderflags2_test(ShaderFlags2.VATS_TARGET_DRAW_ALL)
+        # FO4-only SLSF2 bit 27 (Skyrim names this bit BACK_LIGHTING).
+        return self.properties.shaderflags2_test(ShaderFlags2FO4.VATS_TARGET_DRAW_ALL)
 
     @property
     def flag_gradient_remap(self):
-        return self.properties.shaderflags2_test(ShaderFlags2.GRADIENT_REMAP)
+        # FO4-only SLSF2 bit 26 (Skyrim names this bit RIM_LIGHTING).
+        return self.properties.shaderflags2_test(ShaderFlags2FO4.GRADIENT_REMAP)
 
     @property
     def flag_alpha_test(self):
-        return self.properties.shaderflags2_test(ShaderFlags2.ALPHA_TEST)
+        # FO4-only SLSF2 bit 25 (Skyrim names this bit SOFT_LIGHTING).
+        return self.properties.shaderflags2_test(ShaderFlags2FO4.ALPHA_TEST)
 
     @property
     def flag_tree_anim(self):
@@ -3789,16 +3804,38 @@ class NiShaderFO4(NiShader):
         p.UV_Scale_V = self._materials.UV_Scale_V
         p.Alpha = self._materials.Alpha
         p.Env_Map_Scale = self._materials.environmentMappingMaskScale
-        p.Emissive_Color[0] = self._materials.emittanceColor[0]
-        p.Emissive_Color[1] = self._materials.emittanceColor[1]
-        p.Emissive_Color[2] = self._materials.emittanceColor[2]
-        p.Emissive_Color[3] = 1.0
+        # emittanceColor only exists in the BGSM when emitEnabled is set (the editor
+        # hides it otherwise). When emit is off the material has no emissive colour,
+        # so leave the shader block's value rather than clobbering it with black.
+        # BGEM (effect) materials have no emitEnabled flag -- default True so they
+        # keep copying as before.
+        if getattr(self._materials, 'emitEnabled', True):
+            # emittanceColor is RGB only; the material doesn't carry an emissive
+            # alpha, so leave the block's alpha rather than forcing it.
+            p.Emissive_Color[0] = self._materials.emittanceColor[0]
+            p.Emissive_Color[1] = self._materials.emittanceColor[1]
+            p.Emissive_Color[2] = self._materials.emittanceColor[2]
         p.Emissive_Mult = self._materials.emittanceMult
         p.Refraction_Str = self._materials.refractionPower
         p.Glossiness = self._materials.smoothness
         p.Rim_Light_Power = self._materials.rimPower
         p.subsurfaceRolloff = self._materials.subsurfaceRolloff
         p.fresnelPower = self._materials.fresnelPower
+
+        # grayscaleToPaletteScale and wetnessControl_* are BGSM (lighting-shader)
+        # properties; BGEM effect shaders don't carry them.
+        if self._materials.signature == b'BGSM':
+            p.grayscaleToPaletteScale = self._materials.grayscaleToPaletteScale
+
+            # wetnessControl_* use -1.0 in the BGSM as an "unspecified" sentinel,
+            # while the NIF block holds the real effective values. Copy a material
+            # value only when it actually specifies one (>= 0); otherwise keep the
+            # block value rather than clobbering it with the sentinel.
+            for fld in ('wetnessSpecScale', 'wetnessSpecPower', 'wetnessMinVar',
+                        'wetnessEnvmapScale', 'wetnessFresnelPower', 'wetnessMetalness'):
+                matval = getattr(self._materials, fld, -1.0)
+                if matval >= 0.0:
+                    setattr(p, fld, matval)
 
         # Shader flags 1/2. The material is authoritative only for the bits it
         # actually represents (set/cleared individually below). Don't zero the
@@ -3876,10 +3913,11 @@ class NiShaderFO4(NiShader):
             else:
                 p.shaderflags1_clear(ShaderFlags1.HAIR_SOFT_LIGHTING)
 
-            if self._materials.emitEnabled:
-                p.shaderflags1_set(ShaderFlags1.OWN_EMIT)
-            else:
-                p.shaderflags1_clear(ShaderFlags1.OWN_EMIT)
+            # OWN_EMIT (SLSF1, bit 22) is NOT material-owned: vanilla FO4 blocks
+            # carry it independently of the BGSM's emitEnabled (which controls the
+            # material's own emittance colour, a different concept). Driving it off
+            # emitEnabled dropped the block flag on nearly every FO4 shape. Leave
+            # it to survive from the shader block, like SLSF1_Skinned.
 
             if self._materials.modelSpaceNormals:
                 p.shaderflags1_set(ShaderFlags1.MODEL_SPACE_NORMALS)

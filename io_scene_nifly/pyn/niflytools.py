@@ -14,7 +14,9 @@ import shutil
 from pathlib import Path
 
 
-logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
+# No basicConfig here — a library must not configure root logging (it hijacks
+# the host app's config and forces DEBUG everywhere). Levels/handlers are the
+# app's responsibility.
 log = logging.getLogger("pynifly")
 
 

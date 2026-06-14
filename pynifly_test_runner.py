@@ -28,10 +28,8 @@ mylog.setLevel(logging.DEBUG)
 
 # ############## TESTS TO RUN #############
 execute(
-    testlist=[TEST_MOPP_SLGDARCHFIRE01_POINTS ],
-    stop_on_fail=True,
+    stop_on_fail=False,
     )
-execute()
 anim_tests.execute()
 # execute(start=TEST_KF)
 # execute(categories={"SHADER"})

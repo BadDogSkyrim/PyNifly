@@ -9,7 +9,9 @@ from ..pyn.nifdefs import NiShapeBuf, AlphaPropertyBuf, ConnectPointBuf, NODEID_
 from ..util.reprobj import ReprObject, ReprObjectCollection
 import logging
 
-logging.basicConfig(encoding='utf-8', level=logging.DEBUG)
+# No basicConfig here — a library must not configure root logging (it hijacks
+# the host app's config and forces DEBUG everywhere). Levels/handlers are the
+# app's responsibility.
 log = logging.getLogger("pynifly")
 
 CONNECT_POINT_SCALE = 1.0
