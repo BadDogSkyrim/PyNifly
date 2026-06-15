@@ -1,4 +1,30 @@
-# PyNifly Next Release Notes
+# PyNifly 27.2.0 Release Notes
+
+## Bugfix: Fallout 4 textures without a materials file
+
+- **FO4 shapes that don't reference a materials file now import correctly.** Nearly all
+  FO4 meshes use external materials files, but Creation Kit FaceGen output do not. 
+  Facegen nifs use the nif's own shader properties and texture paths. These now load 
+  correctly.
+
+## Bugfix: Fallout 4 shader property reading
+
+- **NIF-level shader flags survive the BGSM material load.** Flags the material
+  can't represent — notably **SLSF1_Skinned** and **Own Emit** — were being
+  dropped or cleared when a shape's BGSM material was read. They now carry through.
+- **FO4-specific shader-flag checks are fixed.** Accessors for Hair, RGB Falloff,
+  Alpha Test, Gradient Remap, VATS Target Draw All, and Transform Changed now resolve 
+  to the correct FO4 flags.
+- **Emissive color, grayscale-to-palette scale, and wetness values** read from the
+  BGSM correctly. Emissive color was decoded with the wrong data type, and the
+  grayscale and wetness values weren't being pulled from the material at all.
+
+## Bugfix: console logging restored
+
+- **Progress and diagnostic messages appear in the console again.** A refactor
+  that (correctly) stopped the library modules from configuring logging had
+  silenced INFO-level output; the add-on now sets up its own console handler
+  (INFO normally, DEBUG when developing).
 
 ## Bugfix: HKX skeletons and animations honor orientation settings (issue #377)
 
