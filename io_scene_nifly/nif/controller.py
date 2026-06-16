@@ -626,11 +626,14 @@ class ControllerHandler():
         if self.action_target.animation_data and self.action_target.animation_data.action_slot:
             s = self.action_target.animation_data.action_slot
 
-            # Expand the action's frame range to cover these fcurves.
-            mintime = min([
-                fc.keyframe_points[0].co[0] for fc in BD.action_fcurves(self.action)])
-            maxtime = max([
-                fc.keyframe_points[-1].co[0] for fc in BD.action_fcurves(self.action)])
+            # Expand the action's frame range to cover these fcurves. Skip any fcurve that
+            # has no keyframes--an unimplemented interpolator type can leave one behind, and
+            # we'd rather warn and carry on than crash the whole import.
+            populated = [fc for fc in BD.action_fcurves(self.action) if len(fc.keyframe_points)]
+            if not populated:
+                return
+            mintime = min([fc.keyframe_points[0].co[0] for fc in populated])
+            maxtime = max([fc.keyframe_points[-1].co[0] for fc in populated])
             self.action.frame_start = round(min(self.action.frame_start, mintime))
             self.action.frame_end = round(max(self.action.frame_end, maxtime))
             self.context.scene.frame_start = min(self.context.scene.frame_start,
@@ -1362,8 +1365,9 @@ def _import_float_data(td, importer:ControllerHandler):
     curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
     _add_actionslot(importer.action_target, curve)
 
-    if td.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY \
-            or td.properties.keys.interpolation == NiKeyType.LINEAR_KEY:
+    # NO_INTERP keys carry no tangents, so treat them as linear.
+    if td.properties.keys.interpolation in (
+            NiKeyType.QUADRATIC_KEY, NiKeyType.LINEAR_KEY, NiKeyType.NO_INTERP):
         keys = [None]
         keys.extend(td.keys)
         keys.append(None)

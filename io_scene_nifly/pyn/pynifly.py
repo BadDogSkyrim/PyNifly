@@ -1767,9 +1767,12 @@ class NiFloatData(NiObject):
         if self.id == NODEID_NONE: return None
         keys = []
         if self.properties.keys.interpolation in (
-                NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY):
+                NiKeyType.NO_INTERP, NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY):
             for frame in range(0, self.properties.keys.numKeys):
-                if self.properties.keys.interpolation == NiKeyType.LINEAR_KEY:
+                # NO_INTERP keys are stored with bare time/value pairs (no tangents),
+                # the same layout as LINEAR_KEY, so read them the same way.
+                if self.properties.keys.interpolation in (
+                        NiKeyType.NO_INTERP, NiKeyType.LINEAR_KEY):
                     buf = NiAnimKeyLinearBuf()
                     if nifly.getAnimKeyLinear(self.file._handle, self.id, frame, buf) != 0:
                         raise Exception(f"Error reading NiFloatDataKey: {NifFile.message_log()}")            

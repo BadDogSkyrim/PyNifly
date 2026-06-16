@@ -2961,6 +2961,42 @@ def TEST_HIGHTECH_FLOORLIGHT():
 
 
 @TT.category('SKYRIM', 'SHADER', 'ANIMATION')
+@TT.expect_errors(("Could not find texture", "Could not load"))
+def TEST_ANIM_SHADER_FLOATDATA_NOINTERP():
+    """NiFloatData with NO_INTERP key type imports as a linear animation, not an error."""
+    # WhiteMushroom has a BSLightingShaderPropertyFloatController animating the emissive
+    # multiple. Its NiFloatData stores key type 0 (NO_INTERP) with bare time/value keys
+    # (no tangents). We used to log "NYI: NiFloatData type 0", leave an empty fcurve, and
+    # then crash in _record_slot. Now we treat NO_INTERP as linear and import the keys.
+    testfile = TTB.test_file(r"tests\SkyrimSE\WhiteMushroom.nif")
+
+    ### READ ###
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_animations=True)
+
+    plane = TTB.find_object('Plane')
+    nt = plane.active_material.node_tree
+
+    # The shader animation imported.
+    action = nt.animation_data.action
+    assert action, "Shader has an animation action"
+
+    fc = next((c for c in BD.action_fcurves(action)
+               if c.data_path.endswith('"Emission Strength"].default_value')), None)
+    assert fc, f"Found Emission Strength fcurve: {[c.data_path for c in BD.action_fcurves(action)]}"
+
+    # Three keys: 0.05 -> 0.5 -> 0.05 (the glow pulse).
+    TT.assert_eq(len(fc.keyframe_points), 3, "Number of keyframes")
+    values = [kp.co[1] for kp in fc.keyframe_points]
+    TT.assert_equiv(values[0], 0.05, "First key value", e=0.001)
+    TT.assert_equiv(values[1], 0.5, "Middle key value", e=0.001)
+    TT.assert_equiv(values[2], 0.05, "Last key value", e=0.001)
+    # NO_INTERP keys have no tangents -> imported as linear.
+    for kp in fc.keyframe_points:
+        TT.assert_eq(kp.interpolation, 'LINEAR', "Keyframe interpolation")
+
+
+@TT.category('SKYRIM', 'SHADER', 'ANIMATION')
 def TEST_ANIM_SHADER_BSLSP():
     """Controllers on BSLightingShaders work correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\voidshade_1.nif")
