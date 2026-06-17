@@ -2156,6 +2156,52 @@ def TEST_CLOTH_DATA():
         assert p[0] == p[1], f"Cloth data doesn't match at {i}, {p[0]} != {p[1]}"
 
 
+@test_category('SHADER')
+def TEST_FO4_CLOTH_UNPACK():
+    """The BSClothExtraData blob can be unpacked into its Havok cloth object graph.
+
+    The blob is a hk_2014.1.0 Havok packfile holding a "Character Bone Deforming
+    Clothing" sim: hclClothData -> hclSimClothData (particles + constraints),
+    collidables, operators, and a shared hkaSkeleton. cloth_autounpack parses it
+    (reusing the container layer in havok_packfile) so we can inspect/document it.
+    Verbatim round-trip (TEST_CLOTH_DATA) is unchanged.
+    """
+    from pyn import cloth_autounpack as CA
+
+    nif = NifFile(r"tests/FO4/HairLong01.nif")
+    _name, blob = nif.cloth_data[0]
+    TT.assert_eq(CA.is_havok_packfile(blob), True, "blob is a Havok packfile")
+
+    cp = CA.parse_cloth_packfile(blob)
+    TT.assert_eq(cp.version, "hk_2014.1.0-r1", "packfile version")
+    TT.assert_eq(len(cp.objects), 25, "object count")
+
+    # Expected HCL class graph for a single-piece hair sim.
+    for cls in ("hkRootLevelContainer", "hclClothData", "hclSimClothData",
+                "hclSimClothPose", "hkaSkeleton"):
+        TT.assert_eq(cls in cp.class_counts, True, f"has {cls}")
+    TT.assert_eq(cp.class_counts["hkaSkeleton"], 1, "exactly one skeleton")
+    TT.assert_eq(cp.class_counts["hclClothData"], 1, "one cloth piece (hair)")
+
+    # The embedded skeleton decodes to the FO4 body skeleton.
+    TT.assert_eq(cp.skeleton is not None, True, "skeleton decoded")
+    TT.assert_eq(cp.skeleton.name, "Root", "skeleton name")
+    TT.assert_eq(len(cp.skeleton.bones), 201, "skeleton bone count")
+    TT.assert_eq(len(cp.skeleton.parents), 201, "parent index count")
+    TT.assert_eq(cp.skeleton.bones[0], "Root", "first bone is Root")
+    TT.assert_eq(cp.skeleton.parents[0], -1, "Root has no parent")
+    TT.assert_eq("Pelvis" in cp.skeleton.bones, True, "has Pelvis bone")
+
+    # The sim cloth's particle list (hclSimClothData +0x38) is 113 for this hair,
+    # matching the rest pose (hclSimClothPose +0x18).
+    sim = [oi for oi in cp.objects if oi.obj.class_name == "hclSimClothData"][0]
+    particles = next(a.count for a in sim.arrays if a.field_off == 0x38)
+    TT.assert_eq(particles, 113, "sim cloth particle count")
+    pose = [oi for oi in cp.objects if oi.obj.class_name == "hclSimClothPose"][0]
+    pose_count = next(a.count for a in pose.arrays if a.field_off == 0x18)
+    TT.assert_eq(pose_count, 113, "rest pose entry count matches particles")
+
+
 def TEST_PARTITION_SM():
     """Regression--test that supermutant armor can be read and written"""
 
