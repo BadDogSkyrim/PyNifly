@@ -1764,6 +1764,38 @@ def TEST_FO4_FLAG_GETTER_SET():
 
 
 @test_category('SHADER')
+def TEST_FO4_SHADER_FLAG_BACKCOMPAT():
+    """Old blend files store FO4 SLSF1 bit 4/5 under the pre-rename names.
+
+    ShaderFlags1FO4 bit 4/5 were once called GREYSCALE_COLOR / GREYSCALE_ALPHA;
+    they're now GREYSCALETOPALETTE_COLOR / GREYSCALETOPALETTE_ALPHA to match
+    nif.xml. Blend files created before the rename have the old names baked into
+    the material, so parse() must still understand them (and preserve the bit),
+    rather than crashing in int(vclean, 0).
+    """
+    # Old names parse to the right bits.
+    TT.assert_eq(int(ShaderFlags1FO4.parse("GREYSCALE_COLOR")),
+                 int(ShaderFlags1FO4.GREYSCALETOPALETTE_COLOR), "GREYSCALE_COLOR -> bit 4")
+    TT.assert_eq(int(ShaderFlags1FO4.parse("GREYSCALE_ALPHA")),
+                 int(ShaderFlags1FO4.GREYSCALETOPALETTE_ALPHA), "GREYSCALE_ALPHA -> bit 5")
+
+    # Mixed old + current names in a concatenated string.
+    combined = ShaderFlags1FO4.parse("SKINNED | GREYSCALE_COLOR | ZBUFFER_TEST")
+    TT.assert_eq(bool(combined & ShaderFlags1FO4.SKINNED), True, "SKINNED set")
+    TT.assert_eq(bool(combined & ShaderFlags1FO4.GREYSCALETOPALETTE_COLOR), True, "bit 4 set")
+    TT.assert_eq(bool(combined & ShaderFlags1FO4.ZBUFFER_TEST), True, "ZBUFFER_TEST set")
+
+    # Canonical (current) name still round-trips and stays canonical in fullname.
+    val = ShaderFlags1FO4.GREYSCALETOPALETTE_COLOR
+    TT.assert_eq(val.fullname, "GREYSCALETOPALETTE_COLOR", "Canonical name preserved")
+
+    # A genuinely unknown flag name degrades gracefully instead of crashing.
+    TT.assert_eq(int(ShaderFlags1FO4.parse("SOME_BOGUS_FLAG")), 0, "Unknown flag ignored")
+    TT.assert_eq(int(ShaderFlags1FO4.parse("SKINNED | SOME_BOGUS_FLAG")),
+                 int(ShaderFlags1FO4.SKINNED), "Unknown flag dropped, known kept")
+
+
+@test_category('SHADER')
 def TEST_FO4_NOMAT_TEXTURES():
     """An FO4 shape with no materials file reads its textures from the nif block.
 

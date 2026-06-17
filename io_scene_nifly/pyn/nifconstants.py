@@ -183,6 +183,11 @@ class ShaderFlags1FO4(PynIntFlag):
 	EXTERNAL_EMITTANCE = 1 << 29
 	SOFT_EFFECT = 1 << 30
 	ZBUFFER_TEST = 1 << 31
+	# Backward-compat aliases: bits 4/5 were named GREYSCALE_COLOR / GREYSCALE_ALPHA
+	# before being renamed to match nif.xml. Blend files created back then store the
+	# old names, so keep them resolvable. Aliases don't appear in iteration/fullname.
+	GREYSCALE_COLOR = 1 << 4
+	GREYSCALE_ALPHA = 1 << 5
 
 class ShaderFlags2FO4(PynIntFlag):
 	ZBUFFER_WRITE = 1 << 0

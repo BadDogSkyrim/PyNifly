@@ -42,7 +42,13 @@ class PynIntFlag(IntFlag):
                 pass
             if not have_val:
                 log.debug(f"Unknown flag value: {vclean} for {cls.__name__}")
-                flags |= int(vclean, 0)
+                # Might still be a raw numeric value (e.g. "0x10"); if not, skip it
+                # rather than crashing the whole parse--an unknown name shouldn't
+                # take down an export.
+                try:
+                    flags |= int(vclean, 0)
+                except ValueError:
+                    pass
 
         return flags
 

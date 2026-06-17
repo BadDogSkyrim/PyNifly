@@ -27,7 +27,7 @@ if 'tests.blender_tests' in sys.modules:
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    # target_tests=[ TEST_ANIM_SHADER_FLOATDATA_NOINTERP ],
+    # target_tests=[],
     # categories={'ANIMATION', 'SHADER'},
     test_all=True,
     stop_on_fail=False,
