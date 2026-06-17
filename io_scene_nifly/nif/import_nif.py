@@ -1046,7 +1046,7 @@ class NifImporter():
 
         # --- Resolve and read the SSF to map subseg -> severing bone ---------
         from ..pyn.niflytools import find_referenced_file
-        from ..pyn.dismember import parse_ssf
+        from ..pyn.dismember import parse_ssf, FO4_MATERIAL_TO_BONE
         seg_file = (getattr(the_shape, "segment_file", "")
                     or the_object.get('FO4_SEGMENT_FILE', "") or "")
         if not seg_file:
@@ -1123,10 +1123,23 @@ class NifImporter():
 
             ref = name_to_ref.get(vg_name)
             nif_bone = subseg_to_bone.get(ref) if ref is not None else None
+            if nif_bone == 'DISABLED':
+                # SSF explicitly disables cuts for this subseg.
+                log.debug(
+                    f"{the_object.name}: subseg '{vg_name}' (seg/sub {ref}) cuts "
+                    "disabled in the SSF; skipping.")
+                continue
+            if not nif_bone:
+                # The SSF DeltaBones list only enumerates some subsegs (overrides
+                # and DISABLED markers); the rest are covered by the segment's
+                # base bone (SSF BaseBoneName) and aren't listed individually.
+                # The subseg's own dismember material hash is the canonical link
+                # to its severing bone, so fall back to that.
+                nif_bone = FO4_MATERIAL_TO_BONE.get(name_to_material.get(vg_name))
             if not nif_bone:
                 log.warning(
-                    f"{the_object.name}: subseg '{vg_name}' (seg/sub {ref}) has "
-                    "no bone in the SSF; skipping its cuts.")
+                    f"{the_object.name}: subseg '{vg_name}' (seg/sub {ref}) has no "
+                    "bone in the SSF or dismember material map; skipping its cuts.")
                 continue
             bl_bone = self.blender_name(nif_bone)
             if bl_bone not in arma_bone_names:

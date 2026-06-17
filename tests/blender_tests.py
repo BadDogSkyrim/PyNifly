@@ -2201,6 +2201,44 @@ def TEST_FO4_CUT_DISKS_IMPORTED():
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
 @TT.expect_errors(('Some faces have been assigned to more than one partition',
+                   'in multiple partitions',))
+def TEST_FO4_CUT_DISKS_BASE_BONE():
+    """A cut subseg covered by the SSF's BaseBoneName (not a DeltaBone) still
+    gets its disk.
+
+    Pack_UnderArmor_03_M's body SSF lists only the LEFT thigh in DeltaBones;
+    the RIGHT thigh (subseg 5,0 'Thigh.R') is the segment's base bone
+    (BaseBoneName 'RLeg_Thigh') and isn't enumerated. The importer used to find
+    no SSF entry for it, warn, and skip its cut disk. The subseg's dismember
+    material hash is the canonical bone link, so the disk must still be built.
+    """
+    testfile = TTB.test_file(r"tests\FO4\Pack_UnderArmor_03_M.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    body = bpy.data.objects.get("BaseMaleBody_03:0")
+    assert body is not None, "imported the body"
+    arma = body.find_armature()
+    assert arma is not None, "found the armature"
+
+    # Right-thigh bone (RLeg_Thigh -> renamed Leg_Thigh.R by default).
+    rthigh = arma.data.bones.get("Leg_Thigh.R") or arma.data.bones.get("RLeg_Thigh")
+    assert rthigh is not None, "right-thigh bone present"
+
+    coll = bpy.data.collections.get(f"{body.name}_Cutpoints")
+    assert coll is not None, "Cutpoints collection created"
+
+    # A disk bone-parented to the right thigh must exist -- this is the cut that
+    # used to be dropped because it was only in BaseBoneName, not DeltaBones.
+    rthigh_disks = [o for o in coll.objects
+                    if o.parent_type == 'BONE' and o.parent_bone == rthigh.name]
+    assert TT.is_gt(len(rthigh_disks), 0,
+                    "right-thigh cut disk created from base bone")
+    assert TT.is_eq(rthigh_disks[0].get('FO4_CUT_MATERIAL'), "0xbf3a3cc5",
+                    "right-thigh disk records RLeg_Thigh material hash")
+
+
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',
                    'Could not find materials file',
                    'Could not find texture',
                    'Could not load diffuse texture',
