@@ -114,6 +114,9 @@ class ExportSettings:
     # Export vertex color/alpha data if any.
     export_colors: bool = True
 
+    # Store FO4/SSE-style mesh vertices at full precision instead of half precision.
+    export_full_precision: bool = False
+
 
 # Custom properties that store import/export settings on objects.
 PYN_BLENDER_XF_PROP = "PYN_BLENDER_XF"

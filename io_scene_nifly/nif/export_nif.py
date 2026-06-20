@@ -467,6 +467,7 @@ class NifExporter:
         if self.settings.export_modifiers: flags.append("EXPORT_MODIFIERS")
         if self.settings.export_animations: flags.append("EXPORT_ANIMATIONS")
         if self.settings.export_colors: flags.append("EXPORT_COLORS")
+        if getattr(self.settings, "export_full_precision", False): flags.append("EXPORT_FULL_PRECISION")
         return f"""
         Exporting objects: {[o.name for o in self.objects]}
             game: {self.game}
@@ -1741,6 +1742,9 @@ class NifExporter:
             blockclass = pynifly.NiObject.block_types[blocktype]
             props = blockclass.getbuf(obj)
 
+            if self.settings.export_full_precision:
+                props.hasFullPrecision = 1
+
             if lod_sizes is not None and hasattr(props, 'lodSize0'):
                 props.lodSize0 = lod_sizes[0]
                 props.lodSize1 = lod_sizes[1]
@@ -1764,6 +1768,9 @@ class NifExporter:
                                                      verts, tris, uvmap_nif, norms_exp,
                                                      props=props,
                                                      parent=p)
+            if self.settings.export_full_precision:
+                new_shape.properties.hasFullPrecision = 1
+                new_shape.properties.vertexDesc |= VertexFlags.FULLPREC.value
             if "pynNodeFlags" in obj:
                 try:
                     new_shape.flags = NiAVFlags.parse(obj['pynNodeFlags']).value
@@ -2167,6 +2174,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Use vertex color attributes as vertex color",
         default=ExportSettings.__dataclass_fields__["export_colors"].default) # type: ignore
 
+    export_full_precision: bpy.props.BoolProperty(
+        name="Export full precision vertices",
+        description="Write vertex positions at full precision instead of half precision",
+        default=ExportSettings.__dataclass_fields__["export_full_precision"].default) # type: ignore
+
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
@@ -2303,6 +2315,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 f"export_modifiers={self.export_modifiers}, "
                 f"export_animations={self.export_animations}, "
                 f"export_colors={self.export_colors}, "
+                f"export_full_precision={self.export_full_precision}, "
                 f"chargen_ext='{self.chargen_ext}', "
                 f"intuit_defaults={self.intuit_defaults})")
     
