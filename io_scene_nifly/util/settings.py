@@ -114,6 +114,10 @@ class ExportSettings:
     # Export vertex color/alpha data if any.
     export_colors: bool = True
 
+    # For FO4 skinned meshes, keep half precision but move vertex positions near
+    # the bodypart origin and store the offset in the shape transform.
+    export_recenter_half_precision: bool = False
+
 
 # Custom properties that store import/export settings on objects.
 PYN_BLENDER_XF_PROP = "PYN_BLENDER_XF"

@@ -467,6 +467,7 @@ class NifExporter:
         if self.settings.export_modifiers: flags.append("EXPORT_MODIFIERS")
         if self.settings.export_animations: flags.append("EXPORT_ANIMATIONS")
         if self.settings.export_colors: flags.append("EXPORT_COLORS")
+        if getattr(self.settings, "export_recenter_half_precision", False): flags.append("EXPORT_RECENTER_HALF_PRECISION")
         return f"""
         Exporting objects: {[o.name for o in self.objects]}
             game: {self.game}
@@ -1646,14 +1647,81 @@ class NifExporter:
             else:
                 # Have to set skin-to-bone again because adding the bones nuked it
                 xf = BD.get_bone_xform(arma, bone_name, self.game, False, self.settings.export_pose)
-                xfoffs = obj.matrix_local.inverted() @ xf
+                xfoffs = new_xform.inverted() @ xf
                 xfinv = xfoffs.inverted()
                 tb = BD.pack_xf_to_buf(xfinv, self.scale)
-                    
+
                 new_shape.set_skin_to_bone_xform(nifname, tb)
 
             self.writtenbones[bone_name] = nifname
             new_shape.setShapeWeights(nifname, bone_weights)
+
+        # Adding bones resets skin data; write the shape skin transform last.
+        new_shape.set_global_to_skin(BD.make_transformbuf(newxfi))
+
+
+    def _shape_export_transform(self, obj):
+        """Return the object transform used by the exported shape."""
+        new_xform = obj.matrix_local * (1/self.scale)
+        if not has_uniform_scale(obj):
+            # Non-uniform scales applied to verts, so just use 1.0 for the scale on the object
+            l, r, s = new_xform.decompose()
+            new_xform = BD.MatrixLocRotScale(l, r, Vector((1,1,1)))
+        elif not NearEqual(self.scale, 1.0):
+            # Export scale factor applied to verts, so scale obj translation but not obj scale
+            l, r, s = new_xform.decompose()
+            new_xform = BD.MatrixLocRotScale(l, r, obj.matrix_local.to_scale())
+        return new_xform
+
+
+    def _max_abs_coord(self, verts):
+        if not verts:
+            return 0.0
+        return max(max(abs(v[0]), abs(v[1]), abs(v[2])) for v in verts)
+
+
+    def _fo4_half_precision_recenter_offset(self, verts, new_xform):
+        """Return a local-space offset for FO4 half precision vertex recentering."""
+        if not verts:
+            return None
+
+        current_extent = self._max_abs_coord(verts)
+        target_parent = BD.fo4_bodypart_xf.to_translation()
+        try:
+            offset = new_xform.inverted() @ target_parent
+        except Exception:
+            offset = target_parent - new_xform.to_translation()
+
+        recentered = [(v[0] - offset[0], v[1] - offset[1], v[2] - offset[2])
+                      for v in verts]
+        if self._max_abs_coord(recentered) >= current_extent:
+            return None
+        return Vector(offset)
+
+
+    def _apply_vertex_recenter(self, verts, morphdict, new_xform, is_skinned):
+        if not getattr(self.settings, "export_recenter_half_precision", False):
+            return verts, morphdict, new_xform
+        if self.game != 'FO4' or not is_skinned:
+            return verts, morphdict, new_xform
+
+        offset = self._fo4_half_precision_recenter_offset(verts, new_xform)
+        if offset is None:
+            return verts, morphdict, new_xform
+
+        def shift(coord):
+            return (coord[0] - offset[0], coord[1] - offset[1], coord[2] - offset[2])
+
+        verts = [shift(v) for v in verts]
+        morphdict = {
+            name: [shift(v) for v in morph_verts]
+            for name, morph_verts in morphdict.items()
+        }
+        new_xform = new_xform @ Matrix.Translation(offset)
+        log.info(
+            f"Recentered FO4 half precision vertices for {self.active_obj.name}: "
+            f"offset=({offset[0]:.6f}, {offset[1]:.6f}, {offset[2]:.6f})")
+        return verts, morphdict, new_xform
 
 
     def apply_shape_key(self, key_name):
@@ -1725,6 +1793,10 @@ class NifExporter:
             else:
                 norms_exp = norms_new
 
+            new_xform = self._shape_export_transform(obj)
+            verts, morphdict, new_xform = self._apply_vertex_recenter(
+                verts, morphdict, new_xform, is_skinned)
+
             # Make the shape in the nif file. Use the shape's block type, or choose a
             # reasonable default.
             if 'pynBlockName' in obj:
@@ -1782,20 +1854,9 @@ class NifExporter:
                 new_shape.set_colors(colors_new)
 
             self.export_shape_data(robj)
-            
+
             shaderexp.export(new_shape)
 
-            # Using local transform because the shapes will be parented in the nif
-            new_xform = obj.matrix_local * (1/self.scale) 
-            if not has_uniform_scale(obj):
-                # Non-uniform scales applied to verts, so just use 1.0 for the scale on the object
-                l, r, s = new_xform.decompose()
-                new_xform = BD.MatrixLocRotScale(l, r, Vector((1,1,1))) 
-            elif  not NearEqual(self.scale, 1.0):
-                # Export scale factor applied to verts, so scale obj translation but not obj scale 
-                l, r, s = new_xform.decompose()
-                new_xform = BD.MatrixLocRotScale(l, r, obj.matrix_local.to_scale()) 
-            
             if is_skinned:
                 self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
                 if len(unweighted) > 0:
@@ -2167,6 +2228,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Use vertex color attributes as vertex color",
         default=ExportSettings.__dataclass_fields__["export_colors"].default) # type: ignore
 
+    export_recenter_half_precision: bpy.props.BoolProperty(
+        name="Recenter half precision vertices",
+        description="For FO4 skinned meshes, keep half precision but store vertices near the bodypart origin and preserve placement in the shape transform",
+        default=ExportSettings.__dataclass_fields__["export_recenter_half_precision"].default) # type: ignore
+
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
@@ -2303,6 +2369,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 f"export_modifiers={self.export_modifiers}, "
                 f"export_animations={self.export_animations}, "
                 f"export_colors={self.export_colors}, "
+                f"export_recenter_half_precision={self.export_recenter_half_precision}, "
                 f"chargen_ext='{self.chargen_ext}', "
                 f"intuit_defaults={self.intuit_defaults})")
     
