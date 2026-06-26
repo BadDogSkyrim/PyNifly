@@ -1823,6 +1823,16 @@ class NifExporter:
                             # path so the engine finds the file we'll write.
                             new_shape.segment_file = self._fo4_ssf_ref_for_nif()
 
+                        # After supply/disks, if the shape still has dismember
+                        # segments but no cut offsets it won't sever in game —
+                        # warn rather than write a silently broken outfit.
+                        from ..pyn.dismember import shape_missing_cut_offsets
+                        if shape_missing_cut_offsets(partitions.values()):
+                            log.warning(
+                                f"{obj.name}: FO4 shape '{new_shape.name}' is being "
+                                "exported with dismemberment segments but no cut "
+                                "offsets — it will not dismember in game.")
+
                     new_shape.set_partitions(
                         [p for p in partitions.values() if p.id in partition_map],
                         partition_map)

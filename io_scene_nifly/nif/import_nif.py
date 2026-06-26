@@ -194,6 +194,15 @@ def mesh_create_partition_groups(the_shape, the_object):
         import json
         the_object['FO4_CUT_OFFSETS'] = json.dumps(cut_offsets)
 
+    # A shape can carry a full dismemberment segment structure yet have no cut
+    # offsets on any subsegment — it won't sever a limb in game. That's silent
+    # otherwise (no disks, no prop), so flag it explicitly.
+    from ..pyn.dismember import shape_missing_cut_offsets
+    if shape_missing_cut_offsets(the_shape.partitions):
+        log.warning(
+            f"{the_object.name}: FO4 shape '{the_shape.name}' has dismemberment "
+            "segments but no cut offsets — it will not dismember in game.")
+
 
 def mesh_create_lod_groups(the_shape, the_object):
     """Create cumulative vertex groups for BSMeshLODTriShape LOD levels.

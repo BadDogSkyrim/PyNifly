@@ -53,6 +53,53 @@ FO4_MATERIAL_TO_BONE = {
 }
 
 
+# The limb materials that actually sever mid-shaft and so must carry cut
+# offsets: the upper/lower arms and thighs/calves. Verified against vanilla
+# bodies — these are the only dismember materials that carry cuts. Feet, hands,
+# neck and head segments legitimately have NO cut offsets (heads/hair/helmets/
+# gloves routinely carry a head/hand material with no cuts), so they must NOT
+# trip the "missing cuts" check.
+FO4_LIMB_CUT_MATERIALS = frozenset({
+    0xb2e2764f,  # Up Arm.R
+    0x6fc3fbb2,  # Lo Arm.R
+    0xfc03dc25,  # Up Arm.L
+    0x212251d8,  # Lo Arm.L
+    0xbf3a3cc5,  # Thigh.R
+    0x22324321,  # Calf.R
+    0x865d8d9e,  # Thigh.L
+    0x4630dac2,  # Calf.L
+})
+
+
+def shape_missing_cut_offsets(segments):
+    """True when a shape has severable limb segments but no cut offsets at all.
+
+    FO4 limbs only sever where a subsegment supplies cut offsets (the slice
+    planes). A body/outfit can carry a full set of limb segments (Up Arm, Lo
+    Arm, Thigh, Calf) yet not dismember in game if every subsegment's cut-offset
+    list is empty — the dog-body / custom-outfit failure mode. This flags
+    exactly that: at least one subsegment whose material is a severing limb
+    class (FO4_LIMB_CUT_MATERIALS), and zero cut offsets across all subsegments.
+
+    Heads, hands, feet, hair, helmets and gloves carry head/hand/foot dismember
+    materials but legitimately no cut offsets, so they are not flagged.
+
+    `segments` is any iterable of partition objects (FO4Segment /
+    FO4Subsegment); only their `.subsegments` are inspected, so it accepts both
+    a shape's top-level partition list and a flat name->partition mapping's
+    values.
+    """
+    has_limb = False
+    has_cuts = False
+    for seg in segments:
+        for ss in getattr(seg, "subsegments", ()) or ():
+            if getattr(ss, "material", None) in FO4_LIMB_CUT_MATERIALS:
+                has_limb = True
+            if getattr(ss, "cut_offsets", None):
+                has_cuts = True
+    return has_limb and not has_cuts
+
+
 # --- geometry ---------------------------------------------------------------
 
 def _proj_on_segment(p, a, b):

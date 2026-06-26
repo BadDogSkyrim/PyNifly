@@ -320,8 +320,9 @@ def TEST_SKIN_BONE_XFORM():
 @TT.category('FO4', 'BODYPART', 'XFORM')
 @TT.expect_errors(("bhkPhysicsSystem decode failed",
                    "Unknown block type: bhkRagdollSystem",
-                   "Could not find materials file",))
-@TT.parameterize(("create_bones",   "estimate_offset",  "use_pose",), 
+                   "Could not find materials file",
+                   "will not dismember in game",))
+@TT.parameterize(("create_bones",   "estimate_offset",  "use_pose",),
                  [(False,           True,               True),])
 def TEST_BODYPART_ALIGNMENT_FO4_1(create_bones, estimate_offset, use_pose):
     """Should be able to write bodyparts and have the transforms match exactly."""
@@ -1093,6 +1094,7 @@ def TEST_ARMATURE_EXTEND():
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
+@TT.expect_errors(("will not dismember in game",))
 def TEST_ARMATURE_EXTEND_BT():
     """Can extend an armature with a second NIF"""
     # The Bodytalk body has bind positions consistent with vanilla, but the skin 
@@ -2426,6 +2428,42 @@ def TEST_FO4_CUT_DISKS_IMPORT_OPTION():
 
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',
+                   'in multiple partitions',
+                   'will not dismember in game',))
+def TEST_FO4_MISSING_CUTS_WARN():
+    """A body/outfit with limb dismember segments but no cut offsets is flagged
+    on import with a warning (it won't dismember in game), instead of being
+    imported silently.
+
+    MOutfit_bad.nif has a body + jacket + jeans, each carrying limb segments
+    (Up Arm/Lo Arm/Thigh/Calf) but zero cut offsets everywhere.
+    """
+    import logging
+    testfile = TTB.test_file(r"tests/FO4/Meshes/MOutfit_bad.nif")
+
+    # Collect every pynifly log record emitted during the import.
+    records = []
+    class _Collector(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+    plog = logging.getLogger("pynifly")
+    h = _Collector()
+    plog.addHandler(h)
+    try:
+        bpy.ops.import_scene.pynifly(filepath=testfile)
+    finally:
+        plog.removeHandler(h)
+
+    dismember_warnings = [m for m in records if "will not dismember in game" in m]
+    assert TT.is_gt(len(dismember_warnings), 0,
+                    "import warned that the outfit will not dismember in game")
+    # All three shapes should be called out (body, jacket, jeans).
+    assert TT.is_gt(len(dismember_warnings), 2,
+                    f"each limb-segmented shape warned (got {len(dismember_warnings)})")
+
+
+@TT.category('FO4', 'BODYPART', 'PARTITIONS')
 @TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FO4_SSF_GENERATED():
     """Phase 4: cut offsets are supplied from bone geometry and an SSF file is
@@ -3614,6 +3652,7 @@ def TEST_BRICKWALL():
 
 
 @TT.category('FO4', 'ARMATURE')
+@TT.expect_errors(("will not dismember in game",))
 def TEST_NOT_FB():
     """Test that nif that looked like facebones skel can be imported"""
     # This nif has a body where the skin-to-bone transforms don't define a simple translation

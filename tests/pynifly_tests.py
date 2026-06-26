@@ -1281,6 +1281,35 @@ def TEST_FO4_DISMEMBER_SUPPLY():
 
 
 @test_category('FO4', 'PARTITION')
+def TEST_FO4_MISSING_CUTS_DETECT():
+    """Detect a shape with dismember segments but no cut offsets.
+
+    An FO4 body/outfit can carry a full dismemberment segment structure yet
+    have zero cut offsets on every subsegment — so it won't actually sever a
+    limb in game. shape_missing_cut_offsets flags that so import/export can
+    warn instead of silently importing a broken outfit.
+    """
+    from pyn.dismember import shape_missing_cut_offsets
+
+    # MOutfit_bad.nif: body + jacket + jeans, each with dismember segments
+    # (Up Arm.R 0xb2e2764f etc.) but cut_offsets=[] everywhere.
+    bad = NifFile(r"tests/FO4/Meshes/MOutfit_bad.nif")
+    for shape in bad.shapes:
+        assert TT.is_true(shape_missing_cut_offsets(shape.partitions),
+                          f"{shape.name}: dismember segments but no cut offsets")
+
+    # Vanilla body carries cut offsets, so it must NOT be flagged.
+    good = NifFile(r"tests/FO4/VanillaMaleBody.nif")
+    assert TT.is_eq(shape_missing_cut_offsets(good.shapes[0].partitions), False,
+                    "vanilla body with cut offsets is not flagged")
+
+    # A shape with no dismember segments at all is not flagged (nothing to sever).
+    plain = NifFile(r"tests/FO4/AlarmClock.nif")
+    assert TT.is_eq(shape_missing_cut_offsets(plain.shapes[0].partitions), False,
+                    "non-segmented shape is not flagged")
+
+
+@test_category('FO4', 'PARTITION')
 def TEST_FO4_SSF_READ():
     """Read an SSF (segment file) and map each subsegment ref to its bone.
 
