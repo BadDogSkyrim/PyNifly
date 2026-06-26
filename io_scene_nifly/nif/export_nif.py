@@ -1644,12 +1644,16 @@ class NifExporter:
                 tb_bind = BD.pack_xf_to_buf(xfinv, self.scale)
                 new_shape.set_skin_to_bone_xform(nifname, tb_bind)
             else:
-                # Have to set skin-to-bone again because adding the bones nuked it
+                # Have to set skin-to-bone again because adding the bones nuked it.
+                # Use new_xform (not obj.matrix_local) so the skin-to-bone is in
+                # the same frame as the verts: these match except when the verts
+                # were shifted for half-precision recentering, where new_xform
+                # carries the compensating offset.
                 xf = BD.get_bone_xform(arma, bone_name, self.game, False, self.settings.export_pose)
-                xfoffs = obj.matrix_local.inverted() @ xf
+                xfoffs = new_xform.inverted() @ xf
                 xfinv = xfoffs.inverted()
                 tb = BD.pack_xf_to_buf(xfinv, self.scale)
-                    
+
                 new_shape.set_skin_to_bone_xform(nifname, tb)
 
             self.writtenbones[bone_name] = nifname
@@ -1658,6 +1662,65 @@ class NifExporter:
 
     def apply_shape_key(self, key_name):
         pass
+
+
+    def _export_shape_transform(self, obj):
+        """The transform the exported shape carries: the object's local
+        transform, adjusted for export scale and non-uniform scale (both of
+        which are baked into the verts instead).
+        """
+        # Using local transform because the shapes will be parented in the nif.
+        new_xform = obj.matrix_local * (1/self.scale)
+        if not has_uniform_scale(obj):
+            # Non-uniform scale was applied to the verts, so use 1.0 for the scale.
+            l, r, s = new_xform.decompose()
+            new_xform = BD.MatrixLocRotScale(l, r, Vector((1,1,1)))
+        elif not NearEqual(self.scale, 1.0):
+            # Export scale factor applied to verts, so scale obj translation but not obj scale.
+            l, r, s = new_xform.decompose()
+            new_xform = BD.MatrixLocRotScale(l, r, obj.matrix_local.to_scale())
+        return new_xform
+
+
+    def _fo4_recenter_half_precision(self, obj, verts, morphdict, new_xform, is_skinned):
+        """Optionally pull FO4 skinned verts near the bodypart origin so the
+        16-bit half-precision vertex storage doesn't quantize them badly.
+
+        FO4 bodyparts are authored ~120 units up; stored as half floats that far
+        from the origin loses precision. When enabled, subtract a local-space
+        offset from every vert (and morph vert) to recenter them and bake that
+        offset into the shape transform, so the world placement is unchanged.
+
+        No-op unless the option is set, the game is FO4, the shape is skinned,
+        and recentering actually reduces how far the verts sit from the origin
+        (a body already centered around the origin is left alone). Returns the
+        possibly-shifted (verts, morphdict, new_xform).
+        """
+        if not (self.settings.export_recenter_half_precision
+                and self.game == 'FO4' and is_skinned and verts
+                and not self.settings.export_pose):
+            return verts, morphdict, new_xform
+
+        def max_abs(vs):
+            return max(max(abs(v[0]), abs(v[1]), abs(v[2])) for v in vs) if vs else 0.0
+
+        # The local-space point that new_xform maps to the bodypart world origin;
+        # subtracting it recenters the verts there.
+        offset = new_xform.inverted() @ BD.fo4_bodypart_xf.to_translation()
+
+        def shift(v):
+            return (v[0] - offset[0], v[1] - offset[1], v[2] - offset[2])
+
+        recentered = [shift(v) for v in verts]
+        if max_abs(recentered) >= max_abs(verts):
+            # Recentering wouldn't help (verts already near origin); leave as-is.
+            return verts, morphdict, new_xform
+
+        morphdict = {k: [shift(v) for v in mv] for k, mv in morphdict.items()}
+        new_xform = new_xform @ Matrix.Translation(offset)
+        log.info(f"Recentered FO4 half-precision verts for {obj.name}: "
+                 f"offset=({offset[0]:.3f}, {offset[1]:.3f}, {offset[2]:.3f})")
+        return recentered, morphdict, new_xform
 
 
     def export_shape(self, obj, target_key='', arma=None):
@@ -1713,6 +1776,13 @@ class NifExporter:
 
             # Sort triangles by LOD level if LOD vertex groups exist
             tris, partition_map, lod_sizes = sort_tris_by_lod(obj, tris, partition_map)
+
+            # Compute the shape transform up front so we can optionally recenter
+            # FO4 half-precision verts before the shape geometry is created. This
+            # bakes the recenter offset into new_xform, leaving placement intact.
+            new_xform = self._export_shape_transform(obj)
+            verts, morphdict, new_xform = self._fo4_recenter_half_precision(
+                obj, verts, morphdict, new_xform, is_skinned)
 
             is_headpart = obj.data.shape_keys \
                     and len(self.nif.dict.expression_filter(set(obj.data.shape_keys.key_blocks.keys()))) > 0
@@ -1785,17 +1855,6 @@ class NifExporter:
             
             shaderexp.export(new_shape)
 
-            # Using local transform because the shapes will be parented in the nif
-            new_xform = obj.matrix_local * (1/self.scale) 
-            if not has_uniform_scale(obj):
-                # Non-uniform scales applied to verts, so just use 1.0 for the scale on the object
-                l, r, s = new_xform.decompose()
-                new_xform = BD.MatrixLocRotScale(l, r, Vector((1,1,1))) 
-            elif  not NearEqual(self.scale, 1.0):
-                # Export scale factor applied to verts, so scale obj translation but not obj scale 
-                l, r, s = new_xform.decompose()
-                new_xform = BD.MatrixLocRotScale(l, r, obj.matrix_local.to_scale()) 
-            
             if is_skinned:
                 self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
                 if len(unweighted) > 0:
@@ -2176,6 +2235,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         name="Export vertex color/alpha",
         description="Use vertex color attributes as vertex color",
         default=ExportSettings.__dataclass_fields__["export_colors"].default) # type: ignore
+
+    export_recenter_half_precision: bpy.props.BoolProperty(
+        name="Recenter half precision vertices",
+        description="For FO4 skinned meshes, keep half precision but store vertices "
+                    "near the bodypart origin and preserve placement in the shape transform",
+        default=ExportSettings.__dataclass_fields__["export_recenter_half_precision"].default) # type: ignore
 
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",

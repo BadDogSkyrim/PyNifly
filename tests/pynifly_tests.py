@@ -3571,10 +3571,9 @@ def TEST_FULLPREC():
     assert nifCheck.shapes[0].properties.hasFullPrecision, f"Have full precision"
 
 
-@test_category("SKIP")
+@test_category('FO4', 'SHADER')
 def TEST_SET_SKINTINT():
     """Test that we can set the skin tint shader."""
-    # TODO: For some reason, the value doesn't get set down at the DLL level.
     testfile = _test_file(r"tests\FO4\Helmet.nif")
     outfile = _test_file(r"tests\out\TEST_SET_SKINTINT.nif")
 
@@ -3585,8 +3584,12 @@ def TEST_SET_SKINTINT():
     print("------------- write")
     nifOut = NifFile()
     nifOut.initialize('FO4', outfile, nif.rootNode.blockname, nif.rootNode.name)
-    helmet.shader.properties.Shader_Type = BSLSPShaderType.Skin_Tint
-    _export_shape(helmet, nifOut)
+    # _export_shape re-reads the shader props fresh from the source block (to
+    # drop any material-file munging), so set the shader type on the exported
+    # shape and persist it — not on the source shape.
+    helmetOut = _export_shape(helmet, nifOut)
+    helmetOut.shader.properties.Shader_Type = BSLSPShaderType.Skin_Tint
+    helmetOut.save_shader_attributes()
     nifOut.save()
 
     print("------------- check")
@@ -3752,12 +3755,14 @@ def TEST_HKX_FO4_SKELETON_ROUNDTRIP():
                 f"Pose mismatch bone {i} ({orig.bones[i]}) component {j}: {va} vs {vb}"
 
 
-@test_category("SKIP")
+@test_category("HKX", "SKYRIM")
 def TEST_HKX_SKELETON():
-    """Test read/write of hkx skeleton files (in XML format)."""
-    # SKIPPING - This functionality is part of animation read/write, which is not
-    # fully operational.
+    """Read an hkx skeleton file (via hkxcmd -> XML) into a NifFile-like object.
 
+    This is the legacy hkxSkeletonFile path that import_nif uses for .hkx/.xml
+    skeleton imports. The skeleton's own root bone (NPC Root [Root]) is the file
+    root; there is no synthetic wrapper node.
+    """
     testfile = _test_file(r"tests/Skyrim/skeleton.hkx")
     outfile = _test_file(r"tests/Out/TEST_XML_SKELETON.nif")
 

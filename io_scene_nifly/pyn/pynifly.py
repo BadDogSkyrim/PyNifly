@@ -5237,12 +5237,6 @@ class hkxSkeletonFile(NifFile):
         self.xmlfile = xml.parse(self.xml_filepath)
         self.xmlroot = self.xmlfile.getroot()
 
-        self._root = NiNode(file=self, name=os.path.basename(self.xml_filepath))
-        self._root.id = 0
-        self._root._blockname = "BSFadeNode"
-        self._root.properties.transform.set_identity()
-        self.register_node(self._root)
-
         skel = self.xmlroot.find(".//*[@class='hkaSkeleton']")
         skelname = skel.find("./*[@name='name']").text
         parentIndices = [int(x) for x in skel.find("./*[@name='parentIndices']").text.split()]
@@ -5291,9 +5285,11 @@ class hkxSkeletonFile(NifFile):
                 buf.transform.translation = VECTOR3(*loc)
                 buf.transform.rotation = MATRIX3(VECTOR3(*rot[0]), VECTOR3(*rot[1]), VECTOR3(*rot[2]))
                 buf.transform.scale = scale[0]
-                n = NiNode(file=self, parent=parent, 
+                n = NiNode(file=self, parent=parent,
                            properties=buf, name=bonelist[j])
-                n.id = j+1
+                # The skeleton's own root bone (bone 0, no parent) is the file
+                # root: giving it id 0 makes register_node record it as _root.
+                n.id = j
                 n._blockname = "NiNode"
                 self.register_node(n)
 

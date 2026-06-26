@@ -260,6 +260,74 @@ def TEST_FO4_XFORM():
     assert NT.MatNearEqual(xf0, xf1), f"Matrices are near equal: \n{xf0}\n=\n{xf1}"
 
 
+@TT.category('FO4', 'BODYPART', 'XFORM')
+def TEST_FO4_RECENTER_HALF_PRECISION():
+    """FO4 skinned verts authored far from the origin can be recentered near
+    the bodypart origin on export (so 16-bit half-precision storage doesn't
+    quantize them badly), with placement preserved by the shape transform.
+
+    Fixture: a normal FO4 head sits with its verts centered around the origin
+    and the object lifted ~120 up. We bake that lift into the mesh so the verts
+    sit up at the head position with NO object transform centering them — the
+    uncentered authoring this feature targets. Exporting with the option ON
+    should pull the stored verts back to the origin while keeping the head in
+    the same world position.
+    """
+    testfile = TTB.test_file(r"tests/FO4/BaseMaleHead.nif")
+    out_on = TTB.test_file(r"tests/Out/TEST_FO4_RECENTER_ON.nif")
+    out_off = TTB.test_file(r"tests/Out/TEST_FO4_RECENTER_OFF.nif")
+
+    # --- Build the uncentered fixture -----------------------------------
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_tris=False)
+    head = bpy.context.object
+    assert head.find_armature() is not None, "head is skinned"
+
+    # Bake the ~120-up position into the verts: object transform becomes
+    # identity, verts now sit up at the head location.
+    BD.ObjectSelect([head], active=True)
+    bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    maxz_in = max((head.matrix_world @ v.co).z for v in head.data.vertices)
+    assert maxz_in > 100, f"fixture verts sit up at head height: {maxz_in}"
+    assert NT.NearEqual(head.matrix_local.translation.length, 0.0, 0.001), \
+        "fixture object transform is identity (verts are not centered)"
+
+    # --- Export both ways ------------------------------------------------
+    BD.ObjectSelect([head], active=True)
+    bpy.ops.export_scene.pynifly(filepath=out_off, target_game='FO4',
+                                 export_recenter_half_precision=False)
+    BD.ObjectSelect([head], active=True)
+    bpy.ops.export_scene.pynifly(filepath=out_on, target_game='FO4',
+                                 export_recenter_half_precision=True)
+
+    def max_abs_coord(shape):
+        return max(max(abs(v[0]), abs(v[1]), abs(v[2])) for v in shape.verts)
+
+    off_shape = pyn.NifFile(out_off).shapes[0]
+    on_shape = pyn.NifFile(out_on).shapes[0]
+
+    # Sanity: with the option off the stored verts stay up at head height.
+    assert TT.is_gt(max_abs_coord(off_shape), 100,
+                    "recenter OFF: stored verts remain far from origin")
+
+    # The feature: with the option on the stored verts are pulled near origin.
+    assert TT.is_lt(max_abs_coord(on_shape), 20,
+                    f"recenter ON: stored verts near origin "
+                    f"(max |coord|={max_abs_coord(on_shape):.2f})")
+
+    # Placement must be preserved: re-importing either export must land the
+    # head in the same world position.
+    bpy.ops.import_scene.pynifly(filepath=out_off, import_tris=False)
+    head_off = bpy.context.object
+    bpy.ops.import_scene.pynifly(filepath=out_on, import_tris=False)
+    head_on = bpy.context.object
+
+    bb_off = [head_off.matrix_world @ Vector(c) for c in head_off.bound_box]
+    bb_on = [head_on.matrix_world @ Vector(c) for c in head_on.bound_box]
+    for p_off, p_on in zip(bb_off, bb_on):
+        assert TT.is_equiv(list(p_on), list(p_off),
+                           "recenter preserves head world placement", e=0.1)
+
+
 @TT.category('SKYRIM', 'BODYPART', 'XFORM')
 def TEST_SKIN_BONE_XFORM():
     """Skin-to-bone transforms work correctly"""
