@@ -460,7 +460,7 @@ class NifExporter:
     def __str__(self):
         flags = []
         if self.settings.rename_bones: flags.append("RENAME_BONES")
-        if self.settings.rename_bones_niftools: flags.append("RENAME_BONES_NIFT")
+        if self.settings.rename_bones_niftools: flags.append("RENAME_BONES_NIFTOOLS")
         if self.settings.preserve_hierarchy: flags.append("PRESERVE_HIERARCHY")
         if self.settings.write_bodytri: flags.append("WRITE_BODYTRI")
         if self.settings.export_pose: flags.append("EXPORT_POSE")
