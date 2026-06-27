@@ -2744,7 +2744,10 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int nam
 void setClothExtraData(void* nifref, void* shaperef, char* name, char* buf, int buflen) {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
-    target = nif->GetRootNode();
+    if (shaperef)
+        target = static_cast<NiAVObject*>(shaperef);
+    else
+        target = nif->GetRootNode();
 
     if (target) {
         auto clothData = std::make_unique<BSClothExtraData>();

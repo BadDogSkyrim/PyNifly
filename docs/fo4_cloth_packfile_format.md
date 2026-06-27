@@ -176,9 +176,14 @@ Across all 364 vanilla hair nifs (`…/CharacterAssets/Hair/{Female,Male}`):
   **4–36 bytes** out of 30–46 KB. The particles, constraint sets, bone-deform map,
   and `hkaSkeleton` are **byte-identical** across all 22 of the 46257-size hairs.
 - **All per-style differences are confined to the two `hclClothState` objects**
-  ("Simulate" / "Animate"), in 3-byte clusters at the upper bytes of 4-byte values
-  on a 0x20 stride — the signature of a handful of **float parameters** in the
-  cloth-state buffers. (Decoding what they tune is the immediate next step.)
+  ("Simulate" / "Animate"): ~5 small inline values per state, located inside the
+  six `array[7]` buffer regions (object offsets ~+0x168..+0x208). They are **not
+  pointers** (no fixups) and **do not decode as sane float32** (denormal garbage),
+  so they aren't the tunable "stiffness/gravity" params first guessed. Interpreting
+  them needs the Havok `hclClothState` class layout; given they sit in the
+  per-operator dependency/buffer structures and read as near-garbage, a live
+  hypothesis is they're **incidental Havok-cloth-compiler scheduling output**, not
+  semantic parameters. Unconfirmed — needs the class def (Option A) to settle.
 
 Implication for semantic import/export: Bethesda did **not** fit a particle lattice
 per hairstyle — they reused ~3 authored sims and nudged a few floats; the hair mesh
