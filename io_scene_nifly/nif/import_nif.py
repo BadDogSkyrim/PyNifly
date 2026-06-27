@@ -2346,6 +2346,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         self.import_tris = pyniflyPrefs.import_tris
         self.import_shapekeys = pyniflyPrefs.import_shapekeys
         self.import_cutpoints = pyniflyPrefs.import_cutpoints
+        self.create_collection = pyniflyPrefs.create_collection
 
         if bpy.context.object and bpy.context.object.select_get() and bpy.context.object.type == 'ARMATURE':
             # We are loading into an existing armature. The various settings should match.

@@ -148,6 +148,13 @@ class PyNiflyPreferences(AddonPreferences):
         default=True
     ) # type: ignore
 
+    create_collection: BoolProperty(
+        name="Import into a new collection",
+        description=("Import each nif into its own new collection rather than the active "
+                    "collection. Helps keep separate imports organized."),
+        default=False
+    ) # type: ignore
+
 
     def draw(self, context):
         layout = self.layout
@@ -166,6 +173,7 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "import_shapekeys")
         layout.prop(self, "blender_xf")
         layout.prop(self, "import_cutpoints")
+        layout.prop(self, "create_collection")
         layout.prop(self, "write_bodytri")
 
 def _configure_logging():
