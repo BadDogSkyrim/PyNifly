@@ -1,3 +1,64 @@
+# PyNifly 27.3.0 Release Notes
+
+## New: drag-and-drop NIF import
+
+- **Drop a `.nif` file into the 3D viewport to import it.** Blender hands the file
+  to pyNifly's importer, which loads it right away using your import preferences.
+  Drop several weight variants together and they still combine as shape keys, the
+  same as a normal multi-file import. (Requires Blender 4.1 or newer; older Blender
+  is unaffected.)
+
+## New: import into a new collection
+
+- **New "Import into a new collection" add-on preference.** When enabled, each
+  imported nif goes into its own new collection instead of the active one, which
+  helps keep separate imports organized. Off by default, and still available
+  per-import in the import dialog.
+
+## New: Fallout 4 half-precision vertex recenter (export)
+
+- **New "Recenter half precision vertices" export option for FO4 skinned meshes.**
+  FO4 bodyparts are authored about 120 units above the origin and stored as 16-bit
+  half-precision floats, where that distance from the origin costs visible
+  precision. With this option on, the vertices are stored near the origin and the
+  offset is folded into the shape transform, so the mesh lands in the same place
+  with better precision. Off by default; only affects FO4 skinned shapes.
+
+## Bugfix: warn when a Fallout 4 body won't dismember
+
+- **Importing or exporting an FO4 body/outfit that has limb dismemberment segments
+  but no cut offsets now warns you.** Such a mesh silently fails to dismember in
+  game; pyNifly flags it on both import and export so the problem is visible instead
+  of mysterious. Heads, hands, hair and similar parts, which legitimately carry no
+  cuts, are not flagged.
+
+## Bugfix: Fallout 4 dismemberment cut points
+
+- **Cut-point disks for parts covered by the segment's base bone are restored.**
+  When the `.ssf` didn't list a subsegment individually (because it was covered by
+  the segment's base bone, e.g. the body's right thigh), its cut disks were dropped.
+  pyNifly now falls back to the part's dismemberment material to find the bone.
+
+## Bugfix: Fallout 4 KF (animation) export
+
+- **The NifTools bone-rename setting is read correctly on KF export again.** It was
+  being looked up under the wrong name, which could fail the KF export dialog and
+  silently drop a per-armature override of the setting.
+
+## Bugfix: Fallout 4 shader export crash
+
+- **Exporting an FO4 shape no longer crashes on the grayscale-to-color flag.** A
+  shape whose shader carried the pre-rename `GREYSCALE_COLOR` flag could crash on
+  export; it now exports correctly.
+
+## Bugfix: animation float data
+
+- **`NiFloatData` with "no interpolation" key types now loads instead of erroring.**
+
+## Other
+
+- Revived two long-dormant tests; the test suite now runs with no skips.
+
 # PyNifly 27.2.0 Release Notes
 
 ## Bugfix: Fallout 4 textures without a materials file
