@@ -33,6 +33,9 @@ def nifly_menu_export_nif(self, context):
 def unregister():
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_nif)
     bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_nif)
+    if getattr(import_nif, "NIF_FH_import", None) is not None:
+        with suppress(RuntimeError):
+            bpy.utils.unregister_class(import_nif.NIF_FH_import)
     with suppress(RuntimeError):
         bpy.utils.unregister_class(import_nif.ImportNIF)
         bpy.utils.unregister_class(export_nif.ExportNIF)
@@ -50,6 +53,9 @@ def register():
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_nif)
     bpy.utils.register_class(import_nif.ImportNIF)
     bpy.utils.register_class(export_nif.ExportNIF)
+    # Drag-and-drop file handler (Blender 4.1+ only; None on older Blender).
+    if getattr(import_nif, "NIF_FH_import", None) is not None:
+        bpy.utils.register_class(import_nif.NIF_FH_import)
 
     controller.register()
 

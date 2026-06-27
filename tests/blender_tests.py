@@ -260,6 +260,26 @@ def TEST_FO4_XFORM():
     assert NT.MatNearEqual(xf0, xf1), f"Matrices are near equal: \n{xf0}\n=\n{xf1}"
 
 
+@TT.category('FO4', 'SETTINGS')
+def TEST_DRAGDROP_IMPORT():
+    """Drag-and-drop import path: Blender's FileHandler invokes the importer with
+    'directory' + 'files' set (and no filepath). The operator must resolve the
+    files from the directory and import them. This exercises that path the same
+    way a viewport drop does, minus the interactive bits."""
+    import os
+    testfile = TTB.test_file(r"tests/FO4/BaseMaleHead.nif")
+    nifdir = os.path.dirname(testfile)
+
+    # Simulate a single-file drop: directory + files, no filepath.
+    bpy.ops.import_scene.pynifly(
+        directory=nifdir + os.sep,
+        files=[{"name": "BaseMaleHead.nif"}])
+
+    head = TTB.find_object("BaseMaleHead:0")
+    assert head is not None, "drag-and-drop import created the head mesh"
+    assert TT.is_eq(int(head.location.z), 120, "imported head at head position")
+
+
 @TT.category('FO4', 'BODYPART', 'XFORM')
 def TEST_FO4_RECENTER_HALF_PRECISION():
     """FO4 skinned verts authored far from the origin can be recentered near

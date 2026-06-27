@@ -2228,6 +2228,12 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         type=bpy.types.OperatorFileListElement,
         options={'HIDDEN', 'SKIP_SAVE'},) # type: ignore
 
+    # Set by the file browser and by drag-and-drop (FileHandler) to the folder
+    # holding the dropped/selected files. Drag-and-drop does not set filepath.
+    directory: StringProperty(
+        subtype='FILE_PATH',
+        options={'HIDDEN', 'SKIP_SAVE'},) # type: ignore
+
     create_bones: bpy.props.BoolProperty(
         name="Create bones",
         description="Create vanilla bones as needed to make skeleton complete.",
@@ -2329,13 +2335,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
         """
         Get per-import settings for this import. Offer the io_scene_nifly preferences as defaults.
         """
-        # Set the default directory to the last used path if available
-        if context.window_manager.pynifly_last_import_path_nif:
-            self.filepath = str(Path(context.window_manager.pynifly_last_import_path_nif)
-                                / Path(self.filepath))
-            
         # Load defaults. Use the addon's defaults unless something about the current
-        # objects override them.
+        # objects override them. These apply to both the file browser and to
+        # drag-and-drop imports.
         pyniflyPrefs = bpy.context.preferences.addons[base_package].preferences
         self.blender_xf = pyniflyPrefs.blender_xf
         self.rename_bones = pyniflyPrefs.rename_bones
@@ -2355,6 +2357,18 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             # When loading into an armature, ignore the nif's bind position--use the
             # armature's.
             self.import_pose = True
+
+        # Drag-and-drop (FileHandler): Blender has already populated files/directory.
+        # Import immediately with the resolved defaults rather than opening the
+        # file browser. Multi-file drops flow through execute()'s normal combine
+        # rules (shape keys where possible).
+        if self.files or self.directory:
+            return self.execute(context)
+
+        # File-browser path: seed the dialog with the last-used import directory.
+        if context.window_manager.pynifly_last_import_path_nif:
+            self.filepath = str(Path(context.window_manager.pynifly_last_import_path_nif)
+                                / Path(self.filepath))
         return super().invoke(context, event)
 
 
@@ -2370,7 +2384,9 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
             # Library is automatically loaded when pynifly is imported
 
-            folderpath = os.path.dirname(self.filepath)
+            # Drag-and-drop sets self.directory (not filepath); the file browser
+            # sets both. Fall back to the filepath's folder for plain filepath calls.
+            folderpath = self.directory if self.directory else os.path.dirname(self.filepath)
             filenames = [f.name for f in self.files]
             if len(filenames) > 0:
                 fullfiles = [os.path.join(folderpath, f.name) for f in self.files]
@@ -2452,12 +2468,31 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             self.log_handler.finish("IMPORT", fullfiles)
             self.context.scene.frame_set(self.initial_frame)
 
-        # Save the directory path for next time
+        # Save the directory path for next time. On a drag-and-drop import
+        # filepath is empty, so fall back to the directory we imported from.
         wm = context.window_manager
-        wm.pynifly_last_import_path_nif = self.filepath
+        wm.pynifly_last_import_path_nif = self.filepath or self.directory
 
         return self.status
 
     def __str__(self):
         return f"ImportNif: create_bones={self.create_bones}, rename_bones={self.rename_bones}, rotate_bones_pretty={self.rotate_bones_pretty}, rename_bones_niftools={self.rename_bones_niftools}, import_shapekeys={self.import_shapekeys}, import_animations={self.import_animations}, import_collisions={self.import_collisions}, import_tris={self.import_tris}, import_cutpoints={self.import_cutpoints}, apply_skinning={self.apply_skinning}, smart_editor_markers={self.smart_editor_markers}, import_pose={self.import_pose}, create_collection={self.create_collection}, reference_skel='{self.reference_skel}'"
+
+
+# Drag-and-drop support: drop a .nif into the 3D viewport to import it.
+# bpy.types.FileHandler was added in Blender 4.1; PyNifly supports 4.0, so the
+# class only exists on new enough Blender. nif/__init__.py registers it only
+# when it's not None.
+if hasattr(bpy.types, "FileHandler"):
+    class NIF_FH_import(bpy.types.FileHandler):
+        bl_idname = "NIF_FH_import"
+        bl_label = "PyNifly NIF import"
+        bl_import_operator = ImportNIF.bl_idname
+        bl_file_extensions = ".nif"
+
+        @classmethod
+        def poll_drop(cls, context):
+            return context.area is not None and context.area.type == 'VIEW_3D'
+else:
+    NIF_FH_import = None
     
