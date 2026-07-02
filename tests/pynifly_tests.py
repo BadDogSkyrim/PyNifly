@@ -1280,6 +1280,47 @@ def TEST_FO4_DISMEMBER_SUPPLY():
                     "existing cut_offsets preserved (round-trip wins)")
 
 
+@test_category('FO4', 'SKYRIM')
+def TEST_SHAPE_SIZE_LIMIT():
+    """Detect shapes past the nif's hard 16-bit vertex/triangle limits.
+
+    Every shape stores vertex indices (and numVertices) as 16-bit, so a 65535-
+    vertex cap for all games. NiTriShapeData also stores its triangle count as
+    16-bit (65535-triangle cap); the BS*TriShape family uses 32-bit triangle
+    counts (and the FO4 segmentation uses 32-bit triangle indices), so those
+    shapes are vertex-limited only.
+    """
+    from pyn.pynifly import shape_size_error, NIF_MAX_U16
+    MAX = NIF_MAX_U16  # 65535
+
+    # Vertex cap applies to every block type.
+    assert TT.is_eq(shape_size_error(MAX, 100, 'BSTriShape'), None,
+                    "at the vertex cap is fine")
+    assert TT.is_true(shape_size_error(MAX + 1, 100, 'BSTriShape'),
+                      "over the vertex cap errors (FO4)")
+    assert TT.is_true(shape_size_error(MAX + 1, 100, 'NiTriShape'),
+                      "over the vertex cap errors (Skyrim)")
+    assert TT.is_true('vert' in shape_size_error(MAX + 1, 100, 'BSSubIndexTriShape').lower(),
+                      "vertex-cap message names vertices")
+
+    # Triangle cap applies only to the NiTriShape family (16-bit tri count).
+    assert TT.is_true(shape_size_error(100, MAX + 1, 'NiTriShape'),
+                      "over the triangle cap errors on NiTriShape")
+    assert TT.is_true('triangle' in shape_size_error(100, MAX + 1, 'NiTriShape').lower(),
+                      "triangle-cap message names triangles")
+    # FO4 / SSE BS*TriShape use 32-bit triangles — no triangle cap.
+    assert TT.is_eq(shape_size_error(100, MAX + 1, 'BSTriShape'), None,
+                    "high tri count is fine on BSTriShape")
+    assert TT.is_eq(shape_size_error(100, MAX + 1, 'BSSubIndexTriShape'), None,
+                    "high tri count is fine on BSSubIndexTriShape (FO4 segmentation is 32-bit)")
+    assert TT.is_eq(shape_size_error(100, MAX + 1, 'BSDynamicTriShape'), None,
+                    "high tri count is fine on BSDynamicTriShape")
+
+    # A normal body-part shape is fine.
+    assert TT.is_eq(shape_size_error(9091, 17141, 'BSSubIndexTriShape'), None,
+                    "normal FO4 body shape is fine")
+
+
 @test_category('FO4', 'PARTITION')
 def TEST_FO4_MISSING_CUTS_DETECT():
     """Detect a shape with dismember segments but no cut offsets.

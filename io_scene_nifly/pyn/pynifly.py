@@ -4007,6 +4007,31 @@ class NiShaderFO4(NiShader):
             return super().textures
         
 
+# Every FO4/Skyrim nif shape stores vertex indices (and numVertices) as 16-bit,
+# so a single shape can address at most 65535 vertices. NiTriShapeData/NiTriStripsData
+# also store their triangle count as 16-bit (another 65535 cap); the BS*TriShape
+# family (FO4, and BSTriShape/BSSubIndexTriShape/BSDynamicTriShape on SSE) uses
+# 32-bit triangle counts — and the FO4 segmentation (BSSITSSegment) uses 32-bit
+# triangle indices — so those shapes are vertex-limited only.
+NIF_MAX_U16 = 65535
+_TRI_16BIT_BLOCKTYPES = frozenset({
+    'NiTriShape', 'NiTriShapeData', 'NiTriStrips', 'NiTriStripsData'})
+
+def shape_size_error(nverts, ntris, blocktype):
+    """Return an error message if a shape of the given block type would exceed the
+    nif format's hard 16-bit limits, else None. `blocktype` is the block name the
+    shape will be written as (e.g. 'BSTriShape', 'NiTriShape')."""
+    if nverts > NIF_MAX_U16:
+        return (f"has {nverts} vertices, over the {NIF_MAX_U16}-vertex limit "
+                "(nif vertex indices are 16-bit). Reduce the poly count or split "
+                "the mesh into multiple shapes.")
+    if blocktype in _TRI_16BIT_BLOCKTYPES and ntris > NIF_MAX_U16:
+        return (f"has {ntris} triangles, over the {NIF_MAX_U16}-triangle limit for "
+                f"{blocktype} (triangle count is 16-bit). Reduce the poly count or "
+                "split the mesh into multiple shapes.")
+    return None
+
+
 # --- NifShape --- #
 class NiShape(NiNode):
     buffer_type = PynBufferTypes.NiShapeBufType

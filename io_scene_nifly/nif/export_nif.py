@@ -42,6 +42,13 @@ from ..pyn.triangulate import triangulate
 
 log = logging.getLogger("pynifly")
 
+
+class ShapeTooBigError(Exception):
+    """A shape exceeds the nif format's 16-bit vertex/triangle limits and can't be
+    written correctly. Raised to abort the export with a clear message."""
+    pass
+
+
 def clean_filename(fn):
     s = fn.strip()
     if s.endswith(":ROOT"): s = s[0:-5]
@@ -1807,7 +1814,15 @@ class NifExporter:
                 blocktype = 'NiTriShape' 
             else:
                 blocktype = 'BSTriShape'
-            
+
+            # Hard limit: the nif format stores vertex indices (and, for
+            # NiTriShapeData, the triangle count) as 16-bit. A shape past those caps
+            # can't be written correctly, so fail the export rather than emit a
+            # silently-broken nif.
+            size_err = pynifly.shape_size_error(len(verts), len(tris), blocktype)
+            if size_err:
+                raise ShapeTooBigError(f"Shape '{obj.name}' {size_err}")
+
             blockclass = pynifly.NiObject.block_types[blocktype]
             props = blockclass.getbuf(obj)
 
@@ -2514,6 +2529,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 elif self.log_handler.max_error <= logging.WARNING:
                     self.report({'ERROR'}, f"Export failed, see console window for details")
             
+        except ShapeTooBigError as e:
+            log.error(str(e))
+            self.report({"ERROR"}, str(e))
+            res.add("CANCELLED")
         except:
             self.log_handler.log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
