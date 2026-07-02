@@ -2419,20 +2419,19 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         """
         self.settings_from_ui = True
 
-        # Set the default directory to the last used path if available
-        if context.window_manager.pynifly_last_export_path_nif:
-            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_nif) 
-                                / Path(self.filepath))
-            
-        obj = self.objects_to_export[0]
-        if not self.filepath:
-            self.filepath = clean_filename(obj.name)
+        # The export file name comes from the exported root node if there is one,
+        # else the active object. (Previously the whole last-export path, file name
+        # included, was reused from one export to the next.) The directory is still
+        # seeded from the last export for convenience.
+        roots = [o for o in self.objects_to_export if "pynRoot" in o]
+        name_obj = roots[0] if roots else (context.object or self.objects_to_export[0])
+        last = context.window_manager.pynifly_last_export_path_nif
+        export_dir = os.path.dirname(last) if last else os.path.dirname(self.filepath)
+        self.filepath = os.path.join(export_dir,
+                                     clean_filename(name_obj.name) + self.filename_ext)
 
         self.intuit_defaults = False
         self.target_game = self._discover_game(self.objects_to_export)
-
-        lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
-        obj_root = lst[0] if lst else None
 
         self._discover_settings()
         
