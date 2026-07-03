@@ -10736,6 +10736,37 @@ def TEST_VANILLA_TREEASPEN_ROUNDTRIP():
     assert TT.is_eq(tn.bones1, ['TrunkBone'], "BSTreeNode Bones1 preserved")
 
 
+@TT.category('FO4', 'ARMATURE')
+@TT.expect_errors(("Some faces have been assigned to more than one partition",
+                   "in multiple partitions",))
+def TEST_FO4_MANY_CHILDREN_EXPORT():
+    """Export a nif whose root has >128 children (issue #406).
+
+    EngineerScribe MOutfit's root NiNode has 132 direct children (bones + shapes).
+    _reorder_switch_children walked children through a fixed 128-int buffer and
+    then indexed range(count) past it, raising 'IndexError: invalid index'.
+    Export must handle an arbitrary number of children.
+    """
+    from ctypes import c_int
+    testfile = TTB.test_file(r"tests\FO4\MOutfit.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_FO4_MANY_CHILDREN.nif", output=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    for o in bpy.data.objects:
+        o.select_set(True)
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    bpy.context.view_layer.objects.active = root
+    # This raised IndexError before the fix.
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    nif = pyn.NifFile(outfile)
+    # The two PipBoy on/off objects are shape-key morph variants of
+    # ScribeOutfitFullCap:0, so 6 exported objects -> 4 shapes.
+    assert len(nif.shapes) == 4, f"All shapes exported: {len(nif.shapes)}"
+    n = pyn.nifly.getNodeChildren(nif._handle, nif.rootNode.id, 0, None)
+    assert n > 128, f"Root's many children survived round-trip: {n}"
+
+
 @TT.category('SKYRIMSE', 'TREE', 'COLLISION')
 def TEST_TREE_EXPORT_FIDELITY():
     """Exported tree matches vanilla block types.

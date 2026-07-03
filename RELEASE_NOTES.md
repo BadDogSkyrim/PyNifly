@@ -1,42 +1,48 @@
 # PyNifly 27.3.0 Release Notes
 
+## Bugfix: animation float data
+
+- **`NiFloatData` with "no interpolation" key types now loads instead of erroring.**
+
+## Bugfix: export of nifs with many child nodes
+
+- **Nifs whose root (or any node) has more than 128 children now export instead of
+  failing with `IndexError: invalid index`.** Affected meshes with large skeletons such
+  as the Fallout 4 EngineerScribe outfit. (Issue #406)
+
 ## New: drag-and-drop NIF import
 
-- **Drop a `.nif` file into the 3D viewport to import it.** Blender hands the file
-  to pyNifly's importer, which loads it right away using your import preferences.
-  Drop several weight variants together and they still combine as shape keys, the
-  same as a normal multi-file import. (Requires Blender 4.1 or newer; older Blender
-  is unaffected.)
+- **Drop a `.nif` file into the 3D viewport to import it** using your import preferences.
+  Drop several nifs together (e.g. _0 and _1 weights) and they combine as shape keys.
+  (Requires Blender 4.1 or newer.)
 
 ## New: import into a new collection
 
-- **New "Import into a new collection" add-on preference.** When enabled, each
-  imported nif goes into its own new collection instead of the active one, which
-  helps keep separate imports organized. Off by default, and still available
-  per-import in the import dialog.
+- **New "Import into a new collection" add-on preference.** Already available on the
+  import dialog, this lets you set the option as the default. 
 
 ## New: Fallout 4 half-precision vertex recenter (export)
 
-- **New "Recenter half precision vertices" export option for FO4 skinned meshes.**
-  FO4 bodyparts are authored about 120 units above the origin and stored as 16-bit
-  half-precision floats, where that distance from the origin costs visible
-  precision. With this option on, the vertices are stored near the origin and the
-  offset is folded into the shape transform, so the mesh lands in the same place
-  with better precision. Off by default; only affects FO4 skinned shapes.
+- **New "Recenter half precision vertices" export option for FO4 skinned meshes.** FO4
+  headparts must be positioned at roughly 120 units above the origin. Vertices are stored
+  as 16-bit half-precision floats and that distance from the origin can cause visible
+  chunkiness. Until now the modder had to add transforms to the shape so the local vertex
+  positions could be small while still positioning the part correctly. With this option,
+  the vertices are repositioned and the transform added at export (if needed) so the
+  modder doesn't have to worry about it. Only affects FO4 skinned shapes. 
+- Credit to wushen233 for this one.
 
-## Bugfix: warn when a Fallout 4 body won't dismember
+## Error reporting: warn when a Fallout 4 body won't dismember
 
-- **Importing or exporting an FO4 body/outfit that has limb dismemberment segments
-  but no cut offsets now warns you.** Such a mesh silently fails to dismember in
-  game; pyNifly flags it on both import and export so the problem is visible instead
-  of mysterious. Heads, hands, hair and similar parts, which legitimately carry no
-  cuts, are not flagged.
+- **Incorrect segmentation now triggers a warning.** Importing or exporting an FO4
+  body/outfit that has limb dismemberment segments but no cut offsets will not dismember
+  in game. pyNifly now flags it on both import and export.
 
 ## Bugfix: Fallout 4 dismemberment cut points
 
 - **Cut-point disks for parts covered by the segment's base bone are restored.**
   When the `.ssf` didn't list a subsegment individually (because it was covered by
-  the segment's base bone, e.g. the body's right thigh), its cut disks were dropped.
+  the segment's base bone, e.g. the body's right thigh), its cut points were dropped.
   pyNifly now falls back to the part's dismemberment material to find the bone.
 
 ## Bugfix: Fallout 4 KF (animation) export
@@ -50,10 +56,6 @@
 - **Exporting an FO4 shape no longer crashes on the grayscale-to-color flag.** A
   shape whose shader carried the pre-rename `GREYSCALE_COLOR` flag could crash on
   export; it now exports correctly.
-
-## Bugfix: animation float data
-
-- **`NiFloatData` with "no interpolation" key types now loads instead of erroring.**
 
 ## Other
 

@@ -436,6 +436,7 @@ class NifExporter:
         self.cloth_data = set()
         self.decal_data = set()
         self.grouping_nodes = set()
+        self.switch_nodes = set()  # NiSwitchNode empties, collected during the walk
         self.bsx_flag = None
         # FO4 SSF accumulator: shape_name -> JSON-ready entry dict, built up
         # across shape exports and written to a single SSF file alongside the
@@ -854,8 +855,10 @@ class NifExporter:
 
             elif (connectpoint.is_child(obj)) or (not connectpoint.is_connectpoint(obj)):
                 self.grouping_nodes.add(obj)
+                if obj.get('pynBlockName') == 'NiSwitchNode':
+                    self.switch_nodes.add(obj)
                 for c in obj.children:
-                    if not c.hide_get(): 
+                    if not c.hide_get():
                         self.add_object(c)
 
         if connectpoint.is_connectpoint(obj):
@@ -1435,34 +1438,36 @@ class NifExporter:
         have no skinned descendants. Put the skinned-descendant branch first so
         the engine renders it; warn if neither child is skinned (order arbitrary).
         """
-        from ctypes import c_int, create_string_buffer
+        # Switch nodes are collected during the export walk (self.switch_nodes),
+        # so there's no need to go hunting for them in the nif -- if none were
+        # exported there's nothing to do.
+        if not self.switch_nodes:
+            return
+
+        from ctypes import c_int
         h = self.nif._handle
         shape_skin = {sh.id: bool(sh.bone_names) for sh in self.nif.shapes}
 
-        def blockname(nid):
-            b = create_string_buffer(128)
-            pynifly.nifly.getBlockname(h, nid, b, 128)
-            return b.value.decode('utf-8')
-
         def children(nid):
-            buf = (c_int * 128)()
-            n = pynifly.nifly.getNodeChildren(h, nid, 128, buf)
-            return [buf[i] for i in range(max(n, 0))]
+            # getNodeChildren returns the real child count, which can exceed any
+            # fixed buffer. Size the buffer to the reported count.
+            n = pynifly.nifly.getNodeChildren(h, nid, 0, None)
+            if n <= 0:
+                return []
+            buf = (c_int * n)()
+            pynifly.nifly.getNodeChildren(h, nid, n, buf)
+            return [buf[i] for i in range(n)]
 
         def subtree_skinned(nid):
             if nid in shape_skin:
                 return shape_skin[nid]
             return any(subtree_skinned(c) for c in children(nid))
 
-        switches = []
-        def collect(nid):
-            if blockname(nid) == 'NiSwitchNode':
-                switches.append(nid)
-            for c in children(nid):
-                collect(c)
-        collect(self.nif.rootNode.id)
-
-        for sid in switches:
+        for obj in self.switch_nodes:
+            repr = self.objs_written.find_blend(obj)
+            if repr is None:
+                continue
+            sid = repr.nifnode.id
             ch = children(sid)
             if len(ch) != 2:
                 continue
