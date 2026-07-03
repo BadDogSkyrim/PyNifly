@@ -1,14 +1,16 @@
-# PyNifly 27.3.0 Release Notes
-
-## Bugfix: animation float data
-
-- **`NiFloatData` with "no interpolation" key types now loads instead of erroring.**
+# PyNifly 27.4.0 Release Notes
 
 ## Bugfix: export of nifs with many child nodes
 
 - **Nifs whose root (or any node) has more than 128 children now export instead of
   failing with `IndexError: invalid index`.** Affected meshes with large skeletons such
   as the Fallout 4 EngineerScribe outfit. (Issue #406)
+
+# PyNifly 27.3.0 Release Notes
+
+## Bugfix: animation float data
+
+- **`NiFloatData` with "no interpolation" key types now loads instead of erroring.**
 
 ## New: drag-and-drop NIF import
 
