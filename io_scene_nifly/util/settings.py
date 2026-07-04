@@ -120,6 +120,12 @@ class ExportSettings:
     # placement is preserved. FO4 skinned shapes only; no-op otherwise.
     export_recenter_half_precision: bool = False
 
+    # Store vertices at full 32-bit precision rather than the default packed
+    # 16-bit half floats. Mirrors the exported shape's hasFullPrecision property:
+    # toggling this in the export dialog writes that property onto (or clears it
+    # from) the exported shapes. FO4 only.
+    export_full_precision: bool = False
+
 
 # Custom properties that store import/export settings on objects.
 PYN_BLENDER_XF_PROP = "PYN_BLENDER_XF"

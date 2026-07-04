@@ -2262,6 +2262,13 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                     "near the bodypart origin and preserve placement in the shape transform",
         default=ExportSettings.__dataclass_fields__["export_recenter_half_precision"].default) # type: ignore
 
+    export_full_precision: bpy.props.BoolProperty(
+        name="Full precision vertices",
+        description="Store vertices at full 32-bit precision instead of packed "
+                    "16-bit half floats. Sets the shape's hasFullPrecision flag; "
+                    "clearing removes it. FO4 only",
+        default=ExportSettings.__dataclass_fields__["export_full_precision"].default) # type: ignore
+
     chargen_ext: bpy.props.StringProperty(
         name="Chargen extension",
         description="Extension to use for chargen files (not including file extension).",
@@ -2333,6 +2340,27 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         return 'SKYRIM'
     
 
+    def _exported_meshes(self):
+        """
+        Mesh objects reachable from the export selection, expanding through the
+        children of any selected EMPTY (e.g. a pynRoot) so selecting just a root
+        still finds its shapes.
+        """
+        seen = set()
+        result = []
+        stack = list(self.objects_to_export)
+        while stack:
+            o = stack.pop()
+            if o is None or o.name in seen:
+                continue
+            seen.add(o.name)
+            if o.type == 'MESH':
+                result.append(o)
+            elif o.type == 'EMPTY':
+                stack.extend(o.children)
+        return result
+
+
     def _discover_settings(self):
         """
         Given objects being exported, set any settings they specify.
@@ -2398,6 +2426,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 f"export_modifiers={self.export_modifiers}, "
                 f"export_animations={self.export_animations}, "
                 f"export_colors={self.export_colors}, "
+                f"export_full_precision={self.export_full_precision}, "
                 f"chargen_ext='{self.chargen_ext}', "
                 f"intuit_defaults={self.intuit_defaults})")
     
@@ -2454,7 +2483,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         self.target_game = self._discover_game(self.objects_to_export)
 
         self._discover_settings()
-        
+
+        # Seed the full-precision checkbox from the shapes being exported so the
+        # dialog reflects their current hasFullPrecision property.
+        self.export_full_precision = any(
+            m.get('hasFullPrecision') for m in self._exported_meshes())
+
         return super().invoke(context, event)
 
 
@@ -2480,6 +2514,18 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             self._discover_settings()
 
         self.export_armature = self.armatures[0] if self.armatures else None
+
+        # When the export settings are authoritative (they came from the dialog
+        # or an explicit call with intuit_defaults=False), push the full-precision
+        # choice onto the exported shapes' hasFullPrecision property so it drives
+        # export and persists. Clearing the option removes the property. Otherwise
+        # leave any existing property untouched so it round-trips as before.
+        if not self.intuit_defaults:
+            for m in self._exported_meshes():
+                if self.export_full_precision:
+                    m['hasFullPrecision'] = 1
+                elif 'hasFullPrecision' in m:
+                    del m['hasFullPrecision']
 
         try:
             context.scene.frame_set(1)

@@ -9383,6 +9383,35 @@ def TEST_FULL_PRECISION():
         f"Has full precision: {nifout.shapes[0].properties.hasFullPrecision}"
 
 
+@TT.category('FO4', 'BODYPARTS')
+@TT.expect_errors(("Could not find materials file",))
+def TEST_FULL_PRECISION_OPTION():
+    """The export dialog's full-precision option sets/clears the shape's hasFullPrecision property."""
+    testfile = TTB.test_file(r"tests\FO4\Meshes\OtterFemHead.nif")
+    out_on = TTB.test_file(r"tests\out\TEST_FULL_PRECISION_OPTION_on.nif")
+    out_off = TTB.test_file(r"tests\out\TEST_FULL_PRECISION_OPTION_off.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=True)
+    head = bpy.context.object
+    assert not head.get('hasFullPrecision'), "Fixture starts without full precision"
+
+    # Setting the option writes the property and the nif flag.
+    BD.ObjectSelect([head], active=True)
+    bpy.ops.export_scene.pynifly(filepath=out_on, target_game='FO4',
+                                 export_full_precision=True, intuit_defaults=False)
+    assert head['hasFullPrecision'], "Option set the object's hasFullPrecision property"
+    assert pyn.NifFile(out_on).shapes[0].properties.hasFullPrecision, \
+        "Option stored full precision in the nif"
+
+    # Clearing the option removes the property and exports half precision.
+    BD.ObjectSelect([head], active=True)
+    bpy.ops.export_scene.pynifly(filepath=out_off, target_game='FO4',
+                                 export_full_precision=False, intuit_defaults=False)
+    assert 'hasFullPrecision' not in head, "Option cleared the object's hasFullPrecision property"
+    assert not pyn.NifFile(out_off).shapes[0].properties.hasFullPrecision, \
+        "Option stored half precision in the nif"
+
+
 @TT.category('SKYRIM')
 @TT.expect_errors(("Skyrim LE does not support per-chunk materials",))
 def TEST_EMPTY_NODES():

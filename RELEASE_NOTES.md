@@ -6,6 +6,14 @@
   failing with `IndexError: invalid index`.** Affected meshes with large skeletons such
   as the Fallout 4 EngineerScribe outfit. (Issue #406)
 
+## New: full precision vertices export option
+
+- **New "Full precision vertices" export option.** Fallout 4 shapes normally store
+  vertices as 16-bit half-precision floats; this option stores them at full 32-bit
+  precision instead. The checkbox defaults to the shape's current setting, so it round-trips
+  automatically — check it to turn full precision on, clear it to turn it off. Previously
+  this could only be controlled by hand-editing the shape's `hasFullPrecision` custom property.
+
 # PyNifly 27.3.0 Release Notes
 
 ## Bugfix: animation float data
