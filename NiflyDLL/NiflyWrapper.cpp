@@ -1809,7 +1809,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     buf->controllerID = bssh->controllerRef.index;
     buf->extraDataCount = bssh->extraDataRefs.GetSize();
 
-    buf->shaderFlags = bssh->shaderFlags;
+    buf->shaderFlags = 1;  // nifly upstream removed BSShaderProperty::shaderFlags (legacy uint16); field kept for buffer ABI, defaulted to old value
     buf->Shader_Type = bssh->GetShaderType();
     buf->Shader_Flags_1 = bssh->shaderFlags1;
     buf->Shader_Flags_2 = bssh->shaderFlags2;
@@ -1997,7 +1997,7 @@ int copyNiShader(NifFile* nif, BSShaderProperty* bssh, const char* name, NiShade
     bssh->bslspShaderType = buf->Shader_Type;
     bssh->controllerRef.index = buf->controllerID;
 
-    bssh->shaderFlags = buf->shaderFlags;
+    // bssh->shaderFlags removed upstream (legacy uint16 field deleted) — nothing to write; SLSF words are shaderFlags1/2 below
     bssh->shaderType = BSShaderType(buf->Shader_Type);
     bssh->shaderFlags1 = buf->Shader_Flags_1;
     bssh->shaderFlags2 = buf->Shader_Flags_2;
@@ -2013,7 +2013,7 @@ int copyNiShader(NifFile* nif, BSShaderProperty* bssh, const char* name, NiShade
         for (int i=0; i < 3; i++) bslsp->emissiveColor[i] = buf->Emissive_Color[i];
         bslsp->emissiveMultiple = buf->Emissive_Mult;
         bslsp->rootMaterialName = hdr->GetStringById(buf->rootMaterialNameID);
-        bslsp->textureClampMode = buf->textureClampMode;
+        bslsp->textureClampMode = TexClampMode(buf->textureClampMode);  // upstream made textureClampMode a strongly-typed enum
         bslsp->alpha = buf->Alpha;
         bslsp->refractionStrength = buf->Refraction_Str;
         bslsp->glossiness = buf->Glossiness;
