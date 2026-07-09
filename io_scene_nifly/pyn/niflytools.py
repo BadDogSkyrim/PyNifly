@@ -1961,10 +1961,15 @@ class FO4FacebonesDict(FO4BoneDict):
 fo4Dict = FO4BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4BoneIDs)
 fo4FaceDict = FO4FacebonesDict(fo4FaceBones, fo4Expressions, fo4Parts, fo4BoneIDs)
 
+# Starfield uses its own bone names (HumanExportRoot, COM, C_Hips, L_Thigh, R_Calf...) with
+# no .L/.R conventions, so a passthrough dict (no renaming) is correct for now.
+sfDict = BoneDict([], [], [])
+
 gameSkeletons = {
     'SKYRIM': skyrimDict,
     'SKYRIMSE': skyrimDict,
     'FO4': fo4Dict,
     'FO76': fo4Dict,
     'FO3': fnvDict,
-    'FONV': fnvDict}
+    'FONV': fnvDict,
+    'SF': sfDict}

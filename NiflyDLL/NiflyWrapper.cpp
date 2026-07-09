@@ -215,6 +215,7 @@ NIFLY_API int getGameName(void* f, char* buf, int len) {
     else if (vers.IsSSE()) { name = "SKYRIMSE"; }
     else if (vers.IsFO4()) { name = "FO4"; }
     else if (vers.IsFO76()) { name = "FO76"; }
+    else if (vers.IsSF()) { name = "SF"; }
 
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);

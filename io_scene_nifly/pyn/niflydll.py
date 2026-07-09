@@ -323,6 +323,17 @@ nifly.getUVs.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
 nifly.getUVs.restype = c_int
 nifly.getVertsForShape.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_int]
 nifly.getVertsForShape.restype = c_int
+# Starfield BSGeometry / external .mesh
+nifly.getBSGeometryMeshCount.argtypes = [c_void_p, c_void_p]
+nifly.getBSGeometryMeshCount.restype = c_int
+nifly.getBSGeometryMeshPath.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
+nifly.getBSGeometryMeshPath.restype = c_int
+nifly.getBSGeometryInternalFlag.argtypes = [c_void_p, c_void_p]
+nifly.getBSGeometryInternalFlag.restype = c_int
+nifly.loadBSGeometryMeshData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_int]
+nifly.loadBSGeometryMeshData.restype = c_int
+nifly.selectBSGeometryMesh.argtypes = [c_void_p, c_void_p, c_int]
+nifly.selectBSGeometryMesh.restype = None
 nifly.hasSkinInstance.argtypes = [c_void_p]
 nifly.hasSkinInstance.restype = c_int
 nifly.load.argtypes = [c_char_p]

@@ -409,6 +409,30 @@ def TEST_READ():
     CheckNif(nif)
 
 
+def TEST_SF_MESH_READ():
+    """Starfield: read a BSGeometry nif + its external .mesh, get geometry + bones."""
+    nif = NifFile(r"tests\SF\naked_f.nif")
+    assert nif.game == 'SF', f"Recognized as Starfield: {nif.game}"
+
+    geom = nif.shapes[0]
+    assert isinstance(geom, BSGeometry), f"Shape is a BSGeometry: {type(geom).__name__}"
+    assert geom.mesh_count == 1, f"One LOD mesh slot: {geom.mesh_count}"
+    assert not geom.is_internal_geom, "Mesh data is external (not inline)"
+    assert geom.mesh_path(0), f"Has an external mesh path: {geom.mesh_path(0)}"
+
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        data = f.read()
+    assert geom.load_mesh(data, 0), "Loaded external .mesh bytes"
+
+    # nifly applies havokScale on load, so geometry comes back in game units.
+    assert len(geom.verts) == 6616, f"Vertex count: {len(geom.verts)}"
+    assert len(geom.tris) == 12132, f"Triangle count: {len(geom.tris)}"
+    assert len(geom.uvs) == len(geom.verts), "One UV per vertex"
+    assert len(geom.normals) == len(geom.verts), "One normal per vertex"
+    assert len(geom.bone_names) == 38, f"Bone count (from SkinAttach): {len(geom.bone_names)}"
+    assert all(abs(c) < 1000 for c in geom.verts[0]), "Verts in game-unit magnitude"
+
+
 def TEST_RW_HEAD():
     """Test reading and writing the male head"""
     testfile = r"tests\Skyrim\malehead.nif"

@@ -97,7 +97,11 @@ class PynBufferTypes(IntEnum):
     BSMultiBoundNodeBufType = 74
     BSMultiBoundBufType = 75
     BSMultiBoundOBBBufType = 76
-    COUNT = 77
+    # Starfield BSGeometry. Python-only: the C++ getShape returns a plain NiShapeBuf for a
+    # BSGeometry block (reading is name-based); this distinct value just keeps
+    # register_subclasses from clobbering NiShapeBuf's buffer_types slot.
+    BSGeometryBufType = 77
+    COUNT = 78
 
 
 class NiShaderBuf(pynStructure):
