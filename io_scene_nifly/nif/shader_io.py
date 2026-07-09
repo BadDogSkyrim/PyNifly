@@ -1409,6 +1409,156 @@ class ShaderImporter:
                         self.link(nimgnode.outputs['Alpha'], self.bsdf.inputs['Specular IOR Level'])
 
 
+    def import_sf_material(self, obj, shape:NiShape):
+        """Import a Starfield layered .mat as a native Principled-BSDF PBR material.
+
+        SF carries no texture set in the NIF -- the shader's Name points at a loose .mat whose
+        MRTextureFile nodes list one texture per PBR property (albedo/normal/rough/metal/ao/
+        emissive). We resolve + parse the .mat, wire each map to the matching Principled input
+        (SF normals are BC5 XY, so Z is reconstructed), and stash the raw slot paths as
+        BSShaderTextureSet_<slot> for round-trip + the PyNifly Shader panel. Vanilla materials
+        compiled into materialsbeta.cdb must be pre-extracted to a loose .mat (PyNifly never
+        cracks archives).
+        """
+        from ..pyn import sf_materials
+
+        self.shape = shape
+        self.game = shape.file.game
+        shape.shader.alternate_paths = self._build_alt_pathlist()
+
+        self.material = bpy.data.materials.new(name=(obj.name + ".Mat"))
+        self.material.use_nodes = True
+        self.material['BS_Shader_Block_Name'] = shape.shader.blockname
+        self.material['BSLSP_Shader_Name'] = shape.shader.name  # the .mat path, for export
+
+        altpaths = self._build_alt_pathlist()
+        mat_ref = shape.shader.name  # 'Materials\...\x.mat'
+        textures = {}
+        if mat_ref:
+            matpath = find_referenced_file(mat_ref, nifpath=shape.file.filepath,
+                                           root='materials', alt_suffix=None, alt_pathlist=altpaths)
+            if matpath:
+                try:
+                    with open(matpath, 'r', encoding='utf-8-sig') as f:
+                        parsed = sf_materials.parse_mat(f.read())
+                    if parsed:
+                        textures = parsed['textures']
+                except OSError as e:
+                    self.warn(f"Could not read material '{matpath}': {e}")
+            else:
+                self.warn(f"Could not find material '{mat_ref}' "
+                          f"(extract the loose .mat from the .cdb, e.g. fo76utils sfmatexport)")
+
+        # Stash raw slot paths for round-trip + the panel.
+        for slot, path in textures.items():
+            self.material['BSShaderTextureSet_' + slot] = path
+
+        # Resolve each texture to a loose file (prefer .png, like the rest of PyNifly).
+        resolved = {}
+        for slot, path in textures.items():
+            p = find_referenced_file(path, nifpath=shape.file.filepath, alt_suffix='.png',
+                                     alt_pathlist=altpaths)
+            if p:
+                resolved[slot] = p
+            else:
+                self.warn(f"Could not find SF texture {slot}: '{path}'")
+
+        self._build_sf_nodes(resolved)
+        obj.active_material = self.material
+
+    def _sf_load_image(self, path, colorspace):
+        img = bpy.data.images.load(path, check_existing=True)
+        try:
+            img.colorspace_settings.name = colorspace
+        except Exception:
+            pass
+        return img
+
+    def _sf_teximg(self, slot, resolved, colorspace, location):
+        n = self.nodes.new('ShaderNodeTexImage')
+        n.image = self._sf_load_image(resolved[slot], colorspace)
+        n.location = location
+        n.label = slot
+        return n
+
+    def _sf_reconstruct_normal(self, image_node, x, y):
+        """SF normals are BC5, storing X/Y only. Reconstruct Z = sqrt(1 - x^2 - y^2) and
+        recombine into a tangent-space normal color for a Normal Map node."""
+        nt = self.material.node_tree
+        def math(op, v0=None, v1=None, v2=None, loc=(0, 0)):
+            m = self.nodes.new('ShaderNodeMath')
+            m.operation = op
+            m.location = loc
+            for i, v in enumerate((v0, v1, v2)):
+                if v is None:
+                    continue
+                if hasattr(v, 'node'):
+                    nt.links.new(v, m.inputs[i])
+                else:
+                    m.inputs[i].default_value = v
+            return m
+        sep = self.nodes.new('ShaderNodeSeparateColor')
+        sep.location = (x, y)
+        nt.links.new(image_node.outputs['Color'], sep.inputs['Color'])
+        rx = math('MULTIPLY_ADD', sep.outputs['Red'], 2.0, -1.0, (x + 200, y + 100))
+        ry = math('MULTIPLY_ADD', sep.outputs['Green'], 2.0, -1.0, (x + 200, y - 100))
+        rx2 = math('MULTIPLY', rx.outputs['Value'], rx.outputs['Value'], None, (x + 400, y + 100))
+        ry2 = math('MULTIPLY', ry.outputs['Value'], ry.outputs['Value'], None, (x + 400, y - 100))
+        ssum = math('ADD', rx2.outputs['Value'], ry2.outputs['Value'], None, (x + 600, y))
+        inv = math('SUBTRACT', 1.0, ssum.outputs['Value'], None, (x + 800, y))
+        clamp = math('MAXIMUM', inv.outputs['Value'], 0.0, None, (x + 1000, y))
+        nz = math('SQRT', clamp.outputs['Value'], None, None, (x + 1200, y))
+        bcol = math('MULTIPLY_ADD', nz.outputs['Value'], 0.5, 0.5, (x + 1400, y))
+        comb = self.nodes.new('ShaderNodeCombineColor')
+        comb.location = (x + 1600, y)
+        nt.links.new(sep.outputs['Red'], comb.inputs['Red'])
+        nt.links.new(sep.outputs['Green'], comb.inputs['Green'])
+        nt.links.new(bcol.outputs['Value'], comb.inputs['Blue'])
+        nmap = self.nodes.new('ShaderNodeNormalMap')
+        nmap.location = (x + 1800, y)
+        nt.links.new(comb.outputs['Color'], nmap.inputs['Color'])
+        return nmap.outputs['Normal']
+
+    def _build_sf_nodes(self, resolved):
+        """Wire the resolved SF PBR textures into a Principled BSDF."""
+        nt = self.material.node_tree
+        self.nodes = nt.nodes
+        bsdf = next((n for n in self.nodes if n.type == 'BSDF_PRINCIPLED'), None) \
+            or self.nodes.new('ShaderNodeBsdfPrincipled')
+        out = next((n for n in self.nodes if n.type == 'OUTPUT_MATERIAL'), None) \
+            or self.nodes.new('ShaderNodeOutputMaterial')
+        bsdf.location = (200, 0)
+        out.location = (600, 0)
+        nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+
+        x0 = -900
+        if 'Albedo' in resolved:
+            alb = self._sf_teximg('Albedo', resolved, 'sRGB', (x0, 300))
+            if 'AO' in resolved:  # AO multiplies into base color
+                ao = self._sf_teximg('AO', resolved, 'Non-Color', (x0, 500))
+                make_mixnode(nt, alb.outputs['Color'], ao.outputs['Color'],
+                             output=bsdf.inputs['Base Color'], factor=1.0,
+                             blend_type='MULTIPLY', location=(x0 + 400, 400))
+            else:
+                nt.links.new(alb.outputs['Color'], bsdf.inputs['Base Color'])
+        if 'Roughness' in resolved:
+            r = self._sf_teximg('Roughness', resolved, 'Non-Color', (x0, 100))
+            nt.links.new(r.outputs['Color'], bsdf.inputs['Roughness'])
+        if 'Metal' in resolved:
+            m = self._sf_teximg('Metal', resolved, 'Non-Color', (x0, -100))
+            nt.links.new(m.outputs['Color'], bsdf.inputs['Metallic'])
+        if 'Emissive' in resolved:
+            e = self._sf_teximg('Emissive', resolved, 'sRGB', (x0, -300))
+            ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
+            if ecol is not None:
+                nt.links.new(e.outputs['Color'], ecol)
+                if 'Emission Strength' in bsdf.inputs:
+                    bsdf.inputs['Emission Strength'].default_value = 1.0
+        if 'Normal' in resolved:
+            nimg = self._sf_teximg('Normal', resolved, 'Non-Color', (x0, -600))
+            nrm = self._sf_reconstruct_normal(nimg, x0 + 250, -600)
+            nt.links.new(nrm, bsdf.inputs['Normal'])
+
     def import_material(self, obj, shape:NiShape, asset_path):
         """
         Import the shader info from shape and create a Blender representation using shader
@@ -1418,6 +1568,12 @@ class ShaderImporter:
         try:
             if obj.type == 'EMPTY': return
             if shape.properties.shaderPropertyID == NODEID_NONE: return
+
+            # Starfield materials are layered .mat graphs, not a NIF texture set -> a
+            # dedicated Principled-BSDF PBR path (not the FO4/Skyrim group-node shaders).
+            if shape.file.game == 'SF':
+                self.import_sf_material(obj, shape)
+                return
 
             self.shape = shape
             self.game = shape.file.game

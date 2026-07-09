@@ -2840,6 +2840,46 @@ def TEST_SF_IMPORT():
     assert sfg.is_internal is False, "External geometry (not internal 0x200) recorded"
 
 
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MATERIAL():
+    """Starfield: import the layered .mat as a native Principled-BSDF PBR material.
+
+    SF carries no NIF texture set -- the shader Name points at a loose .mat listing one
+    texture per PBR property. We resolve + parse it, wire each map to the matching Principled
+    input (normal Z reconstructed from BC5 XY), and stash the raw slot paths for round-trip.
+    """
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    body = TTB.find_shape("Naked_F:0")  # the LOD0 mesh child
+    mat = body.active_material
+    assert mat, "Body has a material"
+
+    # Raw .mat slot paths are stashed for round-trip + the panel (Data\ prefix stripped).
+    assert mat['BSShaderTextureSet_Albedo'] == r"Textures\SF\test\body_color.dds", \
+        f"Albedo path stashed: {mat.get('BSShaderTextureSet_Albedo')}"
+    assert mat['BSShaderTextureSet_Normal'] == r"Textures\SF\test\body_normal.dds", \
+        f"Normal path stashed: {mat.get('BSShaderTextureSet_Normal')}"
+    # The material's own .mat path is kept for export round-trip.
+    assert mat['BSLSP_Shader_Name'].lower().endswith('naked_f_body.mat'), \
+        f"Material .mat path kept: {mat.get('BSLSP_Shader_Name')}"
+
+    # A native Principled BSDF wired from the PBR maps.
+    nt = mat.node_tree
+    bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    assert bsdf, "Has a Principled BSDF"
+    assert bsdf.inputs['Base Color'].is_linked, "Base Color wired (albedo x AO)"
+    assert bsdf.inputs['Roughness'].is_linked, "Roughness wired"
+    assert bsdf.inputs['Metallic'].is_linked, "Metallic wired"
+    assert bsdf.inputs['Normal'].is_linked, "Normal wired"
+
+    # One image node per resolved map (albedo/normal/rough/metal/ao).
+    teximgs = [n for n in nt.nodes if n.type == 'TEX_IMAGE']
+    assert len(teximgs) == 5, f"One image node per PBR map: {len(teximgs)}"
+    # Normal Z is reconstructed (BC5 XY) -> a Normal Map node fed by combine/math nodes.
+    assert any(n.type == 'NORMAL_MAP' for n in nt.nodes), "Normal reconstructed via Normal Map"
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
