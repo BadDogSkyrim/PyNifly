@@ -13,6 +13,7 @@
 #include <iostream>
 #include <filesystem>
 #include <string>
+#include <sstream>
 #include <algorithm>
 #include "niffile.hpp"
 #include "bhk.hpp"
@@ -6897,5 +6898,86 @@ NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {
         return NIF_NPOS;
     }
     return creatorFunctions[theBuf->bufType](f, name, buf, parent);
+}
+
+
+/* ============================================================================
+   STARFIELD — BSGeometry / external .mesh data
+
+   A Starfield BSGeometry is a NiShape holding one BSGeometryMesh per LOD slot.
+   Each slot carries an external .mesh path (meshName) but NO geometry until the
+   .mesh bytes are loaded. Flow: get the path(s) -> Python resolves each to a
+   loose .mesh -> loadBSGeometryMeshData(bytes) -> the existing getVertsForShape/
+   getTriangles/getNormalsForShape/getUVs then work (BSGeometry routes them
+   through GetGeometryData). nifly applies havokScale (69.969) on load, so
+   positions come back in game units, same regime as Skyrim/FO4.
+   ============================================================================ */
+
+// Safe downcast: a NiShape* to BSGeometry* only when the block really is one.
+// Follows the wrapper's existing strcmp(GetBlockName()) idiom (no RTTI dependency).
+static nifly::BSGeometry* asBSGeometry(void* theShape) {
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (shape && strcmp(shape->GetBlockName(), "BSGeometry") == 0)
+        return static_cast<nifly::BSGeometry*>(shape);
+    return nullptr;
+}
+
+// Number of mesh (LOD) slots on a BSGeometry. 0 if the shape isn't a BSGeometry.
+NIFLY_API int getBSGeometryMeshCount(void* theNif, void* theShape) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    return geom ? geom->MeshCount() : 0;
+}
+
+// The external .mesh path (meshName) for LOD slot 'whichMesh'. Fills 'buf' (NUL-
+// terminated) and returns the full path length (may exceed buflen-1 -> caller can
+// resize and retry). Returns 0 if not a BSGeometry / slot out of range.
+NIFLY_API int getBSGeometryMeshPath(void* theNif, void* theShape, int whichMesh,
+                                    char* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) { if (buflen > 0) buf[0] = 0; return 0; }
+
+    std::vector<std::reference_wrapper<std::string>> refs =
+        nif->GetExternalGeometryPathRefs(shape);
+    if (whichMesh < 0 || whichMesh >= (int)refs.size()) {
+        if (buflen > 0) buf[0] = 0;
+        return 0;
+    }
+    const std::string& path = refs[whichMesh].get();
+    int n = (int)path.size();
+    if (buflen > 0) {
+        int copy = (n < buflen - 1) ? n : buflen - 1;
+        for (int i = 0; i < copy; i++) buf[i] = path[i];
+        buf[copy] = 0;
+    }
+    return n;
+}
+
+// 1 if the BSGeometry stores its mesh data inline in the NIF (flag 0x200), else 0.
+NIFLY_API int getBSGeometryInternalFlag(void* theNif, void* theShape) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    return (geom && geom->HasInternalGeomData()) ? 1 : 0;
+}
+
+// Load external .mesh bytes into LOD slot 'whichMesh' and select that slot, so the
+// standard geometry accessors read from it. Returns 1 on success, 0 on failure.
+NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh,
+                                     const char* bytes, int len) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+
+    std::string data(bytes, len);
+    std::istringstream stream(data, std::ios::binary);
+    bool ok = nif->LoadExternalShapeData(shape, stream, (uint8_t)whichMesh);
+    if (ok) geom->SelectMesh((uint8_t)whichMesh);
+    return ok ? 1 : 0;
+}
+
+// Select a LOD slot so subsequent getVertsForShape/getTriangles/etc. read from it.
+NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (geom) geom->SelectMesh((uint8_t)whichMesh);
 }
 

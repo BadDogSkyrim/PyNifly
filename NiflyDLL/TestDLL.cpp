@@ -7,6 +7,7 @@
 
 #include "pch.h"
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -1046,6 +1047,72 @@ namespace NiflyDLLTests
 				outfile2, "Armor",
 				targetVert, targetBone);
 		};
+
+		TEST_METHOD(LoadStarfieldMesh)
+		{
+			/* UNIT TEST: Load a Starfield BSGeometry nif + its external .mesh, read geometry. */
+			std::filesystem::path testfile = testRoot / "SF/naked_f.nif";
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif);
+
+			void* shapes[5];
+			int shapeCount = getShapes(nif, shapes, 5, 0);
+			Assert::AreEqual(1, shapeCount);
+			void* geom = shapes[0];
+
+			// A BSGeometry with one external mesh slot, no inline data.
+			Assert::AreEqual(1, getBSGeometryMeshCount(nif, geom));
+			Assert::AreEqual(0, getBSGeometryInternalFlag(nif, geom));
+
+			char path[256];
+			int pathLen = getBSGeometryMeshPath(nif, geom, 0, path, 256);
+			Assert::IsTrue(pathLen > 0, L"BSGeometry has an external mesh path");
+
+			// Load the external .mesh bytes into slot 0.
+			std::ifstream in(meshfile, std::ios::binary);
+			Assert::IsTrue(in.good(), L"Can open the .mesh file");
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			int ok = loadBSGeometryMeshData(nif, geom, 0, bytes.data(), (int)bytes.size());
+			Assert::AreEqual(1, ok, L"Loaded external mesh data");
+
+			// The standard accessors now return the mesh geometry (BSGeometry routes
+			// them through GetGeometryData once a slot is loaded + selected).
+			Vector3* verts = new Vector3[60000];
+			Triangle* tris = new Triangle[120000];
+			Vector2* uv = new Vector2[60000];
+			Vector3* norms = new Vector3[60000];
+			int vertCount = getVertsForShape(nif, geom, verts, 60000 * 3, 0);
+			int triCount = getTriangles(nif, geom, tris, 120000 * 3, 0);
+			int uvCount = getUVs(nif, geom, uv, 60000 * 2, 0);
+			int normCount = getNormalsForShape(nif, geom, norms, 60000 * 3, 0);
+
+			Assert::IsTrue(vertCount > 0, L"Read vertices from .mesh");
+			Assert::IsTrue(triCount > 0, L"Read triangles from .mesh");
+			Assert::AreEqual(vertCount, uvCount, L"One UV per vertex");
+			Assert::AreEqual(vertCount, normCount, L"One normal per vertex");
+			// havokScale applied on load -> game-unit magnitude (like SSE/FO4), not raw metric.
+			Assert::IsTrue(verts[0].x > -1000.0f && verts[0].x < 1000.0f,
+						   L"Vertex in game-unit range");
+
+			// Skin works through the EXISTING wrapper functions: nifly reads BSGeometry bone
+			// names from the SkinAttach extra data and per-vertex weights from the loaded
+			// .mesh (BSGeometryMeshData::skinWeights). No new skin wrapper functions needed.
+			char bones[4000];
+			int boneStrLen = getShapeBoneNames(nif, geom, bones, 4000);
+			Assert::IsTrue(boneStrLen > 0, L"BSGeometry has bones (from SkinAttach)");
+			int boneCount = 1;
+			for (int i = 0; i < boneStrLen; i++) if (bones[i] == '\n') boneCount++;
+			Assert::IsTrue(boneCount > 10, L"Skinned body uses many bones");
+			int totalWeighted = 0;
+			for (int b = 0; b < boneCount; b++)
+				totalWeighted += getShapeBoneWeightsCount(nif, geom, b);
+			Assert::IsTrue(totalWeighted > 0, L"Bones weight vertices (per-vertex skinWeights)");
+
+			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
+		}
 
 		TEST_METHOD(LoadAndStoreFO4)
 		{

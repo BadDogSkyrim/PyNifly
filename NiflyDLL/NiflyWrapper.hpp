@@ -201,3 +201,10 @@ extern "C" NIFLY_API int setCollCompressedMeshMaterials(void* nifref, int dataID
 extern "C" NIFLY_API int getCollPackedStripsDataID(void* nifref, int shapeID);
 extern "C" NIFLY_API int setCollPackedStripsVerts(void* nifref, int dataID, float* verts, int vertCount);
 extern "C" NIFLY_API int setCollPackedStripsTris(void* nifref, int dataID, uint16_t* tris, int triCount, float* normals);
+
+// Starfield BSGeometry / external .mesh data
+extern "C" NIFLY_API int getBSGeometryMeshCount(void* theNif, void* theShape);
+extern "C" NIFLY_API int getBSGeometryMeshPath(void* theNif, void* theShape, int whichMesh, char* buf, int buflen);
+extern "C" NIFLY_API int getBSGeometryInternalFlag(void* theNif, void* theShape);
+extern "C" NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, const char* bytes, int len);
+extern "C" NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh);
