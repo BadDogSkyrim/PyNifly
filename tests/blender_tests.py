@@ -2759,6 +2759,22 @@ def TEST_PARTITIONS_EMPTY():
     assert set([p.id for p in head.partitions]) == set([130, 230]), "Have all head parts"
 
 
+@TT.category('STARFIELD')
+def TEST_SF_IMPORT():
+    """Starfield: import a BSGeometry body, resolving + reading its external .mesh."""
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    body = TTB.find_shape("Naked_F:0")
+    assert body is not None, "Imported the body mesh"
+    assert len(body.data.vertices) == 6616, f"Vertex count: {len(body.data.vertices)}"
+    assert len(body.data.polygons) == 12132, f"Polygon count: {len(body.data.polygons)}"
+    assert body.data.uv_layers, "Has a UV layer"
+    # Per-vertex skin weights import as vertex groups (one per SkinAttach bone).
+    assert len(body.vertex_groups) == 38, f"Bone vertex groups: {len(body.vertex_groups)}"
+    assert body.active_material, "Has a material"
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""

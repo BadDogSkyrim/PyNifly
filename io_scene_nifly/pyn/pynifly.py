@@ -4749,6 +4749,20 @@ class BSGeometry(NiShape):
             self._tris = [(buf[i][0], buf[i][1], buf[i][2]) for i in range(n)]
         return self._tris
 
+    @property
+    def unique_bone_names(self):
+        """SkinAttach bone names are already unique -- no partition-palette repetition."""
+        return self.bone_names
+
+    @property
+    def bone_weights(self):
+        """SF weights are keyed by bone INDEX (position in the SkinAttach bone list). There
+        are no node-ref bone IDs, so the base class's id-based dedup doesn't apply."""
+        if self._weights is None:
+            self._weights = {name: self._bone_weights(i)
+                             for i, name in enumerate(self.bone_names)}
+        return self._weights
+
 
 # --- NiTriStrips --- #
 class NiTriStrips(NiShape):
@@ -5257,7 +5271,10 @@ class NifFile:
                 pass
             return node
         else:
-            log.warning(f"Unknown block type: {bn}")
+            # Starfield skin blocks are consumed internally (bone names via GetShapeBoneList,
+            # per-vertex weights from the loaded .mesh) and have no Blender representation.
+            if bn not in ("SkinAttach", "BSSkin::Instance", "BSSkin::BoneData"):
+                log.warning(f"Unknown block type: {bn}")
             return None
 
 

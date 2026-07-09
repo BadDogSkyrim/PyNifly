@@ -1240,6 +1240,12 @@ class NifImporter():
         * self.nodes_loaded = Dictionary mapping blender name : P.NiShape from nif
         """
         try:
+            # Starfield: geometry lives in an external .mesh; resolve + load it so verts/
+            # tris/uvs/normals/weights are available before the normal build reads them.
+            if isinstance(the_shape, P.BSGeometry):
+                from . import sf_geometry
+                sf_geometry.load_geometry(the_shape, 0)
+
             v = the_shape.verts
             t = the_shape.tris
             if self.scale == 1.0:
@@ -1833,7 +1839,15 @@ class NifImporter():
                     else:
                         # Have to trust the bind position in the nif.
                         # Facegen nifs always use the bind position.
-                        bone_shape_xf = BD.transform_to_matrix(nif_shape.get_shape_skin_to_bone(bn)).inverted()
+                        skin_to_bone = nif_shape.get_shape_skin_to_bone(bn)
+                        if skin_to_bone is None:
+                            # Starfield stores bone data in BSSkinBoneData indexed by
+                            # position, not NiNode refs, so the name-based skin-to-bone
+                            # lookup returns nothing. Skip binding this bone for now; the
+                            # per-vertex weights still import as vertex groups.
+                            # TODO(Starfield): index-based BSSkinBoneData skin binding.
+                            continue
+                        bone_shape_xf = BD.transform_to_matrix(skin_to_bone).inverted()
                         xf = skin_xf @ bone_shape_xf
                     BD.create_bone(arma.data, blname, xf, self.nif.game, 1.0, 0)
                     new_bones.append((bn, blname))

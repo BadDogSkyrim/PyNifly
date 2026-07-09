@@ -13,6 +13,7 @@ from . import shader_io
 from . import collision
 from . import connectpoint
 from . import pyn_props
+from . import sf_geometry
 
 if _needs_reload:
     import importlib
@@ -23,6 +24,7 @@ if _needs_reload:
     collision = importlib.reload(collision)
     connectpoint = importlib.reload(connectpoint)
     pyn_props = importlib.reload(pyn_props)
+    sf_geometry = importlib.reload(sf_geometry)
 
 
 def nifly_menu_import_nif(self, context):
