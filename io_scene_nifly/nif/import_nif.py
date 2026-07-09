@@ -571,7 +571,8 @@ class NifImporter():
         ed = bpy.context.object
         ed.name = "BSBoneLOD:" + extblock.name
         ed.show_name = True
-        ed['pynBoneLOD'] = json.dumps(extblock.lod_data)
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bonelod', value=json.dumps(extblock.lod_data))
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -583,8 +584,8 @@ class NifImporter():
         ed.name = "BSXFlags:" + extblock.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['BSXFlags_Name'] = extblock.name
-        ed['BSXFlags_Value'] = extblock.flags.fullname
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bsxflags', name=extblock.name, value=extblock.flags.fullname)
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -596,8 +597,8 @@ class NifImporter():
         ed.name = "NiIntegerExtraData:" + extblock.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['NiIntegerExtraData_Name'] = extblock.name
-        ed['NiIntegerExtraData_Value'] = extblock.integer_data
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_niintdata', name=extblock.name, value=extblock.integer_data)
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -621,11 +622,10 @@ class NifImporter():
         mx, focal_len = BD.inv_to_cam(invm.rotation, invm.zoom)
         ed.data.lens = focal_len
 
-        ed['BSInvMarker_Name'] = invm.name
-        ed['BSInvMarker_RotX'] = invm.rotation[0]
-        ed['BSInvMarker_RotY'] = invm.rotation[1]
-        ed['BSInvMarker_RotZ'] = invm.rotation[2]
-        ed['BSInvMarker_Zoom'] = invm.zoom
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_invmarker', name=invm.name,
+                            rotation=(invm.rotation[0], invm.rotation[1], invm.rotation[2]),
+                            zoom=invm.zoom)
 
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
@@ -651,8 +651,10 @@ class NifImporter():
             obj.location = Vector(marker.offset[:]) * self.scale
             obj.rotation_euler = (-pi/2, 0, marker.heading)
             obj.scale = Vector((40,10,10)) * self.scale
-            obj['AnimationType'] = marker.animation_type_name
-            obj['EntryPoints'] = marker.entry_points_list
+            from . import pyn_props
+            pyn_props.set_group(obj, 'pyn_furniture',
+                                animation_type=marker.animation_type_name,
+                                entry_points=marker.entry_points_list)
             obj.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=obj))
             BD.link_to_collection(self.collection, obj)
@@ -664,8 +666,8 @@ class NifImporter():
         ed.name = "NiStringExtraData:" + stringdata.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['NiStringExtraData_Name'] = stringdata.name
-        ed['NiStringExtraData_Value'] = stringdata.string_data
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_nistrdata', name=stringdata.name, value=stringdata.string_data)
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -677,9 +679,10 @@ class NifImporter():
         ed.name = "BSBehaviorGraphExtraData:" + behavior.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['BSBehaviorGraphExtraData_Name'] = behavior.name
-        ed['BSBehaviorGraphExtraData_Value'] = behavior.behavior_graph_file
-        ed['BSBehaviorGraphExtraData_CBS'] = behavior.controls_base_skeleton
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bsbehavior', name=behavior.name,
+                            value=behavior.behavior_graph_file,
+                            cbs=bool(behavior.controls_base_skeleton))
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -707,8 +710,9 @@ class NifImporter():
         ed.name = "BSDecalPlacementVectorExtraData:" + decal.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['BSDecalPlacementVectorExtraData_Name'] = decal.name
-        ed['BSDecalPlacementVectorExtraData_Value'] = json.dumps(decal.vector_blocks)
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bsdecal', name=decal.name,
+                            value=json.dumps(decal.vector_blocks))
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -840,14 +844,15 @@ class NifImporter():
         #     obj["pynNodeFlags"] = NiAVFlags(ninode.flags).fullname
         # except:
         #     pass
-        ninode.properties.extract(obj, ignore=NISHAPE_IGNORE, game=ninode.file.game)
+        from . import pyn_props
+        pyn_props.import_block_props(obj, ninode.properties, ignore=NISHAPE_IGNORE, game=ninode.file.game)
 
         # Only the root node gets the import transform. It gets applied to all children automatically.
         if ninode.id == 0: 
             bpy.ops.object.mode_set(mode = 'OBJECT')
             obj.name = ninode.name + ":ROOT"
             obj["pynRoot"] = True
-            obj[PYN_BLENDER_XF_PROP] = MatNearEqual(self.import_xf, BD.blender_import_xf)
+            obj.pyn_export.blender_xf = MatNearEqual(self.import_xf, BD.blender_import_xf)
             obj[PYN_GAME_PROP] = self.nif.game
             obj.empty_display_type = 'CONE'
 
@@ -1252,7 +1257,8 @@ class NifImporter():
             new_object = bpy.data.objects.new(shape_name, new_mesh)
             new_object['pynBlockName'] = the_shape.blockname
             new_object['pynNodeName'] = the_shape.name
-            the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
+            from . import pyn_props
+            pyn_props.import_block_props(new_object, the_shape.properties, ignore=NISHAPE_IGNORE)
             try:
                 new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
                 if the_shape.properties.vertexDesc:

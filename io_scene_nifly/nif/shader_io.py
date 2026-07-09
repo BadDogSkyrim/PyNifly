@@ -1014,7 +1014,10 @@ class ShaderImporter:
         shader:NiShader = shape.shader
 
         try:
-            shader.properties.extract(self.material, ignore=NISHADER_IGNORE, game=self.game)
+            # Shader fields live on the typed pyn_shader PropertyGroup (not flat
+            # material[...] custom props). See pyn_props.py.
+            from . import pyn_props
+            pyn_props.import_shader_group(self.material, shader.properties, self.game)
 
             self.material['BS_Shader_Block_Name'] = shader.blockname
             self.material['BSLSP_Shader_Name'] = shader.name
@@ -1594,7 +1597,12 @@ class ShaderExporter:
             shape.shader._checked_for_materials = True
             shape.shader._materials = None
 
-            shape.shader.properties.load(self.material, game=self.game)
+            # Shader fields come from the typed pyn_shader group. ensure_shader_migrated
+            # carries legacy custom props (old .blend files / custom-prop-driven export)
+            # onto the group the first time.
+            from . import pyn_props
+            pyn_props.ensure_shader_migrated(self.material)
+            shape.shader.properties.load(pyn_props.shader_store(self.material), game=self.game)
             if 'BS_Shader_Block_Name' in self.material:
                 if self.material['BS_Shader_Block_Name'] == "BSLightingShaderProperty":
                     shape.shader.properties.bufType = PynBufferTypes.BSLightingShaderPropertyBufType

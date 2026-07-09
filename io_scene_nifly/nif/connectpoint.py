@@ -236,9 +236,10 @@ class ConnectPointChild():
         obj.empty_display_type = 'SPHERE'
         obj.empty_display_size = scale * CONNECT_POINT_SCALE
         obj.location = (0,0,0)
-        obj['PYN_CONNECT_CHILD_SKINNED'] = nif.connect_pt_child_skinned
-        for i, n in enumerate(nif.connect_points_child):
-            obj[f'PYN_CONNECT_CHILD_{i}'] = n
+        from . import pyn_props
+        pyn_props.set_group(obj, 'pyn_connectpoint',
+                            skinned=bool(nif.connect_pt_child_skinned),
+                            child_names='\n'.join(nif.connect_points_child))
         BD.link_to_collection(coll, obj)
         
         ro = ReprObject(blender_obj=obj)
@@ -284,14 +285,20 @@ class ConnectPointCollection():
                 self.add(p)
 
         elif is_child(cp):
+            from . import pyn_props
             names = set()
             names.add(get_nifname(cp))
-            skinned = False
-            for k in cp.keys():
-                if k == 'PYN_CONNECT_CHILD_SKINNED':
-                    skinned = bool(cp[k])
-                elif k.startswith('PYN_CONNECT_CHILD'):
-                    names.add(cp[k])
+            g = pyn_props.get_group(cp, 'pyn_connectpoint')  # migrates legacy skinned
+            skinned = bool(g.skinned)
+            if g.child_names:
+                for n in g.child_names.split('\n'):
+                    if n:
+                        names.add(n)
+            else:
+                # old .blend fallback: variable-count legacy keys
+                for k in cp.keys():
+                    if k.startswith('PYN_CONNECT_CHILD') and k != 'PYN_CONNECT_CHILD_SKINNED':
+                        names.add(cp[k])
             c = ConnectPointChild(names, ReprObject(cp, None), skinned=skinned)
             self.add(c)
 

@@ -1597,11 +1597,11 @@ def TEST_DEER_SKEL():
     assert TT.is_contains("BSBoneLOD:BSBoneLOD", [obj.name for obj in root.children], "Have Bone LOD object")
     
     # Check for SkeletonID 
-    skel_id_obj = next((obj for obj in root.children if "NiIntegerExtraData_Name" in obj), None)
+    skel_id_obj = next((obj for obj in root.children if obj.name.startswith("NiIntegerExtraData")), None)
     assert skel_id_obj, "Have SkeletonID object"
-    assert TT.is_eq(skel_id_obj['NiIntegerExtraData_Name'], "SkeletonID", "SkeletonID name value")
-    assert TT.is_contains('NiIntegerExtraData_Value', skel_id_obj, "SkeletonID has Data property")
-    assert TT.is_eq(skel_id_obj['NiIntegerExtraData_Value'], 178509022, "SkeletonID Data value")
+    assert TT.is_eq(skel_id_obj.pyn_niintdata.name, "SkeletonID", "SkeletonID name value")
+    assert skel_id_obj.pyn_niintdata.is_property_set('value'), "SkeletonID has Data property"
+    assert TT.is_eq(skel_id_obj.pyn_niintdata.value, 178509022, "SkeletonID Data value")
 
     ### EXPORT ###
 
@@ -2633,7 +2633,7 @@ def TEST_BP_SEGMENTS():
 
     assert visor.name == "glass:0", "Read the visor object"
     assert "FO4 Seg 001 | Hair Top" in visor.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
-    TT.assert_eq(visor.active_material['envMapTexture'], "shared/cubemaps/shinyglass_e.dds", 
+    TT.assert_eq(visor.active_material.pyn_shader.envMapTexture, "shared/cubemaps/shinyglass_e.dds",
                  "Environment map texture")
 
     print("### Can write FO4 segments")
@@ -2820,7 +2820,7 @@ def TEST_SHADER_SE():
     boots = bpy.context.object
     shadernodes = boots.active_material.node_tree.nodes
     TT.assert_gt(len(shadernodes), 4, "Number of shader nodes")
-    TT.assert_eq(boots.active_material['Env_Map_Scale'], shaderAttrsSE.Env_Map_Scale, "environment map scale")
+    TT.assert_eq(boots.active_material.pyn_shader.Env_Map_Scale, shaderAttrsSE.Env_Map_Scale, "environment map scale")
     TT.assert_eq(bpy.data.materials["Shoes.Mat"].node_tree.nodes["UV_Converter"].inputs[4].default_value, 1, "Wrap U")
 
     print("## Shader attributes are written on export")
@@ -3090,7 +3090,7 @@ def TEST_HIGHTECH_FLOORLIGHT():
     assert 'AddOnNode211' in bpy.context.scene.objects
     addon = bpy.context.scene.objects['AddOnNode211']
     TT.assert_eq(addon['pynBlockName'], 'BSValueNode', "Addon block name")
-    TT.assert_eq(addon['value'], 211, "Addon value")
+    TT.assert_eq(addon.pyn_valuenode.value, 211, "Addon value")
     TT.assert_eq(addon['pynValueNodeFlags'], '', "Addon flags")
     TT.assert_eq(json.loads(addon['pynActionSlots']),
                  json.loads('{"UnpoweredOn": "AddOnNode211", "On": "AddOnNode211", '
@@ -3893,9 +3893,9 @@ def TEST_SHEATH():
 
     bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
     slist = [obj for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")]
-    bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bglist])
+    bgnames = set([obj.pyn_bsbehavior.name for obj in bglist])
     assert TT.is_eq(bgnames, set(["BGED"]), f"BG extra data properties")
-    snames = set([obj['NiStringExtraData_Name'] for obj in slist])
+    snames = set([obj.pyn_nistrdata.name for obj in slist])
     assert TT.is_eq(snames, set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), 
         f"string extra data properties")
 
@@ -3933,8 +3933,8 @@ def TEST_FEET():
 
     feet = bpy.data.objects['FootLowRes']
     assert TT.is_eq(len(feet.children), 1, "Feet have children")
-    assert TT.is_eq(feet.children[0]['NiStringExtraData_Name'], "SDTA", "Feet have extra data child")
-    assert TT.is_eq(feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), True, f"Feet have string data")
+    assert TT.is_eq(feet.children[0].pyn_nistrdata.name, "SDTA", "Feet have extra data child")
+    assert TT.is_eq(feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), True, f"Feet have string data")
 
     # Write and check that it's correct. Only the feet have to be selected--the extra data
     # goes because the object is a child of the feet object.
@@ -3961,8 +3961,8 @@ def TEST_FEET_MULTI():
 
     feet = bpy.data.objects['FootLowRes']
     TT.assert_eq(len(feet.children), 1, "Feet children")
-    TT.assert_eq(feet.children[0]['NiStringExtraData_Name'], "SDTA", "extra data child name")
-    assert feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), f"Feet have string data"
+    TT.assert_eq(feet.children[0].pyn_nistrdata.name, "SDTA", "extra data child name")
+    assert feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), f"Feet have string data"
 
     ### WRITE ###
      
@@ -4013,12 +4013,12 @@ def TEST_DECAL_PLACEMENT():
     import_coll = bpy.context.collection
 
     decal_objs = [o for o in import_coll.all_objects
-                  if 'BSDecalPlacementVectorExtraData_Name' in o]
+                  if o.name.startswith("BSDecalPlacementVectorExtraData")]
     TT.assert_gt(len(decal_objs), 0, "decal empties imported")
 
     for dobj in decal_objs:
-        dname = dobj['BSDecalPlacementVectorExtraData_Name']
-        dval = json.loads(dobj['BSDecalPlacementVectorExtraData_Value'])
+        dname = dobj.pyn_bsdecal.name
+        dval = json.loads(dobj.pyn_bsdecal.value)
         log.info(f"Imported decal '{dname}': {len(dval)} blocks")
         TT.assert_gt(len(dval), 0, f"decal '{dname}' has blocks")
 
@@ -5053,7 +5053,7 @@ def TEST_TREE():
     assert root['pynBlockName'] == "BSLeafAnimNode", f"Have correct root type: {root['pynBlockName']}"
 
     tree = next(obj for obj in bpy.data.objects if obj.name.startswith("Tree") and obj.type == 'MESH')
-    assert 'TREE_ANIM' in tree.active_material['Shader_Flags_2'], f"Have shader flags"
+    assert 'TREE_ANIM' in tree.active_material.pyn_shader.Shader_Flags_2, f"Have shader flags"
     assert tree['pynBlockName'] == "BSMeshLODTriShape", f"Have correct block type: {tree['pynBlockName']}"
     assert TT.is_eq(lod0_size, 1126, "Have correct LOD0 size")
 
@@ -5488,8 +5488,8 @@ def TEST_COLLISION_BOW():
     # Check collision info
     coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
     TT.assert_eq(coll.name, 'bhkBoxShape', "Collision shape")
-    TT.assert_eq(coll['pynCollisionFlags'], "ACTIVE | SYNC_ON_UPDATE", "bhkCollisionShape represents a collision")
-    TT.assert_eq(coll['collisionFilter_layer'], SkyrimCollisionLayer.WEAPON.name, 
+    TT.assert_eq(coll.pyn_collisionobj.flags, "ACTIVE | SYNC_ON_UPDATE", "bhkCollisionShape represents a collision")
+    TT.assert_eq(coll.pyn_rigidbody.collisionFilter_layer, SkyrimCollisionLayer.WEAPON.name,
                  "Collsion filter layer")
 
     # Default collision response is 1 = SIMPLE_CONTACT, so no property for it.
@@ -5497,8 +5497,8 @@ def TEST_COLLISION_BOW():
 
     # assert NT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
-    TT.assert_eq(coll['bhkMaterial'], 'MATERIAL_BOWS_STAVES', f"Shape material")
-    TT.assert_equiv(coll['bhkRadius'], 0.0136, f"Radius")
+    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'MATERIAL_BOWS_STAVES', f"Shape material")
+    TT.assert_equiv(coll.pyn_collshape.bhkRadius, 0.0136, f"Radius")
 
     # Covers the bow closely in the Y axis
     bowmax = max((bow.matrix_world @ v.co).y for v in bow.data.vertices)
@@ -5518,21 +5518,21 @@ def TEST_COLLISION_BOW():
 
     # Check extra data
     bged = TTB.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
-    TT.assert_eq(bged['BSBehaviorGraphExtraData_Value'], "Weapons\Bow\BowProject.hkx", "BGED node value")
+    TT.assert_eq(bged.pyn_bsbehavior.value, "Weapons\Bow\BowProject.hkx", "BGED node value")
 
     strd = TTB.find_shape("NiStringExtraData", type='EMPTY')
-    TT.assert_eq(strd['NiStringExtraData_Value'], "WeaponBow", f"string extra data value")
+    TT.assert_eq(strd.pyn_nistrdata.value, "WeaponBow", f"string extra data value")
 
     bsxf = TTB.find_shape("BSXFlags", type='EMPTY')
     root = [o for o in bpy.data.objects if "pynRoot" in o][0]
     TT.assert_eq(bsxf.parent, root, f"Extra data parent")
-    TT.assert_eq(bsxf['BSXFlags_Name'], "BSX", "BSX Flags name")
-    TT.assert_eq(bsxf['BSXFlags_Value'], "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags value")
+    TT.assert_eq(bsxf.pyn_bsxflags.name, "BSX", "BSX Flags name")
+    TT.assert_eq(bsxf.pyn_bsxflags.value, "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags value")
 
     invm = TTB.find_shape("BSInvMarker", type='CAMERA')
-    TT.assert_eq(invm['BSInvMarker_Name'], "INV", "Inventory marker name")
-    TT.assert_eq(invm['BSInvMarker_RotX'], 4712, "Inventory marker x rotation")
-    TT.assert_equiv(invm['BSInvMarker_Zoom'], 1.1273, "Inventory marker zoom")
+    TT.assert_eq(invm.pyn_invmarker.name, "INV", "Inventory marker name")
+    TT.assert_eq(invm.pyn_invmarker.rotation[0], 4712, "Inventory marker x rotation")
+    TT.assert_equiv(invm.pyn_invmarker.zoom, 1.1273, "Inventory marker zoom")
 
     # Check shape as deformed by armature
     BD.ObjectSelect([bow], active=True)
@@ -5949,7 +5949,7 @@ def TEST_COLLISION_CONVEXVERT(bx):
     TT.assert_eq(coll.rigid_body.type, 'ACTIVE', f"Collision body type")
     TT.assert_equiv(coll.rigid_body.mass, 2.5, f"mass")
     TT.assert_equiv(coll.rigid_body.friction, 0.5, f"friction")
-    TT.assert_eq(coll['bhkMaterial'], 'CLOTH', f"Shape material custom property")
+    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'CLOTH', f"Shape material custom property")
 
     xmax1 = max([v.co.x for v in cheese.data.vertices])
     xmax2 = max([v.co.x for v in coll.data.vertices])
@@ -6032,7 +6032,7 @@ def TEST_COLLISION_CAPSULE(bx):
 
     staff = TTB.find_shape("3rdPersonStaff04")
     coll = staff.parent.constraints[0].target
-    assert coll['bhkMaterial'] == 'SOLID_METAL', f"Have correct material"
+    assert coll.pyn_collshape.bhkMaterial == 'SOLID_METAL', f"Have correct material"
     strd = TTB.find_shape("NiStringExtraData", type="EMPTY")
     bsxf = TTB.find_shape("BSXFlags", type="EMPTY")
     invm = TTB.find_shape("BSInvMarker", type="EMPTY")
@@ -6919,8 +6919,7 @@ def TEST_CONNECT_POINT():
     assert p == parentnames, f"Found correct parentnames: {p}"
 
     assert cpchildren, f"Found child connect points: {cpchildren}"
-    assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
-        (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
+    assert "C-Receiver" in cpchildren[0].pyn_connectpoint.child_names.split('\n'), \
         f"Did not find child name"
 
     # assert NT.NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
@@ -7132,7 +7131,7 @@ def TEST_CONNECT_IMPORT_MULT():
     assert len(barrelparent) == 1, f"Have barrel parent connect point {barrelparent}"
     barrelchild = [obj for obj in bpy.data.objects \
                 if obj.name.startswith('BSConnectPointChildren')
-                        and obj['PYN_CONNECT_CHILD_0'] == 'C-Barrel']
+                        and 'C-Barrel' in obj.pyn_connectpoint.child_names.split('\n')]
     assert len(barrelchild) == 1, f"Have a single barrel child {barrelchild}"
     
 
@@ -9266,8 +9265,8 @@ def TEST_MISSING_MAT():
     mat = hands.active_material
     assert mat['BSLSP_Shader_Name'] == r"Materials\foo\basehumanmaleskinhands.bgsm", \
         f"Have correct materials: {mat['BS_Shader_Block_Name']}"
-    # assert 'SKIN_TINT' in mat['Shader_Flags_1'], f"Have correct flags: {mat['Shader_Flags_1']}"
-    assert mat['Shader_Type'] == 'Skin_Tint', f"Have correct shader type: {mat['Shader_Type']}"
+    # assert 'SKIN_TINT' in mat.pyn_shader.Shader_Flags_1, f"Have correct flags: {mat.pyn_shader.Shader_Flags_1}"
+    assert mat.pyn_shader.Shader_Type == 'Skin_Tint', f"Have correct shader type: {mat.pyn_shader.Shader_Type}"
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nifin = pyn.NifFile(testfile)
@@ -10608,7 +10607,7 @@ def TEST_NISWITCHNODE_IMPORT():
     switches = [o for o in bpy.data.objects
                 if o.get('pynBlockName') == 'NiSwitchNode']
     assert TT.is_eq(len(switches), 2, "Two NiSwitchNode empties imported")
-    flags = sorted(s['switchFlags'] for s in switches)
+    flags = sorted(s.pyn_switchnode.switchFlags for s in switches)
     assert TT.is_eq(flags, [1, 3], "Switch flags preserved on import")
 
 

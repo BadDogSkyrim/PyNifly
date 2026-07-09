@@ -723,21 +723,23 @@ class NifExporter:
 
     def export_shape_data(self, robj:ReprObject):
         """ Export a shape's extra data """
+        from . import pyn_props
         edlist = []
         strlist = []
         decallist = []
         for ch in robj.blender_obj.children:
-             if 'NiStringExtraData_Name' in ch:
-                strlist.append( (ch['NiStringExtraData_Name'], ch['NiStringExtraData_Value']) )
+             if ch.name.startswith("NiStringExtraData"):
+                g = pyn_props.get_group(ch, 'pyn_nistrdata')
+                strlist.append( (g.name, g.value) )
                 self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
-             if 'BSBehaviorGraphExtraData_Name' in ch:
-                edlist.append( (ch['BSBehaviorGraphExtraData_Name'],
-                               ch['BSBehaviorGraphExtraData_Value']) )
+             if ch.name.startswith("BSBehaviorGraphExtraData"):
+                g = pyn_props.get_group(ch, 'pyn_bsbehavior')
+                edlist.append( (g.name, g.value, g.cbs) )
                 self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
-             if 'BSDecalPlacementVectorExtraData_Name' in ch:
+             if ch.name.startswith("BSDecalPlacementVectorExtraData"):
                 import json
-                decallist.append( (ch['BSDecalPlacementVectorExtraData_Name'],
-                                   json.loads(ch['BSDecalPlacementVectorExtraData_Value'])) )
+                g = pyn_props.get_group(ch, 'pyn_bsdecal')
+                decallist.append( (g.name, json.loads(g.value)) )
                 self.objs_written.add(ReprObject(ch, None))
         
         if len(strlist) > 0:
@@ -831,23 +833,23 @@ class NifExporter:
             if obj.get('pynRigidBody') == 'bhkPhysicsSystem':
                 pass  # Multi-shape collision container: exported via COPY_TRANSFORMS on target
 
-            elif 'BSBehaviorGraphExtraData_Name' in obj.keys():
+            elif obj.name.startswith("BSBehaviorGraphExtraData"):
                 self.bg_data.add(obj)
 
-            elif 'NiStringExtraData_Name' in obj.keys() and obj.parent \
+            elif obj.name.startswith("NiStringExtraData") and obj.parent \
                     and obj.parent.get('pynRoot', False):
                 self.str_data.add(obj)
 
             elif 'BSClothExtraData_Name' in obj.keys():
                 self.cloth_data.add(obj)
 
-            elif 'BSDecalPlacementVectorExtraData_Name' in obj.keys():
+            elif obj.name.startswith("BSDecalPlacementVectorExtraData"):
                 self.decal_data.add(obj)
 
-            elif 'BSXFlags_Name' in obj.keys():
+            elif obj.name.startswith("BSXFlags"):
                 self.bsx_flag = obj
 
-            elif 'pynBoneLOD' in obj.keys():
+            elif obj.name.startswith("BSBoneLOD"):
                 self.bone_lod = obj
 
             elif obj.name.startswith("BSFurnitureMarkerNode"):
@@ -961,16 +963,15 @@ class NifExporter:
     def export_string_data(self):
         """Export strings previously cached in self.str_data."""
         from ..pyn.pynifly import NiStringExtraData
+        from . import pyn_props
         for st in self.str_data:
-            # if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game not in ['FO4', 'FO76']:
-            sd = NiStringExtraData.New(self.nif, 
-                name=st['NiStringExtraData_Name'], 
-                string_value=st['NiStringExtraData_Value'], 
+            g = pyn_props.get_group(st, 'pyn_nistrdata')
+            sd = NiStringExtraData.New(self.nif,
+                name=g.name,
+                string_value=g.value,
                 parent=self.nif.root)
-            # FO4 bodytris go at the top level
-            # sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
             self.objs_written.add_pair(st, sd)
-            self.bodytri_written |= (st['NiStringExtraData_Name'] == 'BODYTRI')
+            self.bodytri_written |= (g.name == 'BODYTRI')
 
         # if len(sdlist) > 0:
         #     # Create NiStringExtraData objects using new class
@@ -982,12 +983,14 @@ class NifExporter:
     def export_behavior_graph_data(self):
         """Export behavior graph data previously cached in self.bg_data."""
         from ..pyn.pynifly import BSBehaviorGraphExtraData
-        for bg in self.bg_data: 
-            bged = BSBehaviorGraphExtraData.New(self.nif, 
-                name=bg['BSBehaviorGraphExtraData_Name'], 
-                behavior_graph_file=bg['BSBehaviorGraphExtraData_Value'], 
-                controls_base_skeleton=bg['BSBehaviorGraphExtraData_CBS'], 
-                parent=self.nif.root) 
+        from . import pyn_props
+        for bg in self.bg_data:
+            g = pyn_props.get_group(bg, 'pyn_bsbehavior')
+            bged = BSBehaviorGraphExtraData.New(self.nif,
+                name=g.name,
+                behavior_graph_file=g.value,
+                controls_base_skeleton=g.cbs,
+                parent=self.nif.root)
             self.objs_written.add(ReprObject(bg, bged)) # [bg.name] = self.nif
 
 
@@ -1006,11 +1009,13 @@ class NifExporter:
     def export_decal_data(self):
         """Export decal placement data for root-level decal empties."""
         import json
+        from . import pyn_props
         for obj in self.decal_data:
             if obj in [ro.blender_obj for ro in self.objs_written]:
                 continue  # already exported as shape child
-            name = obj['BSDecalPlacementVectorExtraData_Name']
-            blocks = json.loads(obj['BSDecalPlacementVectorExtraData_Value'])
+            g = pyn_props.get_group(obj, 'pyn_bsdecal')
+            name = g.name
+            blocks = json.loads(g.value)
             vector_blocks = [[(tuple(v[0]), tuple(v[1])) for v in block]
                              for block in blocks]
             pynifly.BSDecalPlacementVectorExtraData.New(
@@ -1021,28 +1026,34 @@ class NifExporter:
 
     def export_bsx_flag(self):
         if self.bsx_flag:
-            bsx = pynifly.BSXFlags.New(self.nif, 
-                name=self.bsx_flag['BSXFlags_Name'],
-                flags=BSXFlagsValues.parse(self.bsx_flag['BSXFlags_Value']),
+            from . import pyn_props
+            g = pyn_props.get_group(self.bsx_flag, 'pyn_bsxflags')
+            bsx = pynifly.BSXFlags.New(self.nif,
+                name=g.name,
+                flags=BSXFlagsValues.parse(g.value),
                 parent=self.nif.rootNode)
             self.objs_written.add(ReprObject(self.bsx_flag, bsx))
 
 
     def export_integer_data(self):
+        from . import pyn_props
         for intdat in self.int_data:
-            id = pynifly.NiIntegerExtraData.New(self.nif, 
-                name=intdat['NiIntegerExtraData_Name'], 
-                value=intdat['NiIntegerExtraData_Value'], 
+            g = pyn_props.get_group(intdat, 'pyn_niintdata')
+            id = pynifly.NiIntegerExtraData.New(self.nif,
+                name=g.name,
+                value=g.value,
                 parent=self.nif.root)
             self.objs_written.add_pair(intdat, id)
 
 
     def export_bone_lod(self):
         if self.bone_lod:
+            from . import pyn_props
+            g = pyn_props.get_group(self.bone_lod, 'pyn_bonelod')
             ext = pynifly.BSBoneLODExtraData.New(
-                self.nif, 
+                self.nif,
                 name=BD.nonunique_name(self.bone_lod.name.split(":", 1)[1]),
-                lodlist=json.loads(self.bone_lod['pynBoneLOD']),
+                lodlist=json.loads(g.value),
                 parent=self.nif.rootNode)
             self.objs_written.add(ReprObject(self.bone_lod, ext))
 
@@ -1064,10 +1075,12 @@ class NifExporter:
             inv_rot, inv_zoom = BD.cam_to_inv(self.inv_marker.matrix_world, self.inv_marker.data.lens)
 
             from ..pyn.pynifly import BSInvMarker
-            invm = BSInvMarker.New(self.nif, 
-                name=self.inv_marker['BSInvMarker_Name'],
+            from . import pyn_props
+            g = pyn_props.get_group(self.inv_marker, 'pyn_invmarker')
+            invm = BSInvMarker.New(self.nif,
+                name=g.name,
                 rotation=(inv_rot[0], inv_rot[1], inv_rot[2]),
-                zoom=inv_zoom, 
+                zoom=inv_zoom,
                 parent=self.nif.rootNode)
             self.objs_written.add(ReprObject(self.inv_marker, invm))
 
@@ -1095,8 +1108,10 @@ class NifExporter:
             marker.offset[1] = (fm.location / self.scale)[1]
             marker.offset[2] = (fm.location / self.scale)[2]
             marker.heading = fm.rotation_euler.z
-            marker.animation_type_name = fm['AnimationType']
-            marker.entry_points_list = fm['EntryPoints']
+            from . import pyn_props
+            g = pyn_props.get_group(fm, 'pyn_furniture')
+            marker.animation_type_name = g.animation_type
+            marker.entry_points_list = g.entry_points
             fm_pos_list.append(marker)
         
         if fm_pos_list:
@@ -1405,7 +1420,9 @@ class NifExporter:
         ref = None
         with BD.stashed_animation(obj):
             nodetype = obj.get('pynBlockName', 'NiNode')
-            props = pynifly.NiObject.block_types[nodetype].getbuf(values=obj)
+            from . import pyn_props
+            blockcls = pynifly.NiObject.block_types[nodetype]
+            props = blockcls.getbuf(values=pyn_props.block_values(obj, blockcls))
             xf = BD.make_transformbuf(BD.apply_scale_xf(obj.matrix_local, 1))
             props.transform = xf
             if nodetype == 'BSMultiBoundNode':
@@ -1829,7 +1846,8 @@ class NifExporter:
                 raise ShapeTooBigError(f"Shape '{obj.name}' {size_err}")
 
             blockclass = pynifly.NiObject.block_types[blocktype]
-            props = blockclass.getbuf(obj)
+            from . import pyn_props
+            props = blockclass.getbuf(pyn_props.block_values(obj, blockclass))
 
             if lod_sizes is not None and hasattr(props, 'lodSize0'):
                 props.lodSize0 = lod_sizes[0]
@@ -1949,19 +1967,14 @@ class NifExporter:
                                   string_value=truncate_filename(self.trippath, "meshes"),
                                   parent=new_shape)
 
-        defaults = ExportSettings()
+        # game stays a per-object legacy prop (multi-object discovery in _discover_game).
         obj[PYN_GAME_PROP] = self.game
-        obj[PYN_BLENDER_XF_PROP] = MatNearEqual(self.export_xf, BD.blender_export_xf)
-        if self.settings.preserve_hierarchy != defaults.preserve_hierarchy:
-            obj[PYN_PRESERVE_HIERARCHY_PROP] = self.settings.preserve_hierarchy 
-        if arma:
-            arma[PYN_RENAME_BONES_PROP] = self.settings.rename_bones
-            if self.settings.rename_bones_niftools != defaults.rename_bones_niftools:
-                arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.settings.rename_bones_niftools 
-        if self.settings.write_bodytri != defaults.write_bodytri:
-            obj['PYN_WRITE_BODYTRI_ED'] = self.settings.write_bodytri 
-        if self.settings.export_pose != defaults.export_pose: 
-            obj['PYN_EXPORT_POSE'] = self.settings.export_pose 
+        # All other export settings are sticky in the typed groups: nif-level on the root,
+        # skeleton settings on the armature (Bad Dog's root+armature split).
+        from . import pyn_props
+        pyn_props.write_export_settings(self.root_object, arma, self.settings)
+        if self.root_object is not None:
+            self.root_object.pyn_export.blender_xf = MatNearEqual(self.export_xf, BD.blender_export_xf)
 
         if self.active_obj != obj:
             bpy.data.meshes.remove(self.active_obj.data)
@@ -2371,8 +2384,14 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             prefs = ExportSettings()
 
         obj = self.objects_to_export[0]
-        lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
+        lst = [o for o in self.objects_to_export if "pynRoot" in o]
         obj_root = lst[0] if lst else None
+        if obj_root is None:
+            # Selecting a child shape: walk up to its nif root so its sticky settings apply.
+            o = obj
+            while o is not None and 'pynRoot' not in o:
+                o = o.parent
+            obj_root = o
 
         # `_discover_game` (called just before this) populates self.armatures via
         # expansion through EMPTY children, so use that list — self.export_armature
@@ -2380,38 +2399,27 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         armatures = self.armatures or []
         first_arma = armatures[0] if armatures else None
 
-        self.blender_xf = BD.get_setting_from(
-            PYN_BLENDER_XF_PROP,
-            (obj_root, obj, first_arma),
-            default=prefs.blender_xf)
-        self.rename_bones = BD.get_setting_from(
-            PYN_RENAME_BONES_PROP,
-            armatures + self.objects_to_export,
-            default=prefs.rename_bones)
-        self.rename_bones_niftools = BD.get_setting_from(
-            PYN_RENAME_BONES_NIFTOOLS_PROP,
-            armatures + self.objects_to_export,
-            default=prefs.rename_bones_niftools)
-        self.rotate_bones_pretty = BD.get_setting_from(
-            PYN_ROTATE_BONES_PRETTY_PROP,
-            armatures + self.objects_to_export,
-            default=prefs.rotate_bones_pretty)
-        self.write_bodytri = BD.get_setting_from(
-            PYN_WRITE_BODYTRI_ED_PROP,
-            [obj],
-            default=prefs.write_bodytri)
-        self.preserve_hierarchy = BD.get_setting_from(
-            PYN_PRESERVE_HIERARCHY_PROP,
-            [obj],
-            default=ExportSettings.__dataclass_fields__["preserve_hierarchy"].default)
-        self.export_pose = BD.get_setting_from(
-            PYN_EXPORT_POSE_PROP,
-            [obj],
-            default=ExportSettings.__dataclass_fields__["export_pose"].default)
-        self.chargen_ext = BD.get_setting_from(
-            PYN_CHARGEN_EXT_PROP,
-            [obj],
-            default=ExportSettings.__dataclass_fields__["chargen_extension"].default)
+        # Sticky export settings live in typed groups (root + armature). read_export_settings
+        # returns only fields the user has explicitly set (migrating legacy PYN_* props first);
+        # anything unset falls back to the addon preference / dataclass default below.
+        from . import pyn_props
+        dfld = ExportSettings.__dataclass_fields__
+        sticky = pyn_props.read_export_settings(obj_root, first_arma)
+        self.blender_xf = sticky.get('blender_xf', prefs.blender_xf)
+        self.rename_bones = sticky.get('rename_bones', prefs.rename_bones)
+        self.rename_bones_niftools = sticky.get('rename_bones_niftools', prefs.rename_bones_niftools)
+        self.rotate_bones_pretty = sticky.get('rotate_bones_pretty', prefs.rotate_bones_pretty)
+        self.write_bodytri = sticky.get('write_bodytri', prefs.write_bodytri)
+        self.preserve_hierarchy = sticky.get('preserve_hierarchy', dfld["preserve_hierarchy"].default)
+        self.export_pose = sticky.get('export_pose', dfld["export_pose"].default)
+        self.chargen_ext = sticky.get('chargen_extension', dfld["chargen_extension"].default)
+        # These weren't sticky before; consolidating makes them so (keep operator default if unset).
+        self.export_modifiers = sticky.get('export_modifiers', self.export_modifiers)
+        self.export_animations = sticky.get('export_animations', self.export_animations)
+        self.export_colors = sticky.get('export_colors', self.export_colors)
+        self.export_recenter_half_precision = sticky.get(
+            'export_recenter_half_precision', self.export_recenter_half_precision)
+        self.export_full_precision = sticky.get('export_full_precision', self.export_full_precision)
     
 
     def __str__(self):
