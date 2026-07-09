@@ -1382,8 +1382,57 @@ class NifImporter():
 
             BD.link_to_collection(self.collection, new_object)
 
+            # Starfield: wrap the imported geometry in a BSGeometry Empty so the
+            # representation is (block container Empty) -> (one mesh child per LOD),
+            # uniform for single- and multi-LOD shapes.
+            if isinstance(the_shape, P.BSGeometry):
+                self._wrap_bsgeometry(new_object, the_shape)
+
         except Exception as e:
             log.exception(f"Error importing shape {the_shape.name}: {e}")
+
+
+    def _wrap_bsgeometry(self, mesh_obj, the_shape):
+        """Insert a BSGeometry Empty as the block container above an imported SF mesh.
+
+        The Empty owns the block-level metadata (name, flags, skin-instance type); the mesh
+        child keeps its geometry, weights, material, and per-LOD pyn_sf_geometry group. We
+        currently import LOD slot 0, but the Empty is created even for a single LOD so the
+        structure (and export) is uniform. Transform-transparent: the Empty sits at identity
+        relative to the mesh's parent (matrix_parent_inverse stays identity on direct parent
+        assignment), so the child's world transform -- set later by set_object_xf /
+        set_parent_arma -- is unchanged.
+        """
+        base_name = the_shape.name or the_shape.blockname
+        slot = mesh_obj.pyn_sf_geometry.lod_slot
+
+        # Free the base name for the Empty by renaming the mesh to its LOD-child name first,
+        # keeping nodes_loaded (keyed by object name) in sync.
+        old_name = mesh_obj.name
+        mesh_obj.name = f"{base_name}:LOD{slot}"
+        if old_name in self.nodes_loaded:
+            del self.nodes_loaded[old_name]
+        self.nodes_loaded[mesh_obj.name] = the_shape
+
+        empty = bpy.data.objects.new(base_name, None)
+        empty.empty_display_type = 'PLAIN_AXES'
+        empty['pynBlockName'] = the_shape.blockname   # 'BSGeometry'
+        # Move the block-identity metadata off the child onto the container Empty.
+        for k in ('pynNodeName', 'pynNodeFlags', 'pynVertexDesc', 'pynSkinInstanceType'):
+            if k in mesh_obj:
+                empty[k] = mesh_obj[k]
+                del mesh_obj[k]
+        if 'pynBlockName' in mesh_obj:
+            del mesh_obj['pynBlockName']
+
+        # Insert the Empty between the mesh and its parent.
+        empty.parent = mesh_obj.parent
+        mesh_obj.parent = empty
+
+        if not self.settings.mesh_only:
+            self.objects_created.add(ReprObject(empty, the_shape))
+        BD.link_to_collection(self.collection, empty)
+        return empty
 
 
     # ------ ARMATURE IMPORT ------

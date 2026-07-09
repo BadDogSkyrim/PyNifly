@@ -2767,6 +2767,19 @@ def TEST_SF_IMPORT():
 
     body = TTB.find_shape("Naked_F:0")
     assert body is not None, "Imported the body mesh"
+
+    # Starfield representation: a BSGeometry Empty (block container) parents one mesh child
+    # per LOD. Single-LOD here, so one child named "<shape>:LOD0" under the Empty "<shape>".
+    empty = bpy.data.objects.get("Naked_F:0")
+    assert empty is not None and empty.type == 'EMPTY', "BSGeometry container is an Empty"
+    assert empty['pynBlockName'] == 'BSGeometry', "Empty carries the BSGeometry block name"
+    assert body.name == "Naked_F:0:LOD0", f"Mesh child is the LOD0 child, got {body.name}"
+    assert body.parent is empty, "Mesh child is parented to the BSGeometry Empty"
+    # The Empty is identity relative to its parent -> the child's world transform is
+    # unchanged by the wrap (verified by the upright/at-origin checks further down).
+    assert empty.parent is not None and 'pynRoot' in empty.parent, \
+        "BSGeometry Empty hangs off the NIF root"
+
     assert len(body.data.vertices) == 6616, f"Vertex count: {len(body.data.vertices)}"
     assert len(body.data.polygons) == 12132, f"Polygon count: {len(body.data.polygons)}"
     assert body.data.uv_layers, "Has a UV layer"
