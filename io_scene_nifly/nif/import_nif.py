@@ -1307,6 +1307,11 @@ class NifImporter():
             new_object['pynNodeName'] = the_shape.name
             from . import pyn_props
             pyn_props.import_block_props(new_object, the_shape.properties, ignore=NISHAPE_IGNORE)
+            # Starfield: stash the external .mesh path / LOD slot / internal flag so export
+            # can round-trip the geometry back to its source .mesh (not recoverable from mesh).
+            if isinstance(the_shape, P.BSGeometry):
+                from . import sf_geometry
+                sf_geometry.record_geometry_props(new_object, the_shape, 0)
             try:
                 new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
                 if the_shape.properties.vertexDesc:

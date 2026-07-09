@@ -2815,6 +2815,17 @@ def TEST_SF_IMPORT():
     assert min(v.z for v in wv) > -5, \
         f"Body sits at/above the origin (min Z {min(v.z for v in wv):.1f})"
 
+    # The external .mesh path / LOD slot / internal flag are recorded on the object for
+    # round-trip (they can't be recovered from the Blender mesh). Stored verbatim (the raw
+    # meshName: no 'geometries\' root, no '.mesh' extension) for byte-exact write-back.
+    sfg = body.pyn_sf_geometry
+    assert sfg.mesh_path and 'geometries' not in sfg.mesh_path.lower() \
+        and not sfg.mesh_path.lower().endswith('.mesh'), \
+        f"Verbatim external .mesh path recorded: {sfg.mesh_path!r}"
+    assert sfg.mesh_path == body.pyn_sf_geometry.mesh_path  # sanity: same group
+    assert sfg.lod_slot == 0, f"LOD slot 0 recorded, got {sfg.lod_slot}"
+    assert sfg.is_internal is False, "External geometry (not internal 0x200) recorded"
+
 
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():

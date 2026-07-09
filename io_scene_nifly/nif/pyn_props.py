@@ -644,6 +644,19 @@ _register_handwired_group('PynConnectPointProps', 'pyn_connectpoint',
      'child_names': bpy.props.StringProperty(name='child_names', default='')}, 'Connect Point',
     legacy={'skinned': 'PYN_CONNECT_CHILD_SKINNED'})
 
+# --- Starfield geometry (BSGeometry external .mesh round-trip) ----------------
+# The per-LOD .mesh path, LOD slot, and internal/external (0x200) flag are the round-trip
+# data that CANNOT be recovered from the Blender mesh — geometry alone can't say which .mesh
+# file it came from. On export we write geometry back to mesh_path (in-place replacer); a
+# newly-created shape with no recorded path falls back to prefix-autogen. Store meshName
+# verbatim (no 'geometries\' root, no '.mesh' ext) for byte-exact write-back. Greenfield —
+# no legacy custom-prop channel. Lives on each per-LOD mesh object (one group per LOD child).
+_register_handwired_group('PynSFGeometryProps', 'pyn_sf_geometry',
+    {'mesh_path': bpy.props.StringProperty(name='mesh_path', default=''),
+     'lod_slot': bpy.props.IntProperty(name='lod_slot', default=0, min=0, max=3),
+     'is_internal': bpy.props.BoolProperty(name='is_internal', default=False)},
+    'Starfield Geometry')
+
 
 def _object_panel_specs():
     """All Object-attached block/shape groups, buffer-derived + hand-wired, for the panel."""

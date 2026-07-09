@@ -55,3 +55,16 @@ def load_geometry(the_shape, slot=0):
     with open(resolved, 'rb') as f:
         data = f.read()
     return the_shape.load_mesh(data, slot)
+
+
+def record_geometry_props(obj, the_shape, slot=0):
+    """Record the round-trip data that isn't recoverable from the Blender mesh: the verbatim
+    external .mesh path, its LOD slot, and the internal-geometry (0x200) flag. Stored on
+    obj.pyn_sf_geometry so export can write geometry back to the same .mesh (in-place
+    replacer) or, for a newly-created shape with no recorded path, fall back to
+    prefix-autogen."""
+    from . import pyn_props
+    pyn_props.set_group(obj, 'pyn_sf_geometry',
+                        mesh_path=the_shape.mesh_path(slot),
+                        lod_slot=slot,
+                        is_internal=the_shape.is_internal_geom)
