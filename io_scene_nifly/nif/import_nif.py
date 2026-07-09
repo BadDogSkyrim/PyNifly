@@ -440,6 +440,19 @@ class NifImporter():
             # Statics get transformed according to the shape's transform
             return BD.apply_scale_xf(BD.transform_to_matrix(the_shape.transform), scale_factor)
 
+        # Starfield stores no bone NiNodes, so calc_global_to_skin() (which averages the
+        # bone NiNode transforms) comes back empty and the shape would be left in its raw
+        # skin space -- rotated/offset from world (the body's skin space is rotated 90 deg
+        # about Y with the head at the origin; a hand's is rotated differently again).
+        # Recover skin->world from the reference skeleton instead. This positions the mesh
+        # in skeleton space and, since set_parent_arma reads it back via calc_skin_transform,
+        # lands the weighted bones at their skeleton positions -- consistent with the
+        # connecting bones pulled from the reference skeleton.
+        if self.nif.game == 'SF':
+            s2w = self._sf_skin_to_world(the_shape)
+            if s2w is not None:
+                return BD.apply_scale_xf(s2w, scale_factor)
+
         # Global-to-skin transform is what offsets all the vertices together, e.g. so that
         # heads can be positioned at the origin. Put the reverse transform on the blender 
         # object so they can be worked on in their skinned position.
@@ -542,6 +555,35 @@ class NifImporter():
                 xf.invert()
 
         return BD.apply_scale_xf(xf, scale_factor)
+
+
+    def _sf_skin_to_world(self, shape) -> Matrix:
+        """Recover the skin->world transform for a Starfield skinned shape from the
+        reference skeleton. SF carries no bone NiNodes, so the DLL's bone-averaging
+        global-to-skin returns nothing. For each bind bone B present in the reference
+        skeleton, skin->world = skel_world_B @ skin_to_bone_B; these agree for a rigid
+        bind, so we average the translation (the rotation is common) for robustness.
+        Returns None if there's no reference skeleton or no shared bones."""
+        if not self.reference_skel or not hasattr(shape, 'bone_names'):
+            return None
+        mats = []
+        for i, bn in enumerate(shape.bone_names):
+            if bn in self.reference_skel.nodes:
+                s2b = shape.get_shape_skin_to_bone_by_index(i)
+                if s2b is None:
+                    continue
+                skel_world = BD.transform_to_matrix(
+                    self.reference_skel.nodes[bn].global_transform)
+                mats.append(skel_world @ BD.transform_to_matrix(s2b))
+        if not mats:
+            return None
+        result = mats[0].copy()
+        if len(mats) > 1:
+            t = Vector((0.0, 0.0, 0.0))
+            for m in mats:
+                t = t + m.translation
+            result.translation = t / len(mats)
+        return result
 
 
     # -----------------------------  EXTRA DATA  -------------------------------
@@ -1766,13 +1808,22 @@ class NifImporter():
         # FO4 skin-to-bone is freaking all over the place, so give them a more generous
         # allowance.
         variance = 0.03 if "SKYRIM" in self.nif.game else 0.1
-        
+
+        # Starfield keys bind transforms by index (no NiNode boneRefs), so the name-based
+        # skin-to-bone lookup returns None; fall back to the index-based accessor.
+        bone_index = {bn: i for i, bn in enumerate(shape.bone_names)}
+
         for b in shape.bone_names:
             if b in skel.nodes:
-                m1 = skin_xf @ BD.transform_to_matrix(shape.get_shape_skin_to_bone(b)).inverted()
+                s2b = shape.get_shape_skin_to_bone(b)
+                if s2b is None and b in bone_index:
+                    s2b = shape.get_shape_skin_to_bone_by_index(bone_index[b])
+                if s2b is None:
+                    continue
+                m1 = skin_xf @ BD.transform_to_matrix(s2b).inverted()
                 m2 = BD.transform_to_matrix(skel.nodes[b].global_transform)
-                # We give a fairly generous allowance for how close is close enough. 0.03 
-                # allows the FO4 meshes to be parented to their skeletons. 
+                # We give a fairly generous allowance for how close is close enough. 0.03
+                # allows the FO4 meshes to be parented to their skeletons.
                 if not MatNearEqual(m1, m2, epsilon=variance):
                     return False
         return True
@@ -1817,6 +1868,11 @@ class NifImporter():
             if blname not in existing_bones:
                 missing_bones.append(bn)
 
+        # Starfield keys bind transforms by bone INDEX in BSSkinBoneData (no NiNode boneRefs,
+        # so the name-based skin-to-bone lookup fails). Map each bone name to its index in the
+        # shape's bone list for the index-based fallback below.
+        bone_index = {bn: i for i, bn in enumerate(nif_shape.bone_names)}
+
         new_bones = []
         if missing_bones:
             BD.ObjectSelect([arma])
@@ -1832,20 +1888,24 @@ class NifImporter():
                         # skeleton instead.
                         bone_node = self.reference_skel.nodes['HEAD' if bn=='Head' else bn]
                         xf = BD.transform_to_matrix(bone_node.global_transform)
-                    elif self.settings.import_pose: ### and not self.is_facegen:
-                        # Using nif locations of bones.
+                    elif self.settings.import_pose and bn in nif_shape.file.nodes:
+                        # Using nif locations of bones. (Starfield body nifs carry no NiNode
+                        # for the skeleton bones — those live in skeleton.nif — so this branch
+                        # is skipped for SF and we fall through to the bind position.)
                         bone_node = nif_shape.file.nodes[bn]
                         xf = BD.transform_to_matrix(bone_node.global_transform)
                     else:
                         # Have to trust the bind position in the nif.
                         # Facegen nifs always use the bind position.
                         skin_to_bone = nif_shape.get_shape_skin_to_bone(bn)
+                        if skin_to_bone is None and bn in bone_index:
+                            # Starfield: bind transform lives in BSSkinBoneData, keyed by
+                            # index. The DLL scales its translation by havokScale so it lands
+                            # in the same game-unit space as the (already-scaled) verts.
+                            skin_to_bone = nif_shape.get_shape_skin_to_bone_by_index(bone_index[bn])
                         if skin_to_bone is None:
-                            # Starfield stores bone data in BSSkinBoneData indexed by
-                            # position, not NiNode refs, so the name-based skin-to-bone
-                            # lookup returns nothing. Skip binding this bone for now; the
-                            # per-vertex weights still import as vertex groups.
-                            # TODO(Starfield): index-based BSSkinBoneData skin binding.
+                            # No bind data at all — keep the per-vertex weights (vertex group)
+                            # but skip creating this bone.
                             continue
                         bone_shape_xf = BD.transform_to_matrix(skin_to_bone).inverted()
                         xf = skin_xf @ bone_shape_xf

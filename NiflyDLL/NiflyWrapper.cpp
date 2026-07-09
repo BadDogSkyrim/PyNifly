@@ -1444,6 +1444,34 @@ NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
     return hasXform;
 }
 
+NIFLY_API bool getShapeSkinToBoneByIndex(void* nifPtr, void* shapePtr, int boneIndex, MatTransform& buf)
+/* Return the skin-to-bone transform for the bone at the given INDEX in the given shape.
+
+    Starfield (BSGeometry/BSSkinBoneData) stores bind transforms indexed by position and has no
+    NiNode boneRefs, so the name-based GetBoneID walk returns NIF_NPOS and getShapeSkinToBone fails.
+    This index-based accessor reads BSSkinBoneData directly. Returns false if no such bone.
+
+    SCALE: nifly applies havokScale (69.969) to BSGeometry VERTEX positions on load
+    (Geometry.cpp) but BSSkinBoneData::Sync reads the bind transform's translation RAW (metric).
+    So the raw bind translation is ~70x too small relative to the (already-scaled) verts. We scale
+    the translation here so PyNifly sees the bind in the same game-unit space as the verts — the
+    same "SSE-sized positions for free" the vertex path already provides. Export must divide back
+    by havokScale, exactly as the vertex path does. Only the translation is a length; rotation and
+    scale are unit-invariant. Constant mirrors nifly Geometry.hpp:547 (havokScale = 69.969f). */
+{
+    const float havokScale = 69.969f;
+    bool found = static_cast<NifFile*>(nifPtr)->GetShapeTransformSkinToBone(
+        static_cast<NiShape*>(shapePtr),
+        static_cast<uint32_t>(boneIndex),
+        buf);
+    if (found) {
+        buf.translation.x *= havokScale;
+        buf.translation.y *= havokScale;
+        buf.translation.z *= havokScale;
+    }
+    return found;
+}
+
 NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const MatTransform& buf)
 /* 
     Set the skin-to-bone transform for the given bone in the given shape.

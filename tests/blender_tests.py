@@ -2774,6 +2774,47 @@ def TEST_SF_IMPORT():
     assert len(body.vertex_groups) == 38, f"Bone vertex groups: {len(body.vertex_groups)}"
     assert body.active_material, "Has a material"
 
+    # Bone names convert to Blender-friendly form via the SF dictionary: the L_/R_/C_
+    # side prefix becomes a .L/.R/.C suffix (so Blender mirror/symmetry works).
+    assert 'Thigh.L' in body.vertex_groups and 'L_Thigh' not in body.vertex_groups, \
+        "Vertex groups use Blender .L naming"
+    assert 'Chest.C' in body.vertex_groups, "Centre bones use .C naming"
+
+    # The shape binds to a real armature, built from the BSSkinBoneData bind transforms
+    # (read by index, since SF carries no NiNode boneRefs).
+    arma_mod = next((m for m in body.modifiers if m.type == 'ARMATURE'), None)
+    assert arma_mod and arma_mod.object, "Body is bound to an armature"
+    arma = arma_mod.object
+    assert 'Thigh.L' in arma.data.bones and 'Hips.C' in arma.data.bones, "Bones renamed"
+
+    # Connected skeleton: the SF reference skeleton supplies the hierarchy (and the
+    # connecting bones above the weighted set), so there is a single root and every
+    # other bone is parented — not a flat pile of unconnected weighted bones.
+    roots = [b for b in arma.data.bones if b.parent is None]
+    assert len(roots) == 1, f"Single root bone, got {[b.name for b in roots]}"
+    assert len(arma.data.bones) >= 38, f"At least the weighted bones: {len(arma.data.bones)}"
+
+    # Bones must land in game-unit space (not 1/70th metric): the DLL scales the raw
+    # (metric) bind translation by havokScale, and the bundled SF reference skeleton is
+    # pre-scaled to match. A body-sized armature spans ~100 units, far above metric scale.
+    heads = [arma.matrix_world @ b.head_local for b in arma.data.bones]
+    extent = max(max(h[i] for h in heads) - min(h[i] for h in heads) for i in range(3))
+    assert extent > 30, f"Bones span game-unit distances (extent {extent:.1f}), not metric/collapsed"
+
+    # The skin->world transform (recovered from the reference skeleton, since SF has no
+    # bone NiNodes) puts the mesh + its weighted bones into skeleton space: the body
+    # stands upright (Z is the tall axis) and NO bone sits below the origin -- the
+    # weighted bones land at the same skeleton positions as the connecting bones, not in
+    # the raw, head-at-origin skin space.
+    assert min(h.z for h in heads) > -5, \
+        f"No bones below the origin (min Z {min(h.z for h in heads):.1f})"
+    wv = [body.matrix_world @ v.co for v in body.data.vertices]
+    span = [max(v[i] for v in wv) - min(v[i] for v in wv) for i in range(3)]
+    assert span[2] > span[0] and span[2] > span[1], \
+        f"Body stands upright (Z is the tall axis): spans {[round(s) for s in span]}"
+    assert min(v.z for v in wv) > -5, \
+        f"Body sits at/above the origin (min Z {min(v.z for v in wv):.1f})"
+
 
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():

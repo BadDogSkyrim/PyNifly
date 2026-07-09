@@ -38,6 +38,7 @@ extern "C" NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, nif
 extern "C" NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, nifly::MatTransform * xform);
 extern "C" NIFLY_API int hasSkinInstance(void* shapeRef);
 extern "C" NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, nifly::MatTransform& buf);
+extern "C" NIFLY_API bool getShapeSkinToBoneByIndex(void* nifPtr, void* shapePtr, int boneIndex, nifly::MatTransform& buf);
 extern "C" NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const nifly::MatTransform & buf);
 extern "C" NIFLY_API void getNodeTransform(void* theNode, nifly::MatTransform* buf);
 extern "C" NIFLY_API int getNodeTransformToGlobal(void* nifref, const char* nodeName, nifly::MatTransform* buf);

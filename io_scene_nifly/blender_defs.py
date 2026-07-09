@@ -350,7 +350,7 @@ game_rotations_none = {'X': (Matrix.Identity(4), Matrix.Identity(4)),
 game_rotations = game_rotations_pretty
 
 bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
-game_axes = {'FO3': 'X', 'FO4': 'X', 'FO76': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
+game_axes = {'FO3': 'X', 'FO4': 'X', 'FO76': 'X', 'SF': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
 
 def is_facebone(bname):
     return bname.startswith("skin_bone_")

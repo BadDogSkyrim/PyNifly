@@ -4439,9 +4439,23 @@ class NiShape(NiNode):
         else:
             return None
 
+    def get_shape_skin_to_bone_by_index(self, bone_index):
+        """Return the skin-to-bone transform for the bone at the given INDEX, or None.
+
+        Starfield (BSGeometry/BSSkinBoneData) stores bind transforms indexed by position and
+        carries no NiNode boneRefs, so the name-based lookup fails; this reads BSSkinBoneData
+        directly by index. Bone index matches the order of unique_bone_names / SkinAttach.
+        """
+        buf = TransformBuf()
+        xform_found = nifly.getShapeSkinToBoneByIndex(self.file._handle,
+                                                      self._handle,
+                                                      bone_index,
+                                                      buf)
+        return buf if xform_found else None
+
     def set_skin_to_bone_xform(self, bone_name, xform: TransformBuf):
         """Set the skin-to-bone transform on the shape's skin, using the skin."""
-        nifly.setShapeSkinToBone(self.file._handle, 
+        nifly.setShapeSkinToBone(self.file._handle,
                                          self._handle,
                                          bone_name.encode('utf-8'),
                                          xform)

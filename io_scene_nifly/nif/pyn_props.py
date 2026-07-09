@@ -194,6 +194,10 @@ class GroupStore:
 # ensure_shader_migrated() doesn't re-import stale legacy custom props over it.
 _MIGRATED_KEY = 'pyn_shader_migrated'
 
+# Prefix for the stashed texture-set path custom properties (shader_io.py writes/reads
+# 'BSShaderTextureSet_<slot>'). Surfaced in the PyNifly Shader panel.
+TEXTURESET_PREFIX = 'BSShaderTextureSet_'
+
 
 def shader_store(material):
     """The GroupStore wrapping this material's shader property group."""
@@ -302,7 +306,22 @@ class PYN_PT_shader(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        grp = getattr(context.material, 'pyn_shader', None)
+        mat = context.material
+
+        # Texture set: the stashed texture paths, kept as custom properties. They're the
+        # fallback that still exports when a texture can't be found + loaded into the
+        # shader nodes, so surface them here (editable) rather than only in the generic
+        # Custom Properties panel. Slot set is open-ended (flag/game dependent), so we
+        # draw whatever BSShaderTextureSet_* props the material carries.
+        texkeys = sorted(k for k in mat.keys() if k.startswith(TEXTURESET_PREFIX))
+        if texkeys:
+            box = layout.box()
+            box.label(text="Texture Set", icon='TEXTURE')
+            tcol = box.column(align=True)
+            for k in texkeys:
+                tcol.prop(mat, f'["{k}"]', text=k[len(TEXTURESET_PREFIX):])
+
+        grp = getattr(mat, 'pyn_shader', None)
         if grp is None:
             layout.label(text="(no PyNifly shader data)")
             return

@@ -433,6 +433,70 @@ def TEST_SF_MESH_READ():
     assert all(abs(c) < 1000 for c in geom.verts[0]), "Verts in game-unit magnitude"
 
 
+def TEST_SF_SKIN_BIND():
+    """Starfield: per-bone bind (skin-to-bone) transforms come through by INDEX.
+
+    SF stores bind transforms in BSSkinBoneData indexed by position and carries no NiNode
+    boneRefs, so the name-based GetBoneID walk returns NIF_NPOS and the name lookup fails.
+    The index-based accessor reads BSSkinBoneData directly. This is what lets us build the
+    armature that reconciles each shape's arbitrary skin bind space onto one skeleton.
+    """
+    nif = NifFile(r"tests\SF\naked_f.nif")
+    geom = nif.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        geom.load_mesh(f.read(), 0)
+
+    # Name-based lookup fails for SF (no NiNode boneRefs) ...
+    assert geom.get_shape_skin_to_bone(geom.bone_names[0]) is None, \
+        "Name-based skin-to-bone returns None for Starfield"
+
+    # ... but the index-based accessor returns a real transform for every bone.
+    found = 0
+    for i in range(len(geom.bone_names)):
+        xf = geom.get_shape_skin_to_bone_by_index(i)
+        if xf is not None:
+            found += 1
+    assert found == len(geom.bone_names), \
+        f"Index-based bind found for all bones: {found}/{len(geom.bone_names)}"
+
+    # A non-degenerate transform (not all-zero) came back.
+    xf0 = geom.get_shape_skin_to_bone_by_index(0)
+    assert any(abs(c) > 1e-6 for c in xf0.translation) or \
+           any(abs(xf0.rotation[r][c]) > 1e-6 for r in range(3) for c in range(3)), \
+        "Bind transform is non-degenerate"
+
+
+def TEST_SF_BONE_NAMES():
+    """Starfield bone names convert to Blender-friendly form and round-trip exactly.
+
+    SF uses L_/R_/C_ side prefixes; we move the side to a Blender .L/.R/.C suffix so
+    mirror/symmetry works. The conversion is a pure reversible rule (covers vanilla and
+    modder-added bones), which the export path relies on to recover the nif name.
+    """
+    from pyn.niflytools import sf_blender_bone_name, sf_nif_bone_name, sfDict
+
+    cases = {
+        'L_Thigh': 'Thigh.L', 'R_Calf': 'Calf.R', 'C_Spine': 'Spine.C',
+        'C_Neck_Twist': 'Neck_Twist.C', 'L_Thumb2': 'Thumb2.L',
+        # unprefixed utility bones pass through unchanged
+        'COM': 'COM', 'HumanExportRoot': 'HumanExportRoot',
+        'Camera Control': 'Camera Control', 'WeaponLeft': 'WeaponLeft',
+    }
+    for nif_bn, bl_bn in cases.items():
+        assert sf_blender_bone_name(nif_bn) == bl_bn, \
+            f"{nif_bn} -> {sf_blender_bone_name(nif_bn)} (expected {bl_bn})"
+        assert sf_nif_bone_name(bl_bn) == nif_bn, \
+            f"{bl_bn} -> {sf_nif_bone_name(bl_bn)} (expected {nif_bn})"
+
+    # Blender's '.001' duplicate suffix is stripped before reversing.
+    assert sf_nif_bone_name('Thigh.L.001') == 'L_Thigh', "Handles Blender duplicate suffix"
+
+    # The game dictionary routes through the rule and is seeded with the full skeleton.
+    assert sfDict.blender_name('R_Wrist') == 'Wrist.R', "Dict blender_name uses the rule"
+    assert sfDict.nif_name('Wrist.R') == 'R_Wrist', "Dict nif_name reverses it"
+    assert len(sfDict.byNif) == 115, f"Seeded with the vanilla skeleton: {len(sfDict.byNif)}"
+
+
 def TEST_RW_HEAD():
     """Test reading and writing the male head"""
     testfile = r"tests\Skyrim\malehead.nif"
