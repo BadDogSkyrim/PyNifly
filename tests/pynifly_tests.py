@@ -433,6 +433,35 @@ def TEST_SF_MESH_READ():
     assert all(abs(c) < 1000 for c in geom.verts[0]), "Verts in game-unit magnitude"
 
 
+def TEST_SF_MESH_WRITE():
+    """Starfield: serialize a BSGeometry LOD back to .mesh bytes and round-trip the geometry.
+
+    save_mesh regenerates meshlets + cull data and serializes via nifly's
+    SaveExternalShapeData (the UDEC3 normal/tangent encoder is correct in the merged fork).
+    Re-loading the bytes reproduces the geometry within int16-SNORM * Scale quantization.
+    """
+    nif = NifFile(r"tests\SF\naked_f.nif")
+    geom = nif.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        geom.load_mesh(f.read(), 0)
+
+    verts0 = list(geom.verts)
+    tris0 = list(geom.tris)
+    assert len(verts0) > 0 and len(tris0) > 0, "Loaded geometry to serialize"
+
+    data = geom.save_mesh(0)
+    assert len(data) > 0, "Serialized some .mesh bytes"
+
+    # Re-load the serialized bytes; the geometry survives the round-trip.
+    assert geom.load_mesh(data, 0), "Re-loaded serialized .mesh bytes"
+    verts1 = list(geom.verts)
+    tris1 = list(geom.tris)
+    assert len(verts1) == len(verts0), f"Vertex count preserved: {len(verts1)} vs {len(verts0)}"
+    assert len(tris1) == len(tris0), f"Triangle count preserved: {len(tris1)} vs {len(tris0)}"
+    maxerr = max(abs(a - b) for v0, v1 in zip(verts0, verts1) for a, b in zip(v0, v1))
+    assert maxerr < 0.1, f"Vertex positions round-trip within tolerance (max err {maxerr})"
+
+
 def TEST_SF_SKIN_BIND():
     """Starfield: per-bone bind (skin-to-bone) transforms come through by INDEX.
 

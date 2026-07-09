@@ -7010,3 +7010,31 @@ NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh)
     if (geom) geom->SelectMesh((uint8_t)whichMesh);
 }
 
+// Serialize a BSGeometry LOD slot's mesh data to the external-.mesh byte layout and copy
+// it into 'buf'. Regenerates meshlets + cull data first (Starfield requires them; nifly's
+// onlyIfMissing keeps any already present). Returns the total byte length -- which may
+// exceed buflen, so the caller can size a buffer with a length-only first call (buf=NULL /
+// buflen=0), then call again to fill it (the getTriangles two-pass idiom). Meshlet
+// generation runs once and is a no-op on the second pass, so both passes serialize the
+// same bytes. Returns 0 if the shape isn't a BSGeometry or the slot is out of range.
+NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh,
+                                     char* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
+
+    geom->SelectMesh((uint8_t)whichMesh);
+    geom->GenerateMeshlets();   // maxVerts=128, maxPrims=128, onlyIfMissing=true
+    std::ostringstream stream(std::ios::binary);
+    if (!nif->SaveExternalShapeData(shape, stream, (uint8_t)whichMesh)) return 0;
+
+    std::string data = stream.str();
+    int n = (int)data.size();
+    if (buf && buflen > 0) {
+        int copy = (n < buflen) ? n : buflen;
+        for (int i = 0; i < copy; i++) buf[i] = data[i];
+    }
+    return n;
+}
+

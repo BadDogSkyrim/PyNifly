@@ -4739,6 +4739,17 @@ class BSGeometry(NiShape):
         nifly.selectBSGeometryMesh(self.file._handle, self._handle, slot)
         self._invalidate_geometry()
 
+    def save_mesh(self, slot=0):
+        """Serialize LOD slot `slot` to external-.mesh bytes (regenerating meshlets + cull
+        data first) and return them, ready to write to the resolved .mesh path. Returns
+        b"" if the slot has no data."""
+        n = nifly.saveBSGeometryMeshData(self.file._handle, self._handle, slot, None, 0)
+        if n <= 0:
+            return b""
+        buf = create_string_buffer(n)
+        nifly.saveBSGeometryMeshData(self.file._handle, self._handle, slot, buf, n)
+        return buf.raw[:n]
+
     def _invalidate_geometry(self):
         # vertexCount/triangleCount live in the cached NiShapeBuf, which is stale once a
         # different .mesh slot is loaded/selected. Clear it and the geometry caches so they

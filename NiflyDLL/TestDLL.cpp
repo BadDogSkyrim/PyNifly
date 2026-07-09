@@ -1114,6 +1114,62 @@ namespace NiflyDLLTests
 			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
 		}
 
+		TEST_METHOD(SaveStarfieldMesh)
+		{
+			/* UNIT TEST: Round-trip a Starfield BSGeometry external .mesh through the save
+			   wrapper (serialize with meshlet regen, re-load, compare geometry). */
+			std::filesystem::path testfile = testRoot / "SF/naked_f.nif";
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif);
+			void* shapes[5];
+			getShapes(nif, shapes, 5, 0);
+			void* geom = shapes[0];
+
+			std::ifstream in(meshfile, std::ios::binary);
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			Assert::AreEqual(1, loadBSGeometryMeshData(nif, geom, 0, bytes.data(), (int)bytes.size()));
+
+			Vector3* verts0 = new Vector3[60000];
+			Triangle* tris0 = new Triangle[120000];
+			int vertCount0 = getVertsForShape(nif, geom, verts0, 60000 * 3, 0);
+			int triCount0 = getTriangles(nif, geom, tris0, 120000 * 3, 0);
+			Assert::IsTrue(vertCount0 > 0 && triCount0 > 0);
+
+			// Save: length-only first pass sizes the buffer, second pass fills it.
+			int len = saveBSGeometryMeshData(nif, geom, 0, nullptr, 0);
+			Assert::IsTrue(len > 0, L"Serialized some bytes");
+			std::string saved(len, '\0');
+			int len2 = saveBSGeometryMeshData(nif, geom, 0, &saved[0], len);
+			Assert::AreEqual(len, len2, L"Both passes report the same length");
+
+			// Re-load the serialized bytes and confirm the geometry survives the round-trip.
+			Assert::AreEqual(1, loadBSGeometryMeshData(nif, geom, 0, saved.data(), len));
+			Vector3* verts1 = new Vector3[60000];
+			Triangle* tris1 = new Triangle[120000];
+			int vertCount1 = getVertsForShape(nif, geom, verts1, 60000 * 3, 0);
+			int triCount1 = getTriangles(nif, geom, tris1, 120000 * 3, 0);
+			Assert::AreEqual(vertCount0, vertCount1, L"Vertex count preserved");
+			Assert::AreEqual(triCount0, triCount1, L"Triangle count preserved");
+
+			// Positions are int16-SNORM * Scale; re-quantizing already-quantized values
+			// stays within a fraction of a quantum (~0.004 game units here).
+			float maxErr = 0.0f;
+			for (int i = 0; i < vertCount0; i++) {
+				float dx = verts0[i].x - verts1[i].x; if (dx < 0) dx = -dx;
+				float dy = verts0[i].y - verts1[i].y; if (dy < 0) dy = -dy;
+				float dz = verts0[i].z - verts1[i].z; if (dz < 0) dz = -dz;
+				if (dx > maxErr) maxErr = dx;
+				if (dy > maxErr) maxErr = dy;
+				if (dz > maxErr) maxErr = dz;
+			}
+			Assert::IsTrue(maxErr < 0.1f, L"Vertex positions round-trip within quantization tolerance");
+
+			delete[] verts0; delete[] tris0; delete[] verts1; delete[] tris1;
+		}
+
 		TEST_METHOD(LoadAndStoreFO4)
 		{
 			/* UNIT TEST: Can load a nif and read info out of it */

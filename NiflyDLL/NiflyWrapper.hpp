@@ -209,3 +209,4 @@ extern "C" NIFLY_API int getBSGeometryMeshPath(void* theNif, void* theShape, int
 extern "C" NIFLY_API int getBSGeometryInternalFlag(void* theNif, void* theShape);
 extern "C" NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, const char* bytes, int len);
 extern "C" NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh);
+extern "C" NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, char* buf, int buflen);
