@@ -526,6 +526,53 @@ def TEST_SF_BONE_NAMES():
     assert len(sfDict.byNif) == 115, f"Seeded with the vanilla skeleton: {len(sfDict.byNif)}"
 
 
+def TEST_SF_MAT_PARSE():
+    """Starfield: parse a loose layered .mat, extracting texture slots by index.
+
+    The .mat is a typed-node object graph; concrete texture files live in MRTextureFile
+    components keyed by slot Index (0 albedo, 1 normal, 3 rough, ...). Paths are stored with
+    the Data\\ prefix + .DDS ext; the parser strips Data\\ and keys by a stable slot name.
+    First-declared layer wins per slot; empty FileNames are skipped.
+    """
+    from pyn.sf_materials import parse_mat, SF_TEXTURE_SLOTS
+
+    mat = r'''{
+      "Filename": "MATERIALS\\Test\\Body.mat",
+      "Objects": [
+        { "Components": [
+            { "Data": { "Name": "Body_TextureSet" }, "Index": 0, "Type": "BSComponentDB::CTName" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_color.dds" }, "Index": 0, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_normal.dds" }, "Index": 1, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "" }, "Index": 2, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_rough.dds" }, "Index": 3, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_ao.dds" }, "Index": 5, "Type": "BSMaterial::MRTextureFile" }
+          ], "ID": "res:00000001:00000002:00000003" },
+        { "Components": [
+            { "Data": { "FileName": "Data\\Textures\\Body\\LAYER2_color.dds" }, "Index": 0, "Type": "BSMaterial::MRTextureFile" }
+          ], "ID": "res:00000004:00000005:00000006" }
+      ]
+    }'''
+
+    parsed = parse_mat(mat)
+    assert parsed is not None, "Parsed the .mat JSON"
+    assert parsed['filename'] == "MATERIALS\\Test\\Body.mat", f"Filename: {parsed['filename']}"
+
+    tx = parsed['textures']
+    # Data\ prefix stripped; keyed by stable slot name.
+    assert tx['Albedo'] == r"Textures\Body\body_color.dds", f"Albedo: {tx.get('Albedo')}"
+    assert tx['Normal'] == r"Textures\Body\body_normal.dds", f"Normal: {tx.get('Normal')}"
+    assert tx['Roughness'] == r"Textures\Body\body_rough.dds", f"Roughness: {tx.get('Roughness')}"
+    assert tx['AO'] == r"Textures\Body\body_ao.dds", f"AO: {tx.get('AO')}"
+    # Empty FileName (slot 2 opacity) is not recorded.
+    assert 'Opacity' not in tx, "Empty texture slots are skipped"
+    # First-declared layer wins: slot 0 keeps the first object's albedo, not LAYER2.
+    assert 'LAYER2' not in tx['Albedo'], "First-declared layer dominates a slot"
+
+    # Bad JSON returns None rather than raising.
+    assert parse_mat("{ not valid json") is None, "Invalid JSON -> None"
+    assert SF_TEXTURE_SLOTS[1] == 'Normal', "Slot map exposes the normal slot"
+
+
 def TEST_RW_HEAD():
     """Test reading and writing the male head"""
     testfile = r"tests\Skyrim\malehead.nif"
