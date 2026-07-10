@@ -568,6 +568,35 @@ def TEST_SF_MAT_PARSE():
     # First-declared layer wins: slot 0 keeps the first object's albedo, not LAYER2.
     assert 'LAYER2' not in tx['Albedo'], "First-declared layer dominates a slot"
 
+    # A LAYERED material is a graph: the albedo must be reached via the base layer's chain
+    # (LayerID -> MaterialID -> TextureSetID -> MRTextureFile), NOT the first MRTextureFile in
+    # the file -- which on a layered material is the blender MASK, not the albedo.
+    layered = r'''{
+      "Objects": [
+        { "Components": [
+            { "Type": "BSMaterial::LayerID", "Index": 0, "Data": { "ID": "res:L1" } },
+            { "Type": "BSMaterial::BlenderID", "Index": 0, "Data": { "ID": "res:B1" } }
+          ] },
+        { "ID": "res:B1", "Components": [
+            { "Type": "BSMaterial::BlendModeComponent", "Index": 0, "Data": { "Value": "Skin" } },
+            { "Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": { "FileName": "Data\\Textures\\Skin\\MASK.dds" } }
+          ] },
+        { "ID": "res:L1", "Components": [
+            { "Type": "BSMaterial::MaterialID", "Index": 0, "Data": { "ID": "res:M1" } } ] },
+        { "ID": "res:M1", "Components": [
+            { "Type": "BSMaterial::TextureSetID", "Index": 0, "Data": { "ID": "res:T1" } } ] },
+        { "ID": "res:T1", "Components": [
+            { "Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": { "FileName": "Data\\Textures\\Skin\\skin_color.dds" } },
+            { "Type": "BSMaterial::MRTextureFile", "Index": 1, "Data": { "FileName": "Data\\Textures\\Skin\\skin_normal.dds" } }
+          ] }
+      ]
+    }'''
+    ltx = parse_mat(layered)['textures']
+    assert ltx['Albedo'] == r"Textures\Skin\skin_color.dds", \
+        f"Albedo followed the layer chain, not the blender mask: {ltx.get('Albedo')}"
+    assert ltx['Normal'] == r"Textures\Skin\skin_normal.dds", f"Normal: {ltx.get('Normal')}"
+    assert 'MASK' not in ltx.get('Albedo', ''), "Blender mask is not taken as the albedo"
+
     # Bad JSON returns None rather than raising.
     assert parse_mat("{ not valid json") is None, "Invalid JSON -> None"
     assert SF_TEXTURE_SLOTS[1] == 'Normal', "Slot map exposes the normal slot"

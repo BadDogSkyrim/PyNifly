@@ -1,4 +1,4 @@
-"""Starfield layered `.mat` material reading.
+r"""Starfield layered `.mat` material reading.
 
 Starfield replaced FO4's flat BGSM with a layered, graph-based material authored as JSON in a
 `.mat` file (compiled into a global `materialsbeta.cdb`). A shape's `BSLightingShaderProperty.Name`
@@ -40,12 +40,36 @@ SF_TEXTURE_SLOTS = {
 _TEXTURE_FILE_TYPE = 'BSMaterial::MRTextureFile'
 
 
-def _iter_components(doc):
-    """Yield every component dict across all objects in a parsed `.mat` document, in document
-    order (so the first-declared layer's texture set wins for a given slot)."""
-    for obj in doc.get('Objects', []):
-        for comp in obj.get('Components', []):
-            yield comp
+_LAYER_ID = 'BSMaterial::LayerID'
+_MATERIAL_ID = 'BSMaterial::MaterialID'
+_TEXTURESET_ID = 'BSMaterial::TextureSetID'
+_BLEND_MODE = 'BSMaterial::BlendModeComponent'
+
+
+def _components_of(obj, ctype):
+    return [c for c in obj.get('Components', []) if c.get('Type') == ctype]
+
+
+def _first_ref(obj, ctype):
+    """The Data.ID of obj's first component of ctype (a res: id string), or None."""
+    for c in _components_of(obj, ctype):
+        d = c.get('Data')
+        if isinstance(d, dict) and d.get('ID'):
+            return d['ID']
+    return None
+
+
+def _textureset_slots(obj):
+    """{slot_name: cleaned_path} from an object's MRTextureFile components."""
+    out = {}
+    for c in _components_of(obj, _TEXTURE_FILE_TYPE):
+        slot = SF_TEXTURE_SLOTS.get(c.get('Index'))
+        if slot is None:
+            continue
+        path = _clean_texture_path((c.get('Data') or {}).get('FileName'))
+        if path:
+            out.setdefault(slot, path)
+    return out
 
 
 def _clean_texture_path(filename):
@@ -67,8 +91,12 @@ def parse_mat(text):
         { 'filename': <the material's own Filename, or ''>,
           'textures': { slot_name: cleaned_path, ... } }   # only non-empty slots
 
-    Texture slots are taken from the first `MRTextureFile` that supplies a non-empty FileName for
-    a given index (the first-declared layer dominates). Returns None if the text isn't valid JSON.
+    A `.mat` is a small object graph, so the PBR textures must be reached by following the
+    material's layer chain -- root `LayerID` -> `MaterialID` -> `TextureSetID` -> the texture
+    set's `MRTextureFile`s -- NOT by grabbing the first `MRTextureFile` in the file (which, on a
+    layered material, is the *blender mask*, not the albedo). The base (first) layer wins per
+    slot; later layers only fill slots the base leaves empty. Falls back to a non-blender
+    MRTextureFile sweep for simple/flat materials. Returns None if the text isn't valid JSON.
     """
     if isinstance(text, (bytes, bytearray)):
         text = text.decode('utf-8-sig', 'replace')
@@ -77,18 +105,38 @@ def parse_mat(text):
     except (ValueError, TypeError) as e:
         log.warning(f"Could not parse .mat JSON: {e}")
         return None
+    if not isinstance(doc, dict):
+        return None
+
+    objects = doc.get('Objects', [])
+    by_id = {o['ID']: o for o in objects if isinstance(o, dict) and 'ID' in o}
 
     textures = {}
-    for comp in _iter_components(doc):
-        if comp.get('Type') != _TEXTURE_FILE_TYPE:
-            continue
-        idx = comp.get('Index')
-        slot = SF_TEXTURE_SLOTS.get(idx)
-        if slot is None or slot in textures:
-            continue  # unknown slot, or an earlier layer already filled it
-        path = _clean_texture_path((comp.get('Data') or {}).get('FileName'))
-        if path:
-            textures[slot] = path
+    # Primary path: walk the layer graph from the root LayeredMaterial (the object carrying the
+    # LayerID components), base layer first.
+    root = next((o for o in objects if _components_of(o, _LAYER_ID)), None)
+    if root is not None:
+        layers = sorted(_components_of(root, _LAYER_ID), key=lambda c: c.get('Index', 0))
+        for lc in layers:
+            layer = by_id.get((lc.get('Data') or {}).get('ID'))
+            if not layer:
+                continue
+            mat = by_id.get(_first_ref(layer, _MATERIAL_ID))
+            if not mat:
+                continue
+            texset = by_id.get(_first_ref(mat, _TEXTURESET_ID))
+            if not texset:
+                continue
+            for slot, path in _textureset_slots(texset).items():
+                textures.setdefault(slot, path)   # base layer wins
 
-    return {'filename': doc.get('Filename', '') if isinstance(doc, dict) else '',
-            'textures': textures}
+    # Fallback for flat/simple materials (no layer graph, or nothing resolved): sweep
+    # MRTextureFile components, but skip blender objects so a blend mask isn't taken as albedo.
+    if not textures:
+        for o in objects:
+            if _components_of(o, _BLEND_MODE):
+                continue
+            for slot, path in _textureset_slots(o).items():
+                textures.setdefault(slot, path)
+
+    return {'filename': doc.get('Filename', ''), 'textures': textures}
