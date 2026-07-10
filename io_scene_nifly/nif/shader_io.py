@@ -1181,6 +1181,17 @@ class ShaderImporter:
     def _build_alt_pathlist(self):
         return ShaderImporter._build_alt_pathlist_for_game(self.game)
 
+    def _sf_cdb_path(self):
+        """The configured Starfield materialsbeta.cdb path (expanded), or None if unset/absent."""
+        try:
+            raw = bpy.context.preferences.addons[base_package].preferences.sf_cdb_path
+        except Exception:
+            return None
+        if not raw:
+            return None
+        p = bpy.path.abspath(raw)
+        return p if os.path.isfile(p) else None
+
 
     def find_textures(self, shape:NiShape):
         """
@@ -1446,8 +1457,18 @@ class ShaderImporter:
                 except OSError as e:
                     self.warn(f"Could not read material '{matpath}': {e}")
             else:
-                self.warn(f"Could not find material '{mat_ref}' "
-                          f"(extract the loose .mat from the .cdb, e.g. fo76utils sfmatexport)")
+                # No loose .mat -> read the material straight from Starfield's material
+                # database if the user pointed PyNifly at it (Preferences -> .cdb path).
+                cdb_tex = None
+                cdb_path = self._sf_cdb_path()
+                if cdb_path:
+                    cdb_tex = sf_materials.material_textures_from_cdb(cdb_path, mat_ref)
+                if cdb_tex:
+                    textures = cdb_tex
+                else:
+                    self.warn(f"Could not find material '{mat_ref}' (no loose .mat; set the "
+                              f"Starfield .cdb path in PyNifly preferences to read materials "
+                              f"straight from the database)")
 
         # Stash raw slot paths for round-trip + the panel.
         for slot, path in textures.items():

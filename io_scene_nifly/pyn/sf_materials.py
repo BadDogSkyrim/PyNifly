@@ -105,6 +105,11 @@ def parse_mat(text):
     except (ValueError, TypeError) as e:
         log.warning(f"Could not parse .mat JSON: {e}")
         return None
+    return parse_mat_doc(doc)
+
+
+def parse_mat_doc(doc):
+    """Same as parse_mat but for an already-parsed .mat dict (e.g. reconstructed by sf_cdb)."""
     if not isinstance(doc, dict):
         return None
 
@@ -140,3 +145,30 @@ def parse_mat(text):
                 textures.setdefault(slot, path)
 
     return {'filename': doc.get('Filename', ''), 'textures': textures}
+
+
+_cdb_cache = {}   # cdb path -> CdbFile (or False if it failed to load)
+
+
+def material_textures_from_cdb(cdb_path, mat_ref):
+    """Read a material straight from Starfield's `materialsbeta.cdb` (bypassing loose `.mat`
+    files) and return its normalised `{slot: path}` textures, or None if the cdb can't be read
+    or the material isn't in it. The parsed database is cached per path, so the one-time
+    component scan is paid only once across an import."""
+    cdb = _cdb_cache.get(cdb_path)
+    if cdb is None:
+        from . import sf_cdb
+        try:
+            cdb = sf_cdb.load_cdb(cdb_path)
+        except Exception as e:
+            log.warning(f"Could not read material database '{cdb_path}': {e}")
+            _cdb_cache[cdb_path] = False
+            return None
+        _cdb_cache[cdb_path] = cdb
+    if cdb is False:
+        return None
+    mat = cdb.get_material(mat_ref)
+    if mat is None:
+        return None
+    parsed = parse_mat_doc(mat)
+    return parsed['textures'] if parsed else None

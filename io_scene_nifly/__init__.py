@@ -90,6 +90,15 @@ class PyNiflyPreferences(AddonPreferences):
         default=""
     ) # type: ignore
 
+    sf_cdb_path: StringProperty(
+        name="Starfield Material Database (.cdb)",
+        description=("Path to Starfield's materialsbeta.cdb (extract it from "
+                    "'Starfield - Materials.ba2'). When set, importing a Starfield shape whose "
+                    "loose .mat can't be found reads the material straight from this database."),
+        subtype='FILE_PATH',
+        default=""
+    ) # type: ignore
+
     rename_bones: BoolProperty(
         name="Blender-friendly bone names",
         description=("Renames bones according to Blender conventions, e.g. .L for left and" + 
@@ -166,6 +175,7 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "fo4_texture_path_2")
         layout.prop(self, "fo4_texture_path_3")
         layout.prop(self, "fo4_texture_path_4")
+        layout.prop(self, "sf_cdb_path")
         layout.prop(self, "rename_bones")
         layout.prop(self, "rename_bones_niftools")
         layout.prop(self, "rotate_bones_pretty")
