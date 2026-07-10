@@ -1406,15 +1406,18 @@ class NifImporter():
         base_name = the_shape.name or the_shape.blockname
         slot = mesh_obj.pyn_sf_geometry.lod_slot
 
-        # Free the base name for the Empty by renaming the mesh to its LOD-child name first,
-        # keeping nodes_loaded (keyed by object name) in sync.
+        # Rename the mesh to its LOD-child name, keeping nodes_loaded (keyed by object name)
+        # in sync.
         old_name = mesh_obj.name
         mesh_obj.name = f"{base_name}:LOD{slot}"
         if old_name in self.nodes_loaded:
             del self.nodes_loaded[old_name]
         self.nodes_loaded[mesh_obj.name] = the_shape
 
-        empty = bpy.data.objects.new(base_name, None)
+        # Flag the container Empty with the block type, matching the extra-data/marker naming
+        # convention ("<BlockType>:<name>"), so the outliner shows what it is. The prefix is
+        # the real block name ('BSGeometry'), same as pynBlockName.
+        empty = bpy.data.objects.new(f"{the_shape.blockname}:{base_name}", None)
         empty.empty_display_type = 'PLAIN_AXES'
         empty['pynBlockName'] = the_shape.blockname   # 'BSGeometry'
         # Move the block-identity metadata off the child onto the container Empty.

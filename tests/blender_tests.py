@@ -2769,8 +2769,9 @@ def TEST_SF_IMPORT():
     assert body is not None, "Imported the body mesh"
 
     # Starfield representation: a BSGeometry Empty (block container) parents one mesh child
-    # per LOD. Single-LOD here, so one child named "<shape>:LOD0" under the Empty "<shape>".
-    empty = bpy.data.objects.get("Naked_F:0")
+    # per LOD. Single-LOD here, so one child named "<shape>:LOD0" under the container Empty,
+    # which is flagged with the block-type naming convention "BSGeometry:<shape>".
+    empty = bpy.data.objects.get("BSGeometry:Naked_F:0")
     assert empty is not None and empty.type == 'EMPTY', "BSGeometry container is an Empty"
     assert empty['pynBlockName'] == 'BSGeometry', "Empty carries the BSGeometry block name"
     assert body.name == "Naked_F:0:LOD0", f"Mesh child is the LOD0 child, got {body.name}"

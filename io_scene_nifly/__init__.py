@@ -90,6 +90,30 @@ class PyNiflyPreferences(AddonPreferences):
         default=""
     ) # type: ignore
 
+    sf_texture_path_1: StringProperty(
+        name="Starfield Texture Path 1",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_texture_path_2: StringProperty(
+        name="Starfield Texture Path 2",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_texture_path_3: StringProperty(
+        name="Starfield Texture Path 3",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_texture_path_4: StringProperty(
+        name="Starfield Texture Path 4",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
     sf_cdb_path: StringProperty(
         name="Starfield Material Database (.cdb)",
         description=("Path to Starfield's materialsbeta.cdb (extract it from "
@@ -175,6 +199,10 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "fo4_texture_path_2")
         layout.prop(self, "fo4_texture_path_3")
         layout.prop(self, "fo4_texture_path_4")
+        layout.prop(self, "sf_texture_path_1")
+        layout.prop(self, "sf_texture_path_2")
+        layout.prop(self, "sf_texture_path_3")
+        layout.prop(self, "sf_texture_path_4")
         layout.prop(self, "sf_cdb_path")
         layout.prop(self, "rename_bones")
         layout.prop(self, "rename_bones_niftools")

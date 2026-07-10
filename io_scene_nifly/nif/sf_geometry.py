@@ -21,8 +21,8 @@ def mesh_search_paths(game='SF'):
     paths = []
     try:
         prefs = bpy.context.preferences.addons[base_package].preferences
-        for p in (prefs.fo4_texture_path_1, prefs.fo4_texture_path_2,
-                  prefs.fo4_texture_path_3, prefs.fo4_texture_path_4):
+        for p in (prefs.sf_texture_path_1, prefs.sf_texture_path_2,
+                  prefs.sf_texture_path_3, prefs.sf_texture_path_4):
             if p and (cleaned := texture_path(p)):
                 paths.append(cleaned)
     except Exception:

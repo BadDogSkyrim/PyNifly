@@ -29,6 +29,6 @@ from tests.blender_tests import *
 tests.blender_tests.do_tests(
     target_tests=[ TEST_SF_IMPORT, TEST_SF_MATERIAL ],
     # categories={'ANIMATION', 'SHADER'},
-    test_all=True,
+    test_all=False,
     stop_on_fail=False,
     )

@@ -1165,6 +1165,9 @@ class ShaderImporter:
         if game in ('SKYRIM', 'SKYRIMSE'):
             path_prefs = [prefs.sky_texture_path_1, prefs.sky_texture_path_2,
                           prefs.sky_texture_path_3, prefs.sky_texture_path_4]
+        elif game == 'SF':
+            path_prefs = [prefs.sf_texture_path_1, prefs.sf_texture_path_2,
+                          prefs.sf_texture_path_3, prefs.sf_texture_path_4]
         else:
             path_prefs = [prefs.fo4_texture_path_1, prefs.fo4_texture_path_2,
                           prefs.fo4_texture_path_3, prefs.fo4_texture_path_4]
