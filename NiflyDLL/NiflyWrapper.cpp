@@ -7112,3 +7112,104 @@ NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh,
     return 1;
 }
 
+/* ----------------------------------------------------------------------------
+   Starfield BSGeometry skinning (write side)
+
+   SF skinning has no NiNode bone refs. Bone NAMES live in a SkinAttach extra-data
+   block; bind (skin-to-bone) transforms live in a BSSkin::BoneData indexed by
+   position; per-vertex {boneIndex, weight} pairs live in the external .mesh
+   (BSGeometryMeshData::skinWeights). nifly's CreateSkinning doesn't handle
+   BSGeometry, so we assemble the skin instance ourselves.
+   ---------------------------------------------------------------------------- */
+
+// Create SF-style skinning on a BSGeometry: a BSSkin::Instance + BSSkin::BoneData with
+// `nBones` identity binds, plus a SkinAttach extra-data block carrying the newline-separated
+// bone-name list. Zeroes the per-vertex weight slots (nWeightsPerVert=4) so the .mesh writer
+// emits them. Set binds with setBSGeometryBoneBind and weights with setBSGeometryVertWeights.
+// Returns 1 on success, 0 if the shape isn't a BSGeometry.
+NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+    NiHeader& hdr = nif->GetHeader();
+
+    // BSSkin::BoneData -- nBones identity binds (translations set later).
+    auto boneData = std::make_unique<BSSkinBoneData>();
+    boneData->nBones = (uint32_t)nBones;
+    boneData->boneXforms.resize(nBones);
+    uint32_t boneDataID = hdr.AddBlock(std::move(boneData));
+
+    // BSSkin::Instance -- targets the root, references the bone data.
+    auto skinInst = std::make_unique<BSSkinInstance>();
+    skinInst->targetRef.index = hdr.GetBlockID(nif->GetRootNode());
+    skinInst->dataRef.index = boneDataID;
+    uint32_t skinInstID = hdr.AddBlock(std::move(skinInst));
+    shape->SkinInstanceRef()->index = skinInstID;
+    shape->SetSkinned(true);
+
+    // SkinAttach extra data -- the bone-name list (SF has no NiNode bone refs).
+    auto skinAttach = std::make_unique<SkinAttach>();
+    std::string all(boneNamesNL ? boneNamesNL : "");
+    std::vector<std::string> names;
+    size_t start = 0;
+    while (start <= all.size()) {
+        size_t nl = all.find('\n', start);
+        if (nl == std::string::npos) {
+            if (start < all.size()) names.push_back(all.substr(start));
+            break;
+        }
+        names.push_back(all.substr(start, nl - start));
+        start = nl + 1;
+    }
+    skinAttach->bones.resize((uint32_t)names.size());
+    for (uint32_t i = 0; i < names.size(); i++)
+        skinAttach->bones[i].get() = names[i];
+    uint32_t attachID = hdr.AddBlock(std::move(skinAttach));
+    shape->extraDataRefs.AddBlockRef(attachID);
+
+    // Zero the per-vertex weight slots so SetShapeVertWeights can fill them.
+    nif->ClearShapeVertWeights(shape->name.get());
+    return 1;
+}
+
+// Set the bind (skin-to-bone) transform for one bone on a skinned BSGeometry. The translation
+// is divided by havokScale on write (inverse of the read path's multiply), so callers pass the
+// bind in game units like the vertices. Rotation/scale are unit-invariant. Returns 1 on success.
+NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex,
+                                    const MatTransform& xf) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) return 0;
+    NiHeader& hdr = nif->GetHeader();
+
+    auto skinInst = hdr.GetBlock<BSSkinInstance>(shape->SkinInstanceRef());
+    if (!skinInst) return 0;
+    auto boneData = hdr.GetBlock<BSSkinBoneData>(skinInst->dataRef);
+    if (!boneData || boneIndex < 0 || boneIndex >= (int)boneData->boneXforms.size()) return 0;
+
+    const float havokScale = 69.969f;
+    MatTransform t = xf;
+    t.translation.x /= havokScale;
+    t.translation.y /= havokScale;
+    t.translation.z /= havokScale;
+    boneData->boneXforms[boneIndex].boneTransform = t;
+    return 1;
+}
+
+// Set the per-vertex bone weights for one vertex of a skinned BSGeometry. boneIndices index
+// the shape's bone list (SkinAttach order); weights are floats (normalized + quantized to the
+// .mesh's uint16 by nifly). Routes through nifly's BSGeometry-aware SetShapeVertWeights.
+// Returns 1 on success.
+NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertIndex,
+                                       uint8_t* boneIndices, float* weights, int count) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) return 0;
+
+    std::vector<uint8_t> ids(boneIndices, boneIndices + count);
+    std::vector<float> ws(weights, weights + count);
+    nif->SetShapeVertWeights(shape->name.get(), (uint16_t)vertIndex, ids, ws);
+    return 1;
+}
+

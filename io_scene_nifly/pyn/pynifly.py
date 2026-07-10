@@ -4779,6 +4779,27 @@ class BSGeometry(NiShape):
             cbuf[i] = (c[0], c[1], c[2], c[3] if len(c) > 3 else 1.0)
         nifly.setBSGeometryColors(self.file._handle, self._handle, slot, cbuf, n)
 
+    def skin_bones(self, bone_names):
+        """Set up SF skinning: create the BSSkin::Instance + BSSkin::BoneData (identity binds)
+        + SkinAttach carrying `bone_names` (in order), and zero the per-vertex weight slots.
+        Call set_bone_bind() + set_vert_weights() afterward. Geometry must already be set."""
+        namesNL = "\n".join(bone_names).encode('utf-8')
+        nifly.skinBSGeometry(self.file._handle, self._handle, namesNL, len(bone_names))
+        self._invalidate_geometry()
+
+    def set_bone_bind(self, bone_index, xform: TransformBuf):
+        """Set the skin-to-bone (bind) transform for the bone at `bone_index` (SkinAttach
+        order). Pass the bind in game units; the DLL divides translation by havokScale."""
+        nifly.setBSGeometryBoneBind(self.file._handle, self._handle, bone_index, xform)
+
+    def set_vert_weights(self, vert_index, bone_indices, weights):
+        """Set the bone weights for one vertex. bone_indices index the shape's bone list
+        (SkinAttach order); weights are floats (nifly normalizes + quantizes into the .mesh)."""
+        n = len(bone_indices)
+        bbuf = (c_uint8 * n)(*bone_indices)
+        wbuf = (c_float * n)(*weights)
+        nifly.setBSGeometryVertWeights(self.file._handle, self._handle, vert_index, bbuf, wbuf, n)
+
     def _invalidate_geometry(self):
         # vertexCount/triangleCount live in the cached NiShapeBuf, which is stale once a
         # different .mesh slot is loaded/selected. Clear it and the geometry caches so they

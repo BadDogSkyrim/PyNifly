@@ -1268,6 +1268,101 @@ namespace NiflyDLLTests
 			delete[] verts2; delete[] tris2;
 		}
 
+		TEST_METHOD(CreateStarfieldSkin)
+		{
+			/* UNIT TEST: CREATE a skinned Starfield BSGeometry, save NIF + .mesh, reload, and
+			   confirm the skin survives: bone names (SkinAttach), a bind transform
+			   (BSSkin::BoneData), and per-vertex weights (in the .mesh). */
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			// Source: geometry + bone names + a bind transform from the read fixture.
+			void* srcNif = load((testRoot / "SF/naked_f.nif").u8string().c_str());
+			void* srcShapes[5]; getShapes(srcNif, srcShapes, 5, 0);
+			void* srcGeom = srcShapes[0];
+			std::ifstream in(meshfile, std::ios::binary);
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			loadBSGeometryMeshData(srcNif, srcGeom, 0, bytes.data(), (int)bytes.size());
+
+			Vector3* verts = new Vector3[60000];
+			Triangle* tris = new Triangle[120000];
+			Vector2* uv = new Vector2[60000];
+			Vector3* norms = new Vector3[60000];
+			int vcount = getVertsForShape(srcNif, srcGeom, verts, 60000 * 3, 0);
+			int tcount = getTriangles(srcNif, srcGeom, tris, 120000 * 3, 0);
+			getUVs(srcNif, srcGeom, uv, 60000 * 2, 0);
+			getNormalsForShape(srcNif, srcGeom, norms, 60000 * 3, 0);
+
+			char boneBuf[4000];
+			int boneStrLen = getShapeBoneNames(srcNif, srcGeom, boneBuf, 4000);
+			Assert::IsTrue(boneStrLen > 0, L"Source has bone names");
+			int nBones = 1;
+			for (int i = 0; i < boneStrLen; i++) if (boneBuf[i] == '\n') nBones++;
+			Assert::IsTrue(nBones > 10, L"Source is multi-bone");
+
+			MatTransform bind0src{};
+			Assert::IsTrue(getShapeSkinToBoneByIndex(srcNif, srcGeom, 0, bind0src),
+						   L"Read source bind for bone 0");
+
+			// Create a fresh Starfield nif + a BSGeometry from the geometry.
+			void* newNif = createNif("SF", "NiNode", "Scene Root");
+			NiShapeBuf buf{};
+			buf.scale = 1.0f;
+			buf.rotation[0][0] = 1.0f; buf.rotation[1][1] = 1.0f; buf.rotation[2][2] = 1.0f;
+			buf.vertexCount = (uint32_t)vcount;
+			buf.triangleCount = (uint32_t)tcount;
+			buf.shaderPropertyID = NO_SHADER_REF;
+			void* newGeom = createNifShapeFromData(newNif, "SkinBody", &buf,
+				verts, uv, norms, tris, nullptr);
+			Assert::AreEqual(1, setBSGeometryMeshName(newNif, newGeom, 0, "geometries\\test\\skin.mesh"));
+
+			// Skin: instance + bone data + SkinAttach, then copy bone 0's bind, then weight
+			// every vertex fully to bone 0.
+			Assert::AreEqual(1, skinBSGeometry(newNif, newGeom, boneBuf, nBones),
+				L"Created SF skinning");
+			Assert::AreEqual(1, setBSGeometryBoneBind(newNif, newGeom, 0, bind0src),
+				L"Set bone 0 bind");
+			for (int v = 0; v < vcount; v++) {
+				uint8_t bid = 0; float w = 1.0f;
+				setBSGeometryVertWeights(newNif, newGeom, v, &bid, &w, 1);
+			}
+
+			// Save NIF + external .mesh.
+			std::filesystem::path outNif = testRoot / "Out/CreateStarfieldSkin.nif";
+			std::filesystem::path outMesh = testRoot / "Out/CreateStarfieldSkin.mesh";
+			Assert::AreEqual(0, saveNif(newNif, outNif.u8string().c_str()), L"Saved NIF");
+			int mlen = saveBSGeometryMeshData(newNif, newGeom, 0, nullptr, 0);
+			std::string mbytes(mlen, '\0');
+			saveBSGeometryMeshData(newNif, newGeom, 0, &mbytes[0], mlen);
+			{ std::ofstream out(outMesh, std::ios::binary); out.write(mbytes.data(), mlen); }
+
+			// Reload NIF + .mesh and verify the skin.
+			void* rNif = load(outNif.u8string().c_str());
+			void* rShapes[5]; getShapes(rNif, rShapes, 5, 0);
+			void* rGeom = rShapes[0];
+			Assert::AreEqual(1, loadBSGeometryMeshData(rNif, rGeom, 0, mbytes.data(), mlen),
+				L"Reloaded external .mesh");
+
+			char rBoneBuf[4000];
+			int rBoneStrLen = getShapeBoneNames(rNif, rGeom, rBoneBuf, 4000);
+			int rNBones = 1;
+			for (int i = 0; i < rBoneStrLen; i++) if (rBoneBuf[i] == '\n') rNBones++;
+			Assert::AreEqual(nBones, rNBones, L"Bone names round-trip (SkinAttach)");
+
+			MatTransform bind0r{};
+			Assert::IsTrue(getShapeSkinToBoneByIndex(rNif, rGeom, 0, bind0r),
+				L"Read reloaded bind for bone 0");
+			Assert::IsTrue(std::fabs(bind0src.translation.x - bind0r.translation.x) < 0.1f
+				&& std::fabs(bind0src.translation.y - bind0r.translation.y) < 0.1f
+				&& std::fabs(bind0src.translation.z - bind0r.translation.z) < 0.1f,
+				L"Bone 0 bind translation round-trips (in game units)");
+
+			int wcount0 = getShapeBoneWeightsCount(rNif, rGeom, 0);
+			Assert::AreEqual(vcount, wcount0, L"Every vertex weighted to bone 0 survives round-trip");
+
+			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
+		}
+
 		TEST_METHOD(LoadAndStoreFO4)
 		{
 			/* UNIT TEST: Can load a nif and read info out of it */

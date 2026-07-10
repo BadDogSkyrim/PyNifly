@@ -513,6 +513,55 @@ def TEST_SF_MESH_CREATE():
     assert maxerr < 0.1, f"Verts round-trip within tolerance (max err {maxerr})"
 
 
+def TEST_SF_SKIN_EXPORT():
+    """Starfield export (pyn layer): CREATE a skinned BSGeometry, save NIF + .mesh, reload,
+    and confirm bone names (SkinAttach), a bind transform, and per-vertex weights survive."""
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        srcgeom.load_mesh(f.read(), 0)
+    verts = list(srcgeom.verts)
+    tris = list(srcgeom.tris)
+    uvs = list(srcgeom.uvs)
+    normals = list(srcgeom.normals)
+    bone_names = list(srcgeom.bone_names)
+    assert len(bone_names) > 10, f"Source is multi-bone: {len(bone_names)}"
+    bind0 = srcgeom.get_shape_skin_to_bone_by_index(0)
+    assert bind0 is not None, "Read source bind for bone 0"
+
+    outfile = r"tests\Out\TEST_SF_SKIN_EXPORT.nif"
+    outmesh = r"tests\Out\TEST_SF_SKIN_EXPORT.mesh"
+    nif = NifFile()
+    nif.initialize('SF', outfile)
+    geom = nif.createShapeFromData("SkinBody", verts, tris, uvs, normals, parent=nif.root)
+    geom.set_mesh_name(r"geometries\test\skin.mesh", 0)
+
+    geom.skin_bones(bone_names)
+    geom.set_bone_bind(0, bind0)
+    for v in range(len(verts)):
+        geom.set_vert_weights(v, [0], [1.0])
+
+    # Save NIF + external .mesh.
+    nif.save()
+    with open(outmesh, "wb") as f:
+        f.write(geom.save_mesh(0))
+
+    # Reload and verify.
+    rnif = NifFile(outfile)
+    rgeom = rnif.shapes[0]
+    with open(outmesh, "rb") as f:
+        rgeom.load_mesh(f.read(), 0)
+
+    assert len(rgeom.bone_names) == len(bone_names), \
+        f"Bone names round-trip: {len(rgeom.bone_names)} vs {len(bone_names)}"
+    rbind0 = rgeom.get_shape_skin_to_bone_by_index(0)
+    assert rbind0 is not None, "Reloaded bind for bone 0"
+    dt = max(abs(a - b) for a, b in zip(bind0.translation, rbind0.translation))
+    assert dt < 0.1, f"Bone 0 bind translation round-trips (max err {dt})"
+    w0 = rgeom.bone_weights[rgeom.bone_names[0]]
+    assert len(w0) == len(verts), f"Every vertex weighted to bone 0: {len(w0)} vs {len(verts)}"
+
+
 def TEST_SF_SKIN_BIND():
     """Starfield: per-bone bind (skin-to-bone) transforms come through by INDEX.
 
