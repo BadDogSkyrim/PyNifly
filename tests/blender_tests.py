@@ -2881,6 +2881,60 @@ def TEST_SF_MATERIAL():
     assert any(n.type == 'NORMAL_MAP' for n in nt.nodes), "Normal reconstructed via Normal Map"
 
 
+@TT.category('STARFIELD')
+@TT.expect_errors(("Could not find material",))
+def TEST_SF_EXPORT():
+    """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),
+    re-import the result and confirm geometry, bones, and weights survive.
+
+    The re-import warns that the material is missing -- the exported nif's Out/ tree has no
+    materials/ sibling -- which is expected and whitelisted; the geometry/skin is the point.
+    """
+    import os
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_EXPORT\meshes\naked_f.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    assert body is not None, "Imported the LOD0 body mesh"
+    v_in = len(body.data.vertices)
+    p_in = len(body.data.polygons)
+    vg_in = len(body.vertex_groups)
+
+    # Export the body (its BSGeometry Empty container + armature come along).
+    BD.ObjectSelect([body], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF")
+
+    # The external .mesh must have been written into a geometries/ tree beside meshes/.
+    import os
+    geodir = os.path.join(os.path.dirname(os.path.dirname(outfile)), "geometries")
+    meshes_written = []
+    for root, _dirs, files in os.walk(geodir):
+        meshes_written += [os.path.join(root, f) for f in files if f.endswith(".mesh")]
+    assert meshes_written, f"Wrote an external .mesh under {geodir}"
+
+    # Re-import the exported nif (resolves the .mesh from the geometries/ sibling). Deselect
+    # first so it imports as a fresh object, not a shape key on the active mesh.
+    BD.ObjectSelect([], active=None)
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+    # Two imports now exist; grab the most-recently-added matching body mesh.
+    bodies = [o for o in bpy.data.objects
+              if o.type == 'MESH' and o.name.startswith("Naked_F:0:LOD0")]
+    assert len(bodies) >= 2, f"Re-imported the body ({[b.name for b in bodies]})"
+    body2 = bodies[-1]
+
+    assert len(body2.data.vertices) == v_in, \
+        f"Vertex count round-trips: {len(body2.data.vertices)} vs {v_in}"
+    assert len(body2.data.polygons) == p_in, \
+        f"Polygon count round-trips: {len(body2.data.polygons)} vs {p_in}"
+    assert len(body2.vertex_groups) == vg_in, \
+        f"Bone vertex groups round-trip: {len(body2.vertex_groups)} vs {vg_in}"
+    assert 'Thigh.L' in body2.vertex_groups, "Bone naming survives (Thigh.L)"
+    arma_mod = next((m for m in body2.modifiers if m.type == 'ARMATURE'), None)
+    assert arma_mod and arma_mod.object, "Re-imported body is bound to an armature"
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""

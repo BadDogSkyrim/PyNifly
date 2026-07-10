@@ -1561,11 +1561,16 @@ class NifExporter:
         ref = None
         ninode = None
         for this_parent in ancestors:
+            # A Starfield BSGeometry container Empty is represented by the shape block itself,
+            # not by a separate NiNode -- skip it so the BSGeometry parents to the Empty's own
+            # parent (root or a real NiNode above it).
+            if this_parent.get('pynBlockName') == 'BSGeometry':
+                continue
             ref = self.objs_written.find_blend(this_parent)
             if (not ref) and  ('pynRoot' not in this_parent):
                 ref = self.export_node(this_parent, last_parent)
             last_parent = ref
-        
+
         return ref
 
 
@@ -1863,6 +1868,12 @@ class NifExporter:
             if connectpoint.is_connectpoint(obj):
                 obj_name = "EditorMarker"
                 p = None
+            elif self.game == 'SF':
+                # Starfield: the exported object is the LOD-child mesh; the BSGeometry block
+                # takes the base name off its container Empty (not the ':LOD<slot>' child name).
+                from . import sf_geometry
+                obj_name = sf_geometry.sf_base_name(obj)
+                p = my_parent.nifnode if my_parent else None
             else:
                 obj_name = self.unique_name(obj)
                 p = my_parent.nifnode if my_parent else None
@@ -1886,14 +1897,25 @@ class NifExporter:
             robj = ReprObject(obj, new_shape)
             self.objs_written.add(robj)
 
-            if colors_new:
+            # Starfield colors go into the .mesh via set_mesh_colors (handled in
+            # export_sf_shape); the generic set_colors writes the wrong array for BSGeometry.
+            if colors_new and self.game != 'SF':
                 new_shape.set_colors(colors_new)
 
             self.export_shape_data(robj)
-            
+
             shaderexp.export(new_shape)
 
-            if is_skinned:
+            if self.game == 'SF':
+                # Starfield: set the external .mesh path + colors + skin, and queue the .mesh
+                # bytes to be written after nif.save(). Uses the SF skin path (SkinAttach +
+                # BSSkin::BoneData), not the generic export_skin (nifly can't skin a BSGeometry).
+                from . import sf_geometry
+                sf_geometry.export_sf_shape(
+                    self, obj, new_shape, verts, uvmap_nif, norms_exp, tris,
+                    colors_new, weights_by_vert, arma if is_skinned else None, new_xform)
+                new_shape.transform = BD.make_transformbuf(new_xform)
+            elif is_skinned:
                 self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
                 if len(unweighted) > 0:
                     create_group_from_verts(obj, BD.UNWEIGHTED_VERTEX_GROUP, unweighted)
@@ -2080,6 +2102,9 @@ class NifExporter:
 
         self.nif.save()
         log.info(f"..Wrote {fpath}")
+        if self.game == 'SF':
+            from . import sf_geometry
+            sf_geometry.write_sf_meshes(self)
         self._fo4_write_ssf()
         msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
                             self.nif.message_log().split('\n')))
@@ -2214,6 +2239,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO76', "Fallout 76", ""),
                    ('FO3', "Fallout New Vegas", ""),
                    ('FO3', "Fallout 3", ""),
+                   ('SF', "Starfield", ""),
                    ),
             ) # type: ignore
     
