@@ -1170,6 +1170,104 @@ namespace NiflyDLLTests
 			delete[] verts0; delete[] tris0; delete[] verts1; delete[] tris1;
 		}
 
+		TEST_METHOD(CreateStarfieldMesh)
+		{
+			/* UNIT TEST: CREATE a Starfield BSGeometry from raw geometry (not loaded from a
+			   .mesh), serialize it to the external-.mesh byte layout, reload, and confirm the
+			   geometry survives. Exercises the export path: PyniflyCreateShape's IsSF() branch
+			   + setBSGeometryMeshName + saveBSGeometryMeshData. */
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			// Source geometry: reuse a real body's verts/tris/uv/normals by loading the
+			// fixture .mesh into a throwaway BSGeometry.
+			void* srcNif = load((testRoot / "SF/naked_f.nif").u8string().c_str());
+			Assert::IsNotNull(srcNif);
+			void* srcShapes[5];
+			getShapes(srcNif, srcShapes, 5, 0);
+			void* srcGeom = srcShapes[0];
+			std::ifstream in(meshfile, std::ios::binary);
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			Assert::AreEqual(1, loadBSGeometryMeshData(srcNif, srcGeom, 0, bytes.data(), (int)bytes.size()));
+
+			Vector3* verts = new Vector3[60000];
+			Triangle* tris = new Triangle[120000];
+			Vector2* uv = new Vector2[60000];
+			Vector3* norms = new Vector3[60000];
+			int vcount = getVertsForShape(srcNif, srcGeom, verts, 60000 * 3, 0);
+			int tcount = getTriangles(srcNif, srcGeom, tris, 120000 * 3, 0);
+			int uvcount = getUVs(srcNif, srcGeom, uv, 60000 * 2, 0);
+			int ncount = getNormalsForShape(srcNif, srcGeom, norms, 60000 * 3, 0);
+			Assert::IsTrue(vcount > 0 && tcount > 0);
+			Assert::AreEqual(vcount, uvcount);
+			Assert::AreEqual(vcount, ncount);
+
+			// Build a fresh Starfield NIF and CREATE a BSGeometry in it from that data.
+			void* newNif = createNif("SF", "NiNode", "Scene Root");
+			Assert::IsNotNull(newNif);
+
+			NiShapeBuf buf{};
+			buf.scale = 1.0f;
+			buf.rotation[0][0] = 1.0f; buf.rotation[1][1] = 1.0f; buf.rotation[2][2] = 1.0f;
+			buf.vertexCount = (uint32_t)vcount;
+			buf.triangleCount = (uint32_t)tcount;
+			buf.shaderPropertyID = NO_SHADER_REF;
+
+			void* newGeom = createNifShapeFromData(newNif, "TestBody", &buf,
+				verts, uv, norms, tris, nullptr);
+			Assert::IsNotNull(newGeom, L"Created a BSGeometry from data");
+			Assert::AreEqual(1, getBSGeometryMeshCount(newNif, newGeom),
+				L"New shape is a BSGeometry with one mesh slot");
+			Assert::AreEqual(0, getBSGeometryInternalFlag(newNif, newGeom),
+				L"New BSGeometry is external (flag 0x200 off)");
+
+			// Geometry must be readable straight off the created shape (before any save).
+			Vector3* vchk = new Vector3[60000];
+			int vchkCount = getVertsForShape(newNif, newGeom, vchk, 60000 * 3, 0);
+			delete[] vchk;
+			Assert::AreEqual(vcount, vchkCount, L"Verts readable off the freshly created BSGeometry");
+
+			// Give it an external .mesh path.
+			Assert::AreEqual(1, setBSGeometryMeshName(newNif, newGeom, 0, "test\\testbody.mesh"));
+			char pathBuf[256];
+			Assert::IsTrue(getBSGeometryMeshPath(newNif, newGeom, 0, pathBuf, 256) > 0);
+			Assert::AreEqual("test\\testbody.mesh", pathBuf);
+
+			// Serialize to .mesh bytes (length-only pass, then fill).
+			int len = saveBSGeometryMeshData(newNif, newGeom, 0, nullptr, 0);
+			Assert::IsTrue(len > 0, L"Serialized the created mesh");
+			std::string saved(len, '\0');
+			Assert::AreEqual(len, saveBSGeometryMeshData(newNif, newGeom, 0, &saved[0], len));
+
+			// Reload the bytes and confirm the geometry survives the create->save->load trip.
+			Assert::AreEqual(1, loadBSGeometryMeshData(newNif, newGeom, 0, saved.data(), len));
+			Vector3* verts2 = new Vector3[60000];
+			Triangle* tris2 = new Triangle[120000];
+			int vcount2 = getVertsForShape(newNif, newGeom, verts2, 60000 * 3, 0);
+			int tcount2 = getTriangles(newNif, newGeom, tris2, 120000 * 3, 0);
+			Assert::AreEqual(vcount, vcount2, L"Vertex count preserved through create->save->load");
+			Assert::AreEqual(tcount, tcount2, L"Triangle count preserved");
+
+			// Positions are int16-SNORM * per-mesh scale; re-quantizing stays sub-quantum.
+			float maxErr = 0.0f;
+			for (int i = 0; i < vcount; i++) {
+				float dx = std::fabs(verts[i].x - verts2[i].x);
+				float dy = std::fabs(verts[i].y - verts2[i].y);
+				float dz = std::fabs(verts[i].z - verts2[i].z);
+				maxErr = std::max(maxErr, std::max(dx, std::max(dy, dz)));
+			}
+			Assert::IsTrue(maxErr < 0.1f, L"Vertex positions round-trip within quantization tolerance");
+
+			// Triangle indices must be exact.
+			for (int i = 0; i < tcount; i++) {
+				Assert::IsTrue(tris[i].p1 == tris2[i].p1 && tris[i].p2 == tris2[i].p2
+					&& tris[i].p3 == tris2[i].p3, L"Triangle indices preserved exactly");
+			}
+
+			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
+			delete[] verts2; delete[] tris2;
+		}
+
 		TEST_METHOD(LoadAndStoreFO4)
 		{
 			/* UNIT TEST: Can load a nif and read info out of it */

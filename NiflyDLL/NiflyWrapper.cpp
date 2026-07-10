@@ -142,6 +142,8 @@ enum TargetGame StrToTargetGame(const char* gameName) {
     else if (strcmp(gameName, "SKYRIMSE") == 0) { return TargetGame::SKYRIMSE; }
     else if (strcmp(gameName, "SKYRIMVR") == 0) { return TargetGame::SKYRIMVR; }
     else if (strcmp(gameName, "FO76") == 0) { return TargetGame::FO76; }
+    else if (strcmp(gameName, "SF") == 0) { return TargetGame::SF; }
+    else if (strcmp(gameName, "STARFIELD") == 0) { return TargetGame::SF; }
     else { return TargetGame::SKYRIM; }
 }
 
@@ -270,6 +272,12 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(155);
+        break;
+    case TargetGame::SF:
+        // Starfield: file 20.2.0.7, user 12, stream 172-175 (vanilla assets use 172).
+        version.SetFile(V20_2_0_7);
+        version.SetUser(12);
+        version.SetStream(172);
         break;
     }
 
@@ -1257,7 +1265,10 @@ int setShapeFromBuf(NifFile* nif, NiShape* theShape, NiShapeBuf* buf)
     theShape->transform.scale = buf->scale;
     theShape->collisionRef.index = buf->collisionID;
 
-    BSTriShape* ts = static_cast<BSTriShape*>(theShape);
+    // dynamic_cast, NOT static_cast: this must be null for non-BSTriShape shapes
+    // (NiTriShape, BSGeometry). A static_cast is never null and writing ts->vertexDesc
+    // through it corrupts a BSGeometry's mesh data (its layout has no vertexDesc there).
+    BSTriShape* ts = dynamic_cast<BSTriShape*>(theShape);
     if (ts) {
         if (buf->hasFullPrecision) ts->SetFullPrecision(true);
 
@@ -7036,5 +7047,68 @@ NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh
         for (int i = 0; i < copy; i++) buf[i] = data[i];
     }
     return n;
+}
+
+// Set the external .mesh path (meshName) for LOD slot 'whichMesh'. This is the path
+// the NIF's BSGeometry references; the actual .mesh bytes are written separately via
+// saveBSGeometryMeshData. Uses the same writable string refs as the getter. Returns 1
+// on success, 0 if not a BSGeometry / slot out of range.
+NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh,
+                                    const char* name) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) return 0;
+
+    std::vector<std::reference_wrapper<std::string>> refs =
+        nif->GetExternalGeometryPathRefs(shape);
+    if (whichMesh < 0 || whichMesh >= (int)refs.size()) return 0;
+    refs[whichMesh].get() = name ? std::string(name) : std::string();
+    return 1;
+}
+
+// Set the tangents for LOD slot 'whichMesh'. tangents = count Vector3 (unit tangents);
+// tangentWs = count bytes, the 2-bit bitangent-sign W of each tangent (1 or 3 in the
+// packed UDEC3.W; pass 1 if unknown). nifly packs both into the .mesh on save. These
+// have no read counterpart on the generic accessors, hence a dedicated setter. Returns
+// 1 on success.
+NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh,
+                                    Vector3* tangents, uint8_t* tangentWs, int count) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
+    nifly::BSGeometryMesh* mesh = geom->SelectMesh((uint8_t)whichMesh);
+    if (!mesh) return 0;
+
+    auto& md = mesh->meshData;
+    md.tangents.assign(tangents, tangents + count);
+    md.tangentWs.resize(count);
+    for (int i = 0; i < count; i++)
+        md.tangentWs[i] = tangentWs ? tangentWs[i] : 1;
+    return 1;
+}
+
+// Set the per-vertex colors for LOD slot 'whichMesh'. colors = count Color4 (float RGBA,
+// 0..1), converted to the .mesh's ByteColor4 (BGRA-order bytes are handled by nifly's
+// Sync; we store straight RGBA bytes). Returns 1 on success.
+NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh,
+                                  Color4* colors, int count) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
+    nifly::BSGeometryMesh* mesh = geom->SelectMesh((uint8_t)whichMesh);
+    if (!mesh) return 0;
+
+    auto clamp8 = [](float f) -> uint8_t {
+        int v = (int)std::lround(f * 255.0f);
+        if (v < 0) v = 0; if (v > 255) v = 255;
+        return (uint8_t)v;
+    };
+    auto& md = mesh->meshData;
+    md.vColors.resize(count);
+    for (int i = 0; i < count; i++) {
+        md.vColors[i].r = clamp8(colors[i].r);
+        md.vColors[i].g = clamp8(colors[i].g);
+        md.vColors[i].b = clamp8(colors[i].b);
+        md.vColors[i].a = clamp8(colors[i].a);
+    }
+    return 1;
 }
 

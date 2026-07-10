@@ -16,7 +16,7 @@
 #pragma once
 
 enum class TargetGame {
-	FO3, FONV, SKYRIM, FO4, SKYRIMSE, FO4VR, SKYRIMVR, FO76
+	FO3, FONV, SKYRIM, FO4, SKYRIMSE, FO4VR, SKYRIMVR, FO76, SF
 };
 
 const int RT_NINODE = 0;

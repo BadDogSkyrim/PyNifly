@@ -67,6 +67,10 @@ String SkeletonFile(enum TargetGame game, String& rootName) {
 		curSkeletonPath = (projectRoot / "skeletons/FO4/skeleton.nif").string();
 		rootName = "Root";
 		break;
+	case TargetGame::SF:
+		curSkeletonPath = (projectRoot / "skeletons/SF/skeleton.nif").string();
+		rootName = "Root";
+		break;
 	}
 	return curSkeletonPath;
 }
@@ -102,6 +106,13 @@ void SetNifVersion(NifFile* nif, enum TargetGame targ) {
 		version.SetFile(V20_2_0_7);
 		version.SetUser(12);
 		version.SetStream(155);
+		break;
+	case TargetGame::SF:
+		// Starfield: file 20.2.0.7, user 12, stream 172-175. Vanilla base-game
+		// assets use 172; nifly's IsSF() accepts the whole range.
+		version.SetFile(V20_2_0_7);
+		version.SetUser(12);
+		version.SetStream(172);
 		break;
 	}
 
@@ -289,7 +300,55 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 	NiVersion& version = nif->GetHeader().GetVersion();
 
 	NiShape* shapeResult = nullptr;
-	if (version.IsSSE() && buf->bufType == BUFFER_TYPES::NiTriShapeBufType) {
+	if (version.IsSF()) {
+		// Starfield: every renderable is a BSGeometry whose geometry lives in external
+		// .mesh files (flag 0x200 off). Build the block + one mesh (LOD) slot populated
+		// from the passed data. Tangents, colors, meshName and skin are filled in by the
+		// dedicated setBSGeometry* setters after creation (no read counterpart on the
+		// generic Create path). The .mesh bytes are produced later by saveBSGeometryMeshData.
+		auto bsGeom = std::make_unique<BSGeometry>();
+		bsGeom->name.get() = shapeName;
+		bsGeom->SetInternalGeomData(false);   // external geometry
+
+		BSGeometryMesh* mesh = bsGeom->AddMesh();
+		mesh->internalGeom = false;
+		mesh->flags = 64;                     // observed constant on vanilla meshes
+		BSGeometryMeshData& md = mesh->meshData;
+		md.version = 1;                       // .mesh format version (game reads 0..2)
+
+		// Populate verts/uvs/normals through nifly's Create: it sets the protected
+		// numVertices and sizes vertices/uvSets/normals consistently (a direct assign
+		// would be truncated later by SetVertices' resize-to-numVertices). Create ignores
+		// the triangle argument, so the tris go in separately. Tangents get real values
+		// from setBSGeometryTangents afterward (Create can't build them -- it has no tris yet).
+		md.Create(version, v, t, uv, norms);
+		if (t) md.tris = *t;
+
+		// Per-mesh scale: the packer stores each position as
+		//   int16 = component / (scale * havokScale) * 32767,
+		// so scale must cover the largest game-unit extent (÷havokScale = metric).
+		const float havokScale = 69.969f;
+		float maxCoord = 0.0f;
+		if (v) for (const auto& p : *v) {
+			maxCoord = std::max(maxCoord,
+				std::max(std::fabs(p.x), std::max(std::fabs(p.y), std::fabs(p.z))));
+		}
+		md.scale = (maxCoord > 0.0f) ? (maxCoord / havokScale) : 1.0f;
+
+		if (buf->shaderPropertyID != NO_SHADER_REF) {
+			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
+			auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
+			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+			nifShader->SetSkinned(false);
+			int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+			bsGeom->ShaderPropertyRef()->index = shaderID;
+		}
+
+		shapeResult = bsGeom.get();
+		int shapeID = nif->GetHeader().AddBlock(std::move(bsGeom));
+		parentNode->childRefs.AddBlockRef(shapeID);
+	}
+	else if (version.IsSSE() && buf->bufType == BUFFER_TYPES::NiTriShapeBufType) {
 		// SSE files can legitimately contain NiTriShapes -- e.g. the lowest-LOD
 		// billboards of vanilla skinned trees. Build NiTriShape + NiTriShapeData.
 		auto nifTriShape = std::make_unique<NiTriShape>();

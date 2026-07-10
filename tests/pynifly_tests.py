@@ -462,6 +462,57 @@ def TEST_SF_MESH_WRITE():
     assert maxerr < 0.1, f"Vertex positions round-trip within tolerance (max err {maxerr})"
 
 
+def TEST_SF_MESH_CREATE():
+    """Starfield export (pyn layer): CREATE a BSGeometry from geometry, write the external
+    .mesh bytes, and round-trip. Mirrors the DLL CreateStarfieldMesh test one level up.
+
+    createShapeFromData on an SF nif builds a BSGeometry (not a NiTriShape); set_mesh_name
+    records the external path; set_mesh_tangents/set_mesh_colors fill the extra channels;
+    save_mesh serializes. Re-loading the bytes reproduces the geometry within quantization.
+    """
+    # Source geometry from the read fixture.
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        srcgeom.load_mesh(f.read(), 0)
+    verts = list(srcgeom.verts)
+    tris = list(srcgeom.tris)
+    uvs = list(srcgeom.uvs)
+    normals = list(srcgeom.normals)
+    assert len(verts) > 0 and len(tris) > 0, "Have source geometry"
+
+    # Build a fresh Starfield nif and create a BSGeometry in it from that data.
+    outfile = r"tests\Out\TEST_SF_MESH_CREATE.nif"
+    nif = NifFile()
+    nif.initialize('SF', outfile)
+    geom = nif.createShapeFromData("TestBody", verts, tris, uvs, normals, parent=nif.root)
+    assert isinstance(geom, BSGeometry), f"Created a BSGeometry: {type(geom).__name__}"
+    assert geom.mesh_count == 1, f"One mesh slot: {geom.mesh_count}"
+    assert not geom.is_internal_geom, "External geometry"
+
+    geom.set_mesh_name(r"geometries\test\testbody.mesh", 0)
+    assert geom.mesh_path(0) == r"geometries\test\testbody.mesh", geom.mesh_path(0)
+
+    # Extra channels: colors (white) + placeholder tangents.
+    geom.set_mesh_colors([(1.0, 1.0, 1.0, 1.0)] * len(verts), 0)
+    geom.set_mesh_tangents([(1.0, 0.0, 0.0)] * len(verts), None, 0)
+
+    # Geometry is readable straight off the created shape.
+    assert len(geom.verts) == len(verts), f"Verts off created shape: {len(geom.verts)}"
+    assert len(geom.tris) == len(tris), f"Tris off created shape: {len(geom.tris)}"
+
+    # Serialize -> reload -> compare.
+    data = geom.save_mesh(0)
+    assert len(data) > 0, "Serialized .mesh bytes"
+    assert geom.load_mesh(data, 0), "Re-loaded serialized bytes"
+    verts1 = list(geom.verts)
+    tris1 = list(geom.tris)
+    assert len(verts1) == len(verts), f"Vertex count preserved: {len(verts1)} vs {len(verts)}"
+    assert len(tris1) == len(tris), f"Triangle count preserved: {len(tris1)} vs {len(tris)}"
+    maxerr = max(abs(a - b) for v0, v1 in zip(verts, verts1) for a, b in zip(v0, v1))
+    assert maxerr < 0.1, f"Verts round-trip within tolerance (max err {maxerr})"
+
+
 def TEST_SF_SKIN_BIND():
     """Starfield: per-bone bind (skin-to-bone) transforms come through by INDEX.
 

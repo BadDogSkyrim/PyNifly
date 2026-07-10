@@ -4750,6 +4750,35 @@ class BSGeometry(NiShape):
         nifly.saveBSGeometryMeshData(self.file._handle, self._handle, slot, buf, n)
         return buf.raw[:n]
 
+    def set_mesh_name(self, name, slot=0):
+        """Set the external .mesh path (meshName) the NIF references for LOD slot `slot`.
+        The .mesh bytes themselves are written separately via save_mesh()."""
+        nifly.setBSGeometryMeshName(
+            self.file._handle, self._handle, slot, name.encode('utf-8'))
+        self._invalidate_geometry()
+
+    def set_mesh_tangents(self, tangents, tangent_ws=None, slot=0):
+        """Set per-vertex tangents for LOD slot `slot`. tangents = [(x,y,z)...]; tangent_ws =
+        the 2-bit bitangent-sign W of each tangent (1 or 3), defaulting to 1 if omitted."""
+        n = len(tangents)
+        tbuf = (c_float * 3 * n)()
+        for i, t in enumerate(tangents):
+            tbuf[i] = (t[0], t[1], t[2])
+        wbuf = (c_uint8 * n)()
+        for i in range(n):
+            wbuf[i] = (tangent_ws[i] if tangent_ws else 1)
+        nifly.setBSGeometryTangents(
+            self.file._handle, self._handle, slot, tbuf, wbuf, n)
+
+    def set_mesh_colors(self, colors, slot=0):
+        """Set per-vertex colors for LOD slot `slot`. colors = [(r,g,b,a)...] floats 0..1,
+        stored as the .mesh's byte colors."""
+        n = len(colors)
+        cbuf = (c_float * 4 * n)()
+        for i, c in enumerate(colors):
+            cbuf[i] = (c[0], c[1], c[2], c[3] if len(c) > 3 else 1.0)
+        nifly.setBSGeometryColors(self.file._handle, self._handle, slot, cbuf, n)
+
     def _invalidate_geometry(self):
         # vertexCount/triangleCount live in the cached NiShapeBuf, which is stale once a
         # different .mesh slot is loaded/selected. Clear it and the geometry caches so they
@@ -5015,7 +5044,10 @@ class NifFile:
         
         if self._shapes is None:
             self._shapes = []
-        sh = NiShape(handle=shape_handle, file=self, parent=parent)
+        # Starfield renderables are BSGeometry blocks (the DLL creates one for any SF nif);
+        # wrap the handle in the matching class so the caller gets the .mesh setters/save_mesh.
+        shape_class = BSGeometry if self.game == 'SF' else NiShape
+        sh = shape_class(handle=shape_handle, file=self, parent=parent)
         sh._name = shape_name
         sh._partitions = []
         self._shapes.append(sh)

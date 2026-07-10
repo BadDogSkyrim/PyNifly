@@ -210,3 +210,6 @@ extern "C" NIFLY_API int getBSGeometryInternalFlag(void* theNif, void* theShape)
 extern "C" NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, const char* bytes, int len);
 extern "C" NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh);
 extern "C" NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, char* buf, int buflen);
+extern "C" NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh, const char* name);
+extern "C" NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh, nifly::Vector3* tangents, uint8_t* tangentWs, int count);
+extern "C" NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh, nifly::Color4* colors, int count);
