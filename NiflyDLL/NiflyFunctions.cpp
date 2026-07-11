@@ -277,6 +277,67 @@ void GetPartitions(
 	indices = triParts;
 }
 
+// Compute per-vertex tangents for a Starfield BSGeometryMeshData from its verts/UVs/normals/
+// tris, matching the vanilla convention. nifly's other shape types get this free in Create
+// (BSTriShape/NiTriShapeData each override CalcTangentSpace), but BSGeometryMeshData inherits
+// NiGeometryData's no-op, so we do it here.
+//
+// Verified against a vanilla body .mesh:
+//   * the stored tangent is the U-direction (Lengyel's sdir), 100% of verts;
+//   * the bitangent is reconstructed as cross(normal, tangent) * sign, where the 2-bit W is
+//     3 when the per-vertex UV Jacobian determinant is positive and 0 when negative (the two
+//     values 0/3 are the only ones vanilla uses; normals always carry W=1).
+static void ComputeExternalMeshTangents(BSGeometryMeshData& md) {
+	size_t nv = md.vertices.size();
+	if (nv == 0 || md.uvSets.empty() || md.uvSets[0].size() != nv
+		|| md.normals.size() != nv || md.tris.empty())
+		return;
+
+	std::vector<Vector3> tan(nv, Vector3(0.0f, 0.0f, 0.0f));
+	std::vector<double> detsum(nv, 0.0);
+	const std::vector<Vector2>& uvs = md.uvSets[0];
+
+	for (const Triangle& tri : md.tris) {
+		uint16_t i1 = tri.p1, i2 = tri.p2, i3 = tri.p3;
+		if (i1 >= nv || i2 >= nv || i3 >= nv) continue;
+
+		const Vector3& v1 = md.vertices[i1];
+		const Vector3& v2 = md.vertices[i2];
+		const Vector3& v3 = md.vertices[i3];
+
+		float x1 = v2.x - v1.x, x2 = v3.x - v1.x;
+		float y1 = v2.y - v1.y, y2 = v3.y - v1.y;
+		float z1 = v2.z - v1.z, z2 = v3.z - v1.z;
+
+		float s1 = uvs[i2].u - uvs[i1].u, s2 = uvs[i3].u - uvs[i1].u;
+		float t1 = uvs[i2].v - uvs[i1].v, t2 = uvs[i3].v - uvs[i1].v;
+
+		float det = s1 * t2 - s2 * t1;
+		float r = (det >= 0.0f) ? 1.0f : -1.0f;
+		// U-direction (the stored tangent), sign-corrected per triangle so mirrored islands
+		// still accumulate coherently.
+		Vector3 sdir((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
+		sdir.Normalize();
+
+		tan[i1] += sdir; tan[i2] += sdir; tan[i3] += sdir;
+		detsum[i1] += det; detsum[i2] += det; detsum[i3] += det;
+	}
+
+	md.tangents.assign(nv, Vector3(1.0f, 0.0f, 0.0f));
+	md.tangentWs.assign(nv, 3);
+	for (size_t i = 0; i < nv; i++) {
+		Vector3 n = md.normals[i];
+		Vector3 t = tan[i];
+		if (t.IsZero())
+			t = Vector3(n.y, n.z, n.x);        // arbitrary seed; orthonormalized below
+		// Gram-Schmidt: make the tangent perpendicular to the normal, then normalize.
+		t = t - n * n.dot(t);
+		t.Normalize();
+		md.tangents[i] = t;
+		md.tangentWs[i] = (detsum[i] > 0.0) ? 3 : 0;
+	}
+}
+
 NiShape* PyniflyCreateShape(NifFile* nif,
 	const std::string& shapeName,
 	NiShapeBuf* buf,
@@ -319,10 +380,12 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 		// Populate verts/uvs/normals through nifly's Create: it sets the protected
 		// numVertices and sizes vertices/uvSets/normals consistently (a direct assign
 		// would be truncated later by SetVertices' resize-to-numVertices). Create ignores
-		// the triangle argument, so the tris go in separately. Tangents get real values
-		// from setBSGeometryTangents afterward (Create can't build them -- it has no tris yet).
+		// the triangle argument, so the tris go in separately.
 		md.Create(version, v, t, uv, norms);
 		if (t) md.tris = *t;
+		// Compute tangents from the geometry (BSGeometryMeshData has no real CalcTangentSpace,
+		// unlike the other shape types). setBSGeometryTangents can still override afterward.
+		ComputeExternalMeshTangents(md);
 
 		// Per-mesh scale: the packer stores each position as
 		//   int16 = component / (scale * havokScale) * 32767,

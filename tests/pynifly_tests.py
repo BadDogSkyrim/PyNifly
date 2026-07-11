@@ -462,6 +462,74 @@ def TEST_SF_MESH_WRITE():
     assert maxerr < 0.1, f"Vertex positions round-trip within tolerance (max err {maxerr})"
 
 
+def _parse_sf_mesh_tangents(data):
+    """Minimal .mesh parser: skip to the tangent block and return (tangent_vecs, tangent_ws)
+    where each tangent is a decoded (x,y,z) unit-ish vector and w is the 2-bit sign basis."""
+    import struct
+    off = 0
+    def u32():
+        nonlocal off; v = struct.unpack_from("<I", data, off)[0]; off += 4; return v
+    def dec(bits):
+        return (((bits & 1023) / 511.5) - 1.0,
+                (((bits >> 10) & 1023) / 511.5) - 1.0,
+                (((bits >> 20) & 1023) / 511.5) - 1.0)
+    _ver = u32(); idxsize = u32(); off += idxsize * 2      # triangles
+    off += 4                                               # scale (float)
+    _wpv = u32(); nverts = u32(); off += nverts * 6        # positions int16 xyz
+    nuv1 = u32(); off += nuv1 * 4
+    nuv2 = u32(); off += nuv2 * 4
+    ncol = u32(); off += ncol * 4
+    nnorm = u32(); off += nnorm * 4                        # normals udec3
+    ntan = u32()
+    tvecs, tws = [], []
+    for i in range(ntan):
+        bits = struct.unpack_from("<I", data, off + i * 4)[0]
+        tvecs.append(dec(bits)); tws.append(bits >> 30)
+    return tvecs, tws
+
+
+def TEST_SF_TANGENTS():
+    """Starfield export: creating a BSGeometry computes per-vertex tangents (BSGeometryMeshData
+    has no CalcTangentSpace of its own). Feeding the vanilla body's geometry must reproduce the
+    vanilla .mesh's tangents -- same U-direction and same 2-bit bitangent-sign W (0 or 3)."""
+    import math
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        vanilla_bytes = f.read()
+    van_t, van_w = _parse_sf_mesh_tangents(vanilla_bytes)
+
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    srcgeom.load_mesh(vanilla_bytes, 0)
+    verts, tris, uvs, normals = (list(srcgeom.verts), list(srcgeom.tris),
+                                 list(srcgeom.uvs), list(srcgeom.normals))
+
+    nif = NifFile()
+    nif.initialize('SF', r"tests\Out\TEST_SF_TANGENTS.nif")
+    geom = nif.createShapeFromData("Body", verts, tris, uvs, normals, parent=nif.root)
+    geom.set_mesh_name(r"geometries\test\body.mesh", 0)
+    out_t, out_w = _parse_sf_mesh_tangents(geom.save_mesh(0))
+
+    assert len(out_t) == len(van_t) == len(verts), \
+        f"Tangent count matches verts: {len(out_t)}/{len(van_t)}/{len(verts)}"
+
+    # Tangents must be real (unit-length), not the zeroed placeholder.
+    lengths = [math.sqrt(sum(c * c for c in t)) for t in out_t]
+    assert all(0.9 < L < 1.1 for L in lengths), \
+        f"Tangents are unit-length (min {min(lengths):.3f}, max {max(lengths):.3f})"
+
+    # W (bitangent sign) uses only the vanilla values and matches vanilla per-vertex.
+    assert set(out_w) <= {0, 3}, f"Tangent W in the vanilla set {{0,3}}: {set(out_w)}"
+    w_match = sum(1 for a, b in zip(out_w, van_w) if a == b)
+    assert w_match / len(van_w) > 0.99, \
+        f"Bitangent sign W matches vanilla: {w_match}/{len(van_w)}"
+
+    # Directions align with vanilla (same U-direction; sign-corrected the same way).
+    dots = [sum(o * v for o, v in zip(ot, vt)) for ot, vt in zip(out_t, van_t)]
+    aligned = sum(1 for d in dots if d > 0.85)
+    assert aligned / len(dots) > 0.95, \
+        f"Tangent directions match vanilla ({aligned}/{len(dots)} aligned)"
+
+
 def TEST_SF_MESH_CREATE():
     """Starfield export (pyn layer): CREATE a BSGeometry from geometry, write the external
     .mesh bytes, and round-trip. Mirrors the DLL CreateStarfieldMesh test one level up.
