@@ -274,10 +274,10 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
         version.SetStream(155);
         break;
     case TargetGame::SF:
-        // Starfield: file 20.2.0.7, user 12, stream 172-175 (vanilla assets use 172).
+        // Starfield: file 20.2.0.7, user 12, stream 172-175 (vanilla assets use 173).
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
-        version.SetStream(172);
+        version.SetStream(173);
         break;
     }
 

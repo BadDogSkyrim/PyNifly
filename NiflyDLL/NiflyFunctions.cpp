@@ -109,10 +109,10 @@ void SetNifVersion(NifFile* nif, enum TargetGame targ) {
 		break;
 	case TargetGame::SF:
 		// Starfield: file 20.2.0.7, user 12, stream 172-175. Vanilla base-game
-		// assets use 172; nifly's IsSF() accepts the whole range.
+		// assets use 173 (matched to a real body .nif); IsSF() accepts 172-175.
 		version.SetFile(V20_2_0_7);
 		version.SetUser(12);
-		version.SetStream(172);
+		version.SetStream(173);
 		break;
 	}
 
