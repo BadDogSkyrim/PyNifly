@@ -488,6 +488,66 @@ def _parse_sf_mesh_tangents(data):
     return tvecs, tws
 
 
+def _parse_sf_geometry_bounds(nif_bytes, meshname):
+    """Read a BSGeometry block's bounding volumes straight from raw NIF bytes -- pynifly's
+    NiShapeBuf is blind to them (always reports 0), so a property read can't validate the export.
+    Located relative to the length-prefixed meshName string; the fixed fields precede it:
+      boundingSphere(4f: cx,cy,cz,r) boundMinMax(6f) skinRef shaderRef alphaRef present
+      triSize numVerts flags strlen <string>.
+    Returns (sphere=(cx,cy,cz,r), boundMinMax=(cx,cy,cz,hx,hy,hz))."""
+    import struct
+    i = nif_bytes.find(meshname.encode("latin1"))
+    assert i >= 0, f"meshName {meshname!r} present in nif"
+    sphere = struct.unpack_from("<4f", nif_bytes, i - 69)
+    minmax = struct.unpack_from("<6f", nif_bytes, i - 53)
+    return sphere, minmax
+
+
+def TEST_SF_BOUNDS():
+    """Starfield export: creating a BSGeometry computes the block-level bounding sphere +
+    boundMinMax AABB. A STATIC shape with zero bounds is frustum-culled -> invisible in game
+    and the CK (though fine in Blender). Regression for that bug: the exported bounds must be
+    non-zero and match the geometry's AABB in metric (.mesh) space."""
+    import math
+    havokScale = 69.969
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        srcgeom.load_mesh(f.read(), 0)
+    verts = list(srcgeom.verts)                       # game units
+
+    meshname = r"geometries\test\bounds.mesh"
+    nif = NifFile()
+    nif.initialize('SF', r"tests\Out\TEST_SF_BOUNDS.nif")
+    geom = nif.createShapeFromData("Body", verts, list(srcgeom.tris),
+                                   list(srcgeom.uvs), list(srcgeom.normals), parent=nif.root)
+    geom.set_mesh_name(meshname, 0)
+    nif.save()
+
+    with open(r"tests\Out\TEST_SF_BOUNDS.nif", "rb") as f:
+        sphere, minmax = _parse_sf_geometry_bounds(f.read(), meshname)
+
+    # Expected AABB in metric space (the exporter divides game-unit verts by havokScale).
+    xs = [v[0] for v in verts]; ys = [v[1] for v in verts]; zs = [v[2] for v in verts]
+    cx, cy, cz = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, (min(zs) + max(zs)) / 2
+    hx, hy, hz = (max(xs) - min(xs)) / 2, (max(ys) - min(ys)) / 2, (max(zs) - min(zs)) / 2
+    radius = max(math.dist((cx, cy, cz), v) for v in verts)
+
+    # The bug: all zero. First, it must not be degenerate.
+    assert sphere[3] > 0.0, f"Bounding-sphere radius is non-zero (was {sphere[3]})"
+    assert any(abs(m) > 0 for m in minmax), f"boundMinMax is non-zero (was {minmax})"
+
+    # And it must actually bound the geometry (metric = game units / havokScale).
+    assert math.isclose(sphere[3], radius / havokScale, rel_tol=1e-3), \
+        f"Sphere radius matches geometry: {sphere[3]} vs {radius / havokScale}"
+    for got, exp, nm in zip(minmax[3:], (hx, hy, hz), "xyz"):
+        assert math.isclose(got, exp / havokScale, rel_tol=1e-3), \
+            f"boundMinMax half-extent {nm}: {got} vs {exp / havokScale}"
+    for got, exp, nm in zip(minmax[:3], (cx, cy, cz), "xyz"):
+        assert math.isclose(got, exp / havokScale, abs_tol=1e-4), \
+            f"boundMinMax centre {nm}: {got} vs {exp / havokScale}"
+
+
 def TEST_SF_TANGENTS():
     """Starfield export: creating a BSGeometry computes per-vertex tangents (BSGeometryMeshData
     has no CalcTangentSpace of its own). Feeding the vanilla body's geometry must reproduce the

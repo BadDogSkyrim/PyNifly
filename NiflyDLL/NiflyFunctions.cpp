@@ -398,6 +398,34 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 		}
 		md.scale = (maxCoord > 0.0f) ? (maxCoord / havokScale) : 1.0f;
 
+		// Bounding volumes on the BSGeometry block. The engine frustum/distance-culls a
+		// STATIC (non-skinned) shape by these, so a zero bound makes the shape invisible
+		// in-game AND in the Creation Kit even though the geometry is perfectly valid
+		// (Blender/NifSkope ignore bounds, which is why it looks fine there). Verified
+		// against vanilla statics: bounds.center == boundMinMax[0..2] == AABB centre,
+		// boundMinMax[3..5] == AABB half-extents, radius == max vertex distance from the
+		// centre. All in metric (.mesh) space, i.e. game-unit verts / havokScale.
+		if (v && !v->empty()) {
+			Vector3 lo = (*v)[0], hi = (*v)[0];
+			for (const auto& p : *v) {
+				lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
+				hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
+			}
+			Vector3 c((lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f);
+			float radius = 0.0f;
+			for (const auto& p : *v) {
+				float dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
+				radius = std::max(radius, std::sqrt(dx * dx + dy * dy + dz * dz));
+			}
+			const float inv = 1.0f / havokScale;
+			const float minmax[6] = {
+				c.x * inv, c.y * inv, c.z * inv,
+				(hi.x - lo.x) * 0.5f * inv, (hi.y - lo.y) * 0.5f * inv, (hi.z - lo.z) * 0.5f * inv
+			};
+			bsGeom->SetGeometryBounds(
+				BoundingSphere(Vector3(c.x * inv, c.y * inv, c.z * inv), radius * inv), minmax);
+		}
+
 		if (buf->shaderPropertyID != NO_SHADER_REF) {
 			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
 			auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
