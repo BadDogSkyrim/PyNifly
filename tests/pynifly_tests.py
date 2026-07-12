@@ -881,10 +881,14 @@ def TEST_SF_MAT_PARSE():
     # A LAYERED material is a graph: the albedo must be reached via the base layer's chain
     # (LayerID -> MaterialID -> TextureSetID -> MRTextureFile), NOT the first MRTextureFile in
     # the file -- which on a layered material is the blender MASK, not the albedo.
+    # A real 2-layer skin: base (albedo+normal, UV 1:1) + a detail normal tiled 50x, composited
+    # by a Skin-mode blender masked by MASK.dds. The layer graph is walked in LayerID Index order;
+    # UVStreamID sits on the layer -> the layer's tiling; the blender carries mode + mask.
     layered = r'''{
       "Objects": [
         { "Components": [
             { "Type": "BSMaterial::LayerID", "Index": 0, "Data": { "ID": "res:L1" } },
+            { "Type": "BSMaterial::LayerID", "Index": 1, "Data": { "ID": "res:L2" } },
             { "Type": "BSMaterial::BlenderID", "Index": 0, "Data": { "ID": "res:B1" } }
           ] },
         { "ID": "res:B1", "Components": [
@@ -898,14 +902,43 @@ def TEST_SF_MAT_PARSE():
         { "ID": "res:T1", "Components": [
             { "Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": { "FileName": "Data\\Textures\\Skin\\skin_color.dds" } },
             { "Type": "BSMaterial::MRTextureFile", "Index": 1, "Data": { "FileName": "Data\\Textures\\Skin\\skin_normal.dds" } }
-          ] }
+          ] },
+        { "ID": "res:L2", "Components": [
+            { "Type": "BSMaterial::MaterialID", "Index": 0, "Data": { "ID": "res:M2" } },
+            { "Type": "BSMaterial::UVStreamID", "Index": 0, "Data": { "ID": "res:UV2" } } ] },
+        { "ID": "res:M2", "Components": [
+            { "Type": "BSMaterial::TextureSetID", "Index": 0, "Data": { "ID": "res:T2" } } ] },
+        { "ID": "res:T2", "Components": [
+            { "Type": "BSMaterial::MRTextureFile", "Index": 1, "Data": { "FileName": "Data\\Textures\\Skin\\detail_normal.dds" } } ] },
+        { "ID": "res:UV2", "Components": [
+            { "Type": "BSMaterial::Scale", "Index": 0, "Data": { "Value": { "Type": "XMFLOAT2", "Data": { "x": "50.0", "y": "50.0" } } } } ] }
       ]
     }'''
-    ltx = parse_mat(layered)['textures']
+    parsed_l = parse_mat(layered)
+    ltx = parsed_l['textures']
     assert ltx['Albedo'] == r"Textures\Skin\skin_color.dds", \
         f"Albedo followed the layer chain, not the blender mask: {ltx.get('Albedo')}"
     assert ltx['Normal'] == r"Textures\Skin\skin_normal.dds", f"Normal: {ltx.get('Normal')}"
     assert 'MASK' not in ltx.get('Albedo', ''), "Blender mask is not taken as the albedo"
+
+    # P1: the full layer/blender graph is exposed.
+    layers = parsed_l['layers']
+    assert len(layers) == 2, f"Two layers: {len(layers)}"
+    assert layers[0]['textures']['Albedo'] == r"Textures\Skin\skin_color.dds", "Base layer albedo"
+    assert layers[0]['uv_scale'] == (1.0, 1.0), f"Base UV 1:1: {layers[0]['uv_scale']}"
+    assert layers[1]['textures'] == {'Normal': r"Textures\Skin\detail_normal.dds"}, \
+        f"Detail layer = normal only: {layers[1]['textures']}"
+    assert layers[1]['uv_scale'] == (50.0, 50.0), f"Detail tiled 50x: {layers[1]['uv_scale']}"
+    blenders = parsed_l['blenders']
+    assert len(blenders) == 1, f"One blender between two layers: {len(blenders)}"
+    assert blenders[0]['mode'] == 'Skin', f"Blend mode: {blenders[0]['mode']}"
+    assert blenders[0]['mask'] == r"Textures\Skin\MASK.dds", f"Blend mask: {blenders[0]['mask']}"
+
+    # A flat (single-object) material has no layer graph -> empty layers/blenders (textures still
+    # resolve via the fallback sweep).
+    flat = parse_mat(mat)
+    assert flat['layers'] == [], f"flat material has no layer graph: {flat['layers']}"
+    assert flat['blenders'] == [], "flat material has no blenders"
 
     # Bad JSON returns None rather than raising.
     assert parse_mat("{ not valid json") is None, "Invalid JSON -> None"

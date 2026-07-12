@@ -44,6 +44,10 @@ _LAYER_ID = 'BSMaterial::LayerID'
 _MATERIAL_ID = 'BSMaterial::MaterialID'
 _TEXTURESET_ID = 'BSMaterial::TextureSetID'
 _BLEND_MODE = 'BSMaterial::BlendModeComponent'
+_BLENDER_ID = 'BSMaterial::BlenderID'
+_UVSTREAM_ID = 'BSMaterial::UVStreamID'
+_UV_SCALE = 'BSMaterial::Scale'
+_UV_OFFSET = 'BSMaterial::Offset'
 
 _SHADER_MODEL = 'BSMaterial::ShaderModelComponent'
 _TRANSLUCENCY = 'BSMaterial::TranslucencySettingsComponent'
@@ -187,12 +191,74 @@ def _clean_texture_path(filename):
     return p
 
 
+def _decode_xmfloat2(data, default):
+    """A `.mat` XMFLOAT2 is `{ Value: { Type: 'XMFLOAT2', Data: {x, y} } }`. Missing -> default."""
+    d = ((data or {}).get('Value') or {}).get('Data') or {}
+    if 'x' not in d and 'y' not in d:
+        return default
+    return (_as_float(d.get('x'), default[0]), _as_float(d.get('y'), default[1]))
+
+
+def _uv_stream_of(obj, by_id):
+    """The (scale, offset) tiling of an object's UVStream (via its UVStreamID). A UV stream is a
+    loose bag of components -- Scale (XMFLOAT2, tiling) and Offset -- so read them by type.
+    Missing stream or missing components fall back to identity (1,1)/(0,0)."""
+    uv = by_id.get(_first_ref(obj, _UVSTREAM_ID))
+    scale, offset = (1.0, 1.0), (0.0, 0.0)
+    if uv:
+        for c in uv.get('Components', []):
+            if c.get('Type') == _UV_SCALE:
+                scale = _decode_xmfloat2(c.get('Data'), (1.0, 1.0))
+            elif c.get('Type') == _UV_OFFSET:
+                offset = _decode_xmfloat2(c.get('Data'), (0.0, 0.0))
+    return scale, offset
+
+
+def _extract_layers(root, by_id):
+    """The material's layers in composite order (base first). Each = its TextureSet slots + the
+    UVStream tiling. Layer k's LayerID Index fixes the order; the UVStreamID sits on the layer
+    (falling back to its material)."""
+    layers = []
+    for lc in sorted(_components_of(root, _LAYER_ID), key=lambda c: c.get('Index', 0)):
+        layer = by_id.get((lc.get('Data') or {}).get('ID'))
+        if not layer:
+            continue
+        mat = by_id.get(_first_ref(layer, _MATERIAL_ID))
+        texset = by_id.get(_first_ref(mat, _TEXTURESET_ID)) if mat else None
+        uv_host = layer if _first_ref(layer, _UVSTREAM_ID) else (mat or layer)
+        scale, offset = _uv_stream_of(uv_host, by_id)
+        layers.append({'textures': _textureset_slots(texset) if texset else {},
+                       'uv_scale': scale, 'uv_offset': offset})
+    return layers
+
+
+def _extract_blenders(root, by_id):
+    """The material's blenders in order. Blender k composites layer k+1 over the running
+    composite: it carries a BlendModeComponent (Skin/Lerp/Additive/...) and, usually, a mask
+    MRTextureFile. There are (#layers - 1) of them."""
+    blenders = []
+    for bc in sorted(_components_of(root, _BLENDER_ID), key=lambda c: c.get('Index', 0)):
+        b = by_id.get((bc.get('Data') or {}).get('ID'))
+        if not b:
+            continue
+        mode, mask = '', ''
+        for c in b.get('Components', []):
+            if c.get('Type') == _BLEND_MODE:
+                mode = (c.get('Data') or {}).get('Value', '') or mode
+            elif c.get('Type') == _TEXTURE_FILE_TYPE:
+                mask = _clean_texture_path((c.get('Data') or {}).get('FileName')) or mask
+        blenders.append({'mode': mode, 'mask': mask})
+    return blenders
+
+
 def parse_mat(text):
     """Parse a loose `.mat` (JSON text or bytes) into a normalised dict:
 
         { 'filename': <the material's own Filename, or ''>,
-          'textures': { slot_name: cleaned_path, ... },     # only non-empty slots
-          'settings': { ... } }                             # present settings blocks only
+          'textures': { slot_name: cleaned_path, ... },     # base-layer-wins collapse (flat)
+          'settings': { ... },                              # present settings blocks only
+          'layers':   [ {textures, uv_scale, uv_offset}, ... ],   # full layer graph, base first
+          'blenders': [ {mode, mask}, ... ] }               # (#layers - 1) compositing blenders
 
     A `.mat` is a small object graph, so the PBR textures must be reached by following the
     material's layer chain -- root `LayerID` -> `MaterialID` -> `TextureSetID` -> the texture
@@ -219,24 +285,16 @@ def parse_mat_doc(doc):
     objects = doc.get('Objects', [])
     by_id = {o['ID']: o for o in objects if isinstance(o, dict) and 'ID' in o}
 
-    textures = {}
-    # Primary path: walk the layer graph from the root LayeredMaterial (the object carrying the
-    # LayerID components), base layer first.
+    # The root LayeredMaterial carries the LayerID + BlenderID components. Walk it for the full
+    # layer/blender graph (P1); the flat `textures` below is the base-layer-wins collapse (P0).
     root = next((o for o in objects if _components_of(o, _LAYER_ID)), None)
-    if root is not None:
-        layers = sorted(_components_of(root, _LAYER_ID), key=lambda c: c.get('Index', 0))
-        for lc in layers:
-            layer = by_id.get((lc.get('Data') or {}).get('ID'))
-            if not layer:
-                continue
-            mat = by_id.get(_first_ref(layer, _MATERIAL_ID))
-            if not mat:
-                continue
-            texset = by_id.get(_first_ref(mat, _TEXTURESET_ID))
-            if not texset:
-                continue
-            for slot, path in _textureset_slots(texset).items():
-                textures.setdefault(slot, path)   # base layer wins
+    layers = _extract_layers(root, by_id) if root is not None else []
+    blenders = _extract_blenders(root, by_id) if root is not None else []
+
+    textures = {}
+    for ly in layers:
+        for slot, path in ly['textures'].items():
+            textures.setdefault(slot, path)   # base layer wins
 
     # Fallback for flat/simple materials (no layer graph, or nothing resolved): sweep
     # MRTextureFile components, but skip blender objects so a blend mask isn't taken as albedo.
@@ -248,7 +306,8 @@ def parse_mat_doc(doc):
                 textures.setdefault(slot, path)
 
     return {'filename': doc.get('Filename', ''), 'textures': textures,
-            'settings': _extract_settings(objects)}
+            'settings': _extract_settings(objects),
+            'layers': layers, 'blenders': blenders}
 
 
 _cdb_cache = {}   # cdb path -> CdbFile (or False if it failed to load)
@@ -276,3 +335,22 @@ def material_textures_from_cdb(cdb_path, mat_ref):
         return None
     parsed = parse_mat_doc(mat)
     return parsed['textures'] if parsed else None
+
+
+def material_from_cdb(cdb_path, mat_ref):
+    """Like material_textures_from_cdb but returns the FULL parsed dict (textures + settings +
+    layers + blenders), or None. Shares the per-path cache."""
+    cdb = _cdb_cache.get(cdb_path)
+    if cdb is None:
+        from . import sf_cdb
+        try:
+            cdb = sf_cdb.load_cdb(cdb_path)
+        except Exception as e:
+            log.warning(f"Could not read material database '{cdb_path}': {e}")
+            _cdb_cache[cdb_path] = False
+            return None
+        _cdb_cache[cdb_path] = cdb
+    if cdb is False:
+        return None
+    mat = cdb.get_material(mat_ref)
+    return parse_mat_doc(mat) if mat is not None else None

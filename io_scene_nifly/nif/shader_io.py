@@ -111,6 +111,71 @@ def is_sf_params_node(node):
             and node.node_tree.name.startswith(SF_PARAMS_GROUP))
 
 
+# --- Starfield "SF Normal Blend" group (Reoriented Normal Mapping) ------------------------------
+# Composites a detail normal over a base normal using RNM (Barré-Brisebois & Hill) -- the correct
+# way to layer normals (a naive Mix flattens detail). Both inputs are reconstructed tangent-space
+# normals as [0,1] RGB (see _sf_normal_rgb); Factor (the blend mask) lerps base <-> reoriented so
+# mask=0 is pure base, mask=1 is full detail. Output is [0,1] RGB for a Normal Map node.
+SF_NORMAL_BLEND_GROUP = "SF Normal Blend"
+_SF_NORMAL_BLEND_VERSION = 1
+
+
+def ensure_sf_normal_blend_group():
+    ng = bpy.data.node_groups.get(SF_NORMAL_BLEND_GROUP)
+    if ng is not None:
+        if ng.get('pyn_sf_nblend_version') == _SF_NORMAL_BLEND_VERSION:
+            return ng
+        bpy.data.node_groups.remove(ng)
+    ng = bpy.data.node_groups.new(SF_NORMAL_BLEND_GROUP, 'ShaderNodeTree')
+    ng['pyn_sf_nblend_version'] = _SF_NORMAL_BLEND_VERSION
+    iface = ng.interface
+    _sf_new_socket(iface, "Base Normal", 'INPUT', 'NodeSocketColor')
+    _sf_new_socket(iface, "Detail Normal", 'INPUT', 'NodeSocketColor')
+    fac = _sf_new_socket(iface, "Factor", 'INPUT', 'NodeSocketFloat')
+    with suppress(Exception):
+        fac.default_value = 1.0
+        fac.min_value, fac.max_value = 0.0, 1.0
+    _sf_new_socket(iface, "Normal", 'OUTPUT', 'NodeSocketColor')
+
+    n = ng.nodes
+    links = ng.links
+    gin = n.new('NodeGroupInput'); gin.location = (-800, 0)
+    gout = n.new('NodeGroupOutput'); gout.location = (900, 0)
+
+    def vmath(op, loc, v1=None, v2=None):
+        m = n.new('ShaderNodeVectorMath'); m.operation = op; m.location = loc
+        if v1 is not None: m.inputs[1].default_value = v1
+        if v2 is not None: m.inputs[2].default_value = v2
+        return m
+
+    # Decode to [-1,1]. t = base*(2,2,2)+(-1,-1,0) (RNM keeps base z positive); base_dec is the
+    # plain [-1,1] base normal used as the mask-lerp endpoint.
+    t = vmath('MULTIPLY_ADD', (-500, 150), (2, 2, 2), (-1, -1, 0))
+    links.new(gin.outputs["Base Normal"], t.inputs[0])
+    u = vmath('MULTIPLY_ADD', (-500, -150), (-2, -2, 2), (1, 1, -1))
+    links.new(gin.outputs["Detail Normal"], u.inputs[0])
+    base_dec = vmath('MULTIPLY_ADD', (-500, 380), (2, 2, 2), (-1, -1, -1))
+    links.new(gin.outputs["Base Normal"], base_dec.inputs[0])
+
+    dot = vmath('DOT_PRODUCT', (-250, 0)); links.new(t.outputs[0], dot.inputs[0]); links.new(u.outputs[0], dot.inputs[1])
+    sep = n.new('ShaderNodeSeparateXYZ'); sep.location = (-250, 200); links.new(t.outputs[0], sep.inputs[0])
+    s = n.new('ShaderNodeMath'); s.operation = 'DIVIDE'; s.location = (-50, 100)
+    links.new(dot.outputs['Value'], s.inputs[0]); links.new(sep.outputs['Z'], s.inputs[1])
+    ts = vmath('SCALE', (150, 100)); links.new(t.outputs[0], ts.inputs[0]); links.new(s.outputs['Value'], ts.inputs[3])
+    r = vmath('SUBTRACT', (350, 50)); links.new(ts.outputs[0], r.inputs[0]); links.new(u.outputs[0], r.inputs[1])
+    rn = vmath('NORMALIZE', (500, 50)); links.new(r.outputs[0], rn.inputs[0])
+
+    # Mask-lerp base <-> reoriented, then re-encode to [0,1] RGB.
+    mix = n.new('ShaderNodeMix'); mix.data_type = 'VECTOR'; mix.location = (650, 200)
+    links.new(gin.outputs["Factor"], mix.inputs[0])  # float Factor
+    links.new(base_dec.outputs[0], mix.inputs[4])   # A (vector)
+    links.new(rn.outputs[0], mix.inputs[5])          # B (vector)
+    enc = vmath('MULTIPLY_ADD', (800, 200), (0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    links.new(mix.outputs[1], enc.inputs[0])         # vector result
+    links.new(enc.outputs[0], gout.inputs["Normal"])
+    return ng
+
+
 def sf_params_node_of(material):
     """The SF Parameters node in a material's tree, or None."""
     if not (material and material.node_tree):
@@ -1540,9 +1605,10 @@ class ShaderImporter:
         self.material['BSLSP_Shader_Name'] = shape.shader.name  # the .mat path, for export
 
         altpaths = self._build_alt_pathlist()
+        self._sf_nifpath = shape.file.filepath
+        self._sf_altpaths = altpaths
         mat_ref = shape.shader.name  # 'Materials\...\x.mat'
-        textures = {}
-        settings = {}
+        parsed = None
         if mat_ref:
             matpath = find_referenced_file(mat_ref, nifpath=shape.file.filepath,
                                            root='materials', alt_suffix=None, alt_pathlist=altpaths)
@@ -1550,41 +1616,53 @@ class ShaderImporter:
                 try:
                     with open(matpath, 'r', encoding='utf-8-sig') as f:
                         parsed = sf_materials.parse_mat(f.read())
-                    if parsed:
-                        textures = parsed['textures']
-                        settings = parsed.get('settings', {})
                 except OSError as e:
                     self.warn(f"Could not read material '{matpath}': {e}")
             else:
-                # No loose .mat -> read the material straight from Starfield's material
-                # database if the user pointed PyNifly at it (Preferences -> .cdb path).
-                cdb_tex = None
+                # No loose .mat -> read straight from the material database if configured.
                 cdb_path = self._sf_cdb_path()
                 if cdb_path:
-                    cdb_tex = sf_materials.material_textures_from_cdb(cdb_path, mat_ref)
-                if cdb_tex:
-                    textures = cdb_tex
-                else:
+                    parsed = sf_materials.material_from_cdb(cdb_path, mat_ref)
+                if parsed is None:
                     self.warn(f"Could not find material '{mat_ref}' (no loose .mat; set the "
                               f"Starfield .cdb path in PyNifly preferences to read materials "
                               f"straight from the database)")
+        parsed = parsed or {}
+        textures = parsed.get('textures', {})
+        settings = parsed.get('settings', {})
+        layers = parsed.get('layers', [])
+        blenders = parsed.get('blenders', [])
 
         # Stash raw slot paths for round-trip + the panel.
         for slot, path in textures.items():
             self.material['BSShaderTextureSet_' + slot] = path
 
-        # Resolve each texture to a loose file (prefer .png, like the rest of PyNifly).
-        resolved = {}
-        for slot, path in textures.items():
-            p = find_referenced_file(path, nifpath=shape.file.filepath, alt_suffix='.png',
-                                     alt_pathlist=altpaths)
-            if p:
-                resolved[slot] = p
-            else:
-                self.warn(f"Could not find SF texture {slot}: '{path}'")
+        # Resolve the flat base PBR (base-layer-wins) + each layer's own textures + blend masks.
+        resolved = {slot: p for slot, path in textures.items()
+                    if (p := self._sf_resolve(path))}
+        layers_resolved = []
+        for ly in layers:
+            layers_resolved.append({
+                'textures': {slot: p for slot, path in ly['textures'].items()
+                             if (p := self._sf_resolve(path))},
+                'uv_scale': ly.get('uv_scale', (1.0, 1.0)),
+                'uv_offset': ly.get('uv_offset', (0.0, 0.0))})
+        blenders_resolved = [{'mode': b.get('mode', ''), 'mask': self._sf_resolve(b.get('mask'))}
+                             for b in blenders]
 
-        self._build_sf_nodes(resolved, settings)
+        self._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved)
         obj.active_material = self.material
+
+    def _sf_resolve(self, path):
+        """Resolve a .mat texture path to a loose file (prefer .png). None (with a warning) if
+        not found. Empty path -> None silently."""
+        if not path:
+            return None
+        p = find_referenced_file(path, nifpath=self._sf_nifpath, alt_suffix='.png',
+                                 alt_pathlist=self._sf_altpaths)
+        if not p:
+            self.warn(f"Could not find SF texture: '{path}'")
+        return p
 
     def _sf_load_image(self, path, colorspace):
         img = bpy.data.images.load(path, check_existing=True)
@@ -1601,9 +1679,10 @@ class ShaderImporter:
         n.label = slot
         return n
 
-    def _sf_reconstruct_normal(self, image_node, x, y):
-        """SF normals are BC5, storing X/Y only. Reconstruct Z = sqrt(1 - x^2 - y^2) and
-        recombine into a tangent-space normal color for a Normal Map node."""
+    def _sf_normal_rgb(self, image_node, x, y):
+        """SF normals are BC5, storing X/Y only. Reconstruct Z = sqrt(1 - x^2 - y^2) and recombine
+        into a full [0,1] tangent-space normal color. Returns the CombineColor output (RGB) -- feed
+        a Normal Map node for a single layer, or the SF Normal Blend group for a detail blend."""
         nt = self.material.node_tree
         def math(op, v0=None, v1=None, v2=None, loc=(0, 0)):
             m = self.nodes.new('ShaderNodeMath')
@@ -1634,10 +1713,69 @@ class ShaderImporter:
         nt.links.new(sep.outputs['Red'], comb.inputs['Red'])
         nt.links.new(sep.outputs['Green'], comb.inputs['Green'])
         nt.links.new(bcol.outputs['Value'], comb.inputs['Blue'])
+        return comb.outputs['Color']
+
+    def _sf_normalmap(self, rgb_socket, x, y):
+        """Wrap a reconstructed normal RGB in a Normal Map node -> a Normal vector."""
         nmap = self.nodes.new('ShaderNodeNormalMap')
-        nmap.location = (x + 1800, y)
-        nt.links.new(comb.outputs['Color'], nmap.inputs['Color'])
+        nmap.location = (x, y)
+        self.material.node_tree.links.new(rgb_socket, nmap.inputs['Color'])
         return nmap.outputs['Normal']
+
+    def _sf_reconstruct_normal(self, image_node, x, y):
+        """Single-layer BC5 normal -> a Normal Map node's Normal output."""
+        return self._sf_normalmap(self._sf_normal_rgb(image_node, x, y), x + 1800, y)
+
+    def _sf_teximg_path(self, filepath, colorspace, location, uv_scale=None, uv_offset=None):
+        """A texture image node for a resolved filepath, optionally fed by a Mapping node for a
+        layer's UV tiling/offset (a UV scale of (1,1)/offset (0,0) needs no Mapping)."""
+        n = self.nodes.new('ShaderNodeTexImage')
+        n.image = self._sf_load_image(filepath, colorspace)
+        n.location = location
+        if uv_scale and (tuple(uv_scale) != (1.0, 1.0) or (uv_offset and tuple(uv_offset) != (0.0, 0.0))):
+            nt = self.material.node_tree
+            tc = self.nodes.new('ShaderNodeTexCoord'); tc.location = (location[0] - 500, location[1])
+            mp = self.nodes.new('ShaderNodeMapping'); mp.location = (location[0] - 300, location[1])
+            mp.inputs['Scale'].default_value = (uv_scale[0], uv_scale[1], 1.0)
+            if uv_offset:
+                mp.inputs['Location'].default_value = (uv_offset[0], uv_offset[1], 0.0)
+            nt.links.new(tc.outputs['UV'], mp.inputs['Vector'])
+            nt.links.new(mp.outputs['Vector'], n.inputs['Vector'])
+        return n
+
+    def _build_sf_normal(self, nt, bsdf, resolved, layers_resolved, blenders_resolved, x0):
+        """Wire the Principled Normal. Single layer -> reconstruct the base normal. If a later
+        layer carries a detail normal, composite it over the base with the SF Normal Blend group
+        (RNM), tiled by that layer's UV scale and masked by its blender (mask-weighted 'Skin')."""
+        if 'Normal' not in resolved:
+            return
+        base_img = self._sf_teximg('Normal', resolved, 'Non-Color', (x0, -600))
+        base_rgb = self._sf_normal_rgb(base_img, x0 + 250, -600)
+
+        detail = mask = None
+        for i in range(1, len(layers_resolved or [])):
+            if 'Normal' in layers_resolved[i]['textures']:
+                detail = layers_resolved[i]
+                if blenders_resolved and i - 1 < len(blenders_resolved):
+                    mask = blenders_resolved[i - 1].get('mask')
+                break
+
+        if detail and mask:
+            d_img = self._sf_teximg_path(detail['textures']['Normal'], 'Non-Color', (x0, -1500),
+                                         detail.get('uv_scale'), detail.get('uv_offset'))
+            d_rgb = self._sf_normal_rgb(d_img, x0 + 250, -1500)
+            mask_node = self._sf_teximg_path(mask, 'Non-Color', (x0, -2100))
+            blend = self.nodes.new('ShaderNodeGroup')
+            blend.node_tree = ensure_sf_normal_blend_group()
+            blend.location = (x0 + 2100, -800)
+            blend.label = SF_NORMAL_BLEND_GROUP
+            nt.links.new(base_rgb, blend.inputs['Base Normal'])
+            nt.links.new(d_rgb, blend.inputs['Detail Normal'])
+            nt.links.new(mask_node.outputs['Color'], blend.inputs['Factor'])
+            nrm = self._sf_normalmap(blend.outputs['Normal'], x0 + 2300, -800)
+        else:
+            nrm = self._sf_normalmap(base_rgb, x0 + 2100, -600)
+        nt.links.new(nrm, bsdf.inputs['Normal'])
 
     def _add_sf_params_node(self, nt, settings, location):
         """Add the SF Parameters group instance, populated from the parsed .mat settings."""
@@ -1667,9 +1805,13 @@ class ShaderImporter:
             node[SF_PARAM_SHADER_MODEL] = sm   # string identity: custom prop, not a socket
         return node
 
-    def _build_sf_nodes(self, resolved, settings=None):
+    def _build_sf_nodes(self, resolved, settings=None, layers_resolved=None, blenders_resolved=None):
         """Wire the resolved SF PBR textures into a Principled BSDF, plus the SF Parameters node
-        (SSS / emissive / alpha settings + shader-model identity), driving Subsurface + Emission."""
+        (SSS / emissive / alpha settings + shader-model identity), driving Subsurface + Emission.
+
+        `resolved` is the flat base-layer-wins PBR (P0). `layers_resolved`/`blenders_resolved`
+        carry the full layer graph (P1): a second layer's detail normal is composited over the
+        base normal via the SF Normal Blend group (RNM), masked by its blender."""
         nt = self.material.node_tree
         self.nodes = nt.nodes
         bsdf = next((n for n in self.nodes if n.type == 'BSDF_PRINCIPLED'), None) \
@@ -1699,10 +1841,7 @@ class ShaderImporter:
         emissive_tex = None
         if 'Emissive' in resolved:
             emissive_tex = self._sf_teximg('Emissive', resolved, 'sRGB', (x0, -300))
-        if 'Normal' in resolved:
-            nimg = self._sf_teximg('Normal', resolved, 'Non-Color', (x0, -600))
-            nrm = self._sf_reconstruct_normal(nimg, x0 + 250, -600)
-            nt.links.new(nrm, bsdf.inputs['Normal'])
+        self._build_sf_normal(nt, bsdf, resolved, layers_resolved, blenders_resolved, x0)
 
         # The SF Parameters node holds every non-texture value and drives Subsurface + Emission.
         params = self._add_sf_params_node(nt, settings, (x0 - 350, -1100))

@@ -2977,6 +2977,50 @@ def TEST_SF_ALPHA():
     assert thr_src == p, "Threshold driven by the SF Parameters node (single source)"
 
 
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_LAYERED():
+    """Starfield P1: a two-layer material composites a detail normal over the base normal via the
+    SF Normal Blend (RNM) group, tiled by the detail layer's UV scale and masked by its blender.
+
+    Driven through _build_sf_nodes directly with a synthetic 2-layer/1-blender graph (test PNGs,
+    no game assets).
+    """
+    from io_scene_nifly.nif.shader_io import ShaderImporter, SF_NORMAL_BLEND_GROUP
+
+    alb = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
+    nrm = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
+    mask = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Layered_Test")
+    mat.use_nodes = True
+    si.material = mat
+    resolved = {'Albedo': alb, 'Normal': nrm}
+    layers_resolved = [
+        {'textures': {'Albedo': alb, 'Normal': nrm}, 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+        {'textures': {'Normal': nrm}, 'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)},
+    ]
+    blenders_resolved = [{'mode': 'Skin', 'mask': mask}]
+    si._build_sf_nodes(resolved, {}, layers_resolved, blenders_resolved)
+    nt = mat.node_tree
+
+    # The RNM blend group is present and fed base normal + detail normal + mask factor.
+    blend = next((n for n in nt.nodes if n.type == 'GROUP' and n.node_tree
+                  and n.node_tree.name.startswith(SF_NORMAL_BLEND_GROUP)), None)
+    assert blend is not None, "SF Normal Blend group present for a 2-layer material"
+    assert blend.inputs['Base Normal'].is_linked, "base normal wired into the blend"
+    assert blend.inputs['Detail Normal'].is_linked, "detail normal wired into the blend"
+    assert blend.inputs['Factor'].is_linked, "blend mask drives the Factor"
+
+    # Detail layer's 50x tiling comes through a Mapping node.
+    assert any(n.type == 'MAPPING' for n in nt.nodes), "detail UV tiling via a Mapping node"
+
+    # Principled Normal is fed from the blend (through a Normal Map node).
+    bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    assert bsdf.inputs['Normal'].is_linked, "Principled Normal wired"
+    assert bsdf.inputs['Normal'].links[0].from_node.type == 'NORMAL_MAP', \
+        "Normal fed via a Normal Map node"
+
+
 @TT.category('STARFIELD')
 @TT.expect_errors(("Could not find material",))
 def TEST_SF_EXPORT():
