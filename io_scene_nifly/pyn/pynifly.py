@@ -4779,12 +4779,15 @@ class BSGeometry(NiShape):
             cbuf[i] = (c[0], c[1], c[2], c[3] if len(c) > 3 else 1.0)
         nifly.setBSGeometryColors(self.file._handle, self._handle, slot, cbuf, n)
 
-    def skin_bones(self, bone_names):
+    def skin_bones(self, bone_names, weights_per_vertex=4):
         """Set up SF skinning: create the BSSkin::Instance + BSSkin::BoneData (identity binds)
-        + SkinAttach carrying `bone_names` (in order), and zero the per-vertex weight slots.
+        + SkinAttach carrying `bone_names` (in order), set the mesh's weightsPerVertex, and zero
+        the per-vertex weight slots. `weights_per_vertex` sizes the .mesh's uniform weight slots
+        (nifly caps set_vert_weights to it), so pass the max influence count the shape will use.
         Call set_bone_bind() + set_vert_weights() afterward. Geometry must already be set."""
         namesNL = "\n".join(bone_names).encode('utf-8')
-        nifly.skinBSGeometry(self.file._handle, self._handle, namesNL, len(bone_names))
+        nifly.skinBSGeometry(self.file._handle, self._handle, namesNL, len(bone_names),
+                             weights_per_vertex)
         self._invalidate_geometry()
 
     def set_bone_bind(self, bone_index, xform: TransformBuf):

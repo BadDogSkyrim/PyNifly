@@ -7128,7 +7128,8 @@ NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh,
 // bone-name list. Zeroes the per-vertex weight slots (nWeightsPerVert=4) so the .mesh writer
 // emits them. Set binds with setBSGeometryBoneBind and weights with setBSGeometryVertWeights.
 // Returns 1 on success, 0 if the shape isn't a BSGeometry.
-NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones) {
+NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones,
+                             int weightsPerVertex) {
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     nifly::BSGeometry* geom = asBSGeometry(theShape);
@@ -7207,6 +7208,14 @@ NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNames
             uint32_t bsxID = hdr.AddBlock(std::move(bsx));
             rootNode->extraDataRefs.AddBlockRef(bsxID);
         }
+    }
+
+    // Set how many bone influences the .mesh stores per vertex (uniform for the whole shape).
+    // Must precede ClearShapeVertWeights, which sizes each vertex's weight slots to this count
+    // -- and SetShapeVertWeights then caps writes to it. Vanilla varies (body 6, hair 7); the
+    // caller passes the max influence count its verts use. Guard to a sane floor of 4.
+    if (auto* md = dynamic_cast<BSGeometryMeshData*>(geom->GetGeomData())) {
+        md->nWeightsPerVert = (weightsPerVertex > 0) ? (uint32_t)weightsPerVertex : 4;
     }
 
     // Zero the per-vertex weight slots so SetShapeVertWeights can fill them.

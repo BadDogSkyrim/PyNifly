@@ -1301,7 +1301,7 @@ def TEST_BRIARHEART_ROOT_EXPORT():
     # BriarheartFlesh has weights on Clavicle.L, UpperArm.L, UpperarmTwist1.L,
     # Spine1, Spine2. UpperArm.L and UpperarmTwist1.L are NOT in the 13-bone stub
     # — only present in the full 56-bone armature reached via the mesh's modifier.
-    # If the stub wins, those two bones get filtered out by trim_to_four.
+    # If the stub wins, those two bones get filtered out by trim_weights.
     used = set(flesh.get_used_bones())
     required = {"NPC L UpperArm [LUar]", "NPC L UpperarmTwist1 [LUt1]"}
     missing = required - used
@@ -2839,6 +2839,9 @@ def TEST_SF_IMPORT():
     assert sfg.mesh_path == body.pyn_sf_geometry.mesh_path  # sanity: same group
     assert sfg.lod_slot == 0, f"LOD slot 0 recorded, got {sfg.lod_slot}"
     assert sfg.is_internal is False, "External geometry (not internal 0x200) recorded"
+    # Source per-vertex influence count recorded (this body uses 6, > the Skyrim/FO4 cap of 4).
+    assert sfg.weights_per_vertex == 6, \
+        f"Source weightsPerVertex recorded: {sfg.weights_per_vertex}"
 
 
 @TT.category('STARFIELD', 'SHADER')
@@ -3010,6 +3013,17 @@ def TEST_SF_EXPORT():
     for root, _dirs, files in os.walk(geodir):
         meshes_written += [os.path.join(root, f) for f in files if f.endswith(".mesh")]
     assert meshes_written, f"Wrote an external .mesh under {geodir}"
+
+    # Weights-per-vertex is not capped at 4: this vanilla body uses 6 influences/vertex, and the
+    # export must preserve that (Skyrim/FO4 trim to 4; Starfield allows more). Read it from the
+    # written .mesh header (version, index count+indices, scale, then weightsPerVertex).
+    import struct
+    md = open(meshes_written[0], 'rb').read()
+    o = 4
+    o += 4 + struct.unpack_from('<I', md, o)[0] * 2
+    o += 4
+    wpv = struct.unpack_from('<I', md, o)[0]
+    assert wpv > 4, f"weightsPerVertex preserved, not capped at 4: {wpv}"
 
     # Re-import the exported nif (resolves the .mesh from the geometries/ sibling). Deselect
     # first so it imports as a fresh object, not a shape key on the active mesh.

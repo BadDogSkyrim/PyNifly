@@ -67,10 +67,19 @@ def record_geometry_props(obj, the_shape, slot=0):
     replacer) or, for a newly-created shape with no recorded path, fall back to
     prefix-autogen."""
     from . import pyn_props
+    # Record the source .mesh's per-vertex influence count (max bones weighting any vertex) so a
+    # re-export preserves it instead of the generic cap; editable to trim down.
+    counts = {}
+    for vw_list in the_shape.bone_weights.values():
+        for vi, w in vw_list:
+            if w > 0.00005:
+                counts[vi] = counts.get(vi, 0) + 1
+    src_wpv = min(max(counts.values(), default=0), SF_MAX_WEIGHTS_PER_VERTEX)
     pyn_props.set_group(obj, 'pyn_sf_geometry',
                         mesh_path=the_shape.mesh_path(slot),
                         lod_slot=slot,
-                        is_internal=the_shape.is_internal_geom)
+                        is_internal=the_shape.is_internal_geom,
+                        weights_per_vertex=src_wpv)
 
 
 # ---------------------------------------------------------------------------
@@ -147,10 +156,18 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
     return out_path
 
 
+# Max bone influences kept per vertex. Starfield has no hard limit (vanilla body = 6,
+# hair = 7); the .mesh stores one weightsPerVertex for the whole shape and pads verts with
+# fewer. Capping generously at 8 covers observed vanilla assets while keeping the file bounded.
+SF_MAX_WEIGHTS_PER_VERTEX = 8
+
+
 def _export_sf_skin(exporter, obj, new_shape, verts, weights_by_vert, arma, new_xform):
     """Assemble SF skinning on a BSGeometry: an ordered bone list (SkinAttach), a bind
-    (skin-to-bone) transform per bone (BSSkin::BoneData), and per-vertex weights (top 4,
-    normalized). Bone ordering fixes the index that both SkinAttach and the weights use."""
+    (skin-to-bone) transform per bone (BSSkin::BoneData), and per-vertex weights (the heaviest
+    influences, normalized). Bone ordering fixes the index that both SkinAttach and the weights
+    use. The shape's weightsPerVertex is the max influence count across its verts (<= the cap),
+    matching how vanilla sizes it -- must be set before skin_bones zeroes the weight slots."""
     arma_bones = arma.data.bones
 
     # Ordered list of bones that actually weight this shape, in armature order for stability.
@@ -166,9 +183,19 @@ def _export_sf_skin(exporter, obj, new_shape, verts, weights_by_vert, arma, new_
         return
     bone_index = {nm: i for i, nm in enumerate(bone_list)}
 
+    # Precompute each vertex's heaviest influences so the shape's weightsPerVertex can be set
+    # from the true max before skinning (nifly sizes/caps the weight slots to it).
+    vert_pairs = []
+    for vw in weights_by_vert:
+        pairs = [(w, bone_index[nm]) for nm, w in vw.items()
+                 if w > 0.00005 and nm in bone_index]
+        pairs.sort(reverse=True)
+        vert_pairs.append(pairs[:SF_MAX_WEIGHTS_PER_VERTEX])
+    weights_per_vertex = max((len(p) for p in vert_pairs), default=1) or 1
+
     # SkinAttach: nif-name each bone (SF names generally pass through unchanged).
     nif_names = [exporter.nif_name(nm) for nm in bone_list]
-    new_shape.skin_bones(nif_names)
+    new_shape.skin_bones(nif_names, weights_per_vertex)
 
     # Per-bone bind = inverse of (vert-frame -> bone), same formula as the generic export_skin.
     for i, nm in enumerate(bone_list):
@@ -176,12 +203,8 @@ def _export_sf_skin(exporter, obj, new_shape, verts, weights_by_vert, arma, new_
         xfinv = (new_xform.inverted() @ xf).inverted()
         new_shape.set_bone_bind(i, BD.pack_xf_to_buf(xfinv, exporter.scale))
 
-    # Per-vertex weights: keep the 4 heaviest bone weights, normalized.
-    for v, vw in enumerate(weights_by_vert):
-        pairs = [(w, bone_index[nm]) for nm, w in vw.items()
-                 if w > 0.00005 and nm in bone_index]
-        pairs.sort(reverse=True)
-        pairs = pairs[:4]
+    # Per-vertex weights, normalized over the kept influences.
+    for v, pairs in enumerate(vert_pairs):
         total = sum(w for w, _ in pairs)
         if total <= 0:
             continue

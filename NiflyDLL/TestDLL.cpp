@@ -1318,7 +1318,7 @@ namespace NiflyDLLTests
 
 			// Skin: instance + bone data + SkinAttach, then copy bone 0's bind, then weight
 			// every vertex fully to bone 0.
-			Assert::AreEqual(1, skinBSGeometry(newNif, newGeom, boneBuf, nBones),
+			Assert::AreEqual(1, skinBSGeometry(newNif, newGeom, boneBuf, nBones, 4),
 				L"Created SF skinning");
 			Assert::AreEqual(1, setBSGeometryBoneBind(newNif, newGeom, 0, bind0src),
 				L"Set bone 0 bind");

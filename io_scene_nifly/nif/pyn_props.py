@@ -651,10 +651,15 @@ _register_handwired_group('PynConnectPointProps', 'pyn_connectpoint',
 # newly-created shape with no recorded path falls back to prefix-autogen. Store meshName
 # verbatim (no 'geometries\' root, no '.mesh' ext) for byte-exact write-back. Greenfield —
 # no legacy custom-prop channel. Lives on each per-LOD mesh object (one group per LOD child).
+# weights_per_vertex caps how many bone influences per vertex the export writes (Starfield has
+# no fixed limit; vanilla body 6, hair 7). Import records the source .mesh's actual count; export
+# uses it as the cap (0 = auto: the shape's true max, bounded by SF_MAX_WEIGHTS_PER_VERTEX). Editable
+# per shape to trim influences down.
 _register_handwired_group('PynSFGeometryProps', 'pyn_sf_geometry',
     {'mesh_path': bpy.props.StringProperty(name='mesh_path', default=''),
      'lod_slot': bpy.props.IntProperty(name='lod_slot', default=0, min=0, max=3),
-     'is_internal': bpy.props.BoolProperty(name='is_internal', default=False)},
+     'is_internal': bpy.props.BoolProperty(name='is_internal', default=False),
+     'weights_per_vertex': bpy.props.IntProperty(name='weights_per_vertex', default=0, min=0, max=8)},
     'Starfield Geometry')
 
 

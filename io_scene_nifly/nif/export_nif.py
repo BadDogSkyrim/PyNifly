@@ -77,13 +77,14 @@ def check_partitions(vi1, vi2, vi3, weights):
     return len(p1.intersection(p2, p3)) > 0
 
 
-def trim_to_four(weights, arma):
-    """ Trim to the 4 heaviest weights in the armature
+def trim_weights(weights, arma, max_weights=4):
+    """ Trim to the `max_weights` heaviest weights in the armature (4 for Skyrim/FO4; Starfield
+        allows more per vertex -- see extract_mesh_data).
         weights = [(group_name: weight), ...] """
     if arma:
         lst = filter(lambda p: p[0] in arma.data.bones, weights)
         notlst = filter(lambda p: p[0] not in arma.data.bones, weights)
-        sd = sorted(lst, reverse=True, key=lambda item: item[1])[0:4]
+        sd = sorted(lst, reverse=True, key=lambda item: item[1])[0:max_weights]
         sd.extend(notlst)
         return dict(sd)
     else:
@@ -95,7 +96,7 @@ def has_uniform_scale(obj):
     return NearEqual(obj.scale[0], obj.scale[1]) and NearEqual(obj.scale[1], obj.scale[2])
 
 
-def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
+def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0, max_weights=4):
     """Returns 3 lists of equal length with one entry each for each vertex
     *   verts = [(x, y, z)... ] - base or as modified by target-key if provided
     *   weights = [{group-name: weight}... ] - 1:1 with verts list
@@ -128,7 +129,7 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
                     log.error(f"Object {obj.name} vertex #{v.index} (and possibly others) references invalid group #{vg.group}")
                 error_groups.add(vg.group)
         
-        weights.append(trim_to_four(vert_weights, arma))
+        weights.append(trim_weights(vert_weights, arma, max_weights))
     
     if msk: 
         # We return shape key locations for all interesting shape keys.
@@ -1365,8 +1366,17 @@ class NifExporter:
         editmesh = obj1.data
         editmesh.update()
         
+        # Skyrim/FO4 GPU-skin at 4 bones/vertex; Starfield allows more (vanilla body 6, hair 7).
+        # For SF, the per-shape pyn_sf_geometry.weights_per_vertex (recorded from the source on
+        # import, user-editable) caps it; 0 = auto (the shape's true max, up to the hard ceiling).
+        max_weights = 4
+        if self.game == 'SF':
+            from .sf_geometry import SF_MAX_WEIGHTS_PER_VERTEX
+            sfg = getattr(obj, 'pyn_sf_geometry', None)
+            recorded = getattr(sfg, 'weights_per_vertex', 0) if sfg else 0
+            max_weights = recorded if recorded > 0 else SF_MAX_WEIGHTS_PER_VERTEX
         verts, weights_by_vert, morphdict \
-            = extract_vert_info(obj1, editmesh, arma, target_key, self.scale)
+            = extract_vert_info(obj1, editmesh, arma, target_key, self.scale, max_weights)
     
         # Pull out vertex colors first because trying to access them later crashes
         bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
