@@ -4800,6 +4800,12 @@ class BSGeometry(NiShape):
         wbuf = (c_float * n)(*weights)
         nifly.setBSGeometryVertWeights(self.file._handle, self._handle, vert_index, bbuf, wbuf, n)
 
+    def update_skin_bounds(self):
+        """Recompute the per-bone bounding spheres in BSSkin::BoneData from the current binds +
+        vertex weights. Call once after all set_bone_bind()/set_vert_weights() calls. Leaving the
+        default zero-radius spheres crashes the Creation Kit when it opens an actor using the mesh."""
+        nifly.updateBSGeometrySkinBounds(self.file._handle, self._handle)
+
     def _invalidate_geometry(self):
         # vertexCount/triangleCount live in the cached NiShapeBuf, which is stale once a
         # different .mesh slot is loaded/selected. Clear it and the geometry caches so they

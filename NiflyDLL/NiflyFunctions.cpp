@@ -396,7 +396,15 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 			maxCoord = std::max(maxCoord,
 				std::max(std::fabs(p.x), std::max(std::fabs(p.y), std::fabs(p.z))));
 		}
-		md.scale = (maxCoord > 0.0f) ? (maxCoord / havokScale) : 1.0f;
+		// Positions are int16 signed-normalized: stored int16 = round(component / scale * 32767),
+		// decoded at runtime as int16 / 32767 * scale. If scale == the exact max extent, the
+		// deepest verts encode right at the +-32767 edge -- and float rounding pushes some to
+		// -32768, one step PAST the symmetric range. Those decode fine statically but the engine's
+		// skinned vertex-fetch mishandles the SNORM extreme, flinging the verts across the map when
+		// posed. So carry a safety MARGIN (vanilla bodies use ~2.0 for a ~1.63 max, ~22%); 10%
+		// keeps the max encoded value near 29788, comfortably clear. Precision cost is negligible.
+		const float kScaleMargin = 1.1f;
+		md.scale = (maxCoord > 0.0f) ? (maxCoord / havokScale * kScaleMargin) : 1.0f;
 
 		// Bounding volumes on the BSGeometry block. The engine frustum/distance-culls a
 		// STATIC (non-skinned) shape by these, so a zero bound makes the shape invisible

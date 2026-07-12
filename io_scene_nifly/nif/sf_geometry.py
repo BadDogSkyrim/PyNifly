@@ -189,6 +189,10 @@ def _export_sf_skin(exporter, obj, new_shape, verts, weights_by_vert, arma, new_
         wts = [w / total for w, _ in pairs]
         new_shape.set_vert_weights(v, idxs, wts)
 
+    # Finalize per-bone bounding spheres now that binds + weights are set. Skipping this leaves
+    # the default zero-radius spheres, which crash the Creation Kit on actor load.
+    new_shape.update_skin_bounds()
+
 
 def write_sf_meshes(exporter):
     """Write every queued external .mesh to disk (called after nif.save()). Each entry is

@@ -15,6 +15,7 @@
 #include <string>
 #include <sstream>
 #include <algorithm>
+#include <limits>
 #include "niffile.hpp"
 #include "bhk.hpp"
 #include "NiflyFunctions.hpp"
@@ -7144,12 +7145,34 @@ NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNames
     auto skinInst = std::make_unique<BSSkinInstance>();
     skinInst->targetRef.index = hdr.GetBlockID(nif->GetRootNode());
     skinInst->dataRef.index = boneDataID;
+    // SF keeps a boneRefs entry PER BONE even though every ref is empty -- the actual skeleton
+    // bones live in an external skeleton.nif, not this file, so the names come from SkinAttach.
+    // But the array length must still equal nBones: the Creation Kit walks boneRefs in lockstep
+    // with the bone data when it opens an actor, and an empty (length-0) array runs the iterator
+    // off the end -> "Invalid iterator" -> null-pointer crash. Fill nBones empty (NIF_NPOS) refs;
+    // Sync preserves them for SF via SetKeepEmptyRefs. (Verified: vanilla naked_f has 38.)
+    skinInst->boneRefs.SetKeepEmptyRefs(true);
+    skinInst->boneRefs.SetSize((uint32_t)nBones);
     uint32_t skinInstID = hdr.AddBlock(std::move(skinInst));
     shape->SkinInstanceRef()->index = skinInstID;
     shape->SetSkinned(true);
 
-    // SkinAttach extra data -- the bone-name list (SF has no NiNode bone refs).
+    // Skinned shapes are frustum-culled by per-bone bounds, not the block-level volume, so the
+    // block bound must never cull the (bone-driven, moving) mesh. Vanilla bodies set radius 0 +
+    // boundMinMax all-FLT_MAX ("infinite"). This overrides the tight bind-space AABB that
+    // PyniflyCreateShape computes for the static case -- that box would cull the body the moment
+    // it animates out of bind pose (verified against vanilla naked_f.nif).
+    const float fmax = std::numeric_limits<float>::max();
+    const float infMinMax[6] = { fmax, fmax, fmax, fmax, fmax, fmax };
+    geom->SetGeometryBounds(BoundingSphere(Vector3(0.0f, 0.0f, 0.0f), 0.0f), infMinMax);
+
+    // SkinAttach extra data -- the bone-name list (SF has no NiNode bone refs). The extra-data
+    // NAME must be "SkinBMP" (Skin Bone MaP): the engine locates the shape's bone map by this
+    // name, and an unnamed SkinAttach leaves it unable to resolve the .mesh's weight indices ->
+    // the body falls back to bind space (lying on its side) with garbage bone transforms
+    // (spazzing). Verified against vanilla naked_f.nif.
     auto skinAttach = std::make_unique<SkinAttach>();
+    skinAttach->name.get() = "SkinBMP";
     std::string all(boneNamesNL ? boneNamesNL : "");
     std::vector<std::string> names;
     size_t start = 0;
@@ -7167,6 +7190,24 @@ NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNames
         skinAttach->bones[i].get() = names[i];
     uint32_t attachID = hdr.AddBlock(std::move(skinAttach));
     shape->extraDataRefs.AddBlockRef(attachID);
+
+    // BSXFlags on the root node: vanilla skinned bodies carry 0x10000 (65536). Add once if the
+    // root doesn't already have one (a multi-part body skins several shapes but needs one BSX).
+    NiNode* rootNode = nif->GetRootNode();
+    if (rootNode) {
+        bool hasBSX = false;
+        for (auto& ref : rootNode->extraDataRefs) {
+            NiExtraData* ed = hdr.GetBlock<NiExtraData>(ref.index);
+            if (ed && std::string(ed->GetBlockName()) == "BSXFlags") { hasBSX = true; break; }
+        }
+        if (!hasBSX) {
+            auto bsx = std::make_unique<BSXFlags>();
+            bsx->name.get() = "BSX";
+            bsx->integerData = 65536;
+            uint32_t bsxID = hdr.AddBlock(std::move(bsx));
+            rootNode->extraDataRefs.AddBlockRef(bsxID);
+        }
+    }
 
     // Zero the per-vertex weight slots so SetShapeVertWeights can fill them.
     nif->ClearShapeVertWeights(shape->name.get());
@@ -7210,6 +7251,46 @@ NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertInd
     std::vector<uint8_t> ids(boneIndices, boneIndices + count);
     std::vector<float> ws(weights, weights + count);
     nif->SetShapeVertWeights(shape->name.get(), (uint16_t)vertIndex, ids, ws);
+    return 1;
+}
+
+// Recompute the per-bone bounding spheres in BSSkin::BoneData for a skinned BSGeometry. Each
+// bone's sphere bounds the vertices weighted to it, expressed in that bone's local space
+// (skin-to-bone bind applied). These are culling data the game -- and, more strictly, the
+// Creation Kit -- reads on load; leaving them at the default zero radius crashes the CK when it
+// opens an actor using the mesh. Call AFTER binds (setBSGeometryBoneBind) and weights
+// (setBSGeometryVertWeights) are set. Verts are game units in md, binds are stored metric
+// (translation /havokScale), so verts are divided by havokScale to match. Returns 1 on success.
+NIFLY_API int updateBSGeometrySkinBounds(void* theNif, void* theShape) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+    NiHeader& hdr = nif->GetHeader();
+
+    auto skinInst = hdr.GetBlock<BSSkinInstance>(shape->SkinInstanceRef());
+    if (!skinInst) return 0;
+    auto boneData = hdr.GetBlock<BSSkinBoneData>(skinInst->dataRef);
+    if (!boneData) return 0;
+    auto md = dynamic_cast<BSGeometryMeshData*>(geom->GetGeomData());
+    if (!md) return 0;
+
+    const float havokScale = 69.969f;
+    size_t nb = boneData->boneXforms.size();
+    std::vector<std::vector<Vector3>> pts(nb);
+    size_t nv = std::min(md->skinWeights.size(), md->vertices.size());
+    for (size_t vi = 0; vi < nv; vi++) {
+        Vector3 vm = md->vertices[vi] / havokScale;   // game units -> metric (bind space)
+        for (const auto& bw : md->skinWeights[vi]) {
+            if (bw.weight == 0 || bw.boneIndex >= nb) continue;
+            pts[bw.boneIndex].push_back(
+                boneData->boneXforms[bw.boneIndex].boneTransform.ApplyTransform(vm));
+        }
+    }
+    for (size_t b = 0; b < nb; b++) {
+        if (!pts[b].empty())
+            boneData->boneXforms[b].bounds = BoundingSphere(pts[b]);
+    }
     return 1;
 }
 

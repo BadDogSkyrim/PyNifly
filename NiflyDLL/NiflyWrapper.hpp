@@ -216,3 +216,4 @@ extern "C" NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int w
 extern "C" NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones);
 extern "C" NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex, const nifly::MatTransform& xf);
 extern "C" NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertIndex, uint8_t* boneIndices, float* weights, int count);
+extern "C" NIFLY_API int updateBSGeometrySkinBounds(void* theNif, void* theShape);

@@ -1914,7 +1914,13 @@ class NifExporter:
                 sf_geometry.export_sf_shape(
                     self, obj, new_shape, verts, uvmap_nif, norms_exp, tris,
                     colors_new, weights_by_vert, arma if is_skinned else None, new_xform)
-                new_shape.transform = BD.make_transformbuf(new_xform)
+                # A skinned BSGeometry keeps an IDENTITY transform: the skin-to-bone binds are
+                # computed relative to new_xform (see _export_sf_skin) and already place every
+                # vertex, so writing new_xform onto the shape too would double-apply it and the
+                # mesh explodes under animation. Only an unskinned (static) SF shape carries a
+                # placement transform. (Vanilla skinned bodies have an identity shape transform.)
+                if not is_skinned:
+                    new_shape.transform = BD.make_transformbuf(new_xform)
             elif is_skinned:
                 self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
                 if len(unweighted) > 0:

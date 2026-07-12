@@ -690,6 +690,88 @@ def TEST_SF_SKIN_EXPORT():
     assert len(w0) == len(verts), f"Every vertex weighted to bone 0: {len(w0)} vs {len(verts)}"
 
 
+def TEST_SF_SKINNED_STRUCTURE():
+    """Starfield skinned-body EXPORT structure: the several non-obvious hard requirements the
+    engine + Creation Kit impose on an authored skinned BSGeometry, each of which produced a
+    distinct in-game/CK failure before it was fixed. Regression guard for all of them at once.
+
+    Builds a fully-skinned body (real per-bone binds + weights so per-bone bounds populate) and
+    asserts on the raw NIF/.mesh bytes -- the ctypes buffer reader is blind to several of these."""
+    import struct
+    src = NifFile(r"tests\SF\naked_f.nif")
+    sg = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        sg.load_mesh(f.read(), 0)
+    verts, tris, uvs, normals = list(sg.verts), list(sg.tris), list(sg.uvs), list(sg.normals)
+    bones = list(sg.bone_names)
+    nb = len(bones)
+    # invert bone_weights (bone -> [(vert,w)]) into per-vertex lists
+    perv = [[] for _ in verts]
+    for bi, bn in enumerate(bones):
+        for vi, w in sg.bone_weights[bn]:
+            perv[vi].append((bi, w))
+
+    outnif = r"tests\Out\TEST_SF_SKINNED_STRUCTURE.nif"
+    outmesh = r"tests\Out\TEST_SF_SKINNED_STRUCTURE.mesh"
+    nif = NifFile(); nif.initialize('SF', outnif)
+    g = nif.createShapeFromData("Body", verts, tris, uvs, normals, parent=nif.root)
+    g.set_mesh_name(r"geometries\test\body.mesh", 0)
+    g.skin_bones(bones)
+    for bi in range(nb):
+        g.set_bone_bind(bi, sg.get_shape_skin_to_bone_by_index(bi))
+    for vi, ws in enumerate(perv):
+        if ws:
+            g.set_vert_weights(vi, [b for b, _ in ws], [w for _, w in ws])
+    g.update_skin_bounds()
+    nif.save()
+    meshbytes = g.save_mesh(0)
+    with open(outmesh, "wb") as f:
+        f.write(meshbytes)
+    nifbytes = open(outnif, "rb").read()
+
+    # 1) Vertex Scale carries margin -> no int16 at the SNORM edge (the "heel flyers" bug).
+    o = 0
+    _ver, nidx = struct.unpack_from("<II", meshbytes, o); o += 8 + nidx * 2
+    o += 4                                   # scale
+    _wpv, nv = struct.unpack_from("<II", meshbytes, o); o += 8
+    pos = struct.unpack_from("<%dh" % (nv * 3), meshbytes, o)
+    assert max(abs(p) for p in pos) < 32766, \
+        f"No vertex encodes at the int16 SNORM edge (max |int16| = {max(abs(p) for p in pos)})"
+
+    # 2) SkinAttach named "SkinBMP" + 3) BSXFlags present.
+    assert b"SkinBMP" in nifbytes, "SkinAttach carries the 'SkinBMP' name"
+    root = nif.nodes[nif.rootName]
+    bsx = [e for e in root.extra_data() if e.blockname == "BSXFlags"]
+    assert bsx and bsx[0].flags == 65536, f"Root BSXFlags == 0x10000 ({[e.flags for e in bsx]})"
+
+    # 4) boneRefs: a run of exactly nb empty (0xFFFFFFFF) refs (CK null-crashes without it).
+    run = mx = 0
+    for i in range(0, len(nifbytes) - 3):
+        run = run + 1 if nifbytes[i:i+4] == b"\xff\xff\xff\xff" else 0
+        mx = max(mx, run)
+    assert mx >= nb, f"boneRefs has >= {nb} empty refs (longest 0xFFFFFFFF run = {mx})"
+
+    # 5) Skinned block bounds are the FLT_MAX sentinel, NOT a computed AABB.
+    sph, mm = _parse_sf_geometry_bounds(nifbytes, r"geometries\test\body.mesh")
+    FMAX = 3.4028234663852886e+38
+    assert sph[3] == 0.0 and all(abs(m - FMAX) < 1e30 for m in mm), \
+        f"Skinned block bounds = FLT_MAX sentinel (sphere r={sph[3]}, minmax={mm})"
+
+    # 6) Per-bone BoneData bounds are non-zero for used bones (CK crashes on zero radius).
+    ENT = 68; tgt = struct.pack("<I", nb); s0 = 0; base = None
+    while True:
+        i = nifbytes.find(tgt, s0)
+        if i < 0: break
+        s0 = i + 1; bb = i + 4
+        if bb + ENT * nb > len(nifbytes): continue
+        if all(0.99 < struct.unpack_from("<f", nifbytes, bb + k * ENT + 64)[0] < 1.01 for k in range(nb)):
+            base = bb; break
+    assert base is not None, "Found BSSkin::BoneData block"
+    radii = [struct.unpack_from("<4f", nifbytes, base + k * ENT)[3] for k in range(nb)]
+    nonzero = sum(1 for r in radii if r > 0)
+    assert nonzero >= nb - 2, f"Per-bone bounding spheres computed (non-zero: {nonzero}/{nb})"
+
+
 def TEST_SF_SKIN_BIND():
     """Starfield: per-bone bind (skin-to-bone) transforms come through by INDEX.
 
