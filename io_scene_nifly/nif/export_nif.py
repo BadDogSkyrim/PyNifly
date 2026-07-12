@@ -855,6 +855,16 @@ class NifExporter:
             elif obj.name.startswith("BSFurnitureMarkerNode"):
                 self.furniture_markers.add(obj)
 
+            elif obj.get('pynBlockName') == 'BSGeometry':
+                # A Starfield BSGeometry container Empty is represented by the shape block
+                # itself, not a separate NiNode (see export_shape_parents) -- so don't emit a
+                # node for it (nifly can't add_block a shape), but still export its LOD-child
+                # meshes. Without this, selecting the object hierarchy (not just the leaf mesh)
+                # routes the Empty through export_node and crashes on add_block(type 1).
+                for c in obj.children:
+                    if not c.hide_get():
+                        self.add_object(c)
+
             elif (connectpoint.is_child(obj)) or (not connectpoint.is_connectpoint(obj)):
                 self.grouping_nodes.add(obj)
                 if obj.get('pynBlockName') == 'NiSwitchNode':

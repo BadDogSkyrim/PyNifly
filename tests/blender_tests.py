@@ -2881,6 +2881,58 @@ def TEST_SF_MATERIAL():
     assert any(n.type == 'NORMAL_MAP' for n in nt.nodes), "Normal reconstructed via Normal Map"
 
 
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_PARAMS():
+    """Starfield P0: the .mat's non-texture settings land on a single "SF Parameters" node.
+
+    The value-holder group holds SSS (two hierarchical flags + spec-lobe roughness), emissive
+    (enable + tint), and the shader-model identity -- the export param source. Driving values are
+    wired into the Principled: SSS Weight = AND(Translucency Enable, Use SSS) -> Subsurface Weight.
+    This proves both the read (fixture .mat -> populated node) and the round-trip contract (read the
+    params straight back off the node's input sockets by name).
+    """
+    from io_scene_nifly.nif.shader_io import sf_params_node_of, SF_PARAMS_GROUP
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    body = TTB.find_shape("Naked_F:0")
+    mat = body.active_material
+    nt = mat.node_tree
+
+    # Exactly one SF Parameters node, found by its group datablock (not its instance label).
+    params = sf_params_node_of(mat)
+    assert params is not None, "Material has an SF Parameters node"
+    assert params.node_tree.name.startswith(SF_PARAMS_GROUP), "Node is the SF Parameters group"
+
+    # Round-trip readback: every settings value recovered off the input sockets by NAME.
+    ins = params.inputs
+    assert ins["Translucency Enable"].default_value is True, "Translucency enabled"
+    assert ins["Use SSS"].default_value is True, "Use SSS enabled"
+    assert abs(ins["Spec Lobe 0 Roughness"].default_value - 0.93) < 1e-4, \
+        f"spec lobe 0: {ins['Spec Lobe 0 Roughness'].default_value}"
+    assert abs(ins["Spec Lobe 1 Roughness"].default_value - 1.15) < 1e-4, \
+        f"spec lobe 1: {ins['Spec Lobe 1 Roughness'].default_value}"
+    assert ins["Emissive Enable"].default_value is False, "Emissive disabled (skin)"
+    tint = tuple(ins["Emissive Tint"].default_value)
+    assert abs(tint[0] - 0.9) < 1e-4 and abs(tint[1] - 0.1) < 1e-4 and abs(tint[2] - 0.1) < 1e-4, \
+        f"Emissive tint recovered: {tint}"
+    # Shader-model identity is a string -> held as a custom prop on the node (no string socket).
+    assert params["Shader Model"] == "BodySkin2Layer", \
+        f"Shader-model identity kept: {params.get('Shader Model')!r}"
+
+    # SSS drives the Principled Subsurface Weight from the group's computed output.
+    bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    ssw = bsdf.inputs.get('Subsurface Weight')
+    assert ssw is not None and ssw.is_linked, "Subsurface Weight is driven by the params node"
+    src = ssw.links[0].from_node
+    assert src == params, "Subsurface Weight fed by the SF Parameters node"
+    # Scatter Scale is baked to game-unit scale (Blender's default is microscopic on a ~70x mesh).
+    from io_scene_nifly.nif.shader_io import SF_SUBSURFACE_SCALE
+    assert abs(bsdf.inputs['Subsurface Scale'].default_value - SF_SUBSURFACE_SCALE) < 1e-4, \
+        f"Subsurface Scale baked to game units: {bsdf.inputs['Subsurface Scale'].default_value}"
+
+
 @TT.category('STARFIELD')
 @TT.expect_errors(("Could not find material",))
 def TEST_SF_EXPORT():
@@ -2902,8 +2954,12 @@ def TEST_SF_EXPORT():
     p_in = len(body.data.polygons)
     vg_in = len(body.vertex_groups)
 
-    # Export the body (its BSGeometry Empty container + armature come along).
-    BD.ObjectSelect([body], active=True)
+    # Export by selecting the WHOLE imported hierarchy (root Empty + BSGeometry container Empty +
+    # mesh + armature) -- the natural user action. The BSGeometry container Empty must NOT be
+    # emitted as a NiNode (it's represented by the shape block); routing it through export_node
+    # crashes on add_block(NiShape). Selecting only the leaf mesh dodged that path.
+    BD.ObjectSelect(list(bpy.context.scene.objects))
+    bpy.context.view_layer.objects.active = body
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF")
 
     # The external .mesh must have been written into a geometries/ tree beside meshes/.

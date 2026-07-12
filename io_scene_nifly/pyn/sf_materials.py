@@ -45,9 +45,99 @@ _MATERIAL_ID = 'BSMaterial::MaterialID'
 _TEXTURESET_ID = 'BSMaterial::TextureSetID'
 _BLEND_MODE = 'BSMaterial::BlendModeComponent'
 
+_SHADER_MODEL = 'BSMaterial::ShaderModelComponent'
+_TRANSLUCENCY = 'BSMaterial::TranslucencySettingsComponent'
+_EMISSIVITY = 'BSMaterial::LayeredEmissivityComponent'
+
 
 def _components_of(obj, ctype):
     return [c for c in obj.get('Components', []) if c.get('Type') == ctype]
+
+
+def _first_component_data(objects, ctype):
+    """The Data dict of the first component of ctype found across all objects, or None.
+
+    Settings components (translucency/emissivity/shader-model) are per-material singletons and
+    aren't reliably attached to any one graph node, so we sweep every object for them."""
+    for o in objects:
+        if not isinstance(o, dict):
+            continue
+        for c in _components_of(o, ctype):
+            d = c.get('Data')
+            if isinstance(d, dict):
+                return d
+    return None
+
+
+def _as_bool(v, default=False):
+    """`.mat` stores bools as the strings 'true'/'false'."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() == 'true'
+    return default
+
+
+def _as_float(v, default=0.0):
+    """`.mat` stores scalars as strings."""
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _decode_xmfloat(color_data):
+    """A `.mat` XMFLOAT color is nested `{ Value: { Type: 'XMFLOAT4', Data: {x,y,z,w} } }`.
+    Return an (x, y, z, w) tuple of floats (missing channels default to 0.0, w to 1.0)."""
+    val = (color_data or {}).get('Value') or {}
+    d = val.get('Data') or {}
+    return (_as_float(d.get('x')), _as_float(d.get('y')),
+            _as_float(d.get('z')), _as_float(d.get('w'), 1.0))
+
+
+def _layer_index(name, default=0):
+    """'MATERIAL_LAYER_0' / 'BLEND_LAYER_1' -> the trailing integer."""
+    if isinstance(name, str) and '_' in name:
+        tail = name.rsplit('_', 1)[-1]
+        if tail.isdigit():
+            return int(tail)
+    return default
+
+
+def _extract_settings(objects):
+    """Pull the material's settings-component params into a normalised, round-trippable dict.
+
+    Only blocks that are actually present are included, so callers test membership. Values are
+    decoded out of the `.mat`'s string/typed-node representation into plain Python
+    (bool/float/tuple). Covers the P0 shader-plan settings: shader-model identity, translucency
+    (SSS), and layered emissivity. Alpha settings are added once a real sample is in hand."""
+    settings = {}
+
+    sm = _first_component_data(objects, _SHADER_MODEL)
+    if sm and sm.get('FileName'):
+        settings['shader_model'] = sm['FileName']
+
+    tr = _first_component_data(objects, _TRANSLUCENCY)
+    if tr is not None:
+        inner = (tr.get('Settings') or {}).get('Data') or {}
+        settings['translucency'] = {
+            'enabled': _as_bool(tr.get('Enabled')),
+            'use_sss': _as_bool(inner.get('UseSSS')),
+            'spec_lobe0_roughness': _as_float(inner.get('SpecLobe0RoughnessScale'), 1.0),
+            'spec_lobe1_roughness': _as_float(inner.get('SpecLobe1RoughnessScale'), 1.0),
+        }
+
+    em = _first_component_data(objects, _EMISSIVITY)
+    if em is not None:
+        tint = (em.get('FirstLayerTint') or {}).get('Data')
+        settings['emissive'] = {
+            'enabled': _as_bool(em.get('Enabled')),
+            'first_layer_index': _layer_index(em.get('FirstLayerIndex')),
+            'blender_mode': em.get('FirstBlenderMode', ''),
+            'tint': _decode_xmfloat(tint),
+        }
+
+    return settings
 
 
 def _first_ref(obj, ctype):
@@ -89,7 +179,8 @@ def parse_mat(text):
     """Parse a loose `.mat` (JSON text or bytes) into a normalised dict:
 
         { 'filename': <the material's own Filename, or ''>,
-          'textures': { slot_name: cleaned_path, ... } }   # only non-empty slots
+          'textures': { slot_name: cleaned_path, ... },     # only non-empty slots
+          'settings': { ... } }                             # present settings blocks only
 
     A `.mat` is a small object graph, so the PBR textures must be reached by following the
     material's layer chain -- root `LayerID` -> `MaterialID` -> `TextureSetID` -> the texture
@@ -144,7 +235,8 @@ def parse_mat_doc(doc):
             for slot, path in _textureset_slots(o).items():
                 textures.setdefault(slot, path)
 
-    return {'filename': doc.get('Filename', ''), 'textures': textures}
+    return {'filename': doc.get('Filename', ''), 'textures': textures,
+            'settings': _extract_settings(objects)}
 
 
 _cdb_cache = {}   # cdb path -> CdbFile (or False if it failed to load)

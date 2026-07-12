@@ -911,6 +911,51 @@ def TEST_SF_MAT_PARSE():
     assert parse_mat("{ not valid json") is None, "Invalid JSON -> None"
     assert SF_TEXTURE_SLOTS[1] == 'Normal', "Slot map exposes the normal slot"
 
+    # SETTINGS components (SSS / emissive / shader model) are pulled into parsed['settings'],
+    # decoding the .mat's string-typed values (bool/float) and XMFLOAT4 colors. Field names +
+    # nesting mirror real vanilla skin (BodySkin2Layer): TranslucencySettingsComponent wraps a
+    # TranslucencySettings.Data (UseSSS + spec-lobe roughness scales); LayeredEmissivityComponent
+    # carries Enabled + a FirstLayerTint Color (XMFLOAT4).
+    settings_mat = r'''{
+      "Objects": [
+        { "Components": [
+            { "Type": "BSMaterial::ShaderModelComponent", "Index": 0, "Data": { "FileName": "BodySkin2Layer" } },
+            { "Type": "BSMaterial::TranslucencySettingsComponent", "Index": 0, "Data": {
+                "Enabled": "true",
+                "Settings": { "Type": "BSMaterial::TranslucencySettings", "Data": {
+                    "UseSSS": "true",
+                    "SpecLobe0RoughnessScale": "0.9300000071525574",
+                    "SpecLobe1RoughnessScale": "1.149999976158142" } } } },
+            { "Type": "BSMaterial::LayeredEmissivityComponent", "Index": 0, "Data": {
+                "Enabled": "false",
+                "FirstLayerIndex": "MATERIAL_LAYER_0",
+                "FirstLayerTint": { "Type": "BSMaterial::Color", "Data": {
+                    "Value": { "Type": "XMFLOAT4", "Data": { "x": "0.5", "y": "0.25", "z": "0.1", "w": "1.0" } } } },
+                "FirstBlenderMode": "Lerp" } }
+          ] }
+      ]
+    }'''
+    sp = parse_mat(settings_mat)['settings']
+    assert sp['shader_model'] == 'BodySkin2Layer', f"shader_model: {sp.get('shader_model')}"
+    tr = sp['translucency']
+    assert tr['enabled'] is True, "translucency enabled decoded from 'true'"
+    assert tr['use_sss'] is True, "use_sss decoded from 'true'"
+    assert abs(tr['spec_lobe0_roughness'] - 0.93) < 1e-4, f"spec lobe0: {tr['spec_lobe0_roughness']}"
+    assert abs(tr['spec_lobe1_roughness'] - 1.15) < 1e-4, f"spec lobe1: {tr['spec_lobe1_roughness']}"
+    em = sp['emissive']
+    assert em['enabled'] is False, "emissive enabled decoded from 'false'"
+    assert em['first_layer_index'] == 0, f"first layer index from MATERIAL_LAYER_0: {em['first_layer_index']}"
+    assert em['blender_mode'] == 'Lerp', f"blender mode: {em['blender_mode']}"
+    r, g, b, a = em['tint']
+    assert abs(r - 0.5) < 1e-4 and abs(g - 0.25) < 1e-4 and abs(b - 0.1) < 1e-4 and abs(a - 1.0) < 1e-4, \
+        f"emissive tint XMFLOAT4 decoded: {em['tint']}"
+
+    # A material with no settings components still parses; 'settings' is present but its
+    # sub-blocks are absent (callers test membership).
+    bare = parse_mat(r'{ "Objects": [ { "Components": [] } ] }')
+    assert 'settings' in bare, "settings key always present"
+    assert 'translucency' not in bare['settings'], "no translucency block when absent"
+
 
 def TEST_RW_HEAD():
     """Test reading and writing the male head"""

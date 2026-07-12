@@ -22,6 +22,95 @@ log = logging.getLogger("pynifly")
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
 MSN_GROUP_NAME = "MSN_TRANSFORM"
 TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
+
+# --- Starfield "SF Parameters" value-holder node group -----------------------------------------
+# One contained node per SF material holds every non-texture param (SSS/emissive/alpha settings +
+# the shader-model identity). Its INPUT sockets are the param store -- each shows an editable field
+# on the node -- and a few OUTPUT sockets carry driving values into the Principled BSDF. This is
+# the export param source: walk the inputs by socket NAME to recover the .mat settings. See
+# docs/sf_shader_plan.md "Locked P0 spec". Generated procedurally now; moves to shaders.blend at P3.
+SF_PARAMS_GROUP = "SF Parameters"
+_SF_PARAMS_VERSION = 1   # bump to force a rebuild of a stale cached group
+
+# Default Principled Subsurface Scale for imported skin/fur. SF meshes import at GAME units
+# (nifly applies havokScale ~= 70, so 1 m ~= 70 units), where Blender's default scatter scale of
+# ~0.05 is microscopic. 0.05 * havokScale ~= 3.5 reproduces Blender's intended skin look at game
+# scale (calibrated by eye, Bad Dog 2026-07-12). It's a render-tuning constant, NOT a .mat value,
+# so it lives here and on the Principled node -- deliberately NOT on the SF Parameters node.
+SF_SUBSURFACE_SCALE = 3.5
+
+# (socket name, socket type, default). Bools use real NodeSocketBool (a checkbox rejects a stray 5).
+_SF_PARAM_INPUTS = [
+    ("Translucency Enable",     'NodeSocketBool',   False),
+    ("Use SSS",                 'NodeSocketBool',   False),
+    ("Spec Lobe 0 Roughness",   'NodeSocketFloat',  1.0),
+    ("Spec Lobe 1 Roughness",   'NodeSocketFloat',  1.0),
+    ("Emissive Enable",         'NodeSocketBool',   False),
+    ("Emissive Tint",           'NodeSocketColor',  (1.0, 1.0, 1.0, 1.0)),
+    ("Alpha Mode",              'NodeSocketInt',    0),      # 0 none / 1 test / 2 blend
+    ("Alpha Threshold",         'NodeSocketFloat',  0.5),
+]
+# Shader-model identity is a STRING; Blender shader node trees have no string socket, so it's held
+# as a custom property ON the same params node (still one contained node, round-trippable by name).
+SF_PARAM_SHADER_MODEL = "Shader Model"
+
+
+def _sf_new_socket(iface, name, in_out, socket_type):
+    """bpy interface.new_socket wrapper (Blender 4.0+ node-tree interface API)."""
+    return iface.new_socket(name, in_out=in_out, socket_type=socket_type)
+
+
+def ensure_sf_params_group():
+    """Create (or return the cached) `SF Parameters` shader node group with the locked P0 interface.
+
+    Held params are inputs read straight off their default_value on export. Driving params are also
+    exposed as outputs, wired internally: `SSS Weight` = AND(Translucency Enable, Use SSS) (bool*bool
+    on 0/1), `Emissive Strength` = Emissive Enable, `Emissive Tint Out` passes the tint through."""
+    ng = bpy.data.node_groups.get(SF_PARAMS_GROUP)
+    if ng is not None:
+        if ng.get('pyn_sf_params_version') == _SF_PARAMS_VERSION:
+            return ng
+        bpy.data.node_groups.remove(ng)   # stale schema -> rebuild
+
+    ng = bpy.data.node_groups.new(SF_PARAMS_GROUP, 'ShaderNodeTree')
+    ng['pyn_sf_params_version'] = _SF_PARAMS_VERSION
+    iface = ng.interface
+
+    for name, stype, default in _SF_PARAM_INPUTS:
+        s = _sf_new_socket(iface, name, 'INPUT', stype)
+        if default is not None:
+            with suppress(Exception):
+                s.default_value = default
+
+    _sf_new_socket(iface, "SSS Weight", 'OUTPUT', 'NodeSocketFloat')
+    _sf_new_socket(iface, "Emissive Strength", 'OUTPUT', 'NodeSocketFloat')
+    _sf_new_socket(iface, "Emissive Tint Out", 'OUTPUT', 'NodeSocketColor')
+
+    gin = ng.nodes.new('NodeGroupInput'); gin.location = (-400, 0)
+    gout = ng.nodes.new('NodeGroupOutput'); gout.location = (300, 0)
+    links = ng.links
+    # SSS Weight = Translucency Enable * Use SSS  (both flags preserved; product = AND on 0/1).
+    andm = ng.nodes.new('ShaderNodeMath'); andm.operation = 'MULTIPLY'; andm.location = (0, 100)
+    links.new(gin.outputs["Translucency Enable"], andm.inputs[0])
+    links.new(gin.outputs["Use SSS"], andm.inputs[1])
+    links.new(andm.outputs[0], gout.inputs["SSS Weight"])
+    links.new(gin.outputs["Emissive Enable"], gout.inputs["Emissive Strength"])
+    links.new(gin.outputs["Emissive Tint"], gout.inputs["Emissive Tint Out"])
+    return ng
+
+
+def is_sf_params_node(node):
+    """A group instance whose datablock is the SF Parameters group (stable vs. instance rename)."""
+    return (getattr(node, 'type', '') == 'GROUP'
+            and node.node_tree is not None
+            and node.node_tree.name.startswith(SF_PARAMS_GROUP))
+
+
+def sf_params_node_of(material):
+    """The SF Parameters node in a material's tree, or None."""
+    if not (material and material.node_tree):
+        return None
+    return next((n for n in material.node_tree.nodes if is_sf_params_node(n)), None)
 GLOSS_SCALE = 100
 ATTRIBUTE_NODE_HEIGHT = 200
 NODE_WIDTH = 200
@@ -1448,6 +1537,7 @@ class ShaderImporter:
         altpaths = self._build_alt_pathlist()
         mat_ref = shape.shader.name  # 'Materials\...\x.mat'
         textures = {}
+        settings = {}
         if mat_ref:
             matpath = find_referenced_file(mat_ref, nifpath=shape.file.filepath,
                                            root='materials', alt_suffix=None, alt_pathlist=altpaths)
@@ -1457,6 +1547,7 @@ class ShaderImporter:
                         parsed = sf_materials.parse_mat(f.read())
                     if parsed:
                         textures = parsed['textures']
+                        settings = parsed.get('settings', {})
                 except OSError as e:
                     self.warn(f"Could not read material '{matpath}': {e}")
             else:
@@ -1487,7 +1578,7 @@ class ShaderImporter:
             else:
                 self.warn(f"Could not find SF texture {slot}: '{path}'")
 
-        self._build_sf_nodes(resolved)
+        self._build_sf_nodes(resolved, settings)
         obj.active_material = self.material
 
     def _sf_load_image(self, path, colorspace):
@@ -1543,8 +1634,34 @@ class ShaderImporter:
         nt.links.new(comb.outputs['Color'], nmap.inputs['Color'])
         return nmap.outputs['Normal']
 
-    def _build_sf_nodes(self, resolved):
-        """Wire the resolved SF PBR textures into a Principled BSDF."""
+    def _add_sf_params_node(self, nt, settings, location):
+        """Add the SF Parameters group instance, populated from the parsed .mat settings."""
+        node = nt.nodes.new('ShaderNodeGroup')
+        node.node_tree = ensure_sf_params_group()
+        node.name = SF_PARAMS_GROUP
+        node.label = SF_PARAMS_GROUP
+        node.location = location
+        node.width = 240
+        ins = node.inputs
+        tr = (settings or {}).get('translucency')
+        if tr:
+            ins["Translucency Enable"].default_value = bool(tr['enabled'])
+            ins["Use SSS"].default_value = bool(tr['use_sss'])
+            ins["Spec Lobe 0 Roughness"].default_value = tr['spec_lobe0_roughness']
+            ins["Spec Lobe 1 Roughness"].default_value = tr['spec_lobe1_roughness']
+        em = (settings or {}).get('emissive')
+        if em:
+            ins["Emissive Enable"].default_value = bool(em['enabled'])
+            ins["Emissive Tint"].default_value = tuple(em['tint'])
+        sm = (settings or {}).get('shader_model')
+        if sm:
+            node[SF_PARAM_SHADER_MODEL] = sm   # string identity: custom prop, not a socket
+        # Alpha settings are not parsed yet (no vanilla sample with alpha); the sockets stand ready.
+        return node
+
+    def _build_sf_nodes(self, resolved, settings=None):
+        """Wire the resolved SF PBR textures into a Principled BSDF, plus the SF Parameters node
+        (SSS / emissive / alpha settings + shader-model identity), driving Subsurface + Emission."""
         nt = self.material.node_tree
         self.nodes = nt.nodes
         bsdf = next((n for n in self.nodes if n.type == 'BSDF_PRINCIPLED'), None) \
@@ -1571,17 +1688,31 @@ class ShaderImporter:
         if 'Metal' in resolved:
             m = self._sf_teximg('Metal', resolved, 'Non-Color', (x0, -100))
             nt.links.new(m.outputs['Color'], bsdf.inputs['Metallic'])
+        emissive_tex = None
         if 'Emissive' in resolved:
-            e = self._sf_teximg('Emissive', resolved, 'sRGB', (x0, -300))
-            ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
-            if ecol is not None:
-                nt.links.new(e.outputs['Color'], ecol)
-                if 'Emission Strength' in bsdf.inputs:
-                    bsdf.inputs['Emission Strength'].default_value = 1.0
+            emissive_tex = self._sf_teximg('Emissive', resolved, 'sRGB', (x0, -300))
         if 'Normal' in resolved:
             nimg = self._sf_teximg('Normal', resolved, 'Non-Color', (x0, -600))
             nrm = self._sf_reconstruct_normal(nimg, x0 + 250, -600)
             nt.links.new(nrm, bsdf.inputs['Normal'])
+
+        # The SF Parameters node holds every non-texture value and drives Subsurface + Emission.
+        params = self._add_sf_params_node(nt, settings, (x0 - 350, -1100))
+        if 'Subsurface Weight' in bsdf.inputs:
+            nt.links.new(params.outputs['SSS Weight'], bsdf.inputs['Subsurface Weight'])
+        if 'Subsurface Scale' in bsdf.inputs:
+            # Game-unit scatter distance (see SF_SUBSURFACE_SCALE); editable after import.
+            bsdf.inputs['Subsurface Scale'].default_value = SF_SUBSURFACE_SCALE
+        # Emission: strength gated by Emissive Enable; color = tint (x emissive map if present).
+        ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
+        if ecol is not None:
+            if emissive_tex is not None:
+                make_mixnode(nt, emissive_tex.outputs['Color'], params.outputs['Emissive Tint Out'],
+                             output=ecol, factor=1.0, blend_type='MULTIPLY', location=(x0 + 400, -300))
+            else:
+                nt.links.new(params.outputs['Emissive Tint Out'], ecol)
+        if 'Emission Strength' in bsdf.inputs:
+            nt.links.new(params.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
 
     def import_material(self, obj, shape:NiShape, asset_path):
         """
