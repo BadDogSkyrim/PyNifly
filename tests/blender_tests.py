@@ -2920,6 +2920,9 @@ def TEST_SF_PARAMS():
     # Shader-model identity is a string -> held as a custom prop on the node (no string socket).
     assert params["Shader Model"] == "BodySkin2Layer", \
         f"Shader-model identity kept: {params.get('Shader Model')!r}"
+    # Alpha sockets exist; this skin material has no AlphaSettings, so they stay default.
+    assert "Has Opacity" in ins, "Has Opacity socket present"
+    assert ins["Has Opacity"].default_value is False, "Opaque skin -> Has Opacity off"
 
     # SSS drives the Principled Subsurface Weight from the group's computed output.
     bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
@@ -2931,6 +2934,44 @@ def TEST_SF_PARAMS():
     from io_scene_nifly.nif.shader_io import SF_SUBSURFACE_SCALE
     assert abs(bsdf.inputs['Subsurface Scale'].default_value - SF_SUBSURFACE_SCALE) < 1e-4, \
         f"Subsurface Scale baked to game units: {bsdf.inputs['Subsurface Scale'].default_value}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_ALPHA():
+    """Starfield P0: an AlphaSettingsComponent (HasOpacity + AlphaTestThreshold) drives cutout
+    alpha -- the opacity map (slot 2) wires into Principled Alpha, the threshold sets the
+    material clip, and both values are held on the SF Parameters node for round-trip.
+
+    Driven directly through _build_sf_nodes with a synthetic settings/resolved pair (the real
+    hair material lives in the cdb) so the test needs no game assets.
+    """
+    from io_scene_nifly.nif.shader_io import ShaderImporter, sf_params_node_of
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")  # content irrelevant; test wiring
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Alpha_Test")
+    mat.use_nodes = True
+    si.material = mat
+    settings = {'shader_model': 'Hair1Layer',
+                'alpha': {'has_opacity': True, 'threshold': 0.3333}}
+    si._build_sf_nodes({'Albedo': tex, 'Opacity': tex}, settings)
+
+    # Alpha values held on the params node (the export source).
+    p = sf_params_node_of(mat)
+    assert p.inputs["Has Opacity"].default_value is True, "Has Opacity stored"
+    assert abs(p.inputs["Alpha Test Threshold"].default_value - 0.3333) < 1e-4, \
+        f"Alpha test threshold stored: {p.inputs['Alpha Test Threshold'].default_value}"
+
+    # Alpha is a real test: opacity > threshold -> Alpha, via a GREATER_THAN node whose threshold
+    # input is driven by the params node (single editable source), not baked into the node.
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+    assert bsdf.inputs['Alpha'].is_linked, "Alpha is driven"
+    clip = bsdf.inputs['Alpha'].links[0].from_node
+    assert clip.type == 'MATH' and clip.operation == 'GREATER_THAN', \
+        f"Alpha fed by a GREATER_THAN alpha-test node, got {clip.type}/{getattr(clip,'operation',None)}"
+    assert clip.inputs[0].is_linked, "Opacity map feeds the alpha test"
+    thr_src = clip.inputs[1].links[0].from_node if clip.inputs[1].is_linked else None
+    assert thr_src == p, "Threshold driven by the SF Parameters node (single source)"
 
 
 @TT.category('STARFIELD')

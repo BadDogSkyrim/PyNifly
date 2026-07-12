@@ -50,8 +50,8 @@ documented, remain a later option.
 | `Spec Lobe 1 Roughness` | Float | held | `SpecLobe1RoughnessScale` | 1.0 | — |
 | `Emissive Enable` | Bool | driving | `LayeredEmissivityComponent.Enabled` | off | Emission gate |
 | `Emissive Tint` | Color RGBA | driving | `emissive.tint` (XMFLOAT4) | (1,1,1,1) | Emission Color × |
-| `Alpha Mode` | Int 0/1/2 | driving | AlphaSettings *(pending sample)* | 0 | blend method + clip |
-| `Alpha Threshold` | Float | driving | AlphaSettings *(pending)* | 0.5 | Alpha clip threshold |
+| `Has Opacity` | Bool | held | `AlphaSettingsComponent.HasOpacity` | off | gates Opacity→Alpha wiring |
+| `Alpha Test Threshold` | Float | held | `AlphaSettingsComponent.AlphaTestThreshold` | 0.5 | material clip threshold |
 | `Shader Model` | String (custom prop) | held (identity) | `ShaderModelComponent.FileName` | "" | — (export template) |
 
 **Translucency is two hierarchical flags** (outer component-enable + inner SSS-mode-select). Both are
@@ -177,10 +177,12 @@ Every phase's exit criterion includes: *we can read this phase's params back out
 Flat-first, layering-early, export-proven-continuously. Each phase is "done" only when its params
 round-trip out of the graph.
 
-- **P0 — Flat single layer + settings + SSS.** Extend today's Principled with explicit flat nodes:
-  Opacity/AlphaSettings, EmissiveSettings params, **TranslucencySettings → Subsurface**. Add the
-  **SF Parameters** node and route these params through it. Target: a vanilla skin/face `.mat` looks
-  right. *Exit:* read the params back out of the graph (proves the export contract on the simplest case).
+- **P0 — Flat single layer + settings + SSS. ✅ DONE (2026-07-12).** Principled + flat nodes for
+  Opacity/AlphaSettings, EmissiveSettings, **TranslucencySettings → Subsurface**, all routed through the
+  **SF Parameters** node. Params round-trip off the node (export contract proven). Skin (SSS) validated in
+  Blender + in-game; hair alpha (`HasOpacity` + `AlphaTestThreshold` → Opacity→Alpha + clip) validated on
+  the real `Medium_Hair_Shared` cdb material. Tests: TEST_SF_MAT_PARSE, TEST_SF_PARAMS, TEST_SF_ALPHA.
+  **HairSettings** parsed-but-inert, deferred to P4 (see below).
 - **P1 — Flat two-layer material.** A real vanilla 2-layer `.mat`: two flat layer chains mixed by a
   mask + blend mode. Study how SF blend modes map to Blender Mix modes. *Exit:* both layers'
   textures/params + the blend recovered from the graph.
@@ -189,7 +191,15 @@ round-trip out of the graph.
   still simple. *(New workstream — no `.mat` writer exists yet.)*
 - **P3 — Collapse into node groups.** With the flat pattern stable, refactor P0/P1 into `SF Layer`,
   `SF Blend`, `SF Material`. Behavior- and export-preserving; the round-trip test from P2 guards it.
-- **P4 — Hair/fur.** HairSettings → anisotropy/sheen sub-group; calibrate on a vanilla hair `.mat`.
+- **P4 — Hair/fur.** `HairSettingsComponent` → Blender **Sheen** (+ anisotropy) sub-group; calibrate on a
+  vanilla hair `.mat`. Real field set (from `Medium_Hair_Shared`, cdb class def): `Enabled`, `IsSpikyHair`,
+  `SpecScale`, `SpecularTransmissionScale`, `DirectTransmissionScale`, `DiffuseTransmissionScale`,
+  `Roughness`, `ContactShadowSoftening`, **`BackscatterStrength`**, **`BackscatterWrap`**, `VariationStrength`,
+  `IndirectSpecularScale`, `IndirectSpecularTransmissionScale`, `IndirectSpecRoughness`, `EdgeMask*`,
+  `MaxDepthOffset`, `DitherScale`, `DitherDistance*`, **`Tangent`** (vec3) + `TangentBend`,
+  `DepthOffsetMaskVertexColorChannel`, `AOVertexColorChannel`. Likely map: `BackscatterStrength`→Sheen Weight,
+  `Roughness`→Sheen Roughness, `Tangent`/`TangentBend`→Anisotropic direction. (Bad Dog: SSS is pointless for
+  fur; sheen/backscatter is what sells it.)
 - **P5 — Breadth.** More layers, decals, effect/transparency, height/parallax, flipbooks, terrain.
 
 P0, P1, P4 are the furry-race critical path; P2/P3 keep us honest on export; P5 is coverage.

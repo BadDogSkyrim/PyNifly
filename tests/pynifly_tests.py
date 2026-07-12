@@ -931,7 +931,9 @@ def TEST_SF_MAT_PARSE():
                 "FirstLayerIndex": "MATERIAL_LAYER_0",
                 "FirstLayerTint": { "Type": "BSMaterial::Color", "Data": {
                     "Value": { "Type": "XMFLOAT4", "Data": { "x": "0.5", "y": "0.25", "z": "0.1", "w": "1.0" } } } },
-                "FirstBlenderMode": "Lerp" } }
+                "FirstBlenderMode": "Lerp" } },
+            { "Type": "BSMaterial::AlphaSettingsComponent", "Index": 0, "Data": {
+                "HasOpacity": "true", "AlphaTestThreshold": "0.3333" } }
           ] }
       ]
     }'''
@@ -949,6 +951,9 @@ def TEST_SF_MAT_PARSE():
     r, g, b, a = em['tint']
     assert abs(r - 0.5) < 1e-4 and abs(g - 0.25) < 1e-4 and abs(b - 0.1) < 1e-4 and abs(a - 1.0) < 1e-4, \
         f"emissive tint XMFLOAT4 decoded: {em['tint']}"
+    al = sp['alpha']
+    assert al['has_opacity'] is True, "alpha has_opacity decoded from 'true'"
+    assert abs(al['threshold'] - 0.3333) < 1e-4, f"alpha test threshold: {al['threshold']}"
 
     # A material with no settings components still parses; 'settings' is present but its
     # sub-blocks are absent (callers test membership).

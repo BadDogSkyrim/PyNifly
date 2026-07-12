@@ -30,7 +30,7 @@ TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
 # the export param source: walk the inputs by socket NAME to recover the .mat settings. See
 # docs/sf_shader_plan.md "Locked P0 spec". Generated procedurally now; moves to shaders.blend at P3.
 SF_PARAMS_GROUP = "SF Parameters"
-_SF_PARAMS_VERSION = 1   # bump to force a rebuild of a stale cached group
+_SF_PARAMS_VERSION = 3   # bump to force a rebuild of a stale cached group
 
 # Default Principled Subsurface Scale for imported skin/fur. SF meshes import at GAME units
 # (nifly applies havokScale ~= 70, so 1 m ~= 70 units), where Blender's default scatter scale of
@@ -47,8 +47,11 @@ _SF_PARAM_INPUTS = [
     ("Spec Lobe 1 Roughness",   'NodeSocketFloat',  1.0),
     ("Emissive Enable",         'NodeSocketBool',   False),
     ("Emissive Tint",           'NodeSocketColor',  (1.0, 1.0, 1.0, 1.0)),
-    ("Alpha Mode",              'NodeSocketInt',    0),      # 0 none / 1 test / 2 blend
-    ("Alpha Threshold",         'NodeSocketFloat',  0.5),
+    # SF surface alpha = HasOpacity (does the surface use an opacity map) + an alpha-test clip
+    # threshold. There's no none/test/blend mode. Held params: import reads them to wire the
+    # opacity map + set the material's clip threshold; export writes them back.
+    ("Has Opacity",             'NodeSocketBool',   False),
+    ("Alpha Test Threshold",    'NodeSocketFloat',  0.5),
 ]
 # Shader-model identity is a STRING; Blender shader node trees have no string socket, so it's held
 # as a custom property ON the same params node (still one contained node, round-trippable by name).
@@ -85,6 +88,7 @@ def ensure_sf_params_group():
     _sf_new_socket(iface, "SSS Weight", 'OUTPUT', 'NodeSocketFloat')
     _sf_new_socket(iface, "Emissive Strength", 'OUTPUT', 'NodeSocketFloat')
     _sf_new_socket(iface, "Emissive Tint Out", 'OUTPUT', 'NodeSocketColor')
+    _sf_new_socket(iface, "Alpha Test Threshold Out", 'OUTPUT', 'NodeSocketFloat')
 
     gin = ng.nodes.new('NodeGroupInput'); gin.location = (-400, 0)
     gout = ng.nodes.new('NodeGroupOutput'); gout.location = (300, 0)
@@ -96,6 +100,7 @@ def ensure_sf_params_group():
     links.new(andm.outputs[0], gout.inputs["SSS Weight"])
     links.new(gin.outputs["Emissive Enable"], gout.inputs["Emissive Strength"])
     links.new(gin.outputs["Emissive Tint"], gout.inputs["Emissive Tint Out"])
+    links.new(gin.outputs["Alpha Test Threshold"], gout.inputs["Alpha Test Threshold Out"])
     return ng
 
 
@@ -1653,10 +1658,13 @@ class ShaderImporter:
         if em:
             ins["Emissive Enable"].default_value = bool(em['enabled'])
             ins["Emissive Tint"].default_value = tuple(em['tint'])
+        al = (settings or {}).get('alpha')
+        if al:
+            ins["Has Opacity"].default_value = bool(al['has_opacity'])
+            ins["Alpha Test Threshold"].default_value = al['threshold']
         sm = (settings or {}).get('shader_model')
         if sm:
             node[SF_PARAM_SHADER_MODEL] = sm   # string identity: custom prop, not a socket
-        # Alpha settings are not parsed yet (no vanilla sample with alpha); the sockets stand ready.
         return node
 
     def _build_sf_nodes(self, resolved, settings=None):
@@ -1713,6 +1721,22 @@ class ShaderImporter:
                 nt.links.new(params.outputs['Emissive Tint Out'], ecol)
         if 'Emission Strength' in bsdf.inputs:
             nt.links.new(params.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
+
+        # Alpha: when the material declares HasOpacity, alpha-test the opacity map (slot 2)
+        # against the threshold -- opacity > threshold -> visible, else discarded -- and feed
+        # that into Principled Alpha. The threshold comes from the params node so it stays the
+        # single editable source (setting material.alpha_threshold alone is a no-op under
+        # EEVEE-Next's dithered render method). SF hair also dithers coverage; that softening is
+        # a HairSettings (P4) refinement.
+        al = (settings or {}).get('alpha') or {}
+        if al.get('has_opacity') and 'Opacity' in resolved and 'Alpha' in bsdf.inputs:
+            op = self._sf_teximg('Opacity', resolved, 'Non-Color', (x0, -900))
+            clip = self.nodes.new('ShaderNodeMath')
+            clip.operation = 'GREATER_THAN'
+            clip.location = (x0 + 400, -900)
+            nt.links.new(op.outputs['Color'], clip.inputs[0])
+            nt.links.new(params.outputs['Alpha Test Threshold Out'], clip.inputs[1])
+            nt.links.new(clip.outputs['Value'], bsdf.inputs['Alpha'])
 
     def import_material(self, obj, shape:NiShape, asset_path):
         """

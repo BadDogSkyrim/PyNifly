@@ -48,6 +48,7 @@ _BLEND_MODE = 'BSMaterial::BlendModeComponent'
 _SHADER_MODEL = 'BSMaterial::ShaderModelComponent'
 _TRANSLUCENCY = 'BSMaterial::TranslucencySettingsComponent'
 _EMISSIVITY = 'BSMaterial::LayeredEmissivityComponent'
+_ALPHA_SETTINGS = 'BSMaterial::AlphaSettingsComponent'
 
 
 def _components_of(obj, ctype):
@@ -135,6 +136,17 @@ def _extract_settings(objects):
             'first_layer_index': _layer_index(em.get('FirstLayerIndex')),
             'blender_mode': em.get('FirstBlenderMode', ''),
             'tint': _decode_xmfloat(tint),
+        }
+
+    # AlphaSettingsComponent is just HasOpacity (does the surface use alpha) + an alpha-test
+    # clip threshold. SF has no none/test/blend mode here -- alpha is an opacity map (slot 2)
+    # clipped at the threshold. The cdb only stores changed fields, so a material that leaves
+    # AlphaTestThreshold at its class default won't list it -> default to 0.5.
+    al = _first_component_data(objects, _ALPHA_SETTINGS)
+    if al is not None:
+        settings['alpha'] = {
+            'has_opacity': _as_bool(al.get('HasOpacity')),
+            'threshold': _as_float(al.get('AlphaTestThreshold'), 0.5),
         }
 
     return settings
