@@ -3021,8 +3021,64 @@ def TEST_SF_LAYERED():
         "Normal fed via a Normal Map node"
 
 
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_ROUNDTRIP():
+    """Starfield P2: recover a material's graph back to a .mat and round-trip it.
+
+    Build a 2-layer material (with .mat-stamped image nodes + SF Layer/Blend markers + the SF
+    Parameters node), recover_sf_material() walks it back to a normalised dict, write_mat() emits a
+    loose .mat, and parse_mat() reads it -- reproducing the layers/blenders/settings. Proves the
+    graph is the recoverable source of truth (the 'build for export' payoff)."""
+    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from pyn.sf_materials import write_mat, parse_mat
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_RT_Test")
+    mat.use_nodes = True
+    si.material = mat
+    mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Body.mat'
+    settings = {'shader_model': 'BodySkin2Layer',
+                'translucency': {'enabled': True, 'use_sss': True,
+                                 'spec_lobe0_roughness': 0.93, 'spec_lobe1_roughness': 1.15},
+                'emissive': {'enabled': False, 'first_layer_index': 0, 'blender_mode': 'Lerp',
+                             'tint': (0.9, 0.1, 0.1, 1.0)},
+                'alpha': {'has_opacity': False, 'threshold': 0.5}}
+    # Resolved entries are (filepath, .mat-path) so image nodes get stamped for recovery.
+    A = (tex, r'Textures\Skin\color.dds'); N = (tex, r'Textures\Skin\normal.dds')
+    D = (tex, r'Textures\Skin\detail.dds'); M = (tex, r'Textures\Skin\mask.dds')
+    resolved = {'Albedo': A, 'Normal': N}
+    layers_resolved = [
+        {'textures': {'Albedo': A, 'Normal': N}, 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+        {'textures': {'Normal': D}, 'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)}]
+    blenders_resolved = [{'mode': 'Skin', 'mask': M}]
+    si._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved)
+
+    data = recover_sf_material(mat)
+    assert data is not None, "recovered a material dict from the graph"
+    # Structure recovered from markers + stamped images.
+    assert len(data['layers']) == 2, f"two layers recovered: {len(data['layers'])}"
+    assert data['layers'][0]['textures'].get('Albedo') == r'Textures\Skin\color.dds', \
+        f"base albedo path recovered: {data['layers'][0]['textures']}"
+    assert data['layers'][1]['textures'] == {'Normal': r'Textures\Skin\detail.dds'}, \
+        f"detail layer recovered: {data['layers'][1]['textures']}"
+    assert data['layers'][1]['uv_scale'] == (50.0, 50.0), \
+        f"detail tiling recovered: {data['layers'][1]['uv_scale']}"
+    assert data['blenders'] == [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds'}], \
+        f"blender recovered: {data['blenders']}"
+    assert data['settings']['shader_model'] == 'BodySkin2Layer', "shader model recovered"
+    assert data['settings']['translucency']['use_sss'] is True, "SSS recovered"
+    assert data['filename'] == r'MATERIALS\Test\Body.mat', "material path recovered"
+
+    # Full write -> parse round-trip of the recovered data.
+    back = parse_mat(write_mat(data))
+    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
+    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
+    assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+
+
 @TT.category('STARFIELD')
-@TT.expect_errors(("Could not find material",))
+@TT.expect_errors(("Could not find material", "Could not find SF texture"))
 def TEST_SF_EXPORT():
     """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),
     re-import the result and confirm geometry, bones, and weights survive.
@@ -3048,7 +3104,7 @@ def TEST_SF_EXPORT():
     # crashes on add_block(NiShape). Selecting only the leaf mesh dodged that path.
     BD.ObjectSelect(list(bpy.context.scene.objects))
     bpy.context.view_layer.objects.active = body
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF")
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", write_sf_materials=True)
 
     # The external .mesh must have been written into a geometries/ tree beside meshes/.
     import os
@@ -3068,6 +3124,18 @@ def TEST_SF_EXPORT():
     o += 4
     wpv = struct.unpack_from('<I', md, o)[0]
     assert wpv > 4, f"weightsPerVertex preserved, not capped at 4: {wpv}"
+
+    # A loose .mat was recovered from the body's shader graph and written to the output tree
+    # (materials/ sibling of meshes/), and it re-parses.
+    from pyn.sf_materials import parse_mat
+    matdir = os.path.join(os.path.dirname(os.path.dirname(outfile)), "materials")
+    mats_written = []
+    for root, _d, files in os.walk(matdir):
+        mats_written += [os.path.join(root, f) for f in files if f.endswith(".mat")]
+    assert mats_written, f"Wrote a loose .mat under {matdir}"
+    with open(mats_written[0], encoding='utf-8') as f:
+        remat = parse_mat(f.read())
+    assert remat is not None and remat['layers'], "written .mat re-parses with a layer"
 
     # Re-import the exported nif (resolves the .mesh from the geometries/ sibling). Deselect
     # first so it imports as a fresh object, not a shape key on the active mesh.

@@ -310,6 +310,119 @@ def parse_mat_doc(doc):
             'layers': layers, 'blenders': blenders}
 
 
+# --- Writing loose .mat ------------------------------------------------------------------------
+# The inverse of parse: turn a normalised material dict back into loose `.mat` JSON. Written
+# self-contained (no template Parent) -- the ShaderModelComponent names the shader model, which is
+# how the game/loose materials link to a template. Object IDs are synthetic but internally
+# consistent (refs resolve within the file). Values are strings; colors are nested XMFLOAT2/4.
+
+_SF_SLOT_INDEX = {name: idx for idx, name in SF_TEXTURE_SLOTS.items()}
+
+
+def _enc_bool(b):
+    return "true" if b else "false"
+
+
+def _enc_float(f):
+    return repr(float(f))   # repr() round-trips a Python float exactly
+
+
+def _reprefix(path):
+    """Re-add the `Data\\` prefix parse strips, so the written path matches the .mat convention."""
+    return "Data\\" + path if path else ""
+
+
+def _xmfloat(kind, values):
+    """A `.mat` XMFLOAT2/4 value node: { Value: { Type: 'XMFLOATn', Data: {x,y[,z,w]} } }."""
+    axes = ('x', 'y', 'z', 'w')
+    return {"Value": {"Type": kind, "Data": {axes[i]: _enc_float(v) for i, v in enumerate(values)}}}
+
+
+def _settings_components(settings):
+    """Rebuild the settings components (ShaderModel / Translucency / Emissive / Alpha) that
+    _extract_settings reads, for the ones present in `settings`."""
+    comps = []
+    if settings.get('shader_model'):
+        comps.append({"Type": _SHADER_MODEL, "Index": 0,
+                      "Data": {"FileName": settings['shader_model']}})
+    tr = settings.get('translucency')
+    if tr is not None:
+        comps.append({"Type": _TRANSLUCENCY, "Index": 0, "Data": {
+            "Enabled": _enc_bool(tr['enabled']),
+            "Settings": {"Type": "BSMaterial::TranslucencySettings", "Data": {
+                "UseSSS": _enc_bool(tr['use_sss']),
+                "SpecLobe0RoughnessScale": _enc_float(tr['spec_lobe0_roughness']),
+                "SpecLobe1RoughnessScale": _enc_float(tr['spec_lobe1_roughness'])}}}})
+    em = settings.get('emissive')
+    if em is not None:
+        comps.append({"Type": _EMISSIVITY, "Index": 0, "Data": {
+            "Enabled": _enc_bool(em['enabled']),
+            "FirstLayerIndex": f"MATERIAL_LAYER_{em['first_layer_index']}",
+            "FirstBlenderMode": em['blender_mode'],
+            "FirstLayerTint": {"Type": "BSMaterial::Color",
+                               "Data": _xmfloat("XMFLOAT4", em['tint'])}}})
+    al = settings.get('alpha')
+    if al is not None:
+        comps.append({"Type": _ALPHA_SETTINGS, "Index": 0, "Data": {
+            "HasOpacity": _enc_bool(al['has_opacity']),
+            "AlphaTestThreshold": _enc_float(al['threshold'])}})
+    return comps
+
+
+def write_mat(data, filename=None):
+    """Serialize a normalised material dict (as parse_mat returns) back to loose `.mat` JSON text.
+    Round-trips: parse_mat(write_mat(d)) reproduces d's textures/settings/layers/blenders."""
+    objects = []
+    counter = [0]
+
+    def new_id():
+        counter[0] += 1
+        return f"res:{counter[0]:08X}:00000000:00000000"
+
+    root = []   # the root LayeredMaterial's components (LayerID/BlenderID refs + settings)
+
+    for i, ly in enumerate(data.get('layers', [])):
+        layer_id, mat_id, ts_id = new_id(), new_id(), new_id()
+        root.append({"Type": _LAYER_ID, "Index": i, "Data": {"ID": layer_id}})
+        ts_comps = [{"Type": _TEXTURE_FILE_TYPE, "Index": _SF_SLOT_INDEX[slot],
+                     "Data": {"FileName": _reprefix(path)}}
+                    for slot, path in ly.get('textures', {}).items() if slot in _SF_SLOT_INDEX]
+        objects.append({"ID": ts_id, "Components": ts_comps})
+        objects.append({"ID": mat_id, "Components":
+                        [{"Type": _TEXTURESET_ID, "Index": 0, "Data": {"ID": ts_id}}]})
+        layer_comps = [{"Type": _MATERIAL_ID, "Index": 0, "Data": {"ID": mat_id}}]
+        scale = tuple(ly.get('uv_scale', (1.0, 1.0)))
+        offset = tuple(ly.get('uv_offset', (0.0, 0.0)))
+        if scale != (1.0, 1.0) or offset != (0.0, 0.0):
+            uv_id = new_id()
+            uv_comps = []
+            if scale != (1.0, 1.0):
+                uv_comps.append({"Type": _UV_SCALE, "Index": 0, "Data": _xmfloat("XMFLOAT2", scale)})
+            if offset != (0.0, 0.0):
+                uv_comps.append({"Type": _UV_OFFSET, "Index": 0, "Data": _xmfloat("XMFLOAT2", offset)})
+            objects.append({"ID": uv_id, "Components": uv_comps})
+            layer_comps.append({"Type": _UVSTREAM_ID, "Index": 0, "Data": {"ID": uv_id}})
+        objects.append({"ID": layer_id, "Components": layer_comps})
+
+    for i, b in enumerate(data.get('blenders', [])):
+        blend_id = new_id()
+        root.append({"Type": _BLENDER_ID, "Index": i, "Data": {"ID": blend_id}})
+        bcomps = [{"Type": _BLEND_MODE, "Index": 0, "Data": {"Value": b.get('mode', '')}}]
+        if b.get('mask'):
+            bcomps.append({"Type": _TEXTURE_FILE_TYPE, "Index": 0,
+                           "Data": {"FileName": _reprefix(b['mask'])}})
+        objects.append({"ID": blend_id, "Components": bcomps})
+
+    root.extend(_settings_components(data.get('settings', {})))
+    objects.insert(0, {"Components": root})
+
+    doc = {"Version": 1, "Objects": objects}
+    fn = filename or data.get('filename')
+    if fn:
+        doc["Filename"] = fn
+    return json.dumps(doc, indent=2)
+
+
 _cdb_cache = {}   # cdb path -> CdbFile (or False if it failed to load)
 
 

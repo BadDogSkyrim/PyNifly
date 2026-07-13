@@ -153,6 +153,13 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
     if not hasattr(exporter, '_sf_meshes'):
         exporter._sf_meshes = []
     exporter._sf_meshes.append((out_path, new_shape, slot))
+
+    # Queue the material for a loose .mat write (recovered from its shader graph on nif.save()).
+    mat = obj.active_material
+    if mat is not None and mat.get('BSLSP_Shader_Name'):
+        if not hasattr(exporter, '_sf_materials'):
+            exporter._sf_materials = []
+        exporter._sf_materials.append(mat)
     return out_path
 
 
@@ -229,3 +236,43 @@ def write_sf_meshes(exporter):
         with open(out_path, 'wb') as f:
             f.write(data)
         log.info(f"Wrote external .mesh: {out_path}")
+
+
+def resolve_material_output_path(nif_filepath, mat_ref):
+    """Where to write a loose .mat on export. `mat_ref` is the material's path ('Materials\\...\\
+    x.mat', relative to Data\\). Written to <data_root>/<mat_ref>, where <data_root> holds the
+    'meshes' tree the nif is written into (materials is a sibling of meshes) -- so a round-trip to
+    an Out/ tree lands beside the exported nif and never touches the source material."""
+    p = Path(nif_filepath)
+    parts = p.parts
+    root = None
+    for i, part in enumerate(parts):
+        if part.lower() == 'meshes':
+            root = Path(*parts[:i]) if i > 0 else Path(p.anchor)
+            break
+    if root is None:
+        root = p.parent
+    rel = mat_ref.replace('\\', os.sep).replace('/', os.sep)
+    return str(root / rel)
+
+
+def write_sf_materials(exporter):
+    """Write a loose .mat for each exported SF material, recovered from its shader graph (called
+    after nif.save()). Only materials with a recoverable SF graph (shader model or layers) are
+    written; the file lands in the output tree, not over the source material."""
+    from . import shader_io
+    from ..pyn import sf_materials
+    seen = set()
+    for mat in getattr(exporter, '_sf_materials', []):
+        mat_ref = mat.get('BSLSP_Shader_Name', '')
+        if not mat_ref or mat_ref in seen:
+            continue
+        seen.add(mat_ref)
+        data = shader_io.recover_sf_material(mat)
+        if not data or (not data.get('layers') and not data['settings'].get('shader_model')):
+            continue
+        out_path = resolve_material_output_path(exporter.nif.filepath, mat_ref)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, 'w', encoding='utf-8') as f:
+            f.write(sf_materials.write_mat(data, filename=mat_ref))
+        log.info(f"Wrote loose .mat: {out_path}")

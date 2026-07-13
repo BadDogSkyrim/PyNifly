@@ -183,14 +183,35 @@ round-trip out of the graph.
   Blender + in-game; hair alpha (`HasOpacity` + `AlphaTestThreshold` → Opacity→Alpha + clip) validated on
   the real `Medium_Hair_Shared` cdb material. Tests: TEST_SF_MAT_PARSE, TEST_SF_PARAMS, TEST_SF_ALPHA.
   **HairSettings** parsed-but-inert, deferred to P4 (see below).
-- **P1 — Flat two-layer material.** A real vanilla 2-layer `.mat`: two flat layer chains mixed by a
-  mask + blend mode. Study how SF blend modes map to Blender Mix modes. *Exit:* both layers'
-  textures/params + the blend recovered from the graph.
-- **P2 — `.mat` writer + round-trip.** Emit a loose `.mat` from the recovered data; import → export →
-  re-import matches. This is the payoff of "build for export" and de-risks it while the graph is
-  still simple. *(New workstream — no `.mat` writer exists yet.)*
-- **P3 — Collapse into node groups.** With the flat pattern stable, refactor P0/P1 into `SF Layer`,
-  `SF Blend`, `SF Material`. Behavior- and export-preserving; the round-trip test from P2 guards it.
+- **P1 — Flat two-layer material. ✅ DONE (2026-07-12).** Parser exposes `layers` (textures + UV
+  tiling) + `blenders` (mode + mask). Node graph: base PBR + a later layer's detail normal composited
+  via the procedural **SF Normal Blend (RNM)** group, tiled by the layer UV scale, masked by the
+  blender (mask-weighted; `Skin` treated as a plain masked composite — by eye). Verified on vanilla
+  skin (base UV 1:1, detail normal tiled 50×, Skin+mask); look/strength confirmed by Bad Dog. Tests:
+  TEST_SF_MAT_PARSE (2-layer graph), TEST_SF_LAYERED (RNM wiring). **Note (Bad Dog):** SF's tiled
+  detail-normal seams at UV islands and their neck mask flattens it — we reproduce it faithfully;
+  it's now editable source for furry materials. `.mat` *writer* to recover it = P2.
+- **P2 — `.mat` writer + round-trip. ✅ DONE (2026-07-13).** `sf_materials.write_mat(data)` emits a
+  self-contained loose `.mat` (no template Parent; ShaderModelComponent names the model); IDs synthetic
+  but internally consistent. Recovery = `shader_io.recover_sf_material` walking the graph: SF Parameters
+  node (settings), SF Layer / SF Blend **marker** nodes (structure), stamped image nodes (`pyn_sf_path`
+  etc. = exact .mat paths). Export writes it to the output tree (`materials/` sibling of `meshes/`),
+  **opt-in** via `write_sf_materials` export flag (off by default — may overwrite a source .mat in place).
+  Tests: TEST_SF_MAT_WRITE, TEST_SF_MAT_ROUNDTRIP, TEST_SF_EXPORT (.mat written+reparses). Caveats: texture
+  *path* edits don't flow (stamped at import); MaterialOverrideColor + blender ParamBools/float not captured.
+- **P3 — Real node groups (bundle-carrying). Bundle contract LOCKED (2026-07-13, Bad Dog).** The P2 markers
+  are lightweight tags that don't carry content; replace with real groups that carry the **PBR bundle**:
+  channels `Base Color · Roughness · Metallic · Normal · AO · Opacity · Emissive · SSS/Transmissive`
+  (AO/Opacity/SSS each their own channel — stay close to the raw model; Height later). **Normal travels as
+  reconstructed [0,1] RGB**, converted to a Normal Map only at `SF Material`. `SF Layer` = one group type
+  (raw slot textures in → processed bundle out; UV tiling + BC5 reconstruct inside); every layer is an
+  instance. `SF Blend` = **one group per blend TYPE** (name = mode: `SF Blend Skin`, `Lerp`, …), all sharing
+  the interface `(bundle A, bundle B, Mask, + type-specific params) → bundle`; recovery reads mode from the
+  group name. `SF Material` = bundle + SF Parameters → Principled. Chain reads `Layer→Blend→…→SF Material→
+  Principled`; recovery walks the connected groups (topology gives order for free). Build order: SF Layer +
+  SF Material + SF Blend Skin to reproduce today's skin through the new structure, prove the same round-trip,
+  then add blend types/channels as real materials need them. Rework `recover_sf_material` onto the groups;
+  keep write_mat + opt-in writer as-is.
 - **P4 — Hair/fur.** `HairSettingsComponent` → Blender **Sheen** (+ anisotropy) sub-group; calibrate on a
   vanilla hair `.mat`. Real field set (from `Medium_Hair_Shared`, cdb class def): `Enabled`, `IsSpikyHair`,
   `SpecScale`, `SpecularTransmissionScale`, `DirectTransmissionScale`, `DiffuseTransmissionScale`,

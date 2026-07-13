@@ -30,7 +30,7 @@ TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
 # the export param source: walk the inputs by socket NAME to recover the .mat settings. See
 # docs/sf_shader_plan.md "Locked P0 spec". Generated procedurally now; moves to shaders.blend at P3.
 SF_PARAMS_GROUP = "SF Parameters"
-_SF_PARAMS_VERSION = 3   # bump to force a rebuild of a stale cached group
+_SF_PARAMS_VERSION = 4   # bump to force a rebuild of a stale cached group
 
 # Default Principled Subsurface Scale for imported skin/fur. SF meshes import at GAME units
 # (nifly applies havokScale ~= 70, so 1 m ~= 70 units), where Blender's default scatter scale of
@@ -52,10 +52,13 @@ _SF_PARAM_INPUTS = [
     # opacity map + set the material's clip threshold; export writes them back.
     ("Has Opacity",             'NodeSocketBool',   False),
     ("Alpha Test Threshold",    'NodeSocketFloat',  0.5),
+    ("Emissive Layer",          'NodeSocketInt',    0),   # LayeredEmissivity FirstLayerIndex
 ]
-# Shader-model identity is a STRING; Blender shader node trees have no string socket, so it's held
-# as a custom property ON the same params node (still one contained node, round-trippable by name).
+# String-valued params have no shader socket, so they're held as custom properties ON the params
+# node (still one contained node, round-trippable by name): the shader-model identity, and the
+# layered-emissivity blend mode.
 SF_PARAM_SHADER_MODEL = "Shader Model"
+SF_PARAM_EMISSIVE_MODE = "Emissive Blend Mode"
 
 
 def _sf_new_socket(iface, name, in_out, socket_type):
@@ -174,6 +177,140 @@ def ensure_sf_normal_blend_group():
     links.new(mix.outputs[1], enc.inputs[0])         # vector result
     links.new(enc.outputs[0], gout.inputs["Normal"])
     return ng
+
+
+# --- Starfield layer/blend MARKER groups (export-recovery structure) ---------------------------
+# Lightweight, near-empty group nodes that make the .mat graph self-describing for the exporter
+# (Bad Dog's idea): one "SF Layer" per layer holds its UV tiling + a layer-index custom prop; one
+# "SF Blend" per blender holds its mode (custom prop -- enums aren't sockets) + takes the mask.
+# Texture *paths* ride on the image nodes themselves (pyn_sf_path/pyn_sf_slot/pyn_sf_layer stamps)
+# so export reads the exact .mat-relative path regardless of where it resolved on disk. Together:
+# find the markers + stamped images -> rebuild the layer/blender graph -> write_mat.
+SF_LAYER_GROUP = "SF Layer"
+SF_BLEND_GROUP = "SF Blend"
+_SF_MARKER_VERSION = 1
+
+# custom-property keys stamped for export recovery
+PYN_SF_PATH = 'pyn_sf_path'     # verbatim .mat-relative texture path (Data\-stripped)
+PYN_SF_SLOT = 'pyn_sf_slot'     # slot name (Albedo/Normal/Mask/...)
+PYN_SF_LAYER = 'pyn_sf_layer'   # owning layer index (on image + SF Layer node)
+PYN_SF_BLEND = 'pyn_sf_blend'   # blender index (on SF Blend node)
+PYN_SF_MODE = 'pyn_sf_mode'     # blend mode string (on SF Blend node)
+
+
+def _ensure_marker_group(name):
+    ng = bpy.data.node_groups.get(name)
+    if ng is not None:
+        if ng.get('pyn_marker_version') == _SF_MARKER_VERSION:
+            return ng
+        bpy.data.node_groups.remove(ng)
+    ng = bpy.data.node_groups.new(name, 'ShaderNodeTree')
+    ng['pyn_marker_version'] = _SF_MARKER_VERSION
+    return ng
+
+
+def ensure_sf_layer_group():
+    """Per-layer marker: holds UV Scale/Offset (editable) + a Layer Index custom prop on instances."""
+    ng = bpy.data.node_groups.get(SF_LAYER_GROUP)
+    if ng is not None and ng.get('pyn_marker_version') == _SF_MARKER_VERSION:
+        return ng
+    ng = _ensure_marker_group(SF_LAYER_GROUP)
+    us = _sf_new_socket(ng.interface, "UV Scale", 'INPUT', 'NodeSocketVector')
+    with suppress(Exception):
+        us.default_value = (1.0, 1.0, 1.0)
+    _sf_new_socket(ng.interface, "UV Offset", 'INPUT', 'NodeSocketVector')
+    ng.nodes.new('NodeGroupInput')
+    return ng
+
+
+def ensure_sf_blend_group():
+    """Per-blender marker: takes the Mask input; blend mode + index ride as instance custom props."""
+    ng = bpy.data.node_groups.get(SF_BLEND_GROUP)
+    if ng is not None and ng.get('pyn_marker_version') == _SF_MARKER_VERSION:
+        return ng
+    ng = _ensure_marker_group(SF_BLEND_GROUP)
+    _sf_new_socket(ng.interface, "Mask", 'INPUT', 'NodeSocketColor')
+    ng.nodes.new('NodeGroupInput')
+    return ng
+
+
+def _is_group(node, group_name):
+    return (getattr(node, 'type', '') == 'GROUP' and node.node_tree is not None
+            and node.node_tree.name.startswith(group_name))
+
+
+def _recover_sf_settings(material):
+    """Read the settings dict back off the SF Parameters node (the export param source)."""
+    p = sf_params_node_of(material)
+    if p is None:
+        return {}
+    ins = p.inputs
+    s = {}
+    sm = p.get(SF_PARAM_SHADER_MODEL)
+    if sm:
+        s['shader_model'] = sm
+    s['translucency'] = {
+        'enabled': bool(ins['Translucency Enable'].default_value),
+        'use_sss': bool(ins['Use SSS'].default_value),
+        'spec_lobe0_roughness': ins['Spec Lobe 0 Roughness'].default_value,
+        'spec_lobe1_roughness': ins['Spec Lobe 1 Roughness'].default_value}
+    s['emissive'] = {
+        'enabled': bool(ins['Emissive Enable'].default_value),
+        'first_layer_index': int(ins['Emissive Layer'].default_value),
+        'blender_mode': p.get(SF_PARAM_EMISSIVE_MODE, ''),
+        'tint': tuple(ins['Emissive Tint'].default_value)}
+    s['alpha'] = {
+        'has_opacity': bool(ins['Has Opacity'].default_value),
+        'threshold': ins['Alpha Test Threshold'].default_value}
+    return s
+
+
+def recover_sf_material(material):
+    """Walk a material's shader graph back into a normalised dict (as parse_mat returns), so it can
+    be written out with sf_materials.write_mat. Sources: the SF Parameters node (settings), the SF
+    Layer / SF Blend marker nodes (structure + UV/mode), and stamped image nodes (texture paths).
+    Returns None if the material has no node tree."""
+    nt = getattr(material, 'node_tree', None)
+    if nt is None:
+        return None
+    nodes = nt.nodes
+
+    # Texture paths per layer, from stamped image nodes.
+    images_by_layer = {}
+    for n in nodes:
+        if (getattr(n, 'type', '') == 'TEX_IMAGE' and PYN_SF_LAYER in n
+                and PYN_SF_SLOT in n and PYN_SF_PATH in n):
+            images_by_layer.setdefault(n[PYN_SF_LAYER], {})[n[PYN_SF_SLOT]] = n[PYN_SF_PATH]
+
+    layers = []
+    layer_markers = {n[PYN_SF_LAYER]: n for n in nodes
+                     if _is_group(n, SF_LAYER_GROUP) and PYN_SF_LAYER in n}
+    for idx in sorted(layer_markers):
+        m = layer_markers[idx]
+        us = m.inputs['UV Scale'].default_value
+        uo = m.inputs['UV Offset'].default_value
+        layers.append({'textures': images_by_layer.get(idx, {}),
+                       'uv_scale': (us[0], us[1]), 'uv_offset': (uo[0], uo[1])})
+
+    blenders = []
+    blend_markers = {n[PYN_SF_BLEND]: n for n in nodes
+                     if _is_group(n, SF_BLEND_GROUP) and PYN_SF_BLEND in n}
+    for idx in sorted(blend_markers):
+        m = blend_markers[idx]
+        mask = ''
+        if m.inputs['Mask'].is_linked:
+            src = m.inputs['Mask'].links[0].from_node
+            mask = src[PYN_SF_PATH] if PYN_SF_PATH in src else ''
+        blenders.append({'mode': m.get(PYN_SF_MODE, ''), 'mask': mask})
+
+    textures = {}
+    for ly in layers:
+        for slot, path in ly['textures'].items():
+            textures.setdefault(slot, path)
+
+    return {'filename': material.get('BSLSP_Shader_Name', ''),
+            'textures': textures, 'settings': _recover_sf_settings(material),
+            'layers': layers, 'blenders': blenders}
 
 
 def sf_params_node_of(material):
@@ -1632,23 +1769,38 @@ class ShaderImporter:
         settings = parsed.get('settings', {})
         layers = parsed.get('layers', [])
         blenders = parsed.get('blenders', [])
+        # A flat (non-layered) material still gets one implicit layer so it carries an SF Layer
+        # marker + stamped images -> it recovers uniformly on export.
+        if not layers and textures:
+            layers = [{'textures': dict(textures), 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)}]
 
         # Stash raw slot paths for round-trip + the panel.
         for slot, path in textures.items():
             self.material['BSShaderTextureSet_' + slot] = path
 
         # Resolve the flat base PBR (base-layer-wins) + each layer's own textures + blend masks.
-        resolved = {slot: p for slot, path in textures.items()
-                    if (p := self._sf_resolve(path))}
+        # Each entry is (resolved_filepath, verbatim_mat_path) so image nodes can be stamped with
+        # the .mat path for export recovery.
+        def resolve_set(texdict):
+            out = {}
+            for slot, path in texdict.items():
+                p = self._sf_resolve(path)
+                if p:
+                    out[slot] = (p, path)
+            return out
+        resolved = resolve_set(textures)
         layers_resolved = []
         for ly in layers:
             layers_resolved.append({
-                'textures': {slot: p for slot, path in ly['textures'].items()
-                             if (p := self._sf_resolve(path))},
+                'textures': resolve_set(ly['textures']),
                 'uv_scale': ly.get('uv_scale', (1.0, 1.0)),
                 'uv_offset': ly.get('uv_offset', (0.0, 0.0))})
-        blenders_resolved = [{'mode': b.get('mode', ''), 'mask': self._sf_resolve(b.get('mask'))}
-                             for b in blenders]
+        blenders_resolved = []
+        for b in blenders:
+            mp = b.get('mask')
+            fp = self._sf_resolve(mp)
+            blenders_resolved.append({'mode': b.get('mode', ''),
+                                      'mask': (fp, mp) if fp else None})
 
         self._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved)
         obj.active_material = self.material
@@ -1672,11 +1824,32 @@ class ShaderImporter:
             pass
         return img
 
-    def _sf_teximg(self, slot, resolved, colorspace, location):
+    @staticmethod
+    def _sf_split(entry):
+        """A resolved texture entry is (filepath, mat_path) from import, or a bare filepath from
+        direct/test callers -> (filepath, mat_path|None)."""
+        if isinstance(entry, (tuple, list)):
+            return entry[0], (entry[1] if len(entry) > 1 else None)
+        return entry, None
+
+    def _sf_stamp(self, node, path=None, slot=None, layer=None):
+        """Stamp export-recovery custom props on a node (image path/slot/layer)."""
+        if path is not None:
+            node[PYN_SF_PATH] = path
+        if slot is not None:
+            node[PYN_SF_SLOT] = slot
+        if layer is not None:
+            node[PYN_SF_LAYER] = layer
+
+    def _sf_teximg(self, slot, resolved, colorspace, location, layer=0):
+        """Image node for a base-layer slot. `resolved[slot]` is (filepath, mat_path); the .mat
+        path + slot + layer are stamped for export recovery."""
+        filepath, matpath = self._sf_split(resolved[slot])
         n = self.nodes.new('ShaderNodeTexImage')
-        n.image = self._sf_load_image(resolved[slot], colorspace)
+        n.image = self._sf_load_image(filepath, colorspace)
         n.location = location
         n.label = slot
+        self._sf_stamp(n, path=matpath, slot=slot, layer=layer)
         return n
 
     def _sf_normal_rgb(self, image_node, x, y):
@@ -1726,12 +1899,17 @@ class ShaderImporter:
         """Single-layer BC5 normal -> a Normal Map node's Normal output."""
         return self._sf_normalmap(self._sf_normal_rgb(image_node, x, y), x + 1800, y)
 
-    def _sf_teximg_path(self, filepath, colorspace, location, uv_scale=None, uv_offset=None):
+    def _sf_teximg_path(self, filepath, colorspace, location, uv_scale=None, uv_offset=None,
+                        matpath=None, slot=None, layer=None):
         """A texture image node for a resolved filepath, optionally fed by a Mapping node for a
-        layer's UV tiling/offset (a UV scale of (1,1)/offset (0,0) needs no Mapping)."""
+        layer's UV tiling/offset (a UV scale of (1,1)/offset (0,0) needs no Mapping). Stamped with
+        the .mat path/slot/layer for export recovery."""
         n = self.nodes.new('ShaderNodeTexImage')
         n.image = self._sf_load_image(filepath, colorspace)
         n.location = location
+        if slot:
+            n.label = slot
+        self._sf_stamp(n, path=matpath, slot=slot, layer=layer)
         if uv_scale and (tuple(uv_scale) != (1.0, 1.0) or (uv_offset and tuple(uv_offset) != (0.0, 0.0))):
             nt = self.material.node_tree
             tc = self.nodes.new('ShaderNodeTexCoord'); tc.location = (location[0] - 500, location[1])
@@ -1749,22 +1927,22 @@ class ShaderImporter:
         (RNM), tiled by that layer's UV scale and masked by its blender (mask-weighted 'Skin')."""
         if 'Normal' not in resolved:
             return
-        base_img = self._sf_teximg('Normal', resolved, 'Non-Color', (x0, -600))
+        base_img = self._sf_teximg('Normal', resolved, 'Non-Color', (x0, -600), layer=0)
         base_rgb = self._sf_normal_rgb(base_img, x0 + 250, -600)
 
-        detail = mask = None
+        detail = detail_layer = None
         for i in range(1, len(layers_resolved or [])):
             if 'Normal' in layers_resolved[i]['textures']:
-                detail = layers_resolved[i]
-                if blenders_resolved and i - 1 < len(blenders_resolved):
-                    mask = blenders_resolved[i - 1].get('mask')
+                detail, detail_layer = layers_resolved[i], i
                 break
+        mask_node = self._sf_mask_nodes.get(detail_layer - 1) if detail_layer else None
 
-        if detail and mask:
-            d_img = self._sf_teximg_path(detail['textures']['Normal'], 'Non-Color', (x0, -1500),
-                                         detail.get('uv_scale'), detail.get('uv_offset'))
+        if detail and mask_node is not None:
+            dfile, dpath = self._sf_split(detail['textures']['Normal'])
+            d_img = self._sf_teximg_path(dfile, 'Non-Color', (x0, -1500),
+                                         detail.get('uv_scale'), detail.get('uv_offset'),
+                                         matpath=dpath, slot='Normal', layer=detail_layer)
             d_rgb = self._sf_normal_rgb(d_img, x0 + 250, -1500)
-            mask_node = self._sf_teximg_path(mask, 'Non-Color', (x0, -2100))
             blend = self.nodes.new('ShaderNodeGroup')
             blend.node_tree = ensure_sf_normal_blend_group()
             blend.location = (x0 + 2100, -800)
@@ -1776,6 +1954,37 @@ class ShaderImporter:
         else:
             nrm = self._sf_normalmap(base_rgb, x0 + 2100, -600)
         nt.links.new(nrm, bsdf.inputs['Normal'])
+
+    def _build_sf_markers(self, nt, layers_resolved, blenders_resolved, x0):
+        """Create the SF Layer / SF Blend marker nodes (the export-recovery structure) and the
+        blend mask image nodes. Mask nodes are stored in self._sf_mask_nodes (keyed by blend index)
+        so _build_sf_normal can share them for the RNM Factor."""
+        self._sf_mask_nodes = {}
+        for i, ly in enumerate(layers_resolved or []):
+            node = nt.nodes.new('ShaderNodeGroup')
+            node.node_tree = ensure_sf_layer_group()
+            node.location = (x0 - 700, 500 - i * 200)
+            node.label = f"{SF_LAYER_GROUP} {i}"
+            node[PYN_SF_LAYER] = i
+            us = ly.get('uv_scale', (1.0, 1.0))
+            uo = ly.get('uv_offset', (0.0, 0.0))
+            node.inputs['UV Scale'].default_value = (us[0], us[1], 1.0)
+            node.inputs['UV Offset'].default_value = (uo[0], uo[1], 0.0)
+        for i, b in enumerate(blenders_resolved or []):
+            node = nt.nodes.new('ShaderNodeGroup')
+            node.node_tree = ensure_sf_blend_group()
+            node.location = (x0 - 300, -1600 - i * 250)
+            node.label = f"{SF_BLEND_GROUP} {i}"
+            node[PYN_SF_BLEND] = i
+            node[PYN_SF_MODE] = b.get('mode', '')
+            mask = b.get('mask')
+            if mask:
+                mfile, mpath = self._sf_split(mask)
+                mnode = self._sf_teximg_path(mfile, 'Non-Color', (x0 - 900, -1600 - i * 250),
+                                             matpath=mpath, slot='Mask')
+                mnode[PYN_SF_BLEND] = i
+                nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
+                self._sf_mask_nodes[i] = mnode
 
     def _add_sf_params_node(self, nt, settings, location):
         """Add the SF Parameters group instance, populated from the parsed .mat settings."""
@@ -1796,6 +2005,8 @@ class ShaderImporter:
         if em:
             ins["Emissive Enable"].default_value = bool(em['enabled'])
             ins["Emissive Tint"].default_value = tuple(em['tint'])
+            ins["Emissive Layer"].default_value = em.get('first_layer_index', 0)
+            node[SF_PARAM_EMISSIVE_MODE] = em.get('blender_mode', '')
         al = (settings or {}).get('alpha')
         if al:
             ins["Has Opacity"].default_value = bool(al['has_opacity'])
@@ -1841,6 +2052,9 @@ class ShaderImporter:
         emissive_tex = None
         if 'Emissive' in resolved:
             emissive_tex = self._sf_teximg('Emissive', resolved, 'sRGB', (x0, -300))
+        # Marker nodes (SF Layer / SF Blend) + blend mask images -- the export-recovery structure.
+        # Must precede _build_sf_normal, which reuses the mask nodes for the RNM Factor.
+        self._build_sf_markers(nt, layers_resolved, blenders_resolved, x0)
         self._build_sf_normal(nt, bsdf, resolved, layers_resolved, blenders_resolved, x0)
 
         # The SF Parameters node holds every non-texture value and drives Subsurface + Emission.

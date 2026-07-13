@@ -126,6 +126,11 @@ class ExportSettings:
     # from) the exported shapes. FO4 only.
     export_full_precision: bool = False
 
+    # Starfield: write a loose .mat for each exported SF material, recovered from its shader
+    # graph. Off by default -- materials are often handled by other tools, and writing could
+    # overwrite a source .mat when exporting in place.
+    write_sf_materials: bool = False
+
 
 # Custom properties that store import/export settings on objects.
 PYN_BLENDER_XF_PROP = "PYN_BLENDER_XF"

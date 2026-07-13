@@ -995,6 +995,51 @@ def TEST_SF_MAT_PARSE():
     assert 'translucency' not in bare['settings'], "no translucency block when absent"
 
 
+def TEST_SF_MAT_WRITE():
+    """Starfield P2: write a loose .mat back from a normalised material dict, round-tripping.
+
+    parse_mat(write_mat(d)) must reproduce d's layers/blenders/settings/filename. The writer emits
+    a self-contained graph (no template Parent) -- LayeredMaterial (LayerID/BlenderID refs + settings
+    components) + per-layer Layer/Material/TextureSet(+UVStream) + per-blender objects, values as
+    strings, colors as nested XMFLOAT. This proves the graph is recoverable to a file (the payoff of
+    'build for export')."""
+    from pyn.sf_materials import parse_mat, write_mat
+
+    data = {
+        'filename': r'MATERIALS\Test\Body.mat',
+        'settings': {
+            'shader_model': 'BodySkin2Layer',
+            'translucency': {'enabled': True, 'use_sss': True,
+                             'spec_lobe0_roughness': 0.93, 'spec_lobe1_roughness': 1.15},
+            'emissive': {'enabled': False, 'first_layer_index': 0, 'blender_mode': 'Lerp',
+                         'tint': (0.9, 0.1, 0.1, 1.0)},
+            'alpha': {'has_opacity': True, 'threshold': 0.3333}},
+        'layers': [
+            {'textures': {'Albedo': r'Textures\Skin\color.dds', 'Normal': r'Textures\Skin\normal.dds'},
+             'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+            {'textures': {'Normal': r'Textures\Skin\detail_normal.dds'},
+             'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)}],
+        'blenders': [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds'}]}
+
+    back = parse_mat(write_mat(data))
+    assert back is not None, "written .mat is valid JSON that re-parses"
+    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
+    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
+    assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+    assert back['filename'] == data['filename'], f"filename round-trip: {back['filename']}"
+    # The flat base-wins textures collapse is re-derived from the layers.
+    assert back['textures']['Albedo'] == r'Textures\Skin\color.dds', "base albedo re-derived"
+    assert back['textures']['Normal'] == r'Textures\Skin\normal.dds', "base normal wins over detail"
+
+    # The Data\ prefix is re-added on write and stripped on re-parse (the round-trip proves it).
+    import json
+    written = json.loads(write_mat(data))
+    all_paths = [c['Data']['FileName'] for o in written['Objects'] for c in o.get('Components', [])
+                 if c.get('Type') == 'BSMaterial::MRTextureFile']
+    assert all(p.startswith('Data\\') for p in all_paths), \
+        f"written texture paths carry the Data\\ prefix: {all_paths}"
+
+
 def TEST_RW_HEAD():
     """Test reading and writing the male head"""
     testfile = r"tests\Skyrim\malehead.nif"

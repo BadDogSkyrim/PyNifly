@@ -2131,6 +2131,8 @@ class NifExporter:
         if self.game == 'SF':
             from . import sf_geometry
             sf_geometry.write_sf_meshes(self)
+            if getattr(self.settings, 'write_sf_materials', False):
+                sf_geometry.write_sf_materials(self)
         self._fo4_write_ssf()
         msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
                             self.nif.message_log().split('\n')))
@@ -2321,6 +2323,13 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Use vertex color attributes as vertex color",
         default=ExportSettings.__dataclass_fields__["export_colors"].default) # type: ignore
 
+    write_sf_materials: bpy.props.BoolProperty(
+        name="Write Starfield .mat files",
+        description="For Starfield exports, write a loose .mat for each material, recovered from "
+                    "its shader graph. Off by default (may overwrite a source .mat when exporting "
+                    "in place)",
+        default=ExportSettings.__dataclass_fields__["write_sf_materials"].default) # type: ignore
+
     export_recenter_half_precision: bpy.props.BoolProperty(
         name="Recenter half precision vertices",
         description="For FO4 skinned meshes, keep half precision but store vertices "
@@ -2472,6 +2481,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         self.export_recenter_half_precision = sticky.get(
             'export_recenter_half_precision', self.export_recenter_half_precision)
         self.export_full_precision = sticky.get('export_full_precision', self.export_full_precision)
+        self.write_sf_materials = sticky.get('write_sf_materials', self.write_sf_materials)
     
 
     def __str__(self):
