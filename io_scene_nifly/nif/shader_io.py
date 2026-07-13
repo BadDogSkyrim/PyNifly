@@ -30,7 +30,7 @@ TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
 # the export param source: walk the inputs by socket NAME to recover the .mat settings. See
 # docs/sf_shader_plan.md "Locked P0 spec". Generated procedurally now; moves to shaders.blend at P3.
 SF_PARAMS_GROUP = "SF Parameters"
-_SF_PARAMS_VERSION = 4   # bump to force a rebuild of a stale cached group
+_SF_PARAMS_VERSION = 5   # bump to force a rebuild of a stale cached group
 
 # Default Principled Subsurface Scale for imported skin/fur. SF meshes import at GAME units
 # (nifly applies havokScale ~= 70, so 1 m ~= 70 units), where Blender's default scatter scale of
@@ -46,13 +46,13 @@ _SF_PARAM_INPUTS = [
     ("Spec Lobe 0 Roughness",   'NodeSocketFloat',  1.0),
     ("Spec Lobe 1 Roughness",   'NodeSocketFloat',  1.0),
     ("Emissive Enable",         'NodeSocketBool',   False),
+    ("Emissive Layer",          'NodeSocketInt',    0),   # LayeredEmissivity FirstLayerIndex
     ("Emissive Tint",           'NodeSocketColor',  (1.0, 1.0, 1.0, 1.0)),
     # SF surface alpha = HasOpacity (does the surface use an opacity map) + an alpha-test clip
     # threshold. There's no none/test/blend mode. Held params: import reads them to wire the
     # opacity map + set the material's clip threshold; export writes them back.
     ("Has Opacity",             'NodeSocketBool',   False),
     ("Alpha Test Threshold",    'NodeSocketFloat',  0.5),
-    ("Emissive Layer",          'NodeSocketInt',    0),   # LayeredEmissivity FirstLayerIndex
 ]
 # String-valued params have no shader socket, so they're held as custom properties ON the params
 # node (still one contained node, round-trippable by name): the shader-model identity, and the
@@ -112,6 +112,42 @@ def is_sf_params_node(node):
     return (getattr(node, 'type', '') == 'GROUP'
             and node.node_tree is not None
             and node.node_tree.name.startswith(SF_PARAMS_GROUP))
+
+
+def _reconstruct_normal_rgb(tree, color_out, loc):
+    """Build a BC5 XY -> full [0,1] RGB normal reconstruct (Z = sqrt(1-x^2-y^2)) on `tree`, fed by
+    the `color_out` socket. Returns the recombined RGB output socket. Reusable in a material tree
+    or inside a node group (SF Layer)."""
+    n, L = tree.nodes, tree.links
+    x, y = loc
+
+    def math(op, v0=None, v1=None, v2=None, dx=0, dy=0):
+        m = n.new('ShaderNodeMath'); m.operation = op; m.location = (x + dx, y + dy)
+        for i, v in enumerate((v0, v1, v2)):
+            if v is None:
+                continue
+            if hasattr(v, 'node'):
+                L.new(v, m.inputs[i])
+            else:
+                m.inputs[i].default_value = v
+        return m
+
+    sep = n.new('ShaderNodeSeparateColor'); sep.location = (x, y)
+    L.new(color_out, sep.inputs['Color'])
+    rx = math('MULTIPLY_ADD', sep.outputs['Red'], 2.0, -1.0, 200, 100)
+    ry = math('MULTIPLY_ADD', sep.outputs['Green'], 2.0, -1.0, 200, -100)
+    rx2 = math('MULTIPLY', rx.outputs['Value'], rx.outputs['Value'], None, 400, 100)
+    ry2 = math('MULTIPLY', ry.outputs['Value'], ry.outputs['Value'], None, 400, -100)
+    ssum = math('ADD', rx2.outputs['Value'], ry2.outputs['Value'], None, 600, 0)
+    inv = math('SUBTRACT', 1.0, ssum.outputs['Value'], None, 800, 0)
+    clamp = math('MAXIMUM', inv.outputs['Value'], 0.0, None, 1000, 0)
+    nz = math('SQRT', clamp.outputs['Value'], None, None, 1200, 0)
+    bcol = math('MULTIPLY_ADD', nz.outputs['Value'], 0.5, 0.5, 1400, 0)
+    comb = n.new('ShaderNodeCombineColor'); comb.location = (x + 1600, y)
+    L.new(sep.outputs['Red'], comb.inputs['Red'])
+    L.new(sep.outputs['Green'], comb.inputs['Green'])
+    L.new(bcol.outputs['Value'], comb.inputs['Blue'])
+    return comb.outputs['Color']
 
 
 # --- Starfield "SF Normal Blend" group (Reoriented Normal Mapping) ------------------------------
@@ -179,59 +215,127 @@ def ensure_sf_normal_blend_group():
     return ng
 
 
-# --- Starfield layer/blend MARKER groups (export-recovery structure) ---------------------------
-# Lightweight, near-empty group nodes that make the .mat graph self-describing for the exporter
-# (Bad Dog's idea): one "SF Layer" per layer holds its UV tiling + a layer-index custom prop; one
-# "SF Blend" per blender holds its mode (custom prop -- enums aren't sockets) + takes the mask.
-# Texture *paths* ride on the image nodes themselves (pyn_sf_path/pyn_sf_slot/pyn_sf_layer stamps)
-# so export reads the exact .mat-relative path regardless of where it resolved on disk. Together:
-# find the markers + stamped images -> rebuild the layer/blender graph -> write_mat.
+# --- Starfield bundle-carrying layer/blend groups (P3) -----------------------------------------
+# The real SF Layer / SF Blend groups carry the PBR "bundle" -- a fixed set of channels flowing
+# Layer -> Blend -> ... -> Principled. `SF Layer` takes a layer's sampled slot textures and emits
+# the bundle (BC5 normal reconstruct inside; Normal stays [0,1] RGB); UV tiling + a layer index
+# ride as recovery metadata. `SF Blend Skin` composites two bundles (currently: pass bundle A
+# through, RNM its Normal with B's -- the only channel skin's detail layer touches); the group
+# name IS the blend mode, so recovery reads it without a prop. Texture paths still ride on the
+# image nodes feeding each layer (pyn_sf_path stamps). Recovery walks the connected groups.
 SF_LAYER_GROUP = "SF Layer"
-SF_BLEND_GROUP = "SF Blend"
-_SF_MARKER_VERSION = 1
+SF_BLEND_GROUP = "SF Blend"        # prefix; concrete groups are "SF Blend Skin", "SF Blend Lerp", ...
+_SF_GROUP_VERSION = 4
+
+# The PBR bundle: (channel name, socket type). Carried between layers and blends.
+_SF_BUNDLE = [
+    ("Base Color",       'NodeSocketColor'),
+    ("Roughness",        'NodeSocketFloat'),
+    ("Metallic",         'NodeSocketFloat'),
+    ("Normal",           'NodeSocketColor'),   # reconstructed [0,1] RGB
+    ("AO",               'NodeSocketFloat'),
+    ("Opacity",          'NodeSocketFloat'),
+    ("Emissive",         'NodeSocketColor'),
+    ("SSS Transmissive", 'NodeSocketFloat'),   # transmissive mask -- where SSS happens (tint = Base Color)
+]
+_SF_BUNDLE_NAMES = [n for n, _ in _SF_BUNDLE]
+
+# The SF Layer group's raw texture inputs -> which bundle channel they feed. All are Color inputs
+# (image nodes output Color); Color->Float channels auto-convert by luminance. Normal is special.
+# (Bad Dog: keep them Color -- a scalar map still varies per-texel and should invite a texture.)
+_SF_LAYER_TEX_INPUTS = [
+    ("Albedo",           "Base Color",       (1.0, 1.0, 1.0, 1.0)),
+    ("Roughness",        "Roughness",        (0.5, 0.5, 0.5, 1.0)),
+    ("Metallic",         "Metallic",         (0.0, 0.0, 0.0, 1.0)),
+    ("AO",               "AO",               (1.0, 1.0, 1.0, 1.0)),
+    ("Opacity",          "Opacity",          (1.0, 1.0, 1.0, 1.0)),
+    ("Emissive",         "Emissive",         (0.0, 0.0, 0.0, 1.0)),
+    ("SSS Transmissive", "SSS Transmissive", (0.0, 0.0, 0.0, 1.0)),
+]
 
 # custom-property keys stamped for export recovery
 PYN_SF_PATH = 'pyn_sf_path'     # verbatim .mat-relative texture path (Data\-stripped)
 PYN_SF_SLOT = 'pyn_sf_slot'     # slot name (Albedo/Normal/Mask/...)
 PYN_SF_LAYER = 'pyn_sf_layer'   # owning layer index (on image + SF Layer node)
 PYN_SF_BLEND = 'pyn_sf_blend'   # blender index (on SF Blend node)
-PYN_SF_MODE = 'pyn_sf_mode'     # blend mode string (on SF Blend node)
+PYN_SF_MODE = 'pyn_sf_mode'     # blend mode string (also encoded in the group name)
 
 
-def _ensure_marker_group(name):
+def _ensure_group(name):
     ng = bpy.data.node_groups.get(name)
     if ng is not None:
-        if ng.get('pyn_marker_version') == _SF_MARKER_VERSION:
-            return ng
+        if ng.get('pyn_sf_group_version') == _SF_GROUP_VERSION:
+            return ng, False
         bpy.data.node_groups.remove(ng)
     ng = bpy.data.node_groups.new(name, 'ShaderNodeTree')
-    ng['pyn_marker_version'] = _SF_MARKER_VERSION
-    return ng
+    ng['pyn_sf_group_version'] = _SF_GROUP_VERSION
+    return ng, True
 
 
 def ensure_sf_layer_group():
-    """Per-layer marker: holds UV Scale/Offset (editable) + a Layer Index custom prop on instances."""
-    ng = bpy.data.node_groups.get(SF_LAYER_GROUP)
-    if ng is not None and ng.get('pyn_marker_version') == _SF_MARKER_VERSION:
+    """One texture set -> the PBR bundle. Inputs: the layer's sampled slot textures (Color) + UV
+    Scale/Offset (recovery metadata). Outputs: the bundle. BC5 normal is reconstructed inside."""
+    ng, fresh = _ensure_group(SF_LAYER_GROUP)
+    if not fresh:
         return ng
-    ng = _ensure_marker_group(SF_LAYER_GROUP)
-    us = _sf_new_socket(ng.interface, "UV Scale", 'INPUT', 'NodeSocketVector')
+    iface = ng.interface
+    for name, _bundle, default in _SF_LAYER_TEX_INPUTS:
+        s = _sf_new_socket(iface, name, 'INPUT', 'NodeSocketColor')
+        with suppress(Exception):
+            s.default_value = default
+    nt = _sf_new_socket(iface, "Normal Tex", 'INPUT', 'NodeSocketColor')
     with suppress(Exception):
-        us.default_value = (1.0, 1.0, 1.0)
-    _sf_new_socket(ng.interface, "UV Offset", 'INPUT', 'NodeSocketVector')
-    ng.nodes.new('NodeGroupInput')
+        nt.default_value = (0.5, 0.5, 1.0, 1.0)   # flat normal
+    # UV tiling lives on a shared Mapping node per layer (not the group -- feeding it back here
+    # would cycle group->image->group), so no UV inputs on the group.
+    for name, stype in _SF_BUNDLE:
+        _sf_new_socket(iface, name, 'OUTPUT', stype)
+
+    gin = ng.nodes.new('NodeGroupInput'); gin.location = (-1700, 0)
+    gout = ng.nodes.new('NodeGroupOutput'); gout.location = (300, 0)
+    L = ng.links
+    for name, bundle, _default in _SF_LAYER_TEX_INPUTS:
+        L.new(gin.outputs[name], gout.inputs[bundle])
+    nrm = _reconstruct_normal_rgb(ng, gin.outputs["Normal Tex"], (-1400, -500))
+    L.new(nrm, gout.inputs["Normal"])
     return ng
 
 
-def ensure_sf_blend_group():
-    """Per-blender marker: takes the Mask input; blend mode + index ride as instance custom props."""
-    ng = bpy.data.node_groups.get(SF_BLEND_GROUP)
-    if ng is not None and ng.get('pyn_marker_version') == _SF_MARKER_VERSION:
+def ensure_sf_blend_skin_group():
+    """Composite bundle B over bundle A, `Skin` mode: pass every channel through from A, except
+    Normal = RNM(A.Normal, B.Normal, Mask). (First pass -- generalise to all channels later.)"""
+    name = SF_BLEND_GROUP + " Skin"
+    ng, fresh = _ensure_group(name)
+    if not fresh:
         return ng
-    ng = _ensure_marker_group(SF_BLEND_GROUP)
-    _sf_new_socket(ng.interface, "Mask", 'INPUT', 'NodeSocketColor')
-    ng.nodes.new('NodeGroupInput')
+    iface = ng.interface
+    for prefix in ("A ", "B "):
+        for chan, stype in _SF_BUNDLE:
+            _sf_new_socket(iface, prefix + chan, 'INPUT', stype)
+    _sf_new_socket(iface, "Mask", 'INPUT', 'NodeSocketFloat')
+    for chan, stype in _SF_BUNDLE:
+        _sf_new_socket(iface, chan, 'OUTPUT', stype)
+
+    gin = ng.nodes.new('NodeGroupInput'); gin.location = (-600, 0)
+    gout = ng.nodes.new('NodeGroupOutput'); gout.location = (300, 0)
+    L = ng.links
+    for chan, _stype in _SF_BUNDLE:
+        if chan == "Normal":
+            continue
+        L.new(gin.outputs["A " + chan], gout.inputs[chan])
+    rnm = ng.nodes.new('ShaderNodeGroup'); rnm.node_tree = ensure_sf_normal_blend_group()
+    rnm.location = (-100, -200)
+    L.new(gin.outputs["A Normal"], rnm.inputs["Base Normal"])
+    L.new(gin.outputs["B Normal"], rnm.inputs["Detail Normal"])
+    L.new(gin.outputs["Mask"], rnm.inputs["Factor"])
+    L.new(rnm.outputs["Normal"], gout.inputs["Normal"])
     return ng
+
+
+def sf_blend_group_for(mode):
+    """The SF Blend group for a blend mode. Only `Skin` is implemented; others fall back to it
+    (approximation) for now -- the group name still records the true mode for recovery."""
+    return ensure_sf_blend_skin_group()
 
 
 def _is_group(node, group_name):
@@ -282,15 +386,23 @@ def recover_sf_material(material):
                 and PYN_SF_SLOT in n and PYN_SF_PATH in n):
             images_by_layer.setdefault(n[PYN_SF_LAYER], {})[n[PYN_SF_SLOT]] = n[PYN_SF_PATH]
 
+    # UV tiling per layer, off the shared Mapping node stamped with the layer index (absent = 1:1).
+    uv_by_layer = {n[PYN_SF_LAYER]: n for n in nodes
+                   if getattr(n, 'type', '') == 'MAPPING' and PYN_SF_LAYER in n}
+
     layers = []
     layer_markers = {n[PYN_SF_LAYER]: n for n in nodes
                      if _is_group(n, SF_LAYER_GROUP) and PYN_SF_LAYER in n}
     for idx in sorted(layer_markers):
-        m = layer_markers[idx]
-        us = m.inputs['UV Scale'].default_value
-        uo = m.inputs['UV Offset'].default_value
+        mp = uv_by_layer.get(idx)
+        if mp is not None:
+            sc = mp.inputs['Scale'].default_value
+            of = mp.inputs['Location'].default_value
+            uv_scale, uv_offset = (sc[0], sc[1]), (of[0], of[1])
+        else:
+            uv_scale, uv_offset = (1.0, 1.0), (0.0, 0.0)
         layers.append({'textures': images_by_layer.get(idx, {}),
-                       'uv_scale': (us[0], us[1]), 'uv_offset': (uo[0], uo[1])})
+                       'uv_scale': uv_scale, 'uv_offset': uv_offset})
 
     blenders = []
     blend_markers = {n[PYN_SF_BLEND]: n for n in nodes
@@ -1921,70 +2033,102 @@ class ShaderImporter:
             nt.links.new(mp.outputs['Vector'], n.inputs['Vector'])
         return n
 
-    def _build_sf_normal(self, nt, bsdf, resolved, layers_resolved, blenders_resolved, x0):
-        """Wire the Principled Normal. Single layer -> reconstruct the base normal. If a later
-        layer carries a detail normal, composite it over the base with the SF Normal Blend group
-        (RNM), tiled by that layer's UV scale and masked by its blender (mask-weighted 'Skin')."""
-        if 'Normal' not in resolved:
-            return
-        base_img = self._sf_teximg('Normal', resolved, 'Non-Color', (x0, -600), layer=0)
-        base_rgb = self._sf_normal_rgb(base_img, x0 + 250, -600)
+    # slot name -> (SF Layer group input, colorspace)
+    _SF_SLOT_TO_LAYER_INPUT = {
+        'Albedo': ('Albedo', 'sRGB'), 'Normal': ('Normal Tex', 'Non-Color'),
+        'Roughness': ('Roughness', 'Non-Color'), 'Metal': ('Metallic', 'Non-Color'),
+        'AO': ('AO', 'Non-Color'), 'Opacity': ('Opacity', 'Non-Color'),
+        'Emissive': ('Emissive', 'sRGB'), 'Transmissive': ('SSS Transmissive', 'Non-Color'),
+    }
 
-        detail = detail_layer = None
-        for i in range(1, len(layers_resolved or [])):
-            if 'Normal' in layers_resolved[i]['textures']:
-                detail, detail_layer = layers_resolved[i], i
-                break
-        mask_node = self._sf_mask_nodes.get(detail_layer - 1) if detail_layer else None
+    def _build_sf_layer(self, nt, index, layer, x, y):
+        """One layer's texture image nodes -> an SF Layer group -> the PBR bundle. Returns the
+        SF Layer group node (its outputs are the bundle)."""
+        node = nt.nodes.new('ShaderNodeGroup')
+        node.node_tree = ensure_sf_layer_group()
+        node.location = (x, y)
+        node.width = 300   # roomy -- lots of channels
+        node.label = f"{SF_LAYER_GROUP} {index}"
+        node[PYN_SF_LAYER] = index
 
-        if detail and mask_node is not None:
-            dfile, dpath = self._sf_split(detail['textures']['Normal'])
-            d_img = self._sf_teximg_path(dfile, 'Non-Color', (x0, -1500),
-                                         detail.get('uv_scale'), detail.get('uv_offset'),
-                                         matpath=dpath, slot='Normal', layer=detail_layer)
-            d_rgb = self._sf_normal_rgb(d_img, x0 + 250, -1500)
-            blend = self.nodes.new('ShaderNodeGroup')
-            blend.node_tree = ensure_sf_normal_blend_group()
-            blend.location = (x0 + 2100, -800)
-            blend.label = SF_NORMAL_BLEND_GROUP
-            nt.links.new(base_rgb, blend.inputs['Base Normal'])
-            nt.links.new(d_rgb, blend.inputs['Detail Normal'])
-            nt.links.new(mask_node.outputs['Color'], blend.inputs['Factor'])
-            nrm = self._sf_normalmap(blend.outputs['Normal'], x0 + 2300, -800)
-        else:
-            nrm = self._sf_normalmap(base_rgb, x0 + 2100, -600)
-        nt.links.new(nrm, bsdf.inputs['Normal'])
+        # One shared UV Mapping per layer (only when non-identity), stamped with the layer index
+        # so export recovers the tiling off it. Feeds all this layer's image nodes.
+        us = layer.get('uv_scale', (1.0, 1.0))
+        uo = layer.get('uv_offset', (0.0, 0.0))
+        uv_out = None
+        if tuple(us) != (1.0, 1.0) or tuple(uo) != (0.0, 0.0):
+            tc = nt.nodes.new('ShaderNodeTexCoord'); tc.location = (x - 1250, y + 300)
+            mapping = nt.nodes.new('ShaderNodeMapping'); mapping.location = (x - 1050, y + 300)
+            mapping[PYN_SF_LAYER] = index
+            mapping.inputs['Scale'].default_value = (us[0], us[1], 1.0)
+            mapping.inputs['Location'].default_value = (uo[0], uo[1], 0.0)
+            nt.links.new(tc.outputs['UV'], mapping.inputs['Vector'])
+            uv_out = mapping.outputs['Vector']
 
-    def _build_sf_markers(self, nt, layers_resolved, blenders_resolved, x0):
-        """Create the SF Layer / SF Blend marker nodes (the export-recovery structure) and the
-        blend mask image nodes. Mask nodes are stored in self._sf_mask_nodes (keyed by blend index)
-        so _build_sf_normal can share them for the RNM Factor."""
-        self._sf_mask_nodes = {}
-        for i, ly in enumerate(layers_resolved or []):
-            node = nt.nodes.new('ShaderNodeGroup')
-            node.node_tree = ensure_sf_layer_group()
-            node.location = (x0 - 700, 500 - i * 200)
-            node.label = f"{SF_LAYER_GROUP} {i}"
-            node[PYN_SF_LAYER] = i
-            us = ly.get('uv_scale', (1.0, 1.0))
-            uo = ly.get('uv_offset', (0.0, 0.0))
-            node.inputs['UV Scale'].default_value = (us[0], us[1], 1.0)
-            node.inputs['UV Offset'].default_value = (uo[0], uo[1], 0.0)
-        for i, b in enumerate(blenders_resolved or []):
-            node = nt.nodes.new('ShaderNodeGroup')
-            node.node_tree = ensure_sf_blend_group()
-            node.location = (x0 - 300, -1600 - i * 250)
-            node.label = f"{SF_BLEND_GROUP} {i}"
-            node[PYN_SF_BLEND] = i
-            node[PYN_SF_MODE] = b.get('mode', '')
-            mask = b.get('mask')
-            if mask:
-                mfile, mpath = self._sf_split(mask)
-                mnode = self._sf_teximg_path(mfile, 'Non-Color', (x0 - 900, -1600 - i * 250),
-                                             matpath=mpath, slot='Mask')
-                mnode[PYN_SF_BLEND] = i
-                nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
-                self._sf_mask_nodes[i] = mnode
+        ty = y + 250
+        for slot, entry in layer.get('textures', {}).items():
+            m = self._SF_SLOT_TO_LAYER_INPUT.get(slot)
+            if not m:
+                continue
+            inp, cs = m
+            fp, mp = self._sf_split(entry)
+            img = self._sf_teximg_path(fp, cs, (x - 600, ty), matpath=mp, slot=slot, layer=index)
+            if uv_out is not None:
+                nt.links.new(uv_out, img.inputs['Vector'])
+            nt.links.new(img.outputs['Color'], node.inputs[inp])
+            ty -= 320
+        return node
+
+    def _build_sf_blend(self, nt, index, blender, bundle_a, bundle_b, x, y):
+        """Composite two bundles via an SF Blend group (chosen by mode). Returns the group node."""
+        node = nt.nodes.new('ShaderNodeGroup')
+        node.node_tree = sf_blend_group_for(blender.get('mode', ''))
+        node.location = (x, y)
+        node.label = node.node_tree.name
+        node[PYN_SF_BLEND] = index
+        node[PYN_SF_MODE] = blender.get('mode', '')
+        for chan in _SF_BUNDLE_NAMES:
+            nt.links.new(bundle_a.outputs[chan], node.inputs['A ' + chan])
+            nt.links.new(bundle_b.outputs[chan], node.inputs['B ' + chan])
+        mask = blender.get('mask')
+        if mask:
+            mfile, mpath = self._sf_split(mask)
+            mnode = self._sf_teximg_path(mfile, 'Non-Color', (x - 400, y - 500),
+                                         matpath=mpath, slot='Mask')
+            mnode[PYN_SF_BLEND] = index
+            nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
+        return node
+
+    def _bundle_to_principled(self, nt, bsdf, bundle, params, settings):
+        """Wire a final bundle (an SF Layer/Blend group node) into the Principled BSDF, plus the
+        SF Parameters node driving Subsurface + Emission + alpha test."""
+        o = bundle.outputs
+        bx = bsdf.location[0]
+        make_mixnode(nt, o['Base Color'], o['AO'], output=bsdf.inputs['Base Color'],
+                     factor=1.0, blend_type='MULTIPLY', location=(bx - 300, 300))
+        nt.links.new(o['Roughness'], bsdf.inputs['Roughness'])
+        nt.links.new(o['Metallic'], bsdf.inputs['Metallic'])
+        nt.links.new(self._sf_normalmap(o['Normal'], bx - 300, -400), bsdf.inputs['Normal'])
+
+        ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
+        if ecol is not None:
+            make_mixnode(nt, o['Emissive'], params.outputs['Emissive Tint Out'], output=ecol,
+                         factor=1.0, blend_type='MULTIPLY', location=(bx - 300, -150))
+        if 'Emission Strength' in bsdf.inputs:
+            nt.links.new(params.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
+        if 'Subsurface Weight' in bsdf.inputs:
+            nt.links.new(params.outputs['SSS Weight'], bsdf.inputs['Subsurface Weight'])
+        if 'Subsurface Scale' in bsdf.inputs:
+            bsdf.inputs['Subsurface Scale'].default_value = SF_SUBSURFACE_SCALE
+
+        al = (settings or {}).get('alpha') or {}
+        if al.get('has_opacity') and 'Alpha' in bsdf.inputs:
+            clip = self.nodes.new('ShaderNodeMath')
+            clip.operation = 'GREATER_THAN'
+            clip.location = (bx - 300, -700)
+            nt.links.new(o['Opacity'], clip.inputs[0])
+            nt.links.new(params.outputs['Alpha Test Threshold Out'], clip.inputs[1])
+            nt.links.new(clip.outputs['Value'], bsdf.inputs['Alpha'])
 
     def _add_sf_params_node(self, nt, settings, location):
         """Add the SF Parameters group instance, populated from the parsed .mat settings."""
@@ -2029,67 +2173,34 @@ class ShaderImporter:
             or self.nodes.new('ShaderNodeBsdfPrincipled')
         out = next((n for n in self.nodes if n.type == 'OUTPUT_MATERIAL'), None) \
             or self.nodes.new('ShaderNodeOutputMaterial')
-        bsdf.location = (200, 0)
-        out.location = (600, 0)
+        bsdf.location = (600, 0)
+        out.location = (1000, 0)
         nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
 
-        x0 = -900
-        if 'Albedo' in resolved:
-            alb = self._sf_teximg('Albedo', resolved, 'sRGB', (x0, 300))
-            if 'AO' in resolved:  # AO multiplies into base color
-                ao = self._sf_teximg('AO', resolved, 'Non-Color', (x0, 500))
-                make_mixnode(nt, alb.outputs['Color'], ao.outputs['Color'],
-                             output=bsdf.inputs['Base Color'], factor=1.0,
-                             blend_type='MULTIPLY', location=(x0 + 400, 400))
-            else:
-                nt.links.new(alb.outputs['Color'], bsdf.inputs['Base Color'])
-        if 'Roughness' in resolved:
-            r = self._sf_teximg('Roughness', resolved, 'Non-Color', (x0, 100))
-            nt.links.new(r.outputs['Color'], bsdf.inputs['Roughness'])
-        if 'Metal' in resolved:
-            m = self._sf_teximg('Metal', resolved, 'Non-Color', (x0, -100))
-            nt.links.new(m.outputs['Color'], bsdf.inputs['Metallic'])
-        emissive_tex = None
-        if 'Emissive' in resolved:
-            emissive_tex = self._sf_teximg('Emissive', resolved, 'sRGB', (x0, -300))
-        # Marker nodes (SF Layer / SF Blend) + blend mask images -- the export-recovery structure.
-        # Must precede _build_sf_normal, which reuses the mask nodes for the RNM Factor.
-        self._build_sf_markers(nt, layers_resolved, blenders_resolved, x0)
-        self._build_sf_normal(nt, bsdf, resolved, layers_resolved, blenders_resolved, x0)
+        # A flat material (no layer graph) is one implicit layer, so the same Layer->Blend->
+        # Principled path handles both.
+        layers_resolved = list(layers_resolved or [])
+        if not layers_resolved and resolved:
+            layers_resolved = [{'textures': dict(resolved),
+                                'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)}]
 
-        # The SF Parameters node holds every non-texture value and drives Subsurface + Emission.
-        params = self._add_sf_params_node(nt, settings, (x0 - 350, -1100))
-        if 'Subsurface Weight' in bsdf.inputs:
-            nt.links.new(params.outputs['SSS Weight'], bsdf.inputs['Subsurface Weight'])
-        if 'Subsurface Scale' in bsdf.inputs:
-            # Game-unit scatter distance (see SF_SUBSURFACE_SCALE); editable after import.
-            bsdf.inputs['Subsurface Scale'].default_value = SF_SUBSURFACE_SCALE
-        # Emission: strength gated by Emissive Enable; color = tint (x emissive map if present).
-        ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
-        if ecol is not None:
-            if emissive_tex is not None:
-                make_mixnode(nt, emissive_tex.outputs['Color'], params.outputs['Emissive Tint Out'],
-                             output=ecol, factor=1.0, blend_type='MULTIPLY', location=(x0 + 400, -300))
-            else:
-                nt.links.new(params.outputs['Emissive Tint Out'], ecol)
-        if 'Emission Strength' in bsdf.inputs:
-            nt.links.new(params.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
+        # SF Parameters node (settings) -- created first so the bundle wiring can read it.
+        params = self._add_sf_params_node(nt, settings, (-1500, -900))
 
-        # Alpha: when the material declares HasOpacity, alpha-test the opacity map (slot 2)
-        # against the threshold -- opacity > threshold -> visible, else discarded -- and feed
-        # that into Principled Alpha. The threshold comes from the params node so it stays the
-        # single editable source (setting material.alpha_threshold alone is a no-op under
-        # EEVEE-Next's dithered render method). SF hair also dithers coverage; that softening is
-        # a HairSettings (P4) refinement.
-        al = (settings or {}).get('alpha') or {}
-        if al.get('has_opacity') and 'Opacity' in resolved and 'Alpha' in bsdf.inputs:
-            op = self._sf_teximg('Opacity', resolved, 'Non-Color', (x0, -900))
-            clip = self.nodes.new('ShaderNodeMath')
-            clip.operation = 'GREATER_THAN'
-            clip.location = (x0 + 400, -900)
-            nt.links.new(op.outputs['Color'], clip.inputs[0])
-            nt.links.new(params.outputs['Alpha Test Threshold Out'], clip.inputs[1])
-            nt.links.new(clip.outputs['Value'], bsdf.inputs['Alpha'])
+        # One SF Layer group per layer; chain them through SF Blend groups into one bundle.
+        layer_nodes = [self._build_sf_layer(nt, i, ly, -700, 500 - i * 800)
+                       for i, ly in enumerate(layers_resolved)]
+        final = None
+        if layer_nodes:
+            final = layer_nodes[0]
+            bx = 0
+            for i, b in enumerate(blenders_resolved or []):
+                if i + 1 >= len(layer_nodes):
+                    break
+                final = self._build_sf_blend(nt, i, b, final, layer_nodes[i + 1], bx, 0)
+                bx += 350
+        if final is not None:
+            self._bundle_to_principled(nt, bsdf, final, params, settings)
 
     def import_material(self, obj, shape:NiShape, asset_path):
         """

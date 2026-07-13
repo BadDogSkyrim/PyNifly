@@ -2979,13 +2979,15 @@ def TEST_SF_ALPHA():
 
 @TT.category('STARFIELD', 'SHADER')
 def TEST_SF_LAYERED():
-    """Starfield P1: a two-layer material composites a detail normal over the base normal via the
-    SF Normal Blend (RNM) group, tiled by the detail layer's UV scale and masked by its blender.
+    """Starfield P3: a two-layer material is built as SF Layer groups chained through an SF Blend
+    group carrying the PBR bundle; the Skin blend RNM-composites the detail normal over the base
+    (RNM now lives *inside* the SF Blend Skin group), tiled by the detail layer's UV scale.
 
     Driven through _build_sf_nodes directly with a synthetic 2-layer/1-blender graph (test PNGs,
     no game assets).
     """
-    from io_scene_nifly.nif.shader_io import ShaderImporter, SF_NORMAL_BLEND_GROUP
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, SF_LAYER_GROUP, SF_BLEND_GROUP,
+                                              SF_NORMAL_BLEND_GROUP)
 
     alb = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
     nrm = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
@@ -3003,18 +3005,29 @@ def TEST_SF_LAYERED():
     si._build_sf_nodes(resolved, {}, layers_resolved, blenders_resolved)
     nt = mat.node_tree
 
-    # The RNM blend group is present and fed base normal + detail normal + mask factor.
-    blend = next((n for n in nt.nodes if n.type == 'GROUP' and n.node_tree
-                  and n.node_tree.name.startswith(SF_NORMAL_BLEND_GROUP)), None)
-    assert blend is not None, "SF Normal Blend group present for a 2-layer material"
-    assert blend.inputs['Base Normal'].is_linked, "base normal wired into the blend"
-    assert blend.inputs['Detail Normal'].is_linked, "detail normal wired into the blend"
-    assert blend.inputs['Factor'].is_linked, "blend mask drives the Factor"
+    def groups(prefix):
+        return [n for n in nt.nodes if n.type == 'GROUP' and n.node_tree
+                and n.node_tree.name.startswith(prefix)]
+
+    # Two SF Layer groups (one per layer) each carrying the bundle.
+    assert len(groups(SF_LAYER_GROUP)) == 2, f"two SF Layer groups: {len(groups(SF_LAYER_GROUP))}"
+
+    # One SF Blend group, fed both layers' bundles + the mask.
+    blends = groups(SF_BLEND_GROUP)
+    assert len(blends) == 1, f"one SF Blend group: {len(blends)}"
+    blend = blends[0]
+    assert blend.inputs['A Normal'].is_linked and blend.inputs['B Normal'].is_linked, \
+        "both layer bundles wired into the blend"
+    assert blend.inputs['Mask'].is_linked, "blend mask wired"
+    # The RNM math lives inside the SF Blend Skin group now.
+    assert any(inner.type == 'GROUP' and inner.node_tree
+               and inner.node_tree.name.startswith(SF_NORMAL_BLEND_GROUP)
+               for inner in blend.node_tree.nodes), "SF Blend Skin uses the RNM group internally"
 
     # Detail layer's 50x tiling comes through a Mapping node.
     assert any(n.type == 'MAPPING' for n in nt.nodes), "detail UV tiling via a Mapping node"
 
-    # Principled Normal is fed from the blend (through a Normal Map node).
+    # Principled Normal is fed from the bundle (through a Normal Map node).
     bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
     assert bsdf.inputs['Normal'].is_linked, "Principled Normal wired"
     assert bsdf.inputs['Normal'].links[0].from_node.type == 'NORMAL_MAP', \

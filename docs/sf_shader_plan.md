@@ -199,19 +199,22 @@ round-trip out of the graph.
   **opt-in** via `write_sf_materials` export flag (off by default — may overwrite a source .mat in place).
   Tests: TEST_SF_MAT_WRITE, TEST_SF_MAT_ROUNDTRIP, TEST_SF_EXPORT (.mat written+reparses). Caveats: texture
   *path* edits don't flow (stamped at import); MaterialOverrideColor + blender ParamBools/float not captured.
-- **P3 — Real node groups (bundle-carrying). Bundle contract LOCKED (2026-07-13, Bad Dog).** The P2 markers
-  are lightweight tags that don't carry content; replace with real groups that carry the **PBR bundle**:
-  channels `Base Color · Roughness · Metallic · Normal · AO · Opacity · Emissive · SSS/Transmissive`
-  (AO/Opacity/SSS each their own channel — stay close to the raw model; Height later). **Normal travels as
-  reconstructed [0,1] RGB**, converted to a Normal Map only at `SF Material`. `SF Layer` = one group type
-  (raw slot textures in → processed bundle out; UV tiling + BC5 reconstruct inside); every layer is an
-  instance. `SF Blend` = **one group per blend TYPE** (name = mode: `SF Blend Skin`, `Lerp`, …), all sharing
-  the interface `(bundle A, bundle B, Mask, + type-specific params) → bundle`; recovery reads mode from the
-  group name. `SF Material` = bundle + SF Parameters → Principled. Chain reads `Layer→Blend→…→SF Material→
-  Principled`; recovery walks the connected groups (topology gives order for free). Build order: SF Layer +
-  SF Material + SF Blend Skin to reproduce today's skin through the new structure, prove the same round-trip,
-  then add blend types/channels as real materials need them. Rework `recover_sf_material` onto the groups;
-  keep write_mat + opt-in writer as-is.
+- **P3 — Real node groups (bundle-carrying). ✅ DONE (2026-07-13).** Replaced the P2 marker tags with real
+  bundle-carrying groups. **PBR bundle** = `Base Color · Roughness · Metallic · Normal · AO · Opacity ·
+  Emissive · SSS Transmissive` (AO/Opacity/SSS each own channel; Normal = reconstructed [0,1] RGB, → Normal
+  Map only at the end). `SF Layer` = one group type: raw slot textures (all Color inputs — Bad Dog: a scalar
+  still varies per-texel) → processed bundle out, BC5 reconstruct inside. `SF Blend Skin` = per-type group
+  (name = mode) with interface `(A bundle, B bundle, Mask) → bundle`; first pass passes A through + RNM(A.N,
+  B.N, Mask) for Normal (RNM lives *inside* it). Chain `Layer → Blend → … → Principled`; the bundle→Principled
+  end is **flat + the Principled visible** (not grouped — so you can still tweak it directly; `SF Material`-
+  as-a-group deferred). `recover_sf_material` walks the connected groups + stamped images; round-trip green.
+  **UV**: one shared **Mapping node per layer** (stamped with layer index) does the tiling and recovery reads
+  it there — the group can't own the UV (feeding it back would cycle group→image→group; verified). Review
+  tweaks folded in: `Emissive Layer` socket after `Emissive Enable`; SSS→`SSS Transmissive`; Layer nodes
+  widened. `Use SSS`/`Emissive Enable`/alpha are material-wide (root settings components) → correctly on the
+  SF Parameters node, not per-layer. Tests: TEST_SF_LAYERED (bundle groups + nested RNM), all SF tests green.
+  Follow-on: generalise `SF Blend Skin` to all channels + add blend TYPES (Lerp/Additive/…) when materials
+  need them; wire the transmissive mask → Subsurface Weight for materials that ship a slot-8 map.
 - **P4 — Hair/fur.** `HairSettingsComponent` → Blender **Sheen** (+ anisotropy) sub-group; calibrate on a
   vanilla hair `.mat`. Real field set (from `Medium_Hair_Shared`, cdb class def): `Enabled`, `IsSpikyHair`,
   `SpecScale`, `SpecularTransmissionScale`, `DirectTransmissionScale`, `DiffuseTransmissionScale`,
