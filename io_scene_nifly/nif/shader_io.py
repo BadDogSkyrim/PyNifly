@@ -2065,18 +2065,21 @@ class ShaderImporter:
             nt.links.new(tc.outputs['UV'], mapping.inputs['Vector'])
             uv_out = mapping.outputs['Vector']
 
-        ty = y + 250
+        # Lay each image node out at the vertical row of the group input it feeds, so the wires
+        # run parallel (top-to-bottom order = the group's input-socket order).
+        input_order = [n for n, _b, _d in _SF_LAYER_TEX_INPUTS] + ["Normal Tex"]
         for slot, entry in layer.get('textures', {}).items():
             m = self._SF_SLOT_TO_LAYER_INPUT.get(slot)
             if not m:
                 continue
             inp, cs = m
+            row = input_order.index(inp) if inp in input_order else len(input_order)
             fp, mp = self._sf_split(entry)
-            img = self._sf_teximg_path(fp, cs, (x - 600, ty), matpath=mp, slot=slot, layer=index)
+            img = self._sf_teximg_path(fp, cs, (x - 600, y + 250 - row * 320),
+                                       matpath=mp, slot=slot, layer=index)
             if uv_out is not None:
                 nt.links.new(uv_out, img.inputs['Vector'])
             nt.links.new(img.outputs['Color'], node.inputs[inp])
-            ty -= 320
         return node
 
     def _build_sf_blend(self, nt, index, blender, bundle_a, bundle_b, x, y):
