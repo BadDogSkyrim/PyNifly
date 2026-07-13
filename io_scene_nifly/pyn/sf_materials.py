@@ -53,6 +53,23 @@ _SHADER_MODEL = 'BSMaterial::ShaderModelComponent'
 _TRANSLUCENCY = 'BSMaterial::TranslucencySettingsComponent'
 _EMISSIVITY = 'BSMaterial::LayeredEmissivityComponent'
 _ALPHA_SETTINGS = 'BSMaterial::AlphaSettingsComponent'
+_HAIR = 'BSMaterial::HairSettingsComponent'
+
+# HairSettingsComponent fields we carry, as (dict key, .mat field, type). Floats default 0.0,
+# bools default False. The component has ~26 fields; these are the authored/visually-relevant ones.
+_HAIR_FIELDS = [
+    ('enabled',              'Enabled',                   'bool'),
+    ('is_spiky',             'IsSpikyHair',               'bool'),
+    ('roughness',            'Roughness',                 'float'),
+    ('spec_scale',           'SpecScale',                 'float'),
+    ('backscatter_strength', 'BackscatterStrength',       'float'),
+    ('backscatter_wrap',     'BackscatterWrap',           'float'),
+    ('spec_transmission',    'SpecularTransmissionScale', 'float'),
+    ('direct_transmission',  'DirectTransmissionScale',   'float'),
+    ('diffuse_transmission', 'DiffuseTransmissionScale',  'float'),
+    ('max_depth_offset',     'MaxDepthOffset',            'float'),
+    ('dither_scale',         'DitherScale',               'float'),
+]
 
 
 def _components_of(obj, ctype):
@@ -152,6 +169,12 @@ def _extract_settings(objects):
             'has_opacity': _as_bool(al.get('HasOpacity')),
             'threshold': _as_float(al.get('AlphaTestThreshold'), 0.5),
         }
+
+    hr = _first_component_data(objects, _HAIR)
+    if hr is not None:
+        settings['hair'] = {key: (_as_bool(hr.get(field)) if typ == 'bool'
+                                  else _as_float(hr.get(field)))
+                            for key, field, typ in _HAIR_FIELDS}
 
     return settings
 
@@ -366,6 +389,12 @@ def _settings_components(settings):
         comps.append({"Type": _ALPHA_SETTINGS, "Index": 0, "Data": {
             "HasOpacity": _enc_bool(al['has_opacity']),
             "AlphaTestThreshold": _enc_float(al['threshold'])}})
+    hr = settings.get('hair')
+    if hr is not None:
+        data = {}
+        for key, field, typ in _HAIR_FIELDS:
+            data[field] = _enc_bool(hr[key]) if typ == 'bool' else _enc_float(hr[key])
+        comps.append({"Type": _HAIR, "Index": 0, "Data": data})
     return comps
 
 

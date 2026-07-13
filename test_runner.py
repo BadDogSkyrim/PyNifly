@@ -27,8 +27,6 @@ if 'tests.blender_tests' in sys.modules:
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
-    target_tests=[ TEST_SF_IMPORT, TEST_SF_MATERIAL ],
-    # categories={'ANIMATION', 'SHADER'},
-    test_all=False,
+    test_all=True,
     stop_on_fail=False,
     )

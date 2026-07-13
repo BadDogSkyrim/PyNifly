@@ -2886,15 +2886,14 @@ def TEST_SF_MATERIAL():
 
 @TT.category('STARFIELD', 'SHADER')
 def TEST_SF_PARAMS():
-    """Starfield P0: the .mat's non-texture settings land on a single "SF Parameters" node.
-
-    The value-holder group holds SSS (two hierarchical flags + spec-lobe roughness), emissive
-    (enable + tint), and the shader-model identity -- the export param source. Driving values are
-    wired into the Principled: SSS Weight = AND(Translucency Enable, Use SSS) -> Subsurface Weight.
-    This proves both the read (fixture .mat -> populated node) and the round-trip contract (read the
-    params straight back off the node's input sockets by name).
+    """Starfield: the .mat's non-texture settings land on PER-COMPONENT value-holder group nodes
+    (SF TranslucencySettings, SF LayeredEmissivityComponent, ...), one per .mat settings component,
+    each recoverable by socket name and driving the Principled. The skin fixture has translucency +
+    emissive but no AlphaSettings (opaque). SSS Weight = AND(Translucency Enable, Use SSS) drives
+    Subsurface Weight.
     """
-    from io_scene_nifly.nif.shader_io import sf_params_node_of, SF_PARAMS_GROUP
+    from io_scene_nifly.nif.shader_io import (sf_component_node_of, SF_SHADER_MODEL_PROP,
+                                              SF_SUBSURFACE_SCALE)
 
     testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -2903,38 +2902,37 @@ def TEST_SF_PARAMS():
     mat = body.active_material
     nt = mat.node_tree
 
-    # Exactly one SF Parameters node, found by its group datablock (not its instance label).
-    params = sf_params_node_of(mat)
-    assert params is not None, "Material has an SF Parameters node"
-    assert params.node_tree.name.startswith(SF_PARAMS_GROUP), "Node is the SF Parameters group"
+    # Translucency component node, recovered by socket name.
+    tr = sf_component_node_of(mat, 'translucency')
+    assert tr is not None, "SF TranslucencySettings node present"
+    tin = tr.inputs
+    assert tin["Translucency Enable"].default_value is True, "Translucency enabled"
+    assert tin["Use SSS"].default_value is True, "Use SSS enabled"
+    assert abs(tin["Spec Lobe 0 Roughness"].default_value - 0.93) < 1e-4, \
+        f"spec lobe 0: {tin['Spec Lobe 0 Roughness'].default_value}"
+    assert abs(tin["Spec Lobe 1 Roughness"].default_value - 1.15) < 1e-4, \
+        f"spec lobe 1: {tin['Spec Lobe 1 Roughness'].default_value}"
 
-    # Round-trip readback: every settings value recovered off the input sockets by NAME.
-    ins = params.inputs
-    assert ins["Translucency Enable"].default_value is True, "Translucency enabled"
-    assert ins["Use SSS"].default_value is True, "Use SSS enabled"
-    assert abs(ins["Spec Lobe 0 Roughness"].default_value - 0.93) < 1e-4, \
-        f"spec lobe 0: {ins['Spec Lobe 0 Roughness'].default_value}"
-    assert abs(ins["Spec Lobe 1 Roughness"].default_value - 1.15) < 1e-4, \
-        f"spec lobe 1: {ins['Spec Lobe 1 Roughness'].default_value}"
-    assert ins["Emissive Enable"].default_value is False, "Emissive disabled (skin)"
-    tint = tuple(ins["Emissive Tint"].default_value)
+    # Emissive component node.
+    em = sf_component_node_of(mat, 'emissive')
+    assert em is not None, "SF LayeredEmissivityComponent node present"
+    assert em.inputs["Emissive Enable"].default_value is False, "Emissive disabled (skin)"
+    tint = tuple(em.inputs["Emissive Tint"].default_value)
     assert abs(tint[0] - 0.9) < 1e-4 and abs(tint[1] - 0.1) < 1e-4 and abs(tint[2] - 0.1) < 1e-4, \
         f"Emissive tint recovered: {tint}"
-    # Shader-model identity is a string -> held as a custom prop on the node (no string socket).
-    assert params["Shader Model"] == "BodySkin2Layer", \
-        f"Shader-model identity kept: {params.get('Shader Model')!r}"
-    # Alpha sockets exist; this skin material has no AlphaSettings, so they stay default.
-    assert "Has Opacity" in ins, "Has Opacity socket present"
-    assert ins["Has Opacity"].default_value is False, "Opaque skin -> Has Opacity off"
 
-    # SSS drives the Principled Subsurface Weight from the group's computed output.
+    # Shader-model identity is a string -> a material custom property.
+    assert mat[SF_SHADER_MODEL_PROP] == "BodySkin2Layer", \
+        f"Shader-model identity kept: {mat.get(SF_SHADER_MODEL_PROP)!r}"
+    # Opaque skin -> no AlphaSettings component -> no such node.
+    assert sf_component_node_of(mat, 'alpha') is None, "no AlphaSettings node for opaque skin"
+
+    # SSS drives the Principled Subsurface Weight from the translucency component's output.
     bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
     ssw = bsdf.inputs.get('Subsurface Weight')
-    assert ssw is not None and ssw.is_linked, "Subsurface Weight is driven by the params node"
-    src = ssw.links[0].from_node
-    assert src == params, "Subsurface Weight fed by the SF Parameters node"
+    assert ssw is not None and ssw.is_linked, "Subsurface Weight is driven"
+    assert ssw.links[0].from_node == tr, "Subsurface Weight fed by the translucency component"
     # Scatter Scale is baked to game-unit scale (Blender's default is microscopic on a ~70x mesh).
-    from io_scene_nifly.nif.shader_io import SF_SUBSURFACE_SCALE
     assert abs(bsdf.inputs['Subsurface Scale'].default_value - SF_SUBSURFACE_SCALE) < 1e-4, \
         f"Subsurface Scale baked to game units: {bsdf.inputs['Subsurface Scale'].default_value}"
 
@@ -2948,7 +2946,7 @@ def TEST_SF_ALPHA():
     Driven directly through _build_sf_nodes with a synthetic settings/resolved pair (the real
     hair material lives in the cdb) so the test needs no game assets.
     """
-    from io_scene_nifly.nif.shader_io import ShaderImporter, sf_params_node_of
+    from io_scene_nifly.nif.shader_io import ShaderImporter, sf_component_node_of
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")  # content irrelevant; test wiring
     si = ShaderImporter()
@@ -2959,14 +2957,15 @@ def TEST_SF_ALPHA():
                 'alpha': {'has_opacity': True, 'threshold': 0.3333}}
     si._build_sf_nodes({'Albedo': tex, 'Opacity': tex}, settings)
 
-    # Alpha values held on the params node (the export source).
-    p = sf_params_node_of(mat)
+    # Alpha values held on the SF AlphaSettingsComponent node (the export source).
+    p = sf_component_node_of(mat, 'alpha')
+    assert p is not None, "SF AlphaSettingsComponent node present"
     assert p.inputs["Has Opacity"].default_value is True, "Has Opacity stored"
     assert abs(p.inputs["Alpha Test Threshold"].default_value - 0.3333) < 1e-4, \
         f"Alpha test threshold stored: {p.inputs['Alpha Test Threshold'].default_value}"
 
     # Alpha is a real test: opacity > threshold -> Alpha, via a GREATER_THAN node whose threshold
-    # input is driven by the params node (single editable source), not baked into the node.
+    # input is driven by the alpha component (single editable source), not baked into the node.
     bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
     assert bsdf.inputs['Alpha'].is_linked, "Alpha is driven"
     clip = bsdf.inputs['Alpha'].links[0].from_node
@@ -2974,7 +2973,49 @@ def TEST_SF_ALPHA():
         f"Alpha fed by a GREATER_THAN alpha-test node, got {clip.type}/{getattr(clip,'operation',None)}"
     assert clip.inputs[0].is_linked, "Opacity map feeds the alpha test"
     thr_src = clip.inputs[1].links[0].from_node if clip.inputs[1].is_linked else None
-    assert thr_src == p, "Threshold driven by the SF Parameters node (single source)"
+    assert thr_src == p, "Threshold driven by the SF AlphaSettingsComponent node (single source)"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_HAIR():
+    """Starfield P4: HairSettings lands on its own SF HairSettingsComponent node (per-component
+    settings groups), holds the ~11 hair params for round-trip, and drives Principled Sheen
+    (Backscatter -> Sheen Weight, Roughness -> Sheen Roughness). Transmission scales are held only.
+    """
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, sf_component_node_of,
+                                              recover_sf_material)
+    from pyn.sf_materials import write_mat, parse_mat
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Hair_Test")
+    mat.use_nodes = True
+    si.material = mat
+    mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Hair.mat'
+    hair = {'enabled': True, 'is_spiky': False, 'roughness': 0.25, 'spec_scale': 0.0,
+            'backscatter_strength': 0.4, 'backscatter_wrap': 0.1, 'spec_transmission': 0.675,
+            'direct_transmission': 0.2375, 'diffuse_transmission': 0.7, 'max_depth_offset': 0.01,
+            'dither_scale': 1.0}
+    si._build_sf_nodes({'Albedo': tex}, {'shader_model': 'Hair1Layer', 'hair': hair})
+
+    # Its own component node, holding the hair params (including the held-only transmission scales).
+    h = sf_component_node_of(mat, 'hair')
+    assert h is not None, "SF HairSettingsComponent node present"
+    assert h.inputs["Hair Enable"].default_value is True, "hair enabled"
+    assert abs(h.inputs["Roughness"].default_value - 0.25) < 1e-4, "roughness held"
+    assert abs(h.inputs["Diffuse Transmission"].default_value - 0.7) < 1e-4, "transmission held"
+
+    # Drives Principled Sheen from the hair node.
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+    if 'Sheen Weight' in bsdf.inputs:
+        assert bsdf.inputs['Sheen Weight'].is_linked, "Sheen Weight driven"
+        assert bsdf.inputs['Sheen Weight'].links[0].from_node == h, "Sheen from the hair component"
+
+    # Round-trips out of the graph.
+    data = recover_sf_material(mat)
+    back = parse_mat(write_mat(data))
+    assert back['settings']['hair'] == data['settings']['hair'], \
+        f"hair round-trips: {back['settings'].get('hair')}"
 
 
 @TT.category('STARFIELD', 'SHADER')

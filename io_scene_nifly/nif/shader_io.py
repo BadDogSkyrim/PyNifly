@@ -29,36 +29,15 @@ TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
 # on the node -- and a few OUTPUT sockets carry driving values into the Principled BSDF. This is
 # the export param source: walk the inputs by socket NAME to recover the .mat settings. See
 # docs/sf_shader_plan.md "Locked P0 spec". Generated procedurally now; moves to shaders.blend at P3.
-SF_PARAMS_GROUP = "SF Parameters"
-_SF_PARAMS_VERSION = 5   # bump to force a rebuild of a stale cached group
-
 # Default Principled Subsurface Scale for imported skin/fur. SF meshes import at GAME units
 # (nifly applies havokScale ~= 70, so 1 m ~= 70 units), where Blender's default scatter scale of
 # ~0.05 is microscopic. 0.05 * havokScale ~= 3.5 reproduces Blender's intended skin look at game
-# scale (calibrated by eye, Bad Dog 2026-07-12). It's a render-tuning constant, NOT a .mat value,
-# so it lives here and on the Principled node -- deliberately NOT on the SF Parameters node.
+# scale (calibrated by eye, Bad Dog 2026-07-12). Render-tuning constant, on the Principled node.
 SF_SUBSURFACE_SCALE = 3.5
 
-# (socket name, socket type, default). Bools use real NodeSocketBool (a checkbox rejects a stray 5).
-_SF_PARAM_INPUTS = [
-    ("Translucency Enable",     'NodeSocketBool',   False),
-    ("Use SSS",                 'NodeSocketBool',   False),
-    ("Spec Lobe 0 Roughness",   'NodeSocketFloat',  1.0),
-    ("Spec Lobe 1 Roughness",   'NodeSocketFloat',  1.0),
-    ("Emissive Enable",         'NodeSocketBool',   False),
-    ("Emissive Layer",          'NodeSocketInt',    0),   # LayeredEmissivity FirstLayerIndex
-    ("Emissive Tint",           'NodeSocketColor',  (1.0, 1.0, 1.0, 1.0)),
-    # SF surface alpha = HasOpacity (does the surface use an opacity map) + an alpha-test clip
-    # threshold. There's no none/test/blend mode. Held params: import reads them to wire the
-    # opacity map + set the material's clip threshold; export writes them back.
-    ("Has Opacity",             'NodeSocketBool',   False),
-    ("Alpha Test Threshold",    'NodeSocketFloat',  0.5),
-]
-# String-valued params have no shader socket, so they're held as custom properties ON the params
-# node (still one contained node, round-trippable by name): the shader-model identity, and the
-# layered-emissivity blend mode.
-SF_PARAM_SHADER_MODEL = "Shader Model"
-SF_PARAM_EMISSIVE_MODE = "Emissive Blend Mode"
+# The shader-model identity (template name) is a string with no shader socket -> a material
+# custom property.
+SF_SHADER_MODEL_PROP = 'pyn_sf_shader_model'
 
 
 def _sf_new_socket(iface, name, in_out, socket_type):
@@ -66,52 +45,169 @@ def _sf_new_socket(iface, name, in_out, socket_type):
     return iface.new_socket(name, in_out=in_out, socket_type=socket_type)
 
 
-def ensure_sf_params_group():
-    """Create (or return the cached) `SF Parameters` shader node group with the locked P0 interface.
+# --- Per-.mat-component settings groups --------------------------------------------------------
+# Each root-level settings component (TranslucencySettings, LayeredEmissivity, AlphaSettings,
+# HairSettings) gets its OWN value-holder group named after the component (Bad Dog: don't dump
+# every param on one node -- there are a million possible params). Each is added only when the
+# material has that component; its INPUT sockets are the param store, a few OUTPUT sockets drive
+# the Principled, and recovery/write walk them by the group name (== the .mat component).
+#
+# fields: (socket name, socket type, default, settings key). A None socket type = a string that
+#   has no shader socket, held as a node custom property. outputs: (name, type). wire(gin,gout,ng)
+#   builds the internal driving wiring.
+def _wire_translucency(gin, gout, ng):
+    # SSS Weight = Translucency Enable * Use SSS (both flags kept; product = AND on 0/1).
+    m = ng.nodes.new('ShaderNodeMath'); m.operation = 'MULTIPLY'; m.location = (0, 100)
+    ng.links.new(gin.outputs["Translucency Enable"], m.inputs[0])
+    ng.links.new(gin.outputs["Use SSS"], m.inputs[1])
+    ng.links.new(m.outputs[0], gout.inputs["SSS Weight"])
 
-    Held params are inputs read straight off their default_value on export. Driving params are also
-    exposed as outputs, wired internally: `SSS Weight` = AND(Translucency Enable, Use SSS) (bool*bool
-    on 0/1), `Emissive Strength` = Emissive Enable, `Emissive Tint Out` passes the tint through."""
-    ng = bpy.data.node_groups.get(SF_PARAMS_GROUP)
+
+def _wire_emissive(gin, gout, ng):
+    ng.links.new(gin.outputs["Emissive Enable"], gout.inputs["Emissive Strength"])
+    ng.links.new(gin.outputs["Emissive Tint"], gout.inputs["Emissive Tint Out"])
+
+
+def _wire_alpha(gin, gout, ng):
+    ng.links.new(gin.outputs["Alpha Test Threshold"], gout.inputs["Alpha Test Threshold Out"])
+
+
+def _wire_hair(gin, gout, ng):
+    # First-pass hair -> Sheen: fuzzy-rim weight from backscatter, roughness through. Transmission
+    # scales are held (round-trip) but not wired yet (no clean Principled home for hair translucency).
+    ng.links.new(gin.outputs["Backscatter Strength"], gout.inputs["Sheen Weight"])
+    ng.links.new(gin.outputs["Roughness"], gout.inputs["Sheen Roughness"])
+
+
+_SF_COMPONENT_VERSION = 1
+_SF_COMPONENTS = {
+    'translucency': {
+        'group': 'SF TranslucencySettings',
+        'fields': [
+            ("Translucency Enable",   'NodeSocketBool',  False, 'enabled'),
+            ("Use SSS",               'NodeSocketBool',  False, 'use_sss'),
+            ("Spec Lobe 0 Roughness", 'NodeSocketFloat', 1.0,   'spec_lobe0_roughness'),
+            ("Spec Lobe 1 Roughness", 'NodeSocketFloat', 1.0,   'spec_lobe1_roughness'),
+        ],
+        'outputs': [("SSS Weight", 'NodeSocketFloat')],
+        'wire': _wire_translucency,
+    },
+    'emissive': {
+        'group': 'SF LayeredEmissivityComponent',
+        'fields': [
+            ("Emissive Enable", 'NodeSocketBool',  False,           'enabled'),
+            ("Emissive Layer",  'NodeSocketInt',   0,               'first_layer_index'),
+            ("Emissive Tint",   'NodeSocketColor', (1., 1., 1., 1.), 'tint'),
+            ("Blend Mode",      None,              '',              'blender_mode'),
+        ],
+        'outputs': [("Emissive Strength", 'NodeSocketFloat'),
+                    ("Emissive Tint Out", 'NodeSocketColor')],
+        'wire': _wire_emissive,
+    },
+    'alpha': {
+        'group': 'SF AlphaSettingsComponent',
+        'fields': [
+            ("Has Opacity",          'NodeSocketBool',  False, 'has_opacity'),
+            ("Alpha Test Threshold", 'NodeSocketFloat', 0.5,   'threshold'),
+        ],
+        'outputs': [("Alpha Test Threshold Out", 'NodeSocketFloat')],
+        'wire': _wire_alpha,
+    },
+    'hair': {
+        'group': 'SF HairSettingsComponent',
+        'fields': [
+            ("Hair Enable",          'NodeSocketBool',  False, 'enabled'),
+            ("Is Spiky",             'NodeSocketBool',  False, 'is_spiky'),
+            ("Roughness",            'NodeSocketFloat', 0.0,   'roughness'),
+            ("Spec Scale",           'NodeSocketFloat', 0.0,   'spec_scale'),
+            ("Backscatter Strength", 'NodeSocketFloat', 0.0,   'backscatter_strength'),
+            ("Backscatter Wrap",     'NodeSocketFloat', 0.0,   'backscatter_wrap'),
+            ("Spec Transmission",    'NodeSocketFloat', 0.0,   'spec_transmission'),
+            ("Direct Transmission",  'NodeSocketFloat', 0.0,   'direct_transmission'),
+            ("Diffuse Transmission", 'NodeSocketFloat', 0.0,   'diffuse_transmission'),
+            ("Max Depth Offset",     'NodeSocketFloat', 0.0,   'max_depth_offset'),
+            ("Dither Scale",         'NodeSocketFloat', 0.0,   'dither_scale'),
+        ],
+        'outputs': [("Sheen Weight", 'NodeSocketFloat'), ("Sheen Roughness", 'NodeSocketFloat')],
+        'wire': _wire_hair,
+    },
+}
+
+
+def ensure_sf_component_group(key):
+    """Build (or return the cached) value-holder group for a .mat settings component."""
+    spec = _SF_COMPONENTS[key]
+    ng = bpy.data.node_groups.get(spec['group'])
     if ng is not None:
-        if ng.get('pyn_sf_params_version') == _SF_PARAMS_VERSION:
+        if ng.get('pyn_sf_comp_version') == _SF_COMPONENT_VERSION:
             return ng
-        bpy.data.node_groups.remove(ng)   # stale schema -> rebuild
-
-    ng = bpy.data.node_groups.new(SF_PARAMS_GROUP, 'ShaderNodeTree')
-    ng['pyn_sf_params_version'] = _SF_PARAMS_VERSION
+        bpy.data.node_groups.remove(ng)
+    ng = bpy.data.node_groups.new(spec['group'], 'ShaderNodeTree')
+    ng['pyn_sf_comp_version'] = _SF_COMPONENT_VERSION
     iface = ng.interface
-
-    for name, stype, default in _SF_PARAM_INPUTS:
+    for name, stype, default, _key in spec['fields']:
+        if stype is None:
+            continue   # string custom-prop field, no socket
         s = _sf_new_socket(iface, name, 'INPUT', stype)
         if default is not None:
             with suppress(Exception):
                 s.default_value = default
-
-    _sf_new_socket(iface, "SSS Weight", 'OUTPUT', 'NodeSocketFloat')
-    _sf_new_socket(iface, "Emissive Strength", 'OUTPUT', 'NodeSocketFloat')
-    _sf_new_socket(iface, "Emissive Tint Out", 'OUTPUT', 'NodeSocketColor')
-    _sf_new_socket(iface, "Alpha Test Threshold Out", 'OUTPUT', 'NodeSocketFloat')
-
+    for oname, otype in spec['outputs']:
+        _sf_new_socket(iface, oname, 'OUTPUT', otype)
     gin = ng.nodes.new('NodeGroupInput'); gin.location = (-400, 0)
     gout = ng.nodes.new('NodeGroupOutput'); gout.location = (300, 0)
-    links = ng.links
-    # SSS Weight = Translucency Enable * Use SSS  (both flags preserved; product = AND on 0/1).
-    andm = ng.nodes.new('ShaderNodeMath'); andm.operation = 'MULTIPLY'; andm.location = (0, 100)
-    links.new(gin.outputs["Translucency Enable"], andm.inputs[0])
-    links.new(gin.outputs["Use SSS"], andm.inputs[1])
-    links.new(andm.outputs[0], gout.inputs["SSS Weight"])
-    links.new(gin.outputs["Emissive Enable"], gout.inputs["Emissive Strength"])
-    links.new(gin.outputs["Emissive Tint"], gout.inputs["Emissive Tint Out"])
-    links.new(gin.outputs["Alpha Test Threshold"], gout.inputs["Alpha Test Threshold Out"])
+    spec['wire'](gin, gout, ng)
     return ng
 
 
-def is_sf_params_node(node):
-    """A group instance whose datablock is the SF Parameters group (stable vs. instance rename)."""
-    return (getattr(node, 'type', '') == 'GROUP'
-            and node.node_tree is not None
-            and node.node_tree.name.startswith(SF_PARAMS_GROUP))
+def is_sf_component_node(node, key):
+    return (getattr(node, 'type', '') == 'GROUP' and node.node_tree is not None
+            and node.node_tree.name.startswith(_SF_COMPONENTS[key]['group']))
+
+
+def sf_component_node_of(material, key):
+    """The component group node of the given kind in a material, or None."""
+    if not (material and material.node_tree):
+        return None
+    return next((n for n in material.node_tree.nodes if is_sf_component_node(n, key)), None)
+
+
+def add_sf_component_node(nt, key, block, location):
+    """Add + populate a component group node from a parsed settings block dict."""
+    spec = _SF_COMPONENTS[key]
+    node = nt.nodes.new('ShaderNodeGroup')
+    node.node_tree = ensure_sf_component_group(key)
+    node.location = location
+    node.label = spec['group']
+    for name, stype, _default, skey in spec['fields']:
+        if skey not in block:
+            continue
+        val = block[skey]
+        if stype is None:
+            node[name] = val   # string custom-prop
+        elif stype == 'NodeSocketColor':
+            node.inputs[name].default_value = tuple(val)
+        else:
+            node.inputs[name].default_value = val
+    return node
+
+
+def recover_sf_component(node, key):
+    """Read a component group node's inputs back into a settings block dict."""
+    spec = _SF_COMPONENTS[key]
+    block = {}
+    for name, stype, default, skey in spec['fields']:
+        if stype is None:
+            block[skey] = node.get(name, default)
+        elif stype == 'NodeSocketColor':
+            block[skey] = tuple(node.inputs[name].default_value)
+        elif stype == 'NodeSocketBool':
+            block[skey] = bool(node.inputs[name].default_value)
+        elif stype == 'NodeSocketInt':
+            block[skey] = int(node.inputs[name].default_value)
+        else:
+            block[skey] = node.inputs[name].default_value
+    return block
 
 
 def _reconstruct_normal_rgb(tree, color_out, loc):
@@ -344,28 +440,17 @@ def _is_group(node, group_name):
 
 
 def _recover_sf_settings(material):
-    """Read the settings dict back off the SF Parameters node (the export param source)."""
-    p = sf_params_node_of(material)
-    if p is None:
-        return {}
-    ins = p.inputs
+    """Read the settings dict back off the per-component settings group nodes (each present only
+    if the material has that component) + the shader-model material property. Component keys map
+    1:1 to settings-block keys (translucency/emissive/alpha/hair)."""
     s = {}
-    sm = p.get(SF_PARAM_SHADER_MODEL)
+    sm = material.get(SF_SHADER_MODEL_PROP)
     if sm:
         s['shader_model'] = sm
-    s['translucency'] = {
-        'enabled': bool(ins['Translucency Enable'].default_value),
-        'use_sss': bool(ins['Use SSS'].default_value),
-        'spec_lobe0_roughness': ins['Spec Lobe 0 Roughness'].default_value,
-        'spec_lobe1_roughness': ins['Spec Lobe 1 Roughness'].default_value}
-    s['emissive'] = {
-        'enabled': bool(ins['Emissive Enable'].default_value),
-        'first_layer_index': int(ins['Emissive Layer'].default_value),
-        'blender_mode': p.get(SF_PARAM_EMISSIVE_MODE, ''),
-        'tint': tuple(ins['Emissive Tint'].default_value)}
-    s['alpha'] = {
-        'has_opacity': bool(ins['Has Opacity'].default_value),
-        'threshold': ins['Alpha Test Threshold'].default_value}
+    for key in _SF_COMPONENTS:
+        node = sf_component_node_of(material, key)
+        if node is not None:
+            s[key] = recover_sf_component(node, key)
     return s
 
 
@@ -425,11 +510,6 @@ def recover_sf_material(material):
             'layers': layers, 'blenders': blenders}
 
 
-def sf_params_node_of(material):
-    """The SF Parameters node in a material's tree, or None."""
-    if not (material and material.node_tree):
-        return None
-    return next((n for n in material.node_tree.nodes if is_sf_params_node(n)), None)
 GLOSS_SCALE = 100
 ATTRIBUTE_NODE_HEIGHT = 200
 NODE_WIDTH = 200
@@ -2102,9 +2182,25 @@ class ShaderImporter:
             nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
         return node
 
-    def _bundle_to_principled(self, nt, bsdf, bundle, params, settings):
-        """Wire a final bundle (an SF Layer/Blend group node) into the Principled BSDF, plus the
-        SF Parameters node driving Subsurface + Emission + alpha test."""
+    def _add_sf_component_nodes(self, nt, settings):
+        """Add one per-component settings group node for each component the material has (skipping
+        the flat 'shader_model'/'filename' keys), stash the shader-model identity on the material,
+        and return {component_key: node}."""
+        settings = settings or {}
+        if settings.get('shader_model'):
+            self.material[SF_SHADER_MODEL_PROP] = settings['shader_model']
+        comp_nodes = {}
+        y = 300
+        for key in _SF_COMPONENTS:
+            block = settings.get(key)
+            if block is not None:
+                comp_nodes[key] = add_sf_component_node(nt, key, block, (-1600, y))
+                y -= 350
+        return comp_nodes
+
+    def _bundle_to_principled(self, nt, bsdf, bundle, comp_nodes, settings):
+        """Wire a final bundle (an SF Layer/Blend group node) into the Principled BSDF, plus each
+        present settings-component node driving its bit (SSS / emission / alpha test / hair sheen)."""
         o = bundle.outputs
         bx = bsdf.location[0]
         make_mixnode(nt, o['Base Color'], o['AO'], output=bsdf.inputs['Base Color'],
@@ -2112,56 +2208,39 @@ class ShaderImporter:
         nt.links.new(o['Roughness'], bsdf.inputs['Roughness'])
         nt.links.new(o['Metallic'], bsdf.inputs['Metallic'])
         nt.links.new(self._sf_normalmap(o['Normal'], bx - 300, -400), bsdf.inputs['Normal'])
-
-        ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
-        if ecol is not None:
-            make_mixnode(nt, o['Emissive'], params.outputs['Emissive Tint Out'], output=ecol,
-                         factor=1.0, blend_type='MULTIPLY', location=(bx - 300, -150))
-        if 'Emission Strength' in bsdf.inputs:
-            nt.links.new(params.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
-        if 'Subsurface Weight' in bsdf.inputs:
-            nt.links.new(params.outputs['SSS Weight'], bsdf.inputs['Subsurface Weight'])
         if 'Subsurface Scale' in bsdf.inputs:
             bsdf.inputs['Subsurface Scale'].default_value = SF_SUBSURFACE_SCALE
 
+        tr = comp_nodes.get('translucency')
+        if tr is not None and 'Subsurface Weight' in bsdf.inputs:
+            nt.links.new(tr.outputs['SSS Weight'], bsdf.inputs['Subsurface Weight'])
+
+        em = comp_nodes.get('emissive')
+        if em is not None:
+            ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
+            if ecol is not None:
+                make_mixnode(nt, o['Emissive'], em.outputs['Emissive Tint Out'], output=ecol,
+                             factor=1.0, blend_type='MULTIPLY', location=(bx - 300, -150))
+            if 'Emission Strength' in bsdf.inputs:
+                nt.links.new(em.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
+
+        al_node = comp_nodes.get('alpha')
         al = (settings or {}).get('alpha') or {}
-        if al.get('has_opacity') and 'Alpha' in bsdf.inputs:
+        if al_node is not None and al.get('has_opacity') and 'Alpha' in bsdf.inputs:
             clip = self.nodes.new('ShaderNodeMath')
             clip.operation = 'GREATER_THAN'
             clip.location = (bx - 300, -700)
             nt.links.new(o['Opacity'], clip.inputs[0])
-            nt.links.new(params.outputs['Alpha Test Threshold Out'], clip.inputs[1])
+            nt.links.new(al_node.outputs['Alpha Test Threshold Out'], clip.inputs[1])
             nt.links.new(clip.outputs['Value'], bsdf.inputs['Alpha'])
 
-    def _add_sf_params_node(self, nt, settings, location):
-        """Add the SF Parameters group instance, populated from the parsed .mat settings."""
-        node = nt.nodes.new('ShaderNodeGroup')
-        node.node_tree = ensure_sf_params_group()
-        node.name = SF_PARAMS_GROUP
-        node.label = SF_PARAMS_GROUP
-        node.location = location
-        node.width = 240
-        ins = node.inputs
-        tr = (settings or {}).get('translucency')
-        if tr:
-            ins["Translucency Enable"].default_value = bool(tr['enabled'])
-            ins["Use SSS"].default_value = bool(tr['use_sss'])
-            ins["Spec Lobe 0 Roughness"].default_value = tr['spec_lobe0_roughness']
-            ins["Spec Lobe 1 Roughness"].default_value = tr['spec_lobe1_roughness']
-        em = (settings or {}).get('emissive')
-        if em:
-            ins["Emissive Enable"].default_value = bool(em['enabled'])
-            ins["Emissive Tint"].default_value = tuple(em['tint'])
-            ins["Emissive Layer"].default_value = em.get('first_layer_index', 0)
-            node[SF_PARAM_EMISSIVE_MODE] = em.get('blender_mode', '')
-        al = (settings or {}).get('alpha')
-        if al:
-            ins["Has Opacity"].default_value = bool(al['has_opacity'])
-            ins["Alpha Test Threshold"].default_value = al['threshold']
-        sm = (settings or {}).get('shader_model')
-        if sm:
-            node[SF_PARAM_SHADER_MODEL] = sm   # string identity: custom prop, not a socket
-        return node
+        # Hair -> Principled Sheen (fuzzy rim). First pass; calibrate by eye.
+        hr = comp_nodes.get('hair')
+        if hr is not None:
+            if 'Sheen Weight' in bsdf.inputs:
+                nt.links.new(hr.outputs['Sheen Weight'], bsdf.inputs['Sheen Weight'])
+            if 'Sheen Roughness' in bsdf.inputs:
+                nt.links.new(hr.outputs['Sheen Roughness'], bsdf.inputs['Sheen Roughness'])
 
     def _build_sf_nodes(self, resolved, settings=None, layers_resolved=None, blenders_resolved=None):
         """Wire the resolved SF PBR textures into a Principled BSDF, plus the SF Parameters node
@@ -2187,8 +2266,8 @@ class ShaderImporter:
             layers_resolved = [{'textures': dict(resolved),
                                 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)}]
 
-        # SF Parameters node (settings) -- created first so the bundle wiring can read it.
-        params = self._add_sf_params_node(nt, settings, (-1500, -900))
+        # Per-component settings group nodes -- created first so the bundle wiring can read them.
+        comp_nodes = self._add_sf_component_nodes(nt, settings)
 
         # One SF Layer group per layer; chain them through SF Blend groups into one bundle.
         layer_nodes = [self._build_sf_layer(nt, i, ly, -700, 500 - i * 800)
@@ -2203,7 +2282,7 @@ class ShaderImporter:
                 final = self._build_sf_blend(nt, i, b, final, layer_nodes[i + 1], bx, 0)
                 bx += 350
         if final is not None:
-            self._bundle_to_principled(nt, bsdf, final, params, settings)
+            self._bundle_to_principled(nt, bsdf, final, comp_nodes, settings)
 
     def import_material(self, obj, shape:NiShape, asset_path):
         """
