@@ -3315,6 +3315,59 @@ def TEST_SF_MORPH_SPLIT():
     assert pm.morph_names == ["jawOpen"], f"Performance file holds the action unit: {pm.morph_names}"
 
 
+@TT.category('STARFIELD')
+def TEST_SF_MORPH_NIFEXPORT():
+    """Starfield: exporting the nif writes the shape's morph.dat files, gated by write_tris.
+
+    Morphs are written alongside the nif (anchored on the nif's output path). With no prior morph
+    path on the shape, they default to meshes/morphs/<nifstem>/{chargen,performance}/morph.dat under
+    the nif's meshes root. write_tris=False skips them entirely.
+    """
+    import os, shutil
+    from pyn.sf_morph import MorphFile
+
+    # Clean prior output so the write_tris-off assertion can't see stale files.
+    for sub in ("TEST_SF_MORPH_NIFEXPORT", "TEST_SF_MORPH_NIFEXPORT_OFF"):
+        d = os.path.dirname(TTB.test_file(os.path.join("tests", "Out", sub, "marker")))
+        shutil.rmtree(d, ignore_errors=True)
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    body.shape_key_add(name="Basis")
+    kj = body.shape_key_add(name="jawOpen")     # -> performance
+    kj.data[0].co.z += 1.0
+    ko = body.shape_key_add(name="Overweight")  # -> chargen
+    ko.data[1].co.x += 0.5
+
+    def morph_paths(outnif):
+        meshes = os.path.dirname(os.path.dirname(outnif))                 # .../meshes
+        stem = os.path.splitext(os.path.basename(outnif))[0]
+        return (os.path.join(meshes, "morphs", stem, "chargen", "morph.dat"),
+                os.path.join(meshes, "morphs", stem, "performance", "morph.dat"))
+
+    # Export with morphs ON (default): both files land under the nif's meshes/morphs tree.
+    outnif = TTB.test_file(r"tests\Out\TEST_SF_MORPH_NIFEXPORT\meshes\FSF\FoxBody.nif")
+    os.makedirs(os.path.dirname(outnif), exist_ok=True)
+    BD.ObjectSelect(list(bpy.context.scene.objects))
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outnif, target_game="SF")
+    cp, pp = morph_paths(outnif)
+    assert os.path.exists(cp), f"chargen morph written on nif export: {cp}"
+    assert os.path.exists(pp), f"performance morph written on nif export: {pp}"
+    assert MorphFile.from_file(cp).morph_names == ["Overweight"], "chargen file has the slider"
+    assert MorphFile.from_file(pp).morph_names == ["jawOpen"], "performance file has the AU"
+
+    # Turn morphs off via the sticky setting on the nif root; re-export writes no morph files.
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    root.pyn_export.write_tris = False
+    outnif2 = TTB.test_file(r"tests\Out\TEST_SF_MORPH_NIFEXPORT_OFF\meshes\FSF\FoxBody.nif")
+    os.makedirs(os.path.dirname(outnif2), exist_ok=True)
+    bpy.ops.export_scene.pynifly(filepath=outnif2, target_game="SF")
+    cp2, pp2 = morph_paths(outnif2)
+    assert not os.path.exists(cp2) and not os.path.exists(pp2), "write_tris off skips morph export"
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""

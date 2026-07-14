@@ -728,7 +728,7 @@ from ..util.settings import (
 
 # `game` stays on its legacy PYN_GAME custom prop — it's inferred by multi-object discovery
 # (_discover_game), not a pure sticky preference, so it's not part of this consolidation.
-_EXPORT_ROOT_FIELDS = ['blender_xf', 'write_bodytri', 'export_modifiers',
+_EXPORT_ROOT_FIELDS = ['blender_xf', 'write_bodytri', 'write_tris', 'export_modifiers',
                        'export_animations', 'export_colors', 'export_recenter_half_precision',
                        'export_full_precision', 'chargen_extension']
 _EXPORT_SKEL_FIELDS = ['rename_bones', 'rename_bones_niftools', 'rotate_bones_pretty',

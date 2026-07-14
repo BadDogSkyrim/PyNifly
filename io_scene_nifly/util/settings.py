@@ -131,6 +131,11 @@ class ExportSettings:
     # overwrite a source .mat when exporting in place.
     write_sf_materials: bool = False
 
+    # Write shape-key morphs to sidecar files alongside the exported nif: FO4/Skyrim expression +
+    # chargen .tri files, Starfield chargen/performance morph.dat files. On by default; turn off to
+    # skip morph/tri export.
+    write_tris: bool = True
+
 
 # Custom properties that store import/export settings on objects.
 PYN_BLENDER_XF_PROP = "PYN_BLENDER_XF"

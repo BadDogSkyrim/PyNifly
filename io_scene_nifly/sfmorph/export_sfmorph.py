@@ -87,7 +87,7 @@ def resolve_morph_paths(obj, dialog_path):
     if pp and not cp:
         cp = swap_morph_tree(pp)
 
-    # Nothing stored -> seed from the dialog path (relative-ize it, derive the sibling).
+    # Nothing stored -> seed from the anchor path (relative-ize it, derive the sibling).
     seed = str(dialog_path) if dialog_path else ''
     if not cp and not pp and seed:
         low = seed.lower()
@@ -95,10 +95,41 @@ def resolve_morph_paths(obj, dialog_path):
             pp = morph_relpath(seed); cp = swap_morph_tree(pp)
         elif 'chargen' in low:
             cp = morph_relpath(seed); pp = swap_morph_tree(cp)
+        elif low.endswith('.nif'):
+            # Anchored on a nif with no prior morph path: default to the SF morph tree named
+            # after the nif, so we never overwrite the nif itself.
+            stem = os.path.splitext(os.path.basename(seed))[0]
+            cp = f"meshes/morphs/{stem}/chargen/morph.dat"
+            pp = f"meshes/morphs/{stem}/performance/morph.dat"
         else:
-            cp = seed   # no chargen/performance hint -> write the (chargen-classed) file here
+            cp = seed   # explicit .dat pick -> write the (chargen-classed) file here
 
     return resolve_morph_output(cp, seed), resolve_morph_output(pp, seed)
+
+
+def write_sf_morphs(obj, anchor_path):
+    """Build + write `obj`'s chargen/performance morph.dat files, anchored at `anchor_path` (the
+    exported nif, or an explicit dialog path). Returns a list of "N which -> path" strings for
+    what was written (empty if nothing)."""
+    if obj.data.shape_keys is None:
+        return []
+    morphs = build_morphs(obj)
+    if morphs['chargen'] is None and morphs['performance'] is None:
+        return []
+    cp, pp = resolve_morph_paths(obj, anchor_path)
+    wrote = []
+    for which, path in (('chargen', cp), ('performance', pp)):
+        mf = morphs[which]
+        if mf is None:
+            continue
+        if not path:
+            log.warning(f"{len(mf.morph_names)} {which} morph(s) but no {which} output path "
+                        f"(set {obj.name}.pyn_sf_morph.{which}_path)")
+            continue
+        os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
+        mf.to_file(path)
+        wrote.append(f"{len(mf.morph_names)} {which} -> {path}")
+    return wrote
 
 
 class ExportSFMorph(bpy.types.Operator, ExportHelper):
@@ -123,20 +154,7 @@ class ExportSFMorph(bpy.types.Operator, ExportHelper):
             if obj is None or obj.type != 'MESH':
                 self.report({"ERROR"}, "Select a mesh object with shape keys to export")
                 return {'CANCELLED'}
-            morphs = build_morphs(obj)
-            cp, pp = resolve_morph_paths(obj, self.filepath)
-            wrote = []
-            for which, path in (('chargen', cp), ('performance', pp)):
-                mf = morphs[which]
-                if mf is None:
-                    continue
-                if not path:
-                    log.warning(f"{len(mf.morph_names)} {which} morph(s) but no {which} output "
-                                f"path (set {obj.name}.pyn_sf_morph.{which}_path)")
-                    continue
-                os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
-                mf.to_file(path)
-                wrote.append(f"{len(mf.morph_names)} {which} -> {path}")
+            wrote = write_sf_morphs(obj, self.filepath)
             if not wrote:
                 self.report({"ERROR"}, "No morphs written (no shape keys or no output paths)")
                 status = {'CANCELLED'}

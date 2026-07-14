@@ -893,8 +893,19 @@ class NifExporter:
 
     # --------- DO THE EXPORT ---------
 
+    def export_sf_morphs(self, robj:ReprObject):
+        """Starfield: write the shape's chargen + performance morph.dat files (split by expression
+        classification) alongside the exported nif, re-homed under the nif's meshes root."""
+        obj = robj.blender_obj
+        if obj.type != 'MESH' or obj.data.shape_keys is None:
+            return
+        from ..sfmorph.export_sfmorph import write_sf_morphs
+        wrote = write_sf_morphs(obj, self.nif.filepath)
+        if wrote:
+            log.info(f"Wrote Starfield morphs for {obj.name}: " + "; ".join(wrote))
+
     def export_tris(self, robj:ReprObject, verts, tris, uvs, morphdict):
-        """ Export a tri file to go along with the given nif file, if there are shape keys 
+        """ Export a tri file to go along with the given nif file, if there are shape keys
             and it's not a faceBones nif.
             dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
         """
@@ -2003,8 +2014,13 @@ class NifExporter:
         except Exception as e:
             log.exception(f"Error exporting controller for object {obj.name}: {e}")
 
-        # Write tri file
-        retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)
+        # Write shape-key morphs alongside the nif (gated). Starfield uses morph.dat files split by
+        # expression classification; FO4/Skyrim use .tri files.
+        if self.settings.write_tris:
+            if self.game == 'SF':
+                self.export_sf_morphs(robj)
+            else:
+                retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)
 
         # Write TRIP extra data 
         if self.settings.write_bodytri \
@@ -2330,6 +2346,12 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                     "in place)",
         default=ExportSettings.__dataclass_fields__["write_sf_materials"].default) # type: ignore
 
+    write_tris: bpy.props.BoolProperty(
+        name="Export morphs/tri files",
+        description="Write shape-key morphs alongside the nif: FO4/Skyrim expression + chargen .tri "
+                    "files, Starfield chargen/performance morph.dat files. Off to skip morph export",
+        default=ExportSettings.__dataclass_fields__["write_tris"].default) # type: ignore
+
     export_recenter_half_precision: bpy.props.BoolProperty(
         name="Recenter half precision vertices",
         description="For FO4 skinned meshes, keep half precision but store vertices "
@@ -2482,7 +2504,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             'export_recenter_half_precision', self.export_recenter_half_precision)
         self.export_full_precision = sticky.get('export_full_precision', self.export_full_precision)
         self.write_sf_materials = sticky.get('write_sf_materials', self.write_sf_materials)
-    
+        self.write_tris = sticky.get('write_tris', self.write_tris)
+
 
     def __str__(self):
         return (f"ExportNIF(game={self.target_game}, "
