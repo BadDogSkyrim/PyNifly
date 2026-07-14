@@ -356,6 +356,27 @@ PYN_SF_LAYER = 'pyn_sf_layer'   # owning layer index (on image + SF Layer node)
 PYN_SF_BLEND = 'pyn_sf_blend'   # blender index (on SF Blend node)
 PYN_SF_MODE = 'pyn_sf_mode'     # blend mode string (also encoded in the group name)
 
+# --- SF material graph layout ------------------------------------------------------------------
+# Columns, left -> right: textures | layers | blend row | BSDF. A 6-layer head is wide + tall, so
+# columns share an X and rows share a Y to stay legible. Textures sit inside _build_sf_layer at
+# (layer_x - SF_LAYER_TEX_DX); since every layer shares SF_X_LAYER, all textures share one X too.
+SF_X_LAYER = -1400              # every SF Layer group node shares this X
+SF_LAYER_TEX_DX = 600           # image nodes sit this far left of their layer node
+SF_LAYER_TOP_Y = 0              # layer-0 (and its top texture) share the blend/BSDF row (Y=0)
+SF_X_BLEND0 = -200              # leftmost blend X (right of the layer column)
+SF_BLEND_DX = 450               # X gap between successive blends in the chain
+SF_BLEND_Y = 0                  # the blend row Y (== BSDF Y)
+SF_BSDF_GAP = 1000              # X from the last blend (or lone layer) to the BSDF -- extra space
+SF_BLEND_WIDTH = 280            # blend + settings-component node width (2x the group default 140)
+SF_LAYER_NODE_W = 300           # SF Layer group node width (also its node.width)
+SF_LAYER_NODE_H = 430           # approx SF Layer node height (headless can't measure dimensions)
+SF_TEX_DY = 280                 # close vertical spacing between a layer's stacked texture nodes
+SF_TEX_NODE_H = 260             # approx texture image-node height (for content-driven layer spacing)
+SF_LAYER_GAP = 60               # vertical gap between one layer's bottom and the next layer's top
+SF_MASK_GAP = 40                # X gap from a layer node to its blend's mask node
+SF_COMP_BASE_Y = 400            # bottom-most settings-component Y (sits above the blend row)
+SF_COMP_DY = 350                # vertical gap between stacked settings-component nodes
+
 
 def _ensure_group(name):
     ng = bpy.data.node_groups.get(name)
@@ -2137,36 +2158,46 @@ class ShaderImporter:
         uo = layer.get('uv_offset', (0.0, 0.0))
         uv_out = None
         if tuple(us) != (1.0, 1.0) or tuple(uo) != (0.0, 0.0):
-            tc = nt.nodes.new('ShaderNodeTexCoord'); tc.location = (x - 1250, y + 300)
-            mapping = nt.nodes.new('ShaderNodeMapping'); mapping.location = (x - 1050, y + 300)
+            tc = nt.nodes.new('ShaderNodeTexCoord'); tc.location = (x - 1250, y)
+            mapping = nt.nodes.new('ShaderNodeMapping'); mapping.location = (x - 1050, y)
             mapping[PYN_SF_LAYER] = index
             mapping.inputs['Scale'].default_value = (us[0], us[1], 1.0)
             mapping.inputs['Location'].default_value = (uo[0], uo[1], 0.0)
             nt.links.new(tc.outputs['UV'], mapping.inputs['Vector'])
             uv_out = mapping.outputs['Vector']
 
-        # Lay each image node out at the vertical row of the group input it feeds, so the wires
-        # run parallel (top-to-bottom order = the group's input-socket order).
+        # Stack this layer's image nodes in group-input-socket order, closely spaced, with the
+        # topmost aligned to the layer node's top (never above it).
         input_order = [n for n, _b, _d in _SF_LAYER_TEX_INPUTS] + ["Normal Tex"]
+        present = []
         for slot, entry in layer.get('textures', {}).items():
             m = self._SF_SLOT_TO_LAYER_INPUT.get(slot)
             if not m:
                 continue
             inp, cs = m
-            row = input_order.index(inp) if inp in input_order else len(input_order)
+            order = input_order.index(inp) if inp in input_order else len(input_order)
+            present.append((order, slot, inp, cs, entry))
+        present.sort(key=lambda t: t[0])
+        for k, (_order, slot, inp, cs, entry) in enumerate(present):
             fp, mp = self._sf_split(entry)
-            img = self._sf_teximg_path(fp, cs, (x - 600, y + 250 - row * 320),
+            img = self._sf_teximg_path(fp, cs, (x - SF_LAYER_TEX_DX, y - k * SF_TEX_DY),
                                        matpath=mp, slot=slot, layer=index)
             if uv_out is not None:
                 nt.links.new(uv_out, img.inputs['Vector'])
             nt.links.new(img.outputs['Color'], node.inputs[inp])
-        return node
+
+        # This layer's lowest edge = the lower of the last texture node's bottom and the layer
+        # node's bottom -- used to place the next layer just below it.
+        last_tex_bottom = (y - (len(present) - 1) * SF_TEX_DY - SF_TEX_NODE_H) if present else y
+        bottom = min(last_tex_bottom, y - SF_LAYER_NODE_H)
+        return node, bottom
 
     def _build_sf_blend(self, nt, index, blender, bundle_a, bundle_b, x, y):
         """Composite two bundles via an SF Blend group (chosen by mode). Returns the group node."""
         node = nt.nodes.new('ShaderNodeGroup')
         node.node_tree = sf_blend_group_for(blender.get('mode', ''))
         node.location = (x, y)
+        node.width = SF_BLEND_WIDTH   # blends are wide (many bundle sockets) -- give them room
         node.label = node.node_tree.name
         node[PYN_SF_BLEND] = index
         node[PYN_SF_MODE] = blender.get('mode', '')
@@ -2176,26 +2207,33 @@ class ShaderImporter:
         mask = blender.get('mask')
         if mask:
             mfile, mpath = self._sf_split(mask)
-            mnode = self._sf_teximg_path(mfile, 'Non-Color', (x - 400, y - 500),
+            # Mask sits just to the right of the layer node this blend composites in (bundle_b),
+            # level with that node's vertical midpoint.
+            mx = bundle_b.location[0] + SF_LAYER_NODE_W + SF_MASK_GAP
+            my = bundle_b.location[1] - SF_LAYER_NODE_H // 2
+            mnode = self._sf_teximg_path(mfile, 'Non-Color', (mx, my),
                                          matpath=mpath, slot='Mask')
             mnode[PYN_SF_BLEND] = index
             nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
         return node
 
-    def _add_sf_component_nodes(self, nt, settings):
+    def _add_sf_component_nodes(self, nt, settings, anchor_x):
         """Add one per-component settings group node for each component the material has (skipping
         the flat 'shader_model'/'filename' keys), stash the shader-model identity on the material,
-        and return {component_key: node}."""
+        and return {component_key: node}. The nodes stack upward above the last blend node
+        (anchor_x) and share the blend width."""
         settings = settings or {}
         if settings.get('shader_model'):
             self.material[SF_SHADER_MODEL_PROP] = settings['shader_model']
         comp_nodes = {}
-        y = 300
+        y = SF_COMP_BASE_Y
         for key in _SF_COMPONENTS:
             block = settings.get(key)
             if block is not None:
-                comp_nodes[key] = add_sf_component_node(nt, key, block, (-1600, y))
-                y -= 350
+                node = add_sf_component_node(nt, key, block, (anchor_x, y))
+                node.width = SF_BLEND_WIDTH
+                comp_nodes[key] = node
+                y += SF_COMP_DY
         return comp_nodes
 
     def _bundle_to_principled(self, nt, bsdf, bundle, comp_nodes, settings):
@@ -2255,10 +2293,6 @@ class ShaderImporter:
             or self.nodes.new('ShaderNodeBsdfPrincipled')
         out = next((n for n in self.nodes if n.type == 'OUTPUT_MATERIAL'), None) \
             or self.nodes.new('ShaderNodeOutputMaterial')
-        bsdf.location = (600, 0)
-        out.location = (1000, 0)
-        nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
-
         # A flat material (no layer graph) is one implicit layer, so the same Layer->Blend->
         # Principled path handles both.
         layers_resolved = list(layers_resolved or [])
@@ -2267,20 +2301,39 @@ class ShaderImporter:
                                 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)}]
 
         # Per-component settings group nodes -- created first so the bundle wiring can read them.
-        comp_nodes = self._add_sf_component_nodes(nt, settings)
+        # They sit above the last blend node (its X is deterministic from the layer/blender counts).
+        n_blend = min(len(blenders_resolved or []), max(0, len(layers_resolved) - 1))
+        last_blend_x = SF_X_BLEND0 + max(0, n_blend - 1) * SF_BLEND_DX
+        comp_nodes = self._add_sf_component_nodes(nt, settings, last_blend_x)
 
-        # One SF Layer group per layer; chain them through SF Blend groups into one bundle.
-        layer_nodes = [self._build_sf_layer(nt, i, ly, -700, 500 - i * 800)
-                       for i, ly in enumerate(layers_resolved)]
+        # Layers: one SF Layer group per layer, stacked in a single column (shared X). Layer 0's top
+        # texture is on the blend row; each next layer drops just below the prior layer's lowest edge
+        # (content-driven, so tall texture stacks don't overlap).
+        layer_nodes = []
+        next_top = SF_LAYER_TOP_Y
+        for i, ly in enumerate(layers_resolved):
+            node, bottom = self._build_sf_layer(nt, i, ly, SF_X_LAYER, next_top)
+            layer_nodes.append(node)
+            next_top = bottom - SF_LAYER_GAP
+
+        # Blends: a left-to-right chain (blend of layers 0/1 leftmost) on one row at the BSDF's Y.
         final = None
+        last_x = SF_X_LAYER
         if layer_nodes:
             final = layer_nodes[0]
-            bx = 0
+            bx = SF_X_BLEND0
             for i, b in enumerate(blenders_resolved or []):
                 if i + 1 >= len(layer_nodes):
                     break
-                final = self._build_sf_blend(nt, i, b, final, layer_nodes[i + 1], bx, 0)
-                bx += 350
+                final = self._build_sf_blend(nt, i, b, final, layer_nodes[i + 1], bx, SF_BLEND_Y)
+                last_x = bx
+                bx += SF_BLEND_DX
+
+        # BSDF sits an extra gap right of the last blend (or the lone layer); output just beyond.
+        bsdf.location = (last_x + SF_BSDF_GAP, 0)
+        out.location = (bsdf.location[0] + 400, 0)
+        nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+
         if final is not None:
             self._bundle_to_principled(nt, bsdf, final, comp_nodes, settings)
 
