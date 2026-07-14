@@ -7087,6 +7087,26 @@ NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh,
     return 1;
 }
 
+// Get the per-vertex colors of the currently-selected LOD mesh. The .mesh's colors live in
+// BSGeometryMeshData::vColors (ByteColor4), NOT the inherited NiGeometryData::vertexColors that
+// the generic getColorsForShape reads -- so a BSGeometry needs this dedicated reader or every
+// color comes back black. Mirrors setBSGeometryColors's straight RGBA byte mapping. Fills up to
+// 'count' Color4 (float RGBA 0..1); returns the number of colors available.
+NIFLY_API int getBSGeometryColors(void* theNif, void* theShape, Color4* colors, int count) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+    nifly::BSGeometryMeshData* md = static_cast<nifly::BSGeometryMeshData*>(geom->GetGeomData());
+    if (!md) return 0;
+    int n = (int)md->vColors.size();
+    for (int i = 0; i < n && i < count; i++) {
+        colors[i].r = md->vColors[i].r / 255.0f;
+        colors[i].g = md->vColors[i].g / 255.0f;
+        colors[i].b = md->vColors[i].b / 255.0f;
+        colors[i].a = md->vColors[i].a / 255.0f;
+    }
+    return n;
+}
+
 // Set the per-vertex colors for LOD slot 'whichMesh'. colors = count Color4 (float RGBA,
 // 0..1), converted to the .mesh's ByteColor4 (BGRA-order bytes are handled by nifly's
 // Sync; we store straight RGBA bytes). Returns 1 on success.

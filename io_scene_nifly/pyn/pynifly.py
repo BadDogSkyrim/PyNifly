@@ -4704,6 +4704,21 @@ class BSGeometry(NiShape):
         return NiShapeBuf(values)
 
     @property
+    def colors(self):
+        """Per-vertex colors of the loaded/selected .mesh. A BSGeometry keeps its colors in the
+        external .mesh (BSGeometryMeshData.vColors), which the generic color accessor doesn't
+        read -- so route through the dedicated reader (else every color is black)."""
+        if self._colors is None:
+            n = len(self.verts)
+            if n:
+                buf = (c_float * 4 * n)()
+                got = nifly.getBSGeometryColors(self.file._handle, self._handle, buf, n)
+                self._colors = [(c[0], c[1], c[2], c[3]) for c in buf[:got]]
+            else:
+                self._colors = []
+        return self._colors
+
+    @property
     def mesh_count(self):
         """Number of LOD mesh slots."""
         return nifly.getBSGeometryMeshCount(self.file._handle, self._handle)

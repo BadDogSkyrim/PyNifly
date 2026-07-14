@@ -212,6 +212,7 @@ extern "C" NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int
 extern "C" NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, char* buf, int buflen);
 extern "C" NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh, const char* name);
 extern "C" NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh, nifly::Vector3* tangents, uint8_t* tangentWs, int count);
+extern "C" NIFLY_API int getBSGeometryColors(void* theNif, void* theShape, nifly::Color4* colors, int count);
 extern "C" NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh, nifly::Color4* colors, int count);
 extern "C" NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones, int weightsPerVertex);
 extern "C" NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex, const nifly::MatTransform& xf);
