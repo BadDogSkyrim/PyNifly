@@ -18,7 +18,8 @@ import numpy as np
 from bpy_extras.io_utils import ExportHelper
 from .. import blender_defs as BD
 from .. import bl_info
-from ..pyn.sf_morph import MorphFile, MAX_KEYS, is_expression_morph
+from ..pyn.sf_morph import (MorphFile, MAX_KEYS, is_expression_morph,
+                            morph_relpath, resolve_morph_output, swap_morph_tree)
 
 log = logging.getLogger("pynifly")
 
@@ -68,33 +69,36 @@ def build_morphs(obj, scale=1.0, epsilon=1e-4):
     return out
 
 
-def _swap_folder(path, frm, to):
-    """Swap a path segment (the chargen<->performance sibling), either slash style."""
-    for sep in ('\\', '/'):
-        path = path.replace(f'{sep}{frm}{sep}', f'{sep}{to}{sep}')
-    return path
-
-
 def resolve_morph_paths(obj, dialog_path):
-    """Return (chargen_path, performance_path) for the export, from the object's pyn_sf_morph
-    group, filling any unset path from the export dialog path (swapping the chargen<->performance
-    folder). Either may be '' if it can't be determined."""
+    """Return absolute (chargen_path, performance_path) for the export.
+
+    The object's pyn_sf_morph group holds each path RELATIVE to 'meshes' (stashed on import). We
+    fill an unset sibling by swapping the chargen<->performance tree, seed from the export dialog
+    path if nothing is stored, then resolve each relative path to absolute against the dialog path
+    as the export anchor (its 'meshes' root -> the Data root). Either may be '' if undetermined.
+    """
     grp = getattr(obj, 'pyn_sf_morph', None)
     cp = (getattr(grp, 'chargen_path', '') if grp else '') or ''
     pp = (getattr(grp, 'performance_path', '') if grp else '') or ''
+
+    # Derive the missing sibling from the other (swap chargen<->performance in the stored path).
+    if cp and not pp:
+        pp = swap_morph_tree(cp)
+    if pp and not cp:
+        cp = swap_morph_tree(pp)
+
+    # Nothing stored -> seed from the dialog path (relative-ize it, derive the sibling).
     seed = str(dialog_path) if dialog_path else ''
-    low = seed.lower()
-    if not cp and 'chargen' in low:
-        cp = seed
-    if not pp and 'performance' in low:
-        pp = seed
-    if cp and not pp and 'chargen' in cp.lower():
-        pp = _swap_folder(cp, 'chargen', 'performance')
-    if pp and not cp and 'performance' in pp.lower():
-        cp = _swap_folder(pp, 'performance', 'chargen')
     if not cp and not pp and seed:
-        cp = seed   # no chargen/performance hint -> write the (chargen-classed) file here
-    return cp, pp
+        low = seed.lower()
+        if 'performance' in low:
+            pp = morph_relpath(seed); cp = swap_morph_tree(pp)
+        elif 'chargen' in low:
+            cp = morph_relpath(seed); pp = swap_morph_tree(cp)
+        else:
+            cp = seed   # no chargen/performance hint -> write the (chargen-classed) file here
+
+    return resolve_morph_output(cp, seed), resolve_morph_output(pp, seed)
 
 
 class ExportSFMorph(bpy.types.Operator, ExportHelper):

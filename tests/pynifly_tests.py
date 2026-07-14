@@ -909,6 +909,35 @@ def TEST_SF_MORPH_CLASSIFY():
     assert len(SF_EXPRESSION_MORPHS) == 108, f"Expected 108 expression morphs, got {len(SF_EXPRESSION_MORPHS)}"
 
 
+def TEST_SF_MORPH_PATHS():
+    """Starfield: morph paths are stored relative to 'meshes' so they re-home under a new nif.
+
+    Import stashes the morph.dat path from its 'meshes' segment onward; export resolves that
+    relative path against the exported nif's location (its 'meshes' root -> Data root), so a morph
+    exported alongside a nif in a new folder lands in that folder's meshes/morphs tree.
+    """
+    from pyn.sf_morph import (split_at_meshes, morph_relpath, resolve_morph_output, swap_morph_tree)
+
+    src = r"C:\Games\Starfield\Data\meshes\morphs\human\female\chargen\head\morph.dat"
+    root, rel = split_at_meshes(src)
+    assert root == "C:/Games/Starfield/Data", f"Data root before 'meshes': {root}"
+    assert rel == "meshes/morphs/human/female/chargen/head/morph.dat", f"rel: {rel}"
+    assert morph_relpath(src) == rel, "morph_relpath stores the meshes-rooted relative path"
+    # No 'meshes' segment -> falls back to the full path.
+    assert morph_relpath(r"C:\tmp\loose\morph.dat").endswith("morph.dat")
+
+    # Re-home: the same relative morph path resolves under a *different* nif's meshes root.
+    import os
+    out = resolve_morph_output(rel, r"D:\MyMod\Data\meshes\FSF\head.nif")
+    assert out == os.path.normpath(r"D:\MyMod\Data\meshes\morphs\human\female\chargen\head\morph.dat"), out
+    # An absolute stored path is an explicit override -- passes through unchanged.
+    assert resolve_morph_output(r"C:\out\x.dat", r"D:\MyMod\head.nif") == r"C:\out\x.dat"
+    # chargen <-> performance sibling swap.
+    perf = swap_morph_tree(rel)
+    assert perf == "meshes/morphs/human/female/performance/head/morph.dat", perf
+    assert swap_morph_tree(perf).endswith("chargen/head/morph.dat"), "swap is reversible"
+
+
 def TEST_SF_MAT_PARSE():
     """Starfield: parse a loose layered .mat, extracting texture slots by index.
 

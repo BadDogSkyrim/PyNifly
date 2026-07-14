@@ -665,9 +665,10 @@ _register_handwired_group('PynSFGeometryProps', 'pyn_sf_geometry',
 # --- Starfield morphs (chargen/performance morph.dat output paths) ------------
 # A head's shape keys split into two morph.dat files: expression/action-unit keys go to a
 # performance/ file, chargen sliders to a chargen/ file (see pyn.sf_morph.is_expression_morph).
-# These hold the .mesh-relative (Data\-rooted) output paths for each, recorded on import from the
-# source morph.dat's own path and used as the export target. Verbatim so export writes back in
-# place; empty = that file isn't written (or is derived from the export dialog path).
+# These hold each output path RELATIVE to 'meshes' (e.g. meshes\morphs\...\morph.dat), recorded on
+# import from the source morph.dat's path, so export re-homes the morph under a new nif's meshes
+# root (pyn.sf_morph.resolve_morph_output). An absolute value is an explicit override; empty = that
+# file isn't written (or is derived from the export dialog path).
 _register_handwired_group('PynSFMorphProps', 'pyn_sf_morph',
     {'chargen_path': bpy.props.StringProperty(name='chargen_path', default='', subtype='FILE_PATH'),
      'performance_path': bpy.props.StringProperty(name='performance_path', default='', subtype='FILE_PATH')},

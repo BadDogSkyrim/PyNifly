@@ -106,6 +106,62 @@ def is_expression_morph(name):
     stripped before matching."""
     return _DUP_SUFFIX.sub('', name) in SF_EXPRESSION_MORPHS
 
+
+# --- morph.dat path handling (store relative-to-'meshes' so morphs re-home with the nif) -------
+# A morph.dat lives under Data/meshes/morphs/...; the nif under Data/meshes/.... Both share the
+# 'meshes' root, so storing the morph path from 'meshes' onward lets export re-home it under a new
+# nif's meshes root (go up from the nif to 'meshes', join the stored relative path).
+
+def split_at_meshes(path):
+    """Split `path` at its 'meshes' directory (case-insensitive, last occurrence). Returns
+    ``(data_root, 'meshes/...tail')`` with forward slashes, or ``(None, None)`` if there is no
+    'meshes' segment."""
+    if not path:
+        return None, None
+    parts = str(path).replace('\\', '/').split('/')
+    idx = None
+    for i, p in enumerate(parts):
+        if p.lower() == 'meshes':
+            idx = i
+    if idx is None:
+        return None, None
+    return '/'.join(parts[:idx]), '/'.join(parts[idx:])
+
+
+def morph_relpath(path):
+    """The morph.dat path rooted at 'meshes' (relative), for stashing on import. Falls back to the
+    full path if there's no 'meshes' segment."""
+    _root, rel = split_at_meshes(path)
+    return rel if rel is not None else str(path)
+
+
+def resolve_morph_output(stored, anchor):
+    """Resolve a stored morph path against an export `anchor` (the nif's output path). An absolute
+    `stored` passes through (explicit override). A relative `stored` (rooted at 'meshes') is joined
+    to the Data root found by going up from `anchor` to its 'meshes' segment; if `anchor` has no
+    'meshes', the anchor's directory is treated as the Data root."""
+    import os
+    if not stored:
+        return ''
+    if os.path.isabs(stored):
+        return stored
+    data_root, _ = split_at_meshes(anchor)
+    if data_root is None:
+        data_root = os.path.dirname(str(anchor)) if anchor else '.'
+    return os.path.normpath(os.path.join(data_root, stored.replace('/', os.sep)))
+
+
+def swap_morph_tree(path):
+    """Swap a morph path between its 'chargen' and 'performance' sibling trees (either direction),
+    or return '' if the path has neither segment."""
+    low = path.lower()
+    for sep in ('\\', '/'):
+        if f'{sep}chargen{sep}' in low:
+            return path.replace(f'{sep}chargen{sep}', f'{sep}performance{sep}')
+        if f'{sep}performance{sep}' in low:
+            return path.replace(f'{sep}performance{sep}', f'{sep}chargen{sep}')
+    return ''
+
 # target_vert_color is an RGB565 target vertex colour (SF vertex colour drives material masks --
 # hair/clothing morphs vary it per channel; face/body morphs leave it a constant gray). Not
 # recoverable from a Blender shape key, so newly-authored (positions-only) records get the vanilla
