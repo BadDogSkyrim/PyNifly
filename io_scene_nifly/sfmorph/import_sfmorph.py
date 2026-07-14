@@ -80,6 +80,11 @@ class ImportSFMorph(bpy.types.Operator, ImportHelper):
                 return {'CANCELLED'}
             morph = MorphFile.from_file(Path(self.filepath))
             apply_morphs(obj, morph)
+            # Record the source path so export can round-trip to the same file (a morph.dat under
+            # a .../performance/... tree is the performance file, else chargen).
+            from ..nif import pyn_props
+            which = 'performance_path' if 'performance' in self.filepath.lower() else 'chargen_path'
+            pyn_props.set_group(obj, 'pyn_sf_morph', **{which: self.filepath})
             log.info(f"Imported Starfield morph.dat into {obj.name}")
         except Exception:
             self.log_handler.log.exception("Import of Starfield morph.dat failed")

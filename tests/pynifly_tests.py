@@ -432,6 +432,15 @@ def TEST_SF_MESH_READ():
     assert len(geom.bone_names) == 38, f"Bone count (from SkinAttach): {len(geom.bone_names)}"
     assert all(abs(c) < 1000 for c in geom.verts[0]), "Verts in game-unit magnitude"
 
+    # Vertex colors: the .mesh carries per-vertex colors (this body is a uniform gray, BGRA
+    # 192,192,192,255). They live in BSGeometryMeshData.vColors; the color accessor must surface
+    # them, not the empty inherited vertexColors (else every color reads black -- the import bug).
+    cols = geom.colors
+    assert len(cols) == len(geom.verts), f"One color per vertex: {len(cols)}"
+    assert cols[0] != (0.0, 0.0, 0.0, 0.0), f"Vertex colors not black: {cols[0]}"
+    assert all(abs(cols[0][i] - 0.7529) < 0.01 for i in range(3)) and abs(cols[0][3] - 1.0) < 0.01, \
+        f"Body vertex color is gray 192/255 with full alpha: {cols[0]}"
+
 
 def TEST_SF_MESH_WRITE():
     """Starfield: serialize a BSGeometry LOD back to .mesh bytes and round-trip the geometry.
@@ -875,6 +884,29 @@ def TEST_SF_MORPH_ROUNDTRIP():
             for ca, cb in zip(a, deltas2[name][vi]):
                 maxerr = max(maxerr, abs(ca - cb))
     assert maxerr < 0.01, f"positions-only round-trip max error: {maxerr} game units"
+
+
+def TEST_SF_MORPH_CLASSIFY():
+    """Starfield: shape-key names classify as performance (expression) vs chargen morphs.
+
+    Export routes performance/action-unit keys to a performance/ morph.dat and chargen sliders to
+    a chargen/ one. The performance set is the vanilla action-unit vocabulary (+ tongue + HideEar/
+    Hat/Mask); everything else (phenotype sliders, body shapes) is chargen. Blender's .NNN
+    duplicate suffix is ignored.
+    """
+    from pyn.sf_morph import is_expression_morph, SF_EXPRESSION_MORPHS
+
+    # Performance (expression) morphs.
+    for name in ("jawOpen", "browLowererL", "innerBrowRaiseR", "HideEar", "c_jawdrop",
+                 "tongueCurlUp", "lipCornerPullL", "swallow"):
+        assert is_expression_morph(name), f"{name!r} is a performance morph"
+    # Chargen sliders / body shapes.
+    for name in ("Overweight", "Thin", "Strong", "female_af_md1_Chin", "male_eu_md2_Cheeks",
+                 "NoseSizeType1", "SomeCustomSlider"):
+        assert not is_expression_morph(name), f"{name!r} is a chargen morph"
+    # Blender duplicate suffix is stripped before matching.
+    assert is_expression_morph("jawOpen.001"), "Duplicate-suffixed AU still classifies as performance"
+    assert len(SF_EXPRESSION_MORPHS) == 108, f"Expected 108 expression morphs, got {len(SF_EXPRESSION_MORPHS)}"
 
 
 def TEST_SF_MAT_PARSE():

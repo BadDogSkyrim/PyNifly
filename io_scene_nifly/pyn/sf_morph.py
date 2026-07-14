@@ -43,6 +43,7 @@ recoverable from Blender shape keys, so they are written as neutral defaults -- 
 authoring path).
 """
 
+import re
 import struct
 import logging
 
@@ -58,10 +59,58 @@ HAVOK_SCALE = 69.969
 # Cap imposed by the 4x32-bit marker field.
 MAX_KEYS = 128
 
-# target_vert_color written for newly-authored records (positions-only path). Vanilla morph.dat
-# stores a near-constant ~0.742 in every record; we reproduce it so authored morphs match vanilla
-# rather than introducing a black vertex-colour target. Not recoverable from a Blender shape key.
-DEFAULT_TARGET_COLOR = 0.742
+# Starfield performance (expression) morphs: the runtime-animated action units + tongue morphs +
+# the Hat/Mask headgear-hide morphs. Everything NOT in this set is a chargen slider. Used to route
+# each shape key to the performance/ vs chargen/ output file. Verified from vanilla
+# performance/head + performance/tongue morph.dat (2026-07-14); the female head is the AU superset.
+SF_EXPRESSION_MORPHS = frozenset({
+    "Hat", "HideEar", "Mask",
+    # primary action units
+    "browLowererL", "browLowererR", "innerBrowRaiseL", "innerBrowRaiseR",
+    "outerBrowRaiseL", "outerBrowRaiseR",
+    "eyeClosedL", "eyeClosedR", "eyeOpenL", "eyeOpenR", "eyeUp", "eyeDown", "eyeLeft", "eyeRight",
+    "lidTightenerL", "lidTightenerR", "squintL", "squintR",
+    "cheekPuffL", "cheekPuffR", "cheekRaiseL", "cheekRaiseR", "cheekSuckL", "cheekSuckR",
+    "dimplerL", "dimplerR",
+    "noseWrinkleL", "noseWrinkleR", "noseDepressor", "nostrilCompressor", "nostrilDilator",
+    "nasolabialFurrowL", "nasolabialFurrowR",
+    "jawOpen", "jawClench", "jawLeft", "jawRight", "jawThrust",
+    "upperLipRaiseL", "upperLipRaiseR", "upperLipDownL", "upperLipDownR", "upperLipFunnel",
+    "upperLipPuff", "upperLipSuck", "upperLipThickness",
+    "lowerLipDepressL", "lowerLipDepressR", "lowerLipUpL", "lowerLipUpR", "lowerLipFunnel",
+    "lowerLipPuff", "lowerLipSuck", "lowerLipThickness",
+    "lipCornerPullL", "lipCornerPullR", "lipCornerDepressL", "lipCornerDepressR",
+    "lipCornerInL", "lipCornerInR", "lipStretchL", "lipStretchR",
+    "lipPucker", "lipPress", "lipTighten", "lipZipperL", "lipZipperR", "sharpLipPullL", "sharpLipPullR",
+    "chinRaise", "chinRaiseUpperlipTweak", "neckFlexL", "neckFlexR", "swallow",
+    # combination / corrective morphs
+    "c_jawdrop", "c_eyesClosed50L", "c_eyesClosed50R",
+    "c_eyeDown_eyeClosedL", "c_eyeDown_eyeClosedR", "c_eyeUp_eyeClosedL", "c_eyeUp_eyeClosedR",
+    "c_eyeLeft_eyeClosedL", "c_eyeLeft_eyeClosedR", "c_eyeRight_eyeClosedL", "c_eyeRight_eyeClosedR",
+    "c_squintL_eyesClosedL", "c_squintR_eyesClosedR", "c_squintL_cheekRaiserL", "c_squintR_cheekRaiserR",
+    "c_cheekRaiserL_eyesClosedL", "c_cheekRaiserL_eyesClosedR",
+    "c_innerBrowRaiserL_browLowererL", "c_innerBrowRaiserR_browLowererR",
+    "c_puckerer_lowerFunneler", "c_puckerer_upperFunneler",
+    # tongue-specific
+    "tongueIn", "tongueOut", "tongueUp", "tongueDown", "tongueLeft", "tongueRight",
+    "tongueCurlUp", "tongueCurlDown", "tongueThick", "tongueThinner",
+})
+
+
+_DUP_SUFFIX = re.compile(r'\.\d{3}$')
+
+
+def is_expression_morph(name):
+    """True if shape-key `name` is a Starfield performance (expression) morph -> the performance/
+    file; False = a chargen slider -> the chargen/ file. Blender's '.NNN' duplicate suffix is
+    stripped before matching."""
+    return _DUP_SUFFIX.sub('', name) in SF_EXPRESSION_MORPHS
+
+# target_vert_color is an RGB565 target vertex colour (SF vertex colour drives material masks --
+# hair/clothing morphs vary it per channel; face/body morphs leave it a constant gray). Not
+# recoverable from a Blender shape key, so newly-authored (positions-only) records get the vanilla
+# default gray. 0xBDF7 == RGB565 (0.74, 0.75, 0.74), the value in nearly every vanilla face record.
+DEFAULT_TARGET_COLOR = 0xBDF7
 
 _HEADER = struct.Struct('<4sIII')      # magic, num_axis, num_vertices, num_shape_keys
 _U32 = struct.Struct('<I')
@@ -239,7 +288,7 @@ class MorphFile:
         self.num_vertices = num_vertices
         self.morph_names = list(morph_names)
 
-        color = int(round(DEFAULT_TARGET_COLOR * 65535)) & 0xFFFF
+        color = DEFAULT_TARGET_COLOR & 0xFFFF   # raw RGB565
         zero_n = _vec_to_dec3n((0.0, 0.0, 0.0))
 
         # Records are grouped by vertex, keys ascending within each vertex.

@@ -3251,6 +3251,12 @@ def TEST_SF_MORPH():
     assert abs(d0[0] - 0.5039) < 0.02 and abs(d0[1] - 0.8242) < 0.02 and abs(d0[2] - 1.0377) < 0.02, \
         f"Overweight vtx0 delta matches vanilla: {tuple(round(c, 3) for c in d0)}"
 
+    # Import recorded the source path on pyn_sf_morph.chargen_path (round-trip default); redirect
+    # to the Out dir so this test doesn't overwrite its own vanilla fixture. Body morphs are all
+    # chargen (no expression AUs), so they write to the chargen path.
+    body.pyn_sf_morph.chargen_path = outdat
+    body.pyn_sf_morph.performance_path = ""
+
     # Export back to a morph.dat and re-read it; per-vertex deltas match the original vanilla file
     # (same vertex indexing), confirming the full import->shape-key->export chain round-trips.
     bpy.ops.export_scene.pyniflysfmorph(filepath=outdat)
@@ -3266,6 +3272,47 @@ def TEST_SF_MORPH():
             for ca, cb in zip(a, exported[name][vi]):
                 maxerr = max(maxerr, abs(ca - cb))
     assert maxerr < 0.02, f"Exported deltas match vanilla within precision: max err {maxerr}"
+
+
+@TT.category('STARFIELD')
+def TEST_SF_MORPH_SPLIT():
+    """Starfield: morph export splits shape keys into performance + chargen morph.dat files.
+
+    Expression/action-unit keys (e.g. jawOpen) go to the performance/ file; chargen sliders (e.g.
+    Overweight) go to the chargen/ file. The two output paths come from the object's pyn_sf_morph
+    group.
+    """
+    import os
+    from pyn.sf_morph import MorphFile
+
+    me = bpy.data.meshes.new("sfsplitmesh")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)], [], [(0, 1, 3, 2)])
+    me.update()
+    obj = bpy.data.objects.new("SFSplitHead", me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.shape_key_add(name="Basis")
+    kj = obj.shape_key_add(name="jawOpen")       # -> performance
+    kj.data[0].co.z += 1.0
+    ko = obj.shape_key_add(name="Overweight")    # -> chargen
+    ko.data[1].co.x += 0.5
+
+    cp = TTB.test_file(r"tests\Out\TEST_SF_MORPH_SPLIT\chargen\head\morph.dat")
+    pp = TTB.test_file(r"tests\Out\TEST_SF_MORPH_SPLIT\performance\head\morph.dat")
+    for p in (cp, pp):
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+    obj.pyn_sf_morph.chargen_path = cp
+    obj.pyn_sf_morph.performance_path = pp
+
+    BD.ObjectSelect([obj])
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.export_scene.pyniflysfmorph(filepath=cp)
+
+    assert os.path.exists(cp), "Chargen morph.dat written"
+    assert os.path.exists(pp), "Performance morph.dat written"
+    cm = MorphFile.from_file(cp)
+    pm = MorphFile.from_file(pp)
+    assert cm.morph_names == ["Overweight"], f"Chargen file holds the slider: {cm.morph_names}"
+    assert pm.morph_names == ["jawOpen"], f"Performance file holds the action unit: {pm.morph_names}"
 
 
 @TT.category('SKYRIM', 'SHADER')
