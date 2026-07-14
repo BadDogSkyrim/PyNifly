@@ -836,6 +836,47 @@ def TEST_SF_BONE_NAMES():
     assert len(sfDict.byNif) == 115, f"Seeded with the vanilla skeleton: {len(sfDict.byNif)}"
 
 
+def TEST_SF_MORPH_ROUNDTRIP():
+    """Starfield: read/write a vanilla morph.dat byte-exact; positions-only rebuild round-trips.
+
+    morph.dat is a set of named per-vertex position deltas (Blender shape keys). The pyn codec is
+    lossless -- re-serializing a parsed file reproduces it byte-for-byte. The positions-only
+    builder (from_deltas, used by the Blender exporter) drops the stored normal/tangent/colour
+    channels, so its round-trip is checked on position deltas only: same moved-vertex set, deltas
+    within half-float precision.
+    """
+    from pyn.sf_morph import MorphFile
+
+    path = r"tests\SF\morphs\female_chargen_body_morph.dat"
+    raw = open(path, 'rb').read()
+    m = MorphFile.from_file(path)
+
+    # Header + key names match the known vanilla body morph.
+    assert m.num_vertices == 6616, f"Vertex count: {m.num_vertices}"
+    assert m.morph_names == ['Overweight', 'Thin', 'Strong'], f"Keys: {m.morph_names}"
+    assert len(m.offsets) == m.num_vertices, "One offset entry per vertex"
+
+    # Lossless: re-serialize == original bytes.
+    assert m.to_bytes() == raw, "morph.dat re-serializes byte-exact"
+
+    # Position view: a known Overweight delta at vertex 0 (game units).
+    deltas = m.key_deltas()
+    dx, dy, dz = deltas['Overweight'][0]
+    assert abs(dx - 0.5039) < 0.01 and abs(dy - 0.8242) < 0.01 and abs(dz - 1.0377) < 0.01, \
+        f"Overweight vtx0 delta: {(dx, dy, dz)}"
+
+    # Positions-only rebuild -> re-read -> same moved-vertex set, deltas within half-float precision.
+    rebuilt = MorphFile.from_deltas(m.morph_names, m.num_vertices, deltas)
+    deltas2 = MorphFile.from_bytes(rebuilt.to_bytes()).key_deltas()
+    maxerr = 0.0
+    for name in m.morph_names:
+        assert set(deltas[name]) == set(deltas2[name]), f"{name}: moved-vertex set preserved"
+        for vi, a in deltas[name].items():
+            for ca, cb in zip(a, deltas2[name][vi]):
+                maxerr = max(maxerr, abs(ca - cb))
+    assert maxerr < 0.01, f"positions-only round-trip max error: {maxerr} game units"
+
+
 def TEST_SF_MAT_PARSE():
     """Starfield: parse a loose layered .mat, extracting texture slots by index.
 

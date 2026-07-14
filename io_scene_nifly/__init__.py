@@ -25,7 +25,7 @@ _needs_reload = "bpy" in locals()
 
 import bpy
 from contextlib import suppress
-from . import nif, tri, hkx, kf
+from . import nif, tri, hkx, kf, sfmorph
 if DEBUGGING:
     from . import osd
 
@@ -245,6 +245,7 @@ def register():
     kf.register()
     nif.register()
     tri.register()
+    sfmorph.register()
     if DEBUGGING:
         osd.register()
 
@@ -255,6 +256,7 @@ def unregister():
     kf.unregister()
     nif.unregister()
     tri.unregister()
+    sfmorph.unregister()
     if DEBUGGING:
         osd.unregister()
 

@@ -3212,6 +3212,62 @@ def TEST_SF_EXPORT():
     assert arma_mod and arma_mod.object, "Re-imported body is bound to an armature"
 
 
+@TT.category('STARFIELD')
+def TEST_SF_MORPH():
+    """Starfield round-trip: apply a vanilla morph.dat to an imported body as shape keys,
+    export it back, and confirm the deltas survive.
+
+    The vanilla chargen body morph.dat (Overweight/Thin/Strong) is authored against the same
+    6616-vertex body, in the same vertex order the importer preserves -- so applying it produces
+    correct shape keys and re-exporting reproduces the original per-vertex deltas (positions only).
+    """
+    import os
+    from pyn.sf_morph import MorphFile
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    morphfile = TTB.test_file(r"tests\SF\morphs\female_chargen_body_morph.dat")
+    outdat = TTB.test_file(r"tests\Out\TEST_SF_MORPH\body_morph.dat")
+    os.makedirs(os.path.dirname(outdat), exist_ok=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    assert body is not None, "Imported the LOD0 body mesh"
+    assert len(body.data.vertices) == 6616, f"Body vertex count: {len(body.data.vertices)}"
+
+    # Import the morph.dat as shape keys onto the active body.
+    BD.ObjectSelect([body])
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.import_scene.pyniflysfmorph(filepath=morphfile)
+
+    kb = body.data.shape_keys.key_blocks
+    assert "Basis" in kb, "Basis shape key created"
+    for name in ("Overweight", "Thin", "Strong"):
+        assert name in kb, f"Shape key {name!r} created"
+
+    # Overweight moves nearly the whole body; vtx0's delta matches the known vanilla value.
+    basis0 = kb["Basis"].data[0].co
+    ow0 = kb["Overweight"].data[0].co
+    d0 = (ow0[0] - basis0[0], ow0[1] - basis0[1], ow0[2] - basis0[2])
+    assert abs(d0[0] - 0.5039) < 0.02 and abs(d0[1] - 0.8242) < 0.02 and abs(d0[2] - 1.0377) < 0.02, \
+        f"Overweight vtx0 delta matches vanilla: {tuple(round(c, 3) for c in d0)}"
+
+    # Export back to a morph.dat and re-read it; per-vertex deltas match the original vanilla file
+    # (same vertex indexing), confirming the full import->shape-key->export chain round-trips.
+    bpy.ops.export_scene.pyniflysfmorph(filepath=outdat)
+    assert os.path.exists(outdat), "Exported a morph.dat"
+
+    original = MorphFile.from_file(morphfile).key_deltas()
+    exported = MorphFile.from_file(outdat).key_deltas()
+    maxerr = 0.0
+    for name in ("Overweight", "Thin", "Strong"):
+        assert set(original[name]) == set(exported[name]), \
+            f"{name}: same moved-vertex set ({len(original[name])} vs {len(exported[name])})"
+        for vi, a in original[name].items():
+            for ca, cb in zip(a, exported[name][vi]):
+                maxerr = max(maxerr, abs(ca - cb))
+    assert maxerr < 0.02, f"Exported deltas match vanilla within precision: max err {maxerr}"
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
