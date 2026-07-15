@@ -2484,7 +2484,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         # Sticky export settings live in typed groups (root + armature). read_export_settings
         # returns only fields the user has explicitly set (migrating legacy PYN_* props first);
-        # anything unset falls back to the addon preference / dataclass default below.
+        # anything unset falls back to the addon preference / dataclass default below. This runs
+        # only when intuit_defaults is True (dialog seeding, or an intuiting programmatic call); a
+        # caller wanting its kwargs honored over everything passes intuit_defaults=False, which
+        # skips this method entirely.
         from . import pyn_props
         dfld = ExportSettings.__dataclass_fields__
         sticky = pyn_props.read_export_settings(obj_root, first_arma)

@@ -4789,8 +4789,10 @@ def TEST_TRIP_SE():
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
-    bpy.ops.export_scene.pynifly(filepath=outfile, intuit_defaults=True)
-    # bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', write_bodytri=True)
+    # intuit_defaults=False honors these kwargs directly, so the test doesn't depend on the
+    # (user-configurable) addon preference default for write_bodytri.
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', write_bodytri=True,
+                                 intuit_defaults=False)
 
     print(' ------- Check --------- ')
     nifcheck = pyn.NifFile(outfile1)
@@ -4823,7 +4825,8 @@ def TEST_TRIP():
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
 
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', write_bodytri=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', write_bodytri=True,
+                                 intuit_defaults=False)
 
     print(' ------- Check --------- ')
     nifcheck = pyn.NifFile(outfile)
