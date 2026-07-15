@@ -4439,9 +4439,23 @@ class NiShape(NiNode):
         else:
             return None
 
+    def get_shape_skin_to_bone_by_index(self, bone_index):
+        """Return the skin-to-bone transform for the bone at the given INDEX, or None.
+
+        Starfield (BSGeometry/BSSkinBoneData) stores bind transforms indexed by position and
+        carries no NiNode boneRefs, so the name-based lookup fails; this reads BSSkinBoneData
+        directly by index. Bone index matches the order of unique_bone_names / SkinAttach.
+        """
+        buf = TransformBuf()
+        xform_found = nifly.getShapeSkinToBoneByIndex(self.file._handle,
+                                                      self._handle,
+                                                      bone_index,
+                                                      buf)
+        return buf if xform_found else None
+
     def set_skin_to_bone_xform(self, bone_name, xform: TransformBuf):
         """Set the skin-to-bone transform on the shape's skin, using the skin."""
-        nifly.setShapeSkinToBone(self.file._handle, 
+        nifly.setShapeSkinToBone(self.file._handle,
                                          self._handle,
                                          bone_name.encode('utf-8'),
                                          xform)
@@ -4676,6 +4690,179 @@ class BSSubIndexTriShape(NiShape):
         return b
 
 
+# --- BSGeometry (Starfield) --- #
+class BSGeometry(NiShape):
+    """Starfield geometry shape. Holds one mesh slot per LOD; each slot's geometry lives in
+    an external .mesh file (referenced by meshName) and isn't present until load_mesh() feeds
+    the bytes. Once a slot is loaded+selected, the normal geometry/bone accessors work (nifly
+    routes them through GetGeometryData and reads bones from SkinAttach)."""
+    buffer_type = PynBufferTypes.BSGeometryBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        # C++ reads a BSGeometry block as a plain NiShapeBuf (no distinct C++ bufType).
+        return NiShapeBuf(values)
+
+    @property
+    def colors(self):
+        """Per-vertex colors of the loaded/selected .mesh. A BSGeometry keeps its colors in the
+        external .mesh (BSGeometryMeshData.vColors), which the generic color accessor doesn't
+        read -- so route through the dedicated reader (else every color is black)."""
+        if self._colors is None:
+            n = len(self.verts)
+            if n:
+                buf = (c_float * 4 * n)()
+                got = nifly.getBSGeometryColors(self.file._handle, self._handle, buf, n)
+                self._colors = [(c[0], c[1], c[2], c[3]) for c in buf[:got]]
+            else:
+                self._colors = []
+        return self._colors
+
+    @property
+    def mesh_count(self):
+        """Number of LOD mesh slots."""
+        return nifly.getBSGeometryMeshCount(self.file._handle, self._handle)
+
+    @property
+    def is_internal_geom(self):
+        """True if mesh data is embedded in the NIF (flag 0x200) vs an external .mesh."""
+        return bool(nifly.getBSGeometryInternalFlag(self.file._handle, self._handle))
+
+    def mesh_path(self, slot=0):
+        """The external .mesh path (verbatim meshName) for LOD slot `slot`."""
+        buf = create_string_buffer(256)
+        n = nifly.getBSGeometryMeshPath(self.file._handle, self._handle, slot, buf, 256)
+        if n >= 256:
+            buf = create_string_buffer(n + 1)
+            nifly.getBSGeometryMeshPath(self.file._handle, self._handle, slot, buf, n + 1)
+        return buf.value.decode('utf-8')
+
+    def mesh_paths(self):
+        """All LOD mesh paths, one per slot."""
+        return [self.mesh_path(i) for i in range(self.mesh_count)]
+
+    def load_mesh(self, data, slot=0):
+        """Load external .mesh bytes into LOD slot `slot` and select it. Refreshes the cached
+        geometry so verts/tris/normals/uvs/weights read from the loaded mesh."""
+        ok = nifly.loadBSGeometryMeshData(
+            self.file._handle, self._handle, slot, data, len(data))
+        self._invalidate_geometry()
+        return bool(ok)
+
+    def select_mesh(self, slot):
+        """Select which LOD slot the geometry accessors read from."""
+        nifly.selectBSGeometryMesh(self.file._handle, self._handle, slot)
+        self._invalidate_geometry()
+
+    def save_mesh(self, slot=0):
+        """Serialize LOD slot `slot` to external-.mesh bytes (regenerating meshlets + cull
+        data first) and return them, ready to write to the resolved .mesh path. Returns
+        b"" if the slot has no data."""
+        n = nifly.saveBSGeometryMeshData(self.file._handle, self._handle, slot, None, 0)
+        if n <= 0:
+            return b""
+        buf = create_string_buffer(n)
+        nifly.saveBSGeometryMeshData(self.file._handle, self._handle, slot, buf, n)
+        return buf.raw[:n]
+
+    def set_mesh_name(self, name, slot=0):
+        """Set the external .mesh path (meshName) the NIF references for LOD slot `slot`.
+        The .mesh bytes themselves are written separately via save_mesh()."""
+        nifly.setBSGeometryMeshName(
+            self.file._handle, self._handle, slot, name.encode('utf-8'))
+        self._invalidate_geometry()
+
+    def set_mesh_tangents(self, tangents, tangent_ws=None, slot=0):
+        """Set per-vertex tangents for LOD slot `slot`. tangents = [(x,y,z)...]; tangent_ws =
+        the 2-bit bitangent-sign W of each tangent (1 or 3), defaulting to 1 if omitted."""
+        n = len(tangents)
+        tbuf = (c_float * 3 * n)()
+        for i, t in enumerate(tangents):
+            tbuf[i] = (t[0], t[1], t[2])
+        wbuf = (c_uint8 * n)()
+        for i in range(n):
+            wbuf[i] = (tangent_ws[i] if tangent_ws else 1)
+        nifly.setBSGeometryTangents(
+            self.file._handle, self._handle, slot, tbuf, wbuf, n)
+
+    def set_mesh_colors(self, colors, slot=0):
+        """Set per-vertex colors for LOD slot `slot`. colors = [(r,g,b,a)...] floats 0..1,
+        stored as the .mesh's byte colors."""
+        n = len(colors)
+        cbuf = (c_float * 4 * n)()
+        for i, c in enumerate(colors):
+            cbuf[i] = (c[0], c[1], c[2], c[3] if len(c) > 3 else 1.0)
+        nifly.setBSGeometryColors(self.file._handle, self._handle, slot, cbuf, n)
+
+    def skin_bones(self, bone_names, weights_per_vertex=4):
+        """Set up SF skinning: create the BSSkin::Instance + BSSkin::BoneData (identity binds)
+        + SkinAttach carrying `bone_names` (in order), set the mesh's weightsPerVertex, and zero
+        the per-vertex weight slots. `weights_per_vertex` sizes the .mesh's uniform weight slots
+        (nifly caps set_vert_weights to it), so pass the max influence count the shape will use.
+        Call set_bone_bind() + set_vert_weights() afterward. Geometry must already be set."""
+        namesNL = "\n".join(bone_names).encode('utf-8')
+        nifly.skinBSGeometry(self.file._handle, self._handle, namesNL, len(bone_names),
+                             weights_per_vertex)
+        self._invalidate_geometry()
+
+    def set_bone_bind(self, bone_index, xform: TransformBuf):
+        """Set the skin-to-bone (bind) transform for the bone at `bone_index` (SkinAttach
+        order). Pass the bind in game units; the DLL divides translation by havokScale."""
+        nifly.setBSGeometryBoneBind(self.file._handle, self._handle, bone_index, xform)
+
+    def set_vert_weights(self, vert_index, bone_indices, weights):
+        """Set the bone weights for one vertex. bone_indices index the shape's bone list
+        (SkinAttach order); weights are floats (nifly normalizes + quantizes into the .mesh)."""
+        n = len(bone_indices)
+        bbuf = (c_uint8 * n)(*bone_indices)
+        wbuf = (c_float * n)(*weights)
+        nifly.setBSGeometryVertWeights(self.file._handle, self._handle, vert_index, bbuf, wbuf, n)
+
+    def update_skin_bounds(self):
+        """Recompute the per-bone bounding spheres in BSSkin::BoneData from the current binds +
+        vertex weights. Call once after all set_bone_bind()/set_vert_weights() calls. Leaving the
+        default zero-radius spheres crashes the Creation Kit when it opens an actor using the mesh."""
+        nifly.updateBSGeometrySkinBounds(self.file._handle, self._handle)
+
+    def _invalidate_geometry(self):
+        # vertexCount/triangleCount live in the cached NiShapeBuf, which is stale once a
+        # different .mesh slot is loaded/selected. Clear it and the geometry caches so they
+        # re-read against the now-current mesh.
+        self._properties = None
+        self._verts = self._tris = self._uvs = self._normals = self._colors = None
+        self._weights = self._bone_names = self._bone_ids = self._unique_bone_names = None
+
+    @property
+    def tris(self):
+        """BSGeometry doesn't populate NiGeometryData's 16-bit triangleCount, so size the
+        buffer from getTriangles' authoritative return value (a second pass if the first
+        buffer was too small)."""
+        if self._tris is None:
+            cap = max(self.properties.vertexCount * 4, 64)
+            buf = (c_uint16 * 3 * cap)()
+            n = nifly.getTriangles(self.file._handle, self._handle, buf, cap * 3, 0)
+            if n > cap:
+                cap = n
+                buf = (c_uint16 * 3 * cap)()
+                nifly.getTriangles(self.file._handle, self._handle, buf, cap * 3, 0)
+            self._tris = [(buf[i][0], buf[i][1], buf[i][2]) for i in range(n)]
+        return self._tris
+
+    @property
+    def unique_bone_names(self):
+        """SkinAttach bone names are already unique -- no partition-palette repetition."""
+        return self.bone_names
+
+    @property
+    def bone_weights(self):
+        """SF weights are keyed by bone INDEX (position in the SkinAttach bone list). There
+        are no node-ref bone IDs, so the base class's id-based dedup doesn't apply."""
+        if self._weights is None:
+            self._weights = {name: self._bone_weights(i)
+                             for i, name in enumerate(self.bone_names)}
+        return self._weights
+
+
 # --- NiTriStrips --- #
 class NiTriStrips(NiShape):
     buffer_type = PynBufferTypes.NiTriStripsBufType
@@ -4902,7 +5089,10 @@ class NifFile:
         
         if self._shapes is None:
             self._shapes = []
-        sh = NiShape(handle=shape_handle, file=self, parent=parent)
+        # Starfield renderables are BSGeometry blocks (the DLL creates one for any SF nif);
+        # wrap the handle in the matching class so the caller gets the .mesh setters/save_mesh.
+        shape_class = BSGeometry if self.game == 'SF' else NiShape
+        sh = shape_class(handle=shape_handle, file=self, parent=parent)
         sh._name = shape_name
         sh._partitions = []
         self._shapes.append(sh)
@@ -5183,7 +5373,10 @@ class NifFile:
                 pass
             return node
         else:
-            log.warning(f"Unknown block type: {bn}")
+            # Starfield skin blocks are consumed internally (bone names via GetShapeBoneList,
+            # per-vertex weights from the loaded .mesh) and have no Blender representation.
+            if bn not in ("SkinAttach", "BSSkin::Instance", "BSSkin::BoneData"):
+                log.warning(f"Unknown block type: {bn}")
             return None
 
 

@@ -12,6 +12,8 @@ from . import controller
 from . import shader_io
 from . import collision
 from . import connectpoint
+from . import pyn_props
+from . import sf_geometry
 
 if _needs_reload:
     import importlib
@@ -21,6 +23,8 @@ if _needs_reload:
     shader_io = importlib.reload(shader_io)
     collision = importlib.reload(collision)
     connectpoint = importlib.reload(connectpoint)
+    pyn_props = importlib.reload(pyn_props)
+    sf_geometry = importlib.reload(sf_geometry)
 
 
 def nifly_menu_import_nif(self, context):
@@ -41,6 +45,7 @@ def unregister():
         bpy.utils.unregister_class(export_nif.ExportNIF)
 
     controller.unregister()
+    pyn_props.unregister()
 
     # Unregister last import path properties
     with suppress(AttributeError):
@@ -58,6 +63,7 @@ def register():
         bpy.utils.register_class(import_nif.NIF_FH_import)
 
     controller.register()
+    pyn_props.register()
 
     # Register properties to remember last import paths
     bpy.types.WindowManager.pynifly_last_import_path_nif = bpy.props.StringProperty(

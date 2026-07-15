@@ -440,6 +440,19 @@ class NifImporter():
             # Statics get transformed according to the shape's transform
             return BD.apply_scale_xf(BD.transform_to_matrix(the_shape.transform), scale_factor)
 
+        # Starfield stores no bone NiNodes, so calc_global_to_skin() (which averages the
+        # bone NiNode transforms) comes back empty and the shape would be left in its raw
+        # skin space -- rotated/offset from world (the body's skin space is rotated 90 deg
+        # about Y with the head at the origin; a hand's is rotated differently again).
+        # Recover skin->world from the reference skeleton instead. This positions the mesh
+        # in skeleton space and, since set_parent_arma reads it back via calc_skin_transform,
+        # lands the weighted bones at their skeleton positions -- consistent with the
+        # connecting bones pulled from the reference skeleton.
+        if self.nif.game == 'SF':
+            s2w = self._sf_skin_to_world(the_shape)
+            if s2w is not None:
+                return BD.apply_scale_xf(s2w, scale_factor)
+
         # Global-to-skin transform is what offsets all the vertices together, e.g. so that
         # heads can be positioned at the origin. Put the reverse transform on the blender 
         # object so they can be worked on in their skinned position.
@@ -544,6 +557,35 @@ class NifImporter():
         return BD.apply_scale_xf(xf, scale_factor)
 
 
+    def _sf_skin_to_world(self, shape) -> Matrix:
+        """Recover the skin->world transform for a Starfield skinned shape from the
+        reference skeleton. SF carries no bone NiNodes, so the DLL's bone-averaging
+        global-to-skin returns nothing. For each bind bone B present in the reference
+        skeleton, skin->world = skel_world_B @ skin_to_bone_B; these agree for a rigid
+        bind, so we average the translation (the rotation is common) for robustness.
+        Returns None if there's no reference skeleton or no shared bones."""
+        if not self.reference_skel or not hasattr(shape, 'bone_names'):
+            return None
+        mats = []
+        for i, bn in enumerate(shape.bone_names):
+            if bn in self.reference_skel.nodes:
+                s2b = shape.get_shape_skin_to_bone_by_index(i)
+                if s2b is None:
+                    continue
+                skel_world = BD.transform_to_matrix(
+                    self.reference_skel.nodes[bn].global_transform)
+                mats.append(skel_world @ BD.transform_to_matrix(s2b))
+        if not mats:
+            return None
+        result = mats[0].copy()
+        if len(mats) > 1:
+            t = Vector((0.0, 0.0, 0.0))
+            for m in mats:
+                t = t + m.translation
+            result.translation = t / len(mats)
+        return result
+
+
     # -----------------------------  EXTRA DATA  -------------------------------
 
     def import_bound(self, node, parent_obj, extblock:P.BSBound):
@@ -571,7 +613,8 @@ class NifImporter():
         ed = bpy.context.object
         ed.name = "BSBoneLOD:" + extblock.name
         ed.show_name = True
-        ed['pynBoneLOD'] = json.dumps(extblock.lod_data)
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bonelod', value=json.dumps(extblock.lod_data))
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -583,8 +626,8 @@ class NifImporter():
         ed.name = "BSXFlags:" + extblock.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['BSXFlags_Name'] = extblock.name
-        ed['BSXFlags_Value'] = extblock.flags.fullname
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bsxflags', name=extblock.name, value=extblock.flags.fullname)
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -596,8 +639,8 @@ class NifImporter():
         ed.name = "NiIntegerExtraData:" + extblock.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['NiIntegerExtraData_Name'] = extblock.name
-        ed['NiIntegerExtraData_Value'] = extblock.integer_data
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_niintdata', name=extblock.name, value=extblock.integer_data)
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -621,11 +664,10 @@ class NifImporter():
         mx, focal_len = BD.inv_to_cam(invm.rotation, invm.zoom)
         ed.data.lens = focal_len
 
-        ed['BSInvMarker_Name'] = invm.name
-        ed['BSInvMarker_RotX'] = invm.rotation[0]
-        ed['BSInvMarker_RotY'] = invm.rotation[1]
-        ed['BSInvMarker_RotZ'] = invm.rotation[2]
-        ed['BSInvMarker_Zoom'] = invm.zoom
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_invmarker', name=invm.name,
+                            rotation=(invm.rotation[0], invm.rotation[1], invm.rotation[2]),
+                            zoom=invm.zoom)
 
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
@@ -651,8 +693,10 @@ class NifImporter():
             obj.location = Vector(marker.offset[:]) * self.scale
             obj.rotation_euler = (-pi/2, 0, marker.heading)
             obj.scale = Vector((40,10,10)) * self.scale
-            obj['AnimationType'] = marker.animation_type_name
-            obj['EntryPoints'] = marker.entry_points_list
+            from . import pyn_props
+            pyn_props.set_group(obj, 'pyn_furniture',
+                                animation_type=marker.animation_type_name,
+                                entry_points=marker.entry_points_list)
             obj.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=obj))
             BD.link_to_collection(self.collection, obj)
@@ -664,8 +708,8 @@ class NifImporter():
         ed.name = "NiStringExtraData:" + stringdata.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['NiStringExtraData_Name'] = stringdata.name
-        ed['NiStringExtraData_Value'] = stringdata.string_data
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_nistrdata', name=stringdata.name, value=stringdata.string_data)
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -677,9 +721,10 @@ class NifImporter():
         ed.name = "BSBehaviorGraphExtraData:" + behavior.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['BSBehaviorGraphExtraData_Name'] = behavior.name
-        ed['BSBehaviorGraphExtraData_Value'] = behavior.behavior_graph_file
-        ed['BSBehaviorGraphExtraData_CBS'] = behavior.controls_base_skeleton
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bsbehavior', name=behavior.name,
+                            value=behavior.behavior_graph_file,
+                            cbs=bool(behavior.controls_base_skeleton))
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -707,8 +752,9 @@ class NifImporter():
         ed.name = "BSDecalPlacementVectorExtraData:" + decal.name
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
-        ed['BSDecalPlacementVectorExtraData_Name'] = decal.name
-        ed['BSDecalPlacementVectorExtraData_Value'] = json.dumps(decal.vector_blocks)
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bsdecal', name=decal.name,
+                            value=json.dumps(decal.vector_blocks))
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
@@ -840,14 +886,15 @@ class NifImporter():
         #     obj["pynNodeFlags"] = NiAVFlags(ninode.flags).fullname
         # except:
         #     pass
-        ninode.properties.extract(obj, ignore=NISHAPE_IGNORE, game=ninode.file.game)
+        from . import pyn_props
+        pyn_props.import_block_props(obj, ninode.properties, ignore=NISHAPE_IGNORE, game=ninode.file.game)
 
         # Only the root node gets the import transform. It gets applied to all children automatically.
         if ninode.id == 0: 
             bpy.ops.object.mode_set(mode = 'OBJECT')
             obj.name = ninode.name + ":ROOT"
             obj["pynRoot"] = True
-            obj[PYN_BLENDER_XF_PROP] = MatNearEqual(self.import_xf, BD.blender_import_xf)
+            obj.pyn_export.blender_xf = MatNearEqual(self.import_xf, BD.blender_import_xf)
             obj[PYN_GAME_PROP] = self.nif.game
             obj.empty_display_type = 'CONE'
 
@@ -1235,6 +1282,12 @@ class NifImporter():
         * self.nodes_loaded = Dictionary mapping blender name : P.NiShape from nif
         """
         try:
+            # Starfield: geometry lives in an external .mesh; resolve + load it so verts/
+            # tris/uvs/normals/weights are available before the normal build reads them.
+            if isinstance(the_shape, P.BSGeometry):
+                from . import sf_geometry
+                sf_geometry.load_geometry(the_shape, 0)
+
             v = the_shape.verts
             t = the_shape.tris
             if self.scale == 1.0:
@@ -1252,7 +1305,13 @@ class NifImporter():
             new_object = bpy.data.objects.new(shape_name, new_mesh)
             new_object['pynBlockName'] = the_shape.blockname
             new_object['pynNodeName'] = the_shape.name
-            the_shape.properties.extract(new_object, ignore=NISHAPE_IGNORE)
+            from . import pyn_props
+            pyn_props.import_block_props(new_object, the_shape.properties, ignore=NISHAPE_IGNORE)
+            # Starfield: stash the external .mesh path / LOD slot / internal flag so export
+            # can round-trip the geometry back to its source .mesh (not recoverable from mesh).
+            if isinstance(the_shape, P.BSGeometry):
+                from . import sf_geometry
+                sf_geometry.record_geometry_props(new_object, the_shape, 0)
             try:
                 new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
                 if the_shape.properties.vertexDesc:
@@ -1323,8 +1382,60 @@ class NifImporter():
 
             BD.link_to_collection(self.collection, new_object)
 
+            # Starfield: wrap the imported geometry in a BSGeometry Empty so the
+            # representation is (block container Empty) -> (one mesh child per LOD),
+            # uniform for single- and multi-LOD shapes.
+            if isinstance(the_shape, P.BSGeometry):
+                self._wrap_bsgeometry(new_object, the_shape)
+
         except Exception as e:
             log.exception(f"Error importing shape {the_shape.name}: {e}")
+
+
+    def _wrap_bsgeometry(self, mesh_obj, the_shape):
+        """Insert a BSGeometry Empty as the block container above an imported SF mesh.
+
+        The Empty owns the block-level metadata (name, flags, skin-instance type); the mesh
+        child keeps its geometry, weights, material, and per-LOD pyn_sf_geometry group. We
+        currently import LOD slot 0, but the Empty is created even for a single LOD so the
+        structure (and export) is uniform. Transform-transparent: the Empty sits at identity
+        relative to the mesh's parent (matrix_parent_inverse stays identity on direct parent
+        assignment), so the child's world transform -- set later by set_object_xf /
+        set_parent_arma -- is unchanged.
+        """
+        base_name = the_shape.name or the_shape.blockname
+        slot = mesh_obj.pyn_sf_geometry.lod_slot
+
+        # Rename the mesh to its LOD-child name, keeping nodes_loaded (keyed by object name)
+        # in sync.
+        old_name = mesh_obj.name
+        mesh_obj.name = f"{base_name}:LOD{slot}"
+        if old_name in self.nodes_loaded:
+            del self.nodes_loaded[old_name]
+        self.nodes_loaded[mesh_obj.name] = the_shape
+
+        # Flag the container Empty with the block type, matching the extra-data/marker naming
+        # convention ("<BlockType>:<name>"), so the outliner shows what it is. The prefix is
+        # the real block name ('BSGeometry'), same as pynBlockName.
+        empty = bpy.data.objects.new(f"{the_shape.blockname}:{base_name}", None)
+        empty.empty_display_type = 'PLAIN_AXES'
+        empty['pynBlockName'] = the_shape.blockname   # 'BSGeometry'
+        # Move the block-identity metadata off the child onto the container Empty.
+        for k in ('pynNodeName', 'pynNodeFlags', 'pynVertexDesc', 'pynSkinInstanceType'):
+            if k in mesh_obj:
+                empty[k] = mesh_obj[k]
+                del mesh_obj[k]
+        if 'pynBlockName' in mesh_obj:
+            del mesh_obj['pynBlockName']
+
+        # Insert the Empty between the mesh and its parent.
+        empty.parent = mesh_obj.parent
+        mesh_obj.parent = empty
+
+        if not self.settings.mesh_only:
+            self.objects_created.add(ReprObject(empty, the_shape))
+        BD.link_to_collection(self.collection, empty)
+        return empty
 
 
     # ------ ARMATURE IMPORT ------
@@ -1754,13 +1865,22 @@ class NifImporter():
         # FO4 skin-to-bone is freaking all over the place, so give them a more generous
         # allowance.
         variance = 0.03 if "SKYRIM" in self.nif.game else 0.1
-        
+
+        # Starfield keys bind transforms by index (no NiNode boneRefs), so the name-based
+        # skin-to-bone lookup returns None; fall back to the index-based accessor.
+        bone_index = {bn: i for i, bn in enumerate(shape.bone_names)}
+
         for b in shape.bone_names:
             if b in skel.nodes:
-                m1 = skin_xf @ BD.transform_to_matrix(shape.get_shape_skin_to_bone(b)).inverted()
+                s2b = shape.get_shape_skin_to_bone(b)
+                if s2b is None and b in bone_index:
+                    s2b = shape.get_shape_skin_to_bone_by_index(bone_index[b])
+                if s2b is None:
+                    continue
+                m1 = skin_xf @ BD.transform_to_matrix(s2b).inverted()
                 m2 = BD.transform_to_matrix(skel.nodes[b].global_transform)
-                # We give a fairly generous allowance for how close is close enough. 0.03 
-                # allows the FO4 meshes to be parented to their skeletons. 
+                # We give a fairly generous allowance for how close is close enough. 0.03
+                # allows the FO4 meshes to be parented to their skeletons.
                 if not MatNearEqual(m1, m2, epsilon=variance):
                     return False
         return True
@@ -1805,6 +1925,11 @@ class NifImporter():
             if blname not in existing_bones:
                 missing_bones.append(bn)
 
+        # Starfield keys bind transforms by bone INDEX in BSSkinBoneData (no NiNode boneRefs,
+        # so the name-based skin-to-bone lookup fails). Map each bone name to its index in the
+        # shape's bone list for the index-based fallback below.
+        bone_index = {bn: i for i, bn in enumerate(nif_shape.bone_names)}
+
         new_bones = []
         if missing_bones:
             BD.ObjectSelect([arma])
@@ -1820,14 +1945,26 @@ class NifImporter():
                         # skeleton instead.
                         bone_node = self.reference_skel.nodes['HEAD' if bn=='Head' else bn]
                         xf = BD.transform_to_matrix(bone_node.global_transform)
-                    elif self.settings.import_pose: ### and not self.is_facegen:
-                        # Using nif locations of bones.
+                    elif self.settings.import_pose and bn in nif_shape.file.nodes:
+                        # Using nif locations of bones. (Starfield body nifs carry no NiNode
+                        # for the skeleton bones — those live in skeleton.nif — so this branch
+                        # is skipped for SF and we fall through to the bind position.)
                         bone_node = nif_shape.file.nodes[bn]
                         xf = BD.transform_to_matrix(bone_node.global_transform)
                     else:
                         # Have to trust the bind position in the nif.
                         # Facegen nifs always use the bind position.
-                        bone_shape_xf = BD.transform_to_matrix(nif_shape.get_shape_skin_to_bone(bn)).inverted()
+                        skin_to_bone = nif_shape.get_shape_skin_to_bone(bn)
+                        if skin_to_bone is None and bn in bone_index:
+                            # Starfield: bind transform lives in BSSkinBoneData, keyed by
+                            # index. The DLL scales its translation by havokScale so it lands
+                            # in the same game-unit space as the (already-scaled) verts.
+                            skin_to_bone = nif_shape.get_shape_skin_to_bone_by_index(bone_index[bn])
+                        if skin_to_bone is None:
+                            # No bind data at all — keep the per-vertex weights (vertex group)
+                            # but skip creating this bone.
+                            continue
+                        bone_shape_xf = BD.transform_to_matrix(skin_to_bone).inverted()
                         xf = skin_xf @ bone_shape_xf
                     BD.create_bone(arma.data, blname, xf, self.nif.game, 1.0, 0)
                     new_bones.append((bn, blname))

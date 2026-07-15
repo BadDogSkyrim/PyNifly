@@ -77,13 +77,14 @@ def check_partitions(vi1, vi2, vi3, weights):
     return len(p1.intersection(p2, p3)) > 0
 
 
-def trim_to_four(weights, arma):
-    """ Trim to the 4 heaviest weights in the armature
+def trim_weights(weights, arma, max_weights=4):
+    """ Trim to the `max_weights` heaviest weights in the armature (4 for Skyrim/FO4; Starfield
+        allows more per vertex -- see extract_mesh_data).
         weights = [(group_name: weight), ...] """
     if arma:
         lst = filter(lambda p: p[0] in arma.data.bones, weights)
         notlst = filter(lambda p: p[0] not in arma.data.bones, weights)
-        sd = sorted(lst, reverse=True, key=lambda item: item[1])[0:4]
+        sd = sorted(lst, reverse=True, key=lambda item: item[1])[0:max_weights]
         sd.extend(notlst)
         return dict(sd)
     else:
@@ -95,7 +96,7 @@ def has_uniform_scale(obj):
     return NearEqual(obj.scale[0], obj.scale[1]) and NearEqual(obj.scale[1], obj.scale[2])
 
 
-def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
+def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0, max_weights=4):
     """Returns 3 lists of equal length with one entry each for each vertex
     *   verts = [(x, y, z)... ] - base or as modified by target-key if provided
     *   weights = [{group-name: weight}... ] - 1:1 with verts list
@@ -128,7 +129,7 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0):
                     log.error(f"Object {obj.name} vertex #{v.index} (and possibly others) references invalid group #{vg.group}")
                 error_groups.add(vg.group)
         
-        weights.append(trim_to_four(vert_weights, arma))
+        weights.append(trim_weights(vert_weights, arma, max_weights))
     
     if msk: 
         # We return shape key locations for all interesting shape keys.
@@ -723,21 +724,23 @@ class NifExporter:
 
     def export_shape_data(self, robj:ReprObject):
         """ Export a shape's extra data """
+        from . import pyn_props
         edlist = []
         strlist = []
         decallist = []
         for ch in robj.blender_obj.children:
-             if 'NiStringExtraData_Name' in ch:
-                strlist.append( (ch['NiStringExtraData_Name'], ch['NiStringExtraData_Value']) )
+             if ch.name.startswith("NiStringExtraData"):
+                g = pyn_props.get_group(ch, 'pyn_nistrdata')
+                strlist.append( (g.name, g.value) )
                 self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
-             if 'BSBehaviorGraphExtraData_Name' in ch:
-                edlist.append( (ch['BSBehaviorGraphExtraData_Name'],
-                               ch['BSBehaviorGraphExtraData_Value']) )
+             if ch.name.startswith("BSBehaviorGraphExtraData"):
+                g = pyn_props.get_group(ch, 'pyn_bsbehavior')
+                edlist.append( (g.name, g.value, g.cbs) )
                 self.objs_written.add(ReprObject(ch, None)) # [ch.name] = shape
-             if 'BSDecalPlacementVectorExtraData_Name' in ch:
+             if ch.name.startswith("BSDecalPlacementVectorExtraData"):
                 import json
-                decallist.append( (ch['BSDecalPlacementVectorExtraData_Name'],
-                                   json.loads(ch['BSDecalPlacementVectorExtraData_Value'])) )
+                g = pyn_props.get_group(ch, 'pyn_bsdecal')
+                decallist.append( (g.name, json.loads(g.value)) )
                 self.objs_written.add(ReprObject(ch, None))
         
         if len(strlist) > 0:
@@ -831,27 +834,37 @@ class NifExporter:
             if obj.get('pynRigidBody') == 'bhkPhysicsSystem':
                 pass  # Multi-shape collision container: exported via COPY_TRANSFORMS on target
 
-            elif 'BSBehaviorGraphExtraData_Name' in obj.keys():
+            elif obj.name.startswith("BSBehaviorGraphExtraData"):
                 self.bg_data.add(obj)
 
-            elif 'NiStringExtraData_Name' in obj.keys() and obj.parent \
+            elif obj.name.startswith("NiStringExtraData") and obj.parent \
                     and obj.parent.get('pynRoot', False):
                 self.str_data.add(obj)
 
             elif 'BSClothExtraData_Name' in obj.keys():
                 self.cloth_data.add(obj)
 
-            elif 'BSDecalPlacementVectorExtraData_Name' in obj.keys():
+            elif obj.name.startswith("BSDecalPlacementVectorExtraData"):
                 self.decal_data.add(obj)
 
-            elif 'BSXFlags_Name' in obj.keys():
+            elif obj.name.startswith("BSXFlags"):
                 self.bsx_flag = obj
 
-            elif 'pynBoneLOD' in obj.keys():
+            elif obj.name.startswith("BSBoneLOD"):
                 self.bone_lod = obj
 
             elif obj.name.startswith("BSFurnitureMarkerNode"):
                 self.furniture_markers.add(obj)
+
+            elif obj.get('pynBlockName') == 'BSGeometry':
+                # A Starfield BSGeometry container Empty is represented by the shape block
+                # itself, not a separate NiNode (see export_shape_parents) -- so don't emit a
+                # node for it (nifly can't add_block a shape), but still export its LOD-child
+                # meshes. Without this, selecting the object hierarchy (not just the leaf mesh)
+                # routes the Empty through export_node and crashes on add_block(type 1).
+                for c in obj.children:
+                    if not c.hide_get():
+                        self.add_object(c)
 
             elif (connectpoint.is_child(obj)) or (not connectpoint.is_connectpoint(obj)):
                 self.grouping_nodes.add(obj)
@@ -880,8 +893,19 @@ class NifExporter:
 
     # --------- DO THE EXPORT ---------
 
+    def export_sf_morphs(self, robj:ReprObject):
+        """Starfield: write the shape's chargen + performance morph.dat files (split by expression
+        classification) alongside the exported nif, re-homed under the nif's meshes root."""
+        obj = robj.blender_obj
+        if obj.type != 'MESH' or obj.data.shape_keys is None:
+            return
+        from ..sfmorph.export_sfmorph import write_sf_morphs
+        wrote = write_sf_morphs(obj, self.nif.filepath)
+        if wrote:
+            log.info(f"Wrote Starfield morphs for {obj.name}: " + "; ".join(wrote))
+
     def export_tris(self, robj:ReprObject, verts, tris, uvs, morphdict):
-        """ Export a tri file to go along with the given nif file, if there are shape keys 
+        """ Export a tri file to go along with the given nif file, if there are shape keys
             and it's not a faceBones nif.
             dict = {shape-key: [verts...], ...} - verts list for each shape which is valid for export.
         """
@@ -961,16 +985,15 @@ class NifExporter:
     def export_string_data(self):
         """Export strings previously cached in self.str_data."""
         from ..pyn.pynifly import NiStringExtraData
+        from . import pyn_props
         for st in self.str_data:
-            # if st['NiStringExtraData_Name'] != 'BODYTRI' or self.game not in ['FO4', 'FO76']:
-            sd = NiStringExtraData.New(self.nif, 
-                name=st['NiStringExtraData_Name'], 
-                string_value=st['NiStringExtraData_Value'], 
+            g = pyn_props.get_group(st, 'pyn_nistrdata')
+            sd = NiStringExtraData.New(self.nif,
+                name=g.name,
+                string_value=g.value,
                 parent=self.nif.root)
-            # FO4 bodytris go at the top level
-            # sdlist.append( (st['NiStringExtraData_Name'], st['NiStringExtraData_Value']) )
             self.objs_written.add_pair(st, sd)
-            self.bodytri_written |= (st['NiStringExtraData_Name'] == 'BODYTRI')
+            self.bodytri_written |= (g.name == 'BODYTRI')
 
         # if len(sdlist) > 0:
         #     # Create NiStringExtraData objects using new class
@@ -982,12 +1005,14 @@ class NifExporter:
     def export_behavior_graph_data(self):
         """Export behavior graph data previously cached in self.bg_data."""
         from ..pyn.pynifly import BSBehaviorGraphExtraData
-        for bg in self.bg_data: 
-            bged = BSBehaviorGraphExtraData.New(self.nif, 
-                name=bg['BSBehaviorGraphExtraData_Name'], 
-                behavior_graph_file=bg['BSBehaviorGraphExtraData_Value'], 
-                controls_base_skeleton=bg['BSBehaviorGraphExtraData_CBS'], 
-                parent=self.nif.root) 
+        from . import pyn_props
+        for bg in self.bg_data:
+            g = pyn_props.get_group(bg, 'pyn_bsbehavior')
+            bged = BSBehaviorGraphExtraData.New(self.nif,
+                name=g.name,
+                behavior_graph_file=g.value,
+                controls_base_skeleton=g.cbs,
+                parent=self.nif.root)
             self.objs_written.add(ReprObject(bg, bged)) # [bg.name] = self.nif
 
 
@@ -1006,11 +1031,13 @@ class NifExporter:
     def export_decal_data(self):
         """Export decal placement data for root-level decal empties."""
         import json
+        from . import pyn_props
         for obj in self.decal_data:
             if obj in [ro.blender_obj for ro in self.objs_written]:
                 continue  # already exported as shape child
-            name = obj['BSDecalPlacementVectorExtraData_Name']
-            blocks = json.loads(obj['BSDecalPlacementVectorExtraData_Value'])
+            g = pyn_props.get_group(obj, 'pyn_bsdecal')
+            name = g.name
+            blocks = json.loads(g.value)
             vector_blocks = [[(tuple(v[0]), tuple(v[1])) for v in block]
                              for block in blocks]
             pynifly.BSDecalPlacementVectorExtraData.New(
@@ -1021,28 +1048,34 @@ class NifExporter:
 
     def export_bsx_flag(self):
         if self.bsx_flag:
-            bsx = pynifly.BSXFlags.New(self.nif, 
-                name=self.bsx_flag['BSXFlags_Name'],
-                flags=BSXFlagsValues.parse(self.bsx_flag['BSXFlags_Value']),
+            from . import pyn_props
+            g = pyn_props.get_group(self.bsx_flag, 'pyn_bsxflags')
+            bsx = pynifly.BSXFlags.New(self.nif,
+                name=g.name,
+                flags=BSXFlagsValues.parse(g.value),
                 parent=self.nif.rootNode)
             self.objs_written.add(ReprObject(self.bsx_flag, bsx))
 
 
     def export_integer_data(self):
+        from . import pyn_props
         for intdat in self.int_data:
-            id = pynifly.NiIntegerExtraData.New(self.nif, 
-                name=intdat['NiIntegerExtraData_Name'], 
-                value=intdat['NiIntegerExtraData_Value'], 
+            g = pyn_props.get_group(intdat, 'pyn_niintdata')
+            id = pynifly.NiIntegerExtraData.New(self.nif,
+                name=g.name,
+                value=g.value,
                 parent=self.nif.root)
             self.objs_written.add_pair(intdat, id)
 
 
     def export_bone_lod(self):
         if self.bone_lod:
+            from . import pyn_props
+            g = pyn_props.get_group(self.bone_lod, 'pyn_bonelod')
             ext = pynifly.BSBoneLODExtraData.New(
-                self.nif, 
+                self.nif,
                 name=BD.nonunique_name(self.bone_lod.name.split(":", 1)[1]),
-                lodlist=json.loads(self.bone_lod['pynBoneLOD']),
+                lodlist=json.loads(g.value),
                 parent=self.nif.rootNode)
             self.objs_written.add(ReprObject(self.bone_lod, ext))
 
@@ -1064,10 +1097,12 @@ class NifExporter:
             inv_rot, inv_zoom = BD.cam_to_inv(self.inv_marker.matrix_world, self.inv_marker.data.lens)
 
             from ..pyn.pynifly import BSInvMarker
-            invm = BSInvMarker.New(self.nif, 
-                name=self.inv_marker['BSInvMarker_Name'],
+            from . import pyn_props
+            g = pyn_props.get_group(self.inv_marker, 'pyn_invmarker')
+            invm = BSInvMarker.New(self.nif,
+                name=g.name,
                 rotation=(inv_rot[0], inv_rot[1], inv_rot[2]),
-                zoom=inv_zoom, 
+                zoom=inv_zoom,
                 parent=self.nif.rootNode)
             self.objs_written.add(ReprObject(self.inv_marker, invm))
 
@@ -1095,8 +1130,10 @@ class NifExporter:
             marker.offset[1] = (fm.location / self.scale)[1]
             marker.offset[2] = (fm.location / self.scale)[2]
             marker.heading = fm.rotation_euler.z
-            marker.animation_type_name = fm['AnimationType']
-            marker.entry_points_list = fm['EntryPoints']
+            from . import pyn_props
+            g = pyn_props.get_group(fm, 'pyn_furniture')
+            marker.animation_type_name = g.animation_type
+            marker.entry_points_list = g.entry_points
             fm_pos_list.append(marker)
         
         if fm_pos_list:
@@ -1340,8 +1377,17 @@ class NifExporter:
         editmesh = obj1.data
         editmesh.update()
         
+        # Skyrim/FO4 GPU-skin at 4 bones/vertex; Starfield allows more (vanilla body 6, hair 7).
+        # For SF, the per-shape pyn_sf_geometry.weights_per_vertex (recorded from the source on
+        # import, user-editable) caps it; 0 = auto (the shape's true max, up to the hard ceiling).
+        max_weights = 4
+        if self.game == 'SF':
+            from .sf_geometry import SF_MAX_WEIGHTS_PER_VERTEX
+            sfg = getattr(obj, 'pyn_sf_geometry', None)
+            recorded = getattr(sfg, 'weights_per_vertex', 0) if sfg else 0
+            max_weights = recorded if recorded > 0 else SF_MAX_WEIGHTS_PER_VERTEX
         verts, weights_by_vert, morphdict \
-            = extract_vert_info(obj1, editmesh, arma, target_key, self.scale)
+            = extract_vert_info(obj1, editmesh, arma, target_key, self.scale, max_weights)
     
         # Pull out vertex colors first because trying to access them later crashes
         bpy.ops.object.mode_set(mode = 'OBJECT') # Required to get vertex colors
@@ -1405,7 +1451,9 @@ class NifExporter:
         ref = None
         with BD.stashed_animation(obj):
             nodetype = obj.get('pynBlockName', 'NiNode')
-            props = pynifly.NiObject.block_types[nodetype].getbuf(values=obj)
+            from . import pyn_props
+            blockcls = pynifly.NiObject.block_types[nodetype]
+            props = blockcls.getbuf(values=pyn_props.block_values(obj, blockcls))
             xf = BD.make_transformbuf(BD.apply_scale_xf(obj.matrix_local, 1))
             props.transform = xf
             if nodetype == 'BSMultiBoundNode':
@@ -1544,11 +1592,16 @@ class NifExporter:
         ref = None
         ninode = None
         for this_parent in ancestors:
+            # A Starfield BSGeometry container Empty is represented by the shape block itself,
+            # not by a separate NiNode -- skip it so the BSGeometry parents to the Empty's own
+            # parent (root or a real NiNode above it).
+            if this_parent.get('pynBlockName') == 'BSGeometry':
+                continue
             ref = self.objs_written.find_blend(this_parent)
             if (not ref) and  ('pynRoot' not in this_parent):
                 ref = self.export_node(this_parent, last_parent)
             last_parent = ref
-        
+
         return ref
 
 
@@ -1829,7 +1882,8 @@ class NifExporter:
                 raise ShapeTooBigError(f"Shape '{obj.name}' {size_err}")
 
             blockclass = pynifly.NiObject.block_types[blocktype]
-            props = blockclass.getbuf(obj)
+            from . import pyn_props
+            props = blockclass.getbuf(pyn_props.block_values(obj, blockclass))
 
             if lod_sizes is not None and hasattr(props, 'lodSize0'):
                 props.lodSize0 = lod_sizes[0]
@@ -1845,6 +1899,12 @@ class NifExporter:
             if connectpoint.is_connectpoint(obj):
                 obj_name = "EditorMarker"
                 p = None
+            elif self.game == 'SF':
+                # Starfield: the exported object is the LOD-child mesh; the BSGeometry block
+                # takes the base name off its container Empty (not the ':LOD<slot>' child name).
+                from . import sf_geometry
+                obj_name = sf_geometry.sf_base_name(obj)
+                p = my_parent.nifnode if my_parent else None
             else:
                 obj_name = self.unique_name(obj)
                 p = my_parent.nifnode if my_parent else None
@@ -1868,14 +1928,31 @@ class NifExporter:
             robj = ReprObject(obj, new_shape)
             self.objs_written.add(robj)
 
-            if colors_new:
+            # Starfield colors go into the .mesh via set_mesh_colors (handled in
+            # export_sf_shape); the generic set_colors writes the wrong array for BSGeometry.
+            if colors_new and self.game != 'SF':
                 new_shape.set_colors(colors_new)
 
             self.export_shape_data(robj)
-            
+
             shaderexp.export(new_shape)
 
-            if is_skinned:
+            if self.game == 'SF':
+                # Starfield: set the external .mesh path + colors + skin, and queue the .mesh
+                # bytes to be written after nif.save(). Uses the SF skin path (SkinAttach +
+                # BSSkin::BoneData), not the generic export_skin (nifly can't skin a BSGeometry).
+                from . import sf_geometry
+                sf_geometry.export_sf_shape(
+                    self, obj, new_shape, verts, uvmap_nif, norms_exp, tris,
+                    colors_new, weights_by_vert, arma if is_skinned else None, new_xform)
+                # A skinned BSGeometry keeps an IDENTITY transform: the skin-to-bone binds are
+                # computed relative to new_xform (see _export_sf_skin) and already place every
+                # vertex, so writing new_xform onto the shape too would double-apply it and the
+                # mesh explodes under animation. Only an unskinned (static) SF shape carries a
+                # placement transform. (Vanilla skinned bodies have an identity shape transform.)
+                if not is_skinned:
+                    new_shape.transform = BD.make_transformbuf(new_xform)
+            elif is_skinned:
                 self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
                 if len(unweighted) > 0:
                     create_group_from_verts(obj, BD.UNWEIGHTED_VERTEX_GROUP, unweighted)
@@ -1937,8 +2014,13 @@ class NifExporter:
         except Exception as e:
             log.exception(f"Error exporting controller for object {obj.name}: {e}")
 
-        # Write tri file
-        retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)
+        # Write shape-key morphs alongside the nif (gated). Starfield uses morph.dat files split by
+        # expression classification; FO4/Skyrim use .tri files.
+        if self.settings.write_tris:
+            if self.game == 'SF':
+                self.export_sf_morphs(robj)
+            else:
+                retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)
 
         # Write TRIP extra data 
         if self.settings.write_bodytri \
@@ -1949,19 +2031,14 @@ class NifExporter:
                                   string_value=truncate_filename(self.trippath, "meshes"),
                                   parent=new_shape)
 
-        defaults = ExportSettings()
+        # game stays a per-object legacy prop (multi-object discovery in _discover_game).
         obj[PYN_GAME_PROP] = self.game
-        obj[PYN_BLENDER_XF_PROP] = MatNearEqual(self.export_xf, BD.blender_export_xf)
-        if self.settings.preserve_hierarchy != defaults.preserve_hierarchy:
-            obj[PYN_PRESERVE_HIERARCHY_PROP] = self.settings.preserve_hierarchy 
-        if arma:
-            arma[PYN_RENAME_BONES_PROP] = self.settings.rename_bones
-            if self.settings.rename_bones_niftools != defaults.rename_bones_niftools:
-                arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.settings.rename_bones_niftools 
-        if self.settings.write_bodytri != defaults.write_bodytri:
-            obj['PYN_WRITE_BODYTRI_ED'] = self.settings.write_bodytri 
-        if self.settings.export_pose != defaults.export_pose: 
-            obj['PYN_EXPORT_POSE'] = self.settings.export_pose 
+        # All other export settings are sticky in the typed groups: nif-level on the root,
+        # skeleton settings on the armature (Bad Dog's root+armature split).
+        from . import pyn_props
+        pyn_props.write_export_settings(self.root_object, arma, self.settings)
+        if self.root_object is not None:
+            self.root_object.pyn_export.blender_xf = MatNearEqual(self.export_xf, BD.blender_export_xf)
 
         if self.active_obj != obj:
             bpy.data.meshes.remove(self.active_obj.data)
@@ -2067,6 +2144,11 @@ class NifExporter:
 
         self.nif.save()
         log.info(f"..Wrote {fpath}")
+        if self.game == 'SF':
+            from . import sf_geometry
+            sf_geometry.write_sf_meshes(self)
+            if getattr(self.settings, 'write_sf_materials', False):
+                sf_geometry.write_sf_materials(self)
         self._fo4_write_ssf()
         msgs = list(filter(lambda x: not x.startswith('Info: Loaded skeleton') and len(x)>0, 
                             self.nif.message_log().split('\n')))
@@ -2201,6 +2283,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('FO76', "Fallout 76", ""),
                    ('FO3', "Fallout New Vegas", ""),
                    ('FO3', "Fallout 3", ""),
+                   ('SF', "Starfield", ""),
                    ),
             ) # type: ignore
     
@@ -2255,6 +2338,19 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         name="Export vertex color/alpha",
         description="Use vertex color attributes as vertex color",
         default=ExportSettings.__dataclass_fields__["export_colors"].default) # type: ignore
+
+    write_sf_materials: bpy.props.BoolProperty(
+        name="Write Starfield .mat files",
+        description="For Starfield exports, write a loose .mat for each material, recovered from "
+                    "its shader graph. Off by default (may overwrite a source .mat when exporting "
+                    "in place)",
+        default=ExportSettings.__dataclass_fields__["write_sf_materials"].default) # type: ignore
+
+    write_tris: bpy.props.BoolProperty(
+        name="Export morphs/tri files",
+        description="Write shape-key morphs alongside the nif: FO4/Skyrim expression + chargen .tri "
+                    "files, Starfield chargen/performance morph.dat files. Off to skip morph export",
+        default=ExportSettings.__dataclass_fields__["write_tris"].default) # type: ignore
 
     export_recenter_half_precision: bpy.props.BoolProperty(
         name="Recenter half precision vertices",
@@ -2371,8 +2467,14 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             prefs = ExportSettings()
 
         obj = self.objects_to_export[0]
-        lst = [obj for obj in self.objects_to_export if "pynRoot" in obj]
+        lst = [o for o in self.objects_to_export if "pynRoot" in o]
         obj_root = lst[0] if lst else None
+        if obj_root is None:
+            # Selecting a child shape: walk up to its nif root so its sticky settings apply.
+            o = obj
+            while o is not None and 'pynRoot' not in o:
+                o = o.parent
+            obj_root = o
 
         # `_discover_game` (called just before this) populates self.armatures via
         # expansion through EMPTY children, so use that list — self.export_armature
@@ -2380,39 +2482,33 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         armatures = self.armatures or []
         first_arma = armatures[0] if armatures else None
 
-        self.blender_xf = BD.get_setting_from(
-            PYN_BLENDER_XF_PROP,
-            (obj_root, obj, first_arma),
-            default=prefs.blender_xf)
-        self.rename_bones = BD.get_setting_from(
-            PYN_RENAME_BONES_PROP,
-            armatures + self.objects_to_export,
-            default=prefs.rename_bones)
-        self.rename_bones_niftools = BD.get_setting_from(
-            PYN_RENAME_BONES_NIFTOOLS_PROP,
-            armatures + self.objects_to_export,
-            default=prefs.rename_bones_niftools)
-        self.rotate_bones_pretty = BD.get_setting_from(
-            PYN_ROTATE_BONES_PRETTY_PROP,
-            armatures + self.objects_to_export,
-            default=prefs.rotate_bones_pretty)
-        self.write_bodytri = BD.get_setting_from(
-            PYN_WRITE_BODYTRI_ED_PROP,
-            [obj],
-            default=prefs.write_bodytri)
-        self.preserve_hierarchy = BD.get_setting_from(
-            PYN_PRESERVE_HIERARCHY_PROP,
-            [obj],
-            default=ExportSettings.__dataclass_fields__["preserve_hierarchy"].default)
-        self.export_pose = BD.get_setting_from(
-            PYN_EXPORT_POSE_PROP,
-            [obj],
-            default=ExportSettings.__dataclass_fields__["export_pose"].default)
-        self.chargen_ext = BD.get_setting_from(
-            PYN_CHARGEN_EXT_PROP,
-            [obj],
-            default=ExportSettings.__dataclass_fields__["chargen_extension"].default)
-    
+        # Sticky export settings live in typed groups (root + armature). read_export_settings
+        # returns only fields the user has explicitly set (migrating legacy PYN_* props first);
+        # anything unset falls back to the addon preference / dataclass default below. This runs
+        # only when intuit_defaults is True (dialog seeding, or an intuiting programmatic call); a
+        # caller wanting its kwargs honored over everything passes intuit_defaults=False, which
+        # skips this method entirely.
+        from . import pyn_props
+        dfld = ExportSettings.__dataclass_fields__
+        sticky = pyn_props.read_export_settings(obj_root, first_arma)
+        self.blender_xf = sticky.get('blender_xf', prefs.blender_xf)
+        self.rename_bones = sticky.get('rename_bones', prefs.rename_bones)
+        self.rename_bones_niftools = sticky.get('rename_bones_niftools', prefs.rename_bones_niftools)
+        self.rotate_bones_pretty = sticky.get('rotate_bones_pretty', prefs.rotate_bones_pretty)
+        self.write_bodytri = sticky.get('write_bodytri', prefs.write_bodytri)
+        self.preserve_hierarchy = sticky.get('preserve_hierarchy', dfld["preserve_hierarchy"].default)
+        self.export_pose = sticky.get('export_pose', dfld["export_pose"].default)
+        self.chargen_ext = sticky.get('chargen_extension', dfld["chargen_extension"].default)
+        # These weren't sticky before; consolidating makes them so (keep operator default if unset).
+        self.export_modifiers = sticky.get('export_modifiers', self.export_modifiers)
+        self.export_animations = sticky.get('export_animations', self.export_animations)
+        self.export_colors = sticky.get('export_colors', self.export_colors)
+        self.export_recenter_half_precision = sticky.get(
+            'export_recenter_half_precision', self.export_recenter_half_precision)
+        self.export_full_precision = sticky.get('export_full_precision', self.export_full_precision)
+        self.write_sf_materials = sticky.get('write_sf_materials', self.write_sf_materials)
+        self.write_tris = sticky.get('write_tris', self.write_tris)
+
 
     def __str__(self):
         return (f"ExportNIF(game={self.target_game}, "

@@ -67,6 +67,10 @@ String SkeletonFile(enum TargetGame game, String& rootName) {
 		curSkeletonPath = (projectRoot / "skeletons/FO4/skeleton.nif").string();
 		rootName = "Root";
 		break;
+	case TargetGame::SF:
+		curSkeletonPath = (projectRoot / "skeletons/SF/skeleton.nif").string();
+		rootName = "Root";
+		break;
 	}
 	return curSkeletonPath;
 }
@@ -102,6 +106,13 @@ void SetNifVersion(NifFile* nif, enum TargetGame targ) {
 		version.SetFile(V20_2_0_7);
 		version.SetUser(12);
 		version.SetStream(155);
+		break;
+	case TargetGame::SF:
+		// Starfield: file 20.2.0.7, user 12, stream 172-175. Vanilla base-game
+		// assets use 173 (matched to a real body .nif); IsSF() accepts 172-175.
+		version.SetFile(V20_2_0_7);
+		version.SetUser(12);
+		version.SetStream(173);
 		break;
 	}
 
@@ -266,6 +277,67 @@ void GetPartitions(
 	indices = triParts;
 }
 
+// Compute per-vertex tangents for a Starfield BSGeometryMeshData from its verts/UVs/normals/
+// tris, matching the vanilla convention. nifly's other shape types get this free in Create
+// (BSTriShape/NiTriShapeData each override CalcTangentSpace), but BSGeometryMeshData inherits
+// NiGeometryData's no-op, so we do it here.
+//
+// Verified against a vanilla body .mesh:
+//   * the stored tangent is the U-direction (Lengyel's sdir), 100% of verts;
+//   * the bitangent is reconstructed as cross(normal, tangent) * sign, where the 2-bit W is
+//     3 when the per-vertex UV Jacobian determinant is positive and 0 when negative (the two
+//     values 0/3 are the only ones vanilla uses; normals always carry W=1).
+static void ComputeExternalMeshTangents(BSGeometryMeshData& md) {
+	size_t nv = md.vertices.size();
+	if (nv == 0 || md.uvSets.empty() || md.uvSets[0].size() != nv
+		|| md.normals.size() != nv || md.tris.empty())
+		return;
+
+	std::vector<Vector3> tan(nv, Vector3(0.0f, 0.0f, 0.0f));
+	std::vector<double> detsum(nv, 0.0);
+	const std::vector<Vector2>& uvs = md.uvSets[0];
+
+	for (const Triangle& tri : md.tris) {
+		uint16_t i1 = tri.p1, i2 = tri.p2, i3 = tri.p3;
+		if (i1 >= nv || i2 >= nv || i3 >= nv) continue;
+
+		const Vector3& v1 = md.vertices[i1];
+		const Vector3& v2 = md.vertices[i2];
+		const Vector3& v3 = md.vertices[i3];
+
+		float x1 = v2.x - v1.x, x2 = v3.x - v1.x;
+		float y1 = v2.y - v1.y, y2 = v3.y - v1.y;
+		float z1 = v2.z - v1.z, z2 = v3.z - v1.z;
+
+		float s1 = uvs[i2].u - uvs[i1].u, s2 = uvs[i3].u - uvs[i1].u;
+		float t1 = uvs[i2].v - uvs[i1].v, t2 = uvs[i3].v - uvs[i1].v;
+
+		float det = s1 * t2 - s2 * t1;
+		float r = (det >= 0.0f) ? 1.0f : -1.0f;
+		// U-direction (the stored tangent), sign-corrected per triangle so mirrored islands
+		// still accumulate coherently.
+		Vector3 sdir((t2 * x1 - t1 * x2) * r, (t2 * y1 - t1 * y2) * r, (t2 * z1 - t1 * z2) * r);
+		sdir.Normalize();
+
+		tan[i1] += sdir; tan[i2] += sdir; tan[i3] += sdir;
+		detsum[i1] += det; detsum[i2] += det; detsum[i3] += det;
+	}
+
+	md.tangents.assign(nv, Vector3(1.0f, 0.0f, 0.0f));
+	md.tangentWs.assign(nv, 3);
+	for (size_t i = 0; i < nv; i++) {
+		Vector3 n = md.normals[i];
+		Vector3 t = tan[i];
+		if (t.IsZero())
+			t = Vector3(n.y, n.z, n.x);        // arbitrary seed; orthonormalized below
+		// Gram-Schmidt: make the tangent perpendicular to the normal, then normalize.
+		t = t - n * n.dot(t);
+		t.Normalize();
+		md.tangents[i] = t;
+		md.tangentWs[i] = (detsum[i] > 0.0) ? 3 : 0;
+	}
+}
+
 NiShape* PyniflyCreateShape(NifFile* nif,
 	const std::string& shapeName,
 	NiShapeBuf* buf,
@@ -289,7 +361,93 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 	NiVersion& version = nif->GetHeader().GetVersion();
 
 	NiShape* shapeResult = nullptr;
-	if (version.IsSSE() && buf->bufType == BUFFER_TYPES::NiTriShapeBufType) {
+	if (version.IsSF()) {
+		// Starfield: every renderable is a BSGeometry whose geometry lives in external
+		// .mesh files (flag 0x200 off). Build the block + one mesh (LOD) slot populated
+		// from the passed data. Tangents, colors, meshName and skin are filled in by the
+		// dedicated setBSGeometry* setters after creation (no read counterpart on the
+		// generic Create path). The .mesh bytes are produced later by saveBSGeometryMeshData.
+		auto bsGeom = std::make_unique<BSGeometry>();
+		bsGeom->name.get() = shapeName;
+		bsGeom->SetInternalGeomData(false);   // external geometry
+
+		BSGeometryMesh* mesh = bsGeom->AddMesh();
+		mesh->internalGeom = false;
+		mesh->flags = 64;                     // observed constant on vanilla meshes
+		BSGeometryMeshData& md = mesh->meshData;
+		md.version = 1;                       // .mesh format version (game reads 0..2)
+
+		// Populate verts/uvs/normals through nifly's Create: it sets the protected
+		// numVertices and sizes vertices/uvSets/normals consistently (a direct assign
+		// would be truncated later by SetVertices' resize-to-numVertices). Create ignores
+		// the triangle argument, so the tris go in separately.
+		md.Create(version, v, t, uv, norms);
+		if (t) md.tris = *t;
+		// Compute tangents from the geometry (BSGeometryMeshData has no real CalcTangentSpace,
+		// unlike the other shape types). setBSGeometryTangents can still override afterward.
+		ComputeExternalMeshTangents(md);
+
+		// Per-mesh scale: the packer stores each position as
+		//   int16 = component / (scale * havokScale) * 32767,
+		// so scale must cover the largest game-unit extent (÷havokScale = metric).
+		const float havokScale = 69.969f;
+		float maxCoord = 0.0f;
+		if (v) for (const auto& p : *v) {
+			maxCoord = std::max(maxCoord,
+				std::max(std::fabs(p.x), std::max(std::fabs(p.y), std::fabs(p.z))));
+		}
+		// Positions are int16 signed-normalized: stored int16 = round(component / scale * 32767),
+		// decoded at runtime as int16 / 32767 * scale. If scale == the exact max extent, the
+		// deepest verts encode right at the +-32767 edge -- and float rounding pushes some to
+		// -32768, one step PAST the symmetric range. Those decode fine statically but the engine's
+		// skinned vertex-fetch mishandles the SNORM extreme, flinging the verts across the map when
+		// posed. So carry a safety MARGIN (vanilla bodies use ~2.0 for a ~1.63 max, ~22%); 10%
+		// keeps the max encoded value near 29788, comfortably clear. Precision cost is negligible.
+		const float kScaleMargin = 1.1f;
+		md.scale = (maxCoord > 0.0f) ? (maxCoord / havokScale * kScaleMargin) : 1.0f;
+
+		// Bounding volumes on the BSGeometry block. The engine frustum/distance-culls a
+		// STATIC (non-skinned) shape by these, so a zero bound makes the shape invisible
+		// in-game AND in the Creation Kit even though the geometry is perfectly valid
+		// (Blender/NifSkope ignore bounds, which is why it looks fine there). Verified
+		// against vanilla statics: bounds.center == boundMinMax[0..2] == AABB centre,
+		// boundMinMax[3..5] == AABB half-extents, radius == max vertex distance from the
+		// centre. All in metric (.mesh) space, i.e. game-unit verts / havokScale.
+		if (v && !v->empty()) {
+			Vector3 lo = (*v)[0], hi = (*v)[0];
+			for (const auto& p : *v) {
+				lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
+				hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
+			}
+			Vector3 c((lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f);
+			float radius = 0.0f;
+			for (const auto& p : *v) {
+				float dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
+				radius = std::max(radius, std::sqrt(dx * dx + dy * dy + dz * dz));
+			}
+			const float inv = 1.0f / havokScale;
+			const float minmax[6] = {
+				c.x * inv, c.y * inv, c.z * inv,
+				(hi.x - lo.x) * 0.5f * inv, (hi.y - lo.y) * 0.5f * inv, (hi.z - lo.z) * 0.5f * inv
+			};
+			bsGeom->SetGeometryBounds(
+				BoundingSphere(Vector3(c.x * inv, c.y * inv, c.z * inv), radius * inv), minmax);
+		}
+
+		if (buf->shaderPropertyID != NO_SHADER_REF) {
+			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
+			auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
+			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
+			nifShader->SetSkinned(false);
+			int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
+			bsGeom->ShaderPropertyRef()->index = shaderID;
+		}
+
+		shapeResult = bsGeom.get();
+		int shapeID = nif->GetHeader().AddBlock(std::move(bsGeom));
+		parentNode->childRefs.AddBlockRef(shapeID);
+	}
+	else if (version.IsSSE() && buf->bufType == BUFFER_TYPES::NiTriShapeBufType) {
 		// SSE files can legitimately contain NiTriShapes -- e.g. the lowest-LOD
 		// billboards of vanilla skinned trees. Build NiTriShape + NiTriShapeData.
 		auto nifTriShape = std::make_unique<NiTriShape>();

@@ -323,8 +323,9 @@ class CollisionHandler():
         obj.matrix_world = parentxf.copy()
         # obj.parent = self.root_object
 
-        obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
-        obj['bhkRadius'] = prop.bhkRadius * self.import_scale
+        from . import pyn_props
+        pyn_props.set_collshape(obj, SkyrimHavokMaterial.get_name(prop.bhkMaterial),
+                                prop.bhkRadius * self.import_scale)
 
         self.collection.objects.link(obj)
 
@@ -343,16 +344,15 @@ class CollisionHandler():
         shaperad = prop.radius1 * sf
 
         obj = create_capsule(p1, p2, shaperad)
-        prop.extract(obj, ignore=CAPSULE_SHAPE_IGNORE)
 
         for p in obj.data.polygons:
             p.use_smooth = True
         obj.data.update()
-        
+
         obj.name = 'bhkCapsuleShape'
         obj.matrix_world = parentxf.copy()
-        obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
-        obj['bhkRadius'] = prop.bhkRadius
+        from . import pyn_props
+        pyn_props.set_collshape(obj, SkyrimHavokMaterial.get_name(prop.bhkMaterial), prop.bhkRadius)
         return obj
         
 
@@ -371,10 +371,11 @@ class CollisionHandler():
             p.use_smooth = True
         obj.data.update()
         
-        obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
-        obj['bhkRadius'] = prop.bhkRadius * self.import_scale
+        from . import pyn_props
+        pyn_props.set_collshape(obj, SkyrimHavokMaterial.get_name(prop.bhkMaterial),
+                                prop.bhkRadius * self.import_scale)
         return obj
-        
+
 
     def show_collision_normals(self, cs:bhkShape, cso):
         sf = -HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
@@ -417,11 +418,12 @@ class CollisionHandler():
         self.collection.objects.link(obj)
         
         try:
-            obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
-        except:
+            mat = SkyrimHavokMaterial.get_name(prop.bhkMaterial)
+        except Exception:
             self.warn(f"Unknown havok material: {prop.bhkMaterial}")
-            obj['bhkMaterial'] = str(prop.bhkMaterial)
-        obj['bhkRadius'] = prop.bhkRadius * self.import_scale
+            mat = str(prop.bhkMaterial)
+        from . import pyn_props
+        pyn_props.set_collshape(obj, mat, prop.bhkRadius * self.import_scale)
 
         # Visualise the convex radius with push + bevel modifiers.
         radius_bl = prop.bhkRadius * self.import_scale
@@ -631,26 +633,28 @@ class CollisionHandler():
             obj['pynRigidBody'] = 'bhkPhysicsSystem'
             obj['pynCollisionShapeType'] = s.shape_type
 
+            from . import pyn_props
             if s.physics is not None:
                 if s.physics.is_dynamic:
                     obj.rigid_body.type = 'ACTIVE'
                     obj.rigid_body.mass = s.physics.mass
-                    obj['pynPhysInertia'] = list(s.physics.inertia)
+                    pyn_props.set_group(obj, 'pyn_fo4phys', inertia=tuple(s.physics.inertia))
                 obj.rigid_body.friction = s.physics.friction
                 obj.rigid_body.restitution = s.physics.restitution
                 obj.rigid_body.linear_damping = s.physics.linear_damping
                 obj.rigid_body.angular_damping = s.physics.angular_damping
-                obj['pynPhysMaterial'] = s.physics.body_props_raw.hex()
-                obj['pynPhysGravityFactor'] = s.physics.gravity_factor
-                obj['pynPhysMaxLinVel'] = s.physics.max_linear_velocity
-                obj['pynPhysMaxAngVel'] = s.physics.max_angular_velocity
+                pyn_props.set_group(obj, 'pyn_fo4phys',
+                                    material_hex=s.physics.body_props_raw.hex(),
+                                    gravity_factor=s.physics.gravity_factor,
+                                    max_lin_vel=s.physics.max_linear_velocity,
+                                    max_ang_vel=s.physics.max_angular_velocity)
 
             if s.convex_radius > 0.0:
                 radius_bl = s.convex_radius * sf
                 obj.rigid_body.use_margin = True
                 obj.rigid_body.collision_margin = radius_bl
                 if s.shape_type == 'polytope':
-                    obj['pynCollisionRadius'] = radius_bl
+                    pyn_props.set_group(obj, 'pyn_fo4phys', collision_radius=radius_bl)
                     _add_collision_radius_modifiers(obj, radius_bl)
 
             if container is not None:
@@ -689,9 +693,11 @@ class CollisionHandler():
         obj = bpy.data.objects.new(cs.blockname, m)
         obj.matrix_world = parentxf.copy()
         self.collection.objects.link(obj)
-        obj['bhkRadius'] = cs.properties.radius * self.import_scale
-        if cs.properties.material != 0:
-            obj['bhkMaterial'] = SkyrimHavokMaterial.get_name(cs.properties.material)
+        from . import pyn_props
+        pyn_props.set_collshape(
+            obj,
+            SkyrimHavokMaterial.get_name(cs.properties.material) if cs.properties.material != 0 else None,
+            cs.properties.radius * self.import_scale)
         return obj
 
     def import_bhkCompressedMeshShape(self, cs:bhkShape, parentxf:Matrix):
@@ -707,7 +713,8 @@ class CollisionHandler():
         obj = bpy.data.objects.new(cs.blockname, m)
         obj.matrix_world = parentxf.copy()
         self.collection.objects.link(obj)
-        obj['bhkRadius'] = cs.properties.radius * self.import_scale
+        from . import pyn_props
+        pyn_props.set_collshape(obj, None, cs.properties.radius * self.import_scale)
 
         # Create vertex groups for per-triangle Havok materials
         mat_ids = cs.material_ids
@@ -785,7 +792,8 @@ class CollisionHandler():
         # We don't have a separate Blender object for rigid body properties, so store them
         # on the shape.
         p = cb.properties
-        p.extract(sh, ignore=COLLISION_BODY_IGNORE)
+        from . import pyn_props
+        pyn_props.import_block_props(sh, p, ignore=COLLISION_BODY_IGNORE)
         if cb.blockname == 'bhkRigidBodyT':
             # Preserve the T variant so export doesn't downgrade to bhkRigidBody.
             sh['pynRigidBody'] = cb.blockname
@@ -862,7 +870,8 @@ class CollisionHandler():
                 importer.warn(f"{parentObj.name} has unsupported collision shape")
                 return
         
-        sh['pynCollisionFlags'] = bhkCOFlags(c.flags).fullname
+        from . import pyn_props
+        pyn_props.set_group(sh, 'pyn_collisionobj', flags=bhkCOFlags(c.flags).fullname)
         sh['pynCollisionBlockname'] = c.blockname
 
         # Track collision objects so they can be reparented when the root
@@ -916,17 +925,20 @@ class CollisionHandler():
         center = Vector()
 
         # Capsule covers the extent of the shape
-        props = bhkCapsuleShapeProps(s)
-        props.load(s, ignore=CAPSULE_SHAPE_IGNORE)
+        from . import pyn_props
+        store = pyn_props.collshape_store(s)
+        props = bhkCapsuleShapeProps(store)
+        props.load(store, ignore=CAPSULE_SHAPE_IGNORE)
 
-        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game] 
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
 
         point1, point2, r = find_capsule_ends(s)
-        if 'bhkRadius' in s:
-            r = s['bhkRadius'] 
+        if props.bhkRadius:      # a stored radius, loaded from the collision-shape group
+            r = props.bhkRadius
         else:
             r = r / sf
-        props.bhkRadius = props.bhkRadius1 = props.bhkRadius2 = r
+        # radius1/radius2 are the actual buffer fields (the capsule radius is uniform).
+        props.bhkRadius = props.radius1 = props.radius2 = r
 
         for i, val in enumerate(point1):
             props.point1[i] = val/sf
@@ -954,8 +966,10 @@ class CollisionHandler():
         center = Vector()
         try:
             # Box covers the extent of the shape, whatever it is
-            p = bhkBoxShapeProps(box)
-            p.load(box, ignore=BOX_SHAPE_IGNORE)
+            from . import pyn_props
+            store = pyn_props.collshape_store(box)
+            p = bhkBoxShapeProps(store)
+            p.load(store, ignore=BOX_SHAPE_IGNORE)
 
             # Have to take the export scale factor into account.
             sf = (HAVOC_SCALE_FACTOR 
@@ -984,7 +998,8 @@ class CollisionHandler():
         Export a convex vertices shape that wraps around whatever the import shape
         is.
         """
-        p = bhkConvexVerticesShapeProps(s, game=self.game)
+        from . import pyn_props
+        p = bhkConvexVerticesShapeProps(pyn_props.collshape_store(s), game=self.game)
         bm = bmesh.new()
         bm.from_mesh(s.data)
         bmesh.ops.convex_hull(bm, input=bm.verts, use_existing_faces=True)
@@ -1029,7 +1044,8 @@ class CollisionHandler():
         if not childnode:
             return None, None, None
 
-        props = bhkConvexTransformShapeProps(s)
+        from . import pyn_props
+        props = bhkConvexTransformShapeProps(pyn_props.collshape_store(s))
         if s.rigid_body.use_margin:
             props.bhkRadius = s.rigid_body.collision_margin * HAVOC_SCALE_FACTOR
 
@@ -1058,7 +1074,8 @@ class CollisionHandler():
         non-identity transform relative to the list needs an intermediate
         bhkConvexTransformShape to position it.
         """
-        props = bhkListShapeProps(s)
+        from . import pyn_props
+        props = bhkListShapeProps(pyn_props.collshape_store(s))
         cshape = self.nif.add_shape(props)
 
         xf = s.matrix_local @ xform
@@ -1115,11 +1132,14 @@ class CollisionHandler():
         game = self.nif.game
         radius = 0.005 if game != 'SKYRIM' else 0.1
 
-        # Get default material from custom property
-        default_material = s.get('bhkMaterial', 0)
-        if isinstance(default_material, str):
+        # Get default material from the collision-shape group (name string)
+        from . import pyn_props
+        pyn_props.collshape_store(s)  # migrate any legacy bhkMaterial prop onto the group
+        mat_name = s.pyn_collshape.bhkMaterial
+        default_material = 0
+        if mat_name:
             try:
-                default_material = SkyrimHavokMaterial[default_material].value
+                default_material = SkyrimHavokMaterial[mat_name].value
             except KeyError:
                 default_material = 0
 
@@ -1231,7 +1251,9 @@ class CollisionHandler():
         cshape, ctr, rot = self.export_collision_shape([coll], targxf.inverted()) 
         if not cshape: return None
 
-        props = bhkWorldObject.get_buffer(bodytype, values=coll)
+        from . import pyn_props
+        bodycls = bhkWorldObject.block_types[bodytype]
+        props = bodycls.getbuf(values=pyn_props.block_values(coll, bodycls))
         if cshape.needsTransform:
             props.bufType = PynBufferTypes.bhkRigidBodyTBufType
         elif props.bufType == PynBufferTypes.bhkRigidBodyTBufType:
@@ -1292,9 +1314,11 @@ class CollisionHandler():
         """
         if self.objs_written.find_blend(coll): return
 
+        from . import pyn_props
         flags = None
-        if 'pynCollisionFlags' in coll:
-            flags = bhkCOFlags.parse(coll['pynCollisionFlags']).value
+        _coflags = pyn_props.get_group(coll, 'pyn_collisionobj').flags
+        if _coflags:
+            flags = bhkCOFlags.parse(_coflags).value
 
         targpair = self.objs_written.find_blend(targobj)
         if targpair:
@@ -1328,21 +1352,22 @@ class CollisionHandler():
                 ref = shape_objs[0]
                 rb = ref.rigid_body
                 is_dyn = (rb is not None and rb.type == 'ACTIVE')
+                gp = pyn_props.get_group(ref, 'pyn_fo4phys')
                 common_props = dict(
-                    body_props_raw=bytes.fromhex(ref.get('pynPhysMaterial', '00ff003f003fcd3e01024c3deeff7f7f')),
+                    body_props_raw=bytes.fromhex(gp.material_hex or '00ff003f003fcd3e01024c3deeff7f7f'),
                     friction=rb.friction if rb else 0.5,
                     restitution=rb.restitution if rb else 0.4,
                     linear_damping=rb.linear_damping if rb else 0.1,
                     angular_damping=rb.angular_damping if rb else 0.05,
-                    gravity_factor=ref.get('pynPhysGravityFactor', 1.0),
-                    max_linear_velocity=ref.get('pynPhysMaxLinVel', 104.4),
-                    max_angular_velocity=ref.get('pynPhysMaxAngVel', 31.57),
+                    gravity_factor=gp.gravity_factor,
+                    max_linear_velocity=gp.max_lin_vel,
+                    max_angular_velocity=gp.max_ang_vel,
                 )
                 if is_dyn:
                     physics = PhysicsProps(
                         is_dynamic=True,
                         mass=rb.mass,
-                        inertia=tuple(ref.get('pynPhysInertia', [0.0, 0.0, 0.0])),
+                        inertia=tuple(gp.inertia),
                         **common_props,
                     )
                 else:
@@ -1388,7 +1413,7 @@ class CollisionHandler():
                         if obj.rigid_body and obj.rigid_body.use_margin:
                             radius = obj.rigid_body.collision_margin / sf
                         else:
-                            radius = obj.get('pynCollisionRadius', 0.0) / sf
+                            radius = pyn_props.get_group(obj, 'pyn_fo4phys').collision_radius / sf
                         shapes.append(CollisionShape(
                             shape_type=shape_type,
                             name=obj.name,

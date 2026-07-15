@@ -409,6 +409,739 @@ def TEST_READ():
     CheckNif(nif)
 
 
+def TEST_SF_MESH_READ():
+    """Starfield: read a BSGeometry nif + its external .mesh, get geometry + bones."""
+    nif = NifFile(r"tests\SF\naked_f.nif")
+    assert nif.game == 'SF', f"Recognized as Starfield: {nif.game}"
+
+    geom = nif.shapes[0]
+    assert isinstance(geom, BSGeometry), f"Shape is a BSGeometry: {type(geom).__name__}"
+    assert geom.mesh_count == 1, f"One LOD mesh slot: {geom.mesh_count}"
+    assert not geom.is_internal_geom, "Mesh data is external (not inline)"
+    assert geom.mesh_path(0), f"Has an external mesh path: {geom.mesh_path(0)}"
+
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        data = f.read()
+    assert geom.load_mesh(data, 0), "Loaded external .mesh bytes"
+
+    # nifly applies havokScale on load, so geometry comes back in game units.
+    assert len(geom.verts) == 6616, f"Vertex count: {len(geom.verts)}"
+    assert len(geom.tris) == 12132, f"Triangle count: {len(geom.tris)}"
+    assert len(geom.uvs) == len(geom.verts), "One UV per vertex"
+    assert len(geom.normals) == len(geom.verts), "One normal per vertex"
+    assert len(geom.bone_names) == 38, f"Bone count (from SkinAttach): {len(geom.bone_names)}"
+    assert all(abs(c) < 1000 for c in geom.verts[0]), "Verts in game-unit magnitude"
+
+    # Vertex colors: the .mesh carries per-vertex colors (this body is a uniform gray, BGRA
+    # 192,192,192,255). They live in BSGeometryMeshData.vColors; the color accessor must surface
+    # them, not the empty inherited vertexColors (else every color reads black -- the import bug).
+    cols = geom.colors
+    assert len(cols) == len(geom.verts), f"One color per vertex: {len(cols)}"
+    assert cols[0] != (0.0, 0.0, 0.0, 0.0), f"Vertex colors not black: {cols[0]}"
+    assert all(abs(cols[0][i] - 0.7529) < 0.01 for i in range(3)) and abs(cols[0][3] - 1.0) < 0.01, \
+        f"Body vertex color is gray 192/255 with full alpha: {cols[0]}"
+
+
+def TEST_SF_MESH_WRITE():
+    """Starfield: serialize a BSGeometry LOD back to .mesh bytes and round-trip the geometry.
+
+    save_mesh regenerates meshlets + cull data and serializes via nifly's
+    SaveExternalShapeData (the UDEC3 normal/tangent encoder is correct in the merged fork).
+    Re-loading the bytes reproduces the geometry within int16-SNORM * Scale quantization.
+    """
+    nif = NifFile(r"tests\SF\naked_f.nif")
+    geom = nif.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        geom.load_mesh(f.read(), 0)
+
+    verts0 = list(geom.verts)
+    tris0 = list(geom.tris)
+    assert len(verts0) > 0 and len(tris0) > 0, "Loaded geometry to serialize"
+
+    data = geom.save_mesh(0)
+    assert len(data) > 0, "Serialized some .mesh bytes"
+
+    # Re-load the serialized bytes; the geometry survives the round-trip.
+    assert geom.load_mesh(data, 0), "Re-loaded serialized .mesh bytes"
+    verts1 = list(geom.verts)
+    tris1 = list(geom.tris)
+    assert len(verts1) == len(verts0), f"Vertex count preserved: {len(verts1)} vs {len(verts0)}"
+    assert len(tris1) == len(tris0), f"Triangle count preserved: {len(tris1)} vs {len(tris0)}"
+    maxerr = max(abs(a - b) for v0, v1 in zip(verts0, verts1) for a, b in zip(v0, v1))
+    assert maxerr < 0.1, f"Vertex positions round-trip within tolerance (max err {maxerr})"
+
+
+def _parse_sf_mesh_tangents(data):
+    """Minimal .mesh parser: skip to the tangent block and return (tangent_vecs, tangent_ws)
+    where each tangent is a decoded (x,y,z) unit-ish vector and w is the 2-bit sign basis."""
+    import struct
+    off = 0
+    def u32():
+        nonlocal off; v = struct.unpack_from("<I", data, off)[0]; off += 4; return v
+    def dec(bits):
+        return (((bits & 1023) / 511.5) - 1.0,
+                (((bits >> 10) & 1023) / 511.5) - 1.0,
+                (((bits >> 20) & 1023) / 511.5) - 1.0)
+    _ver = u32(); idxsize = u32(); off += idxsize * 2      # triangles
+    off += 4                                               # scale (float)
+    _wpv = u32(); nverts = u32(); off += nverts * 6        # positions int16 xyz
+    nuv1 = u32(); off += nuv1 * 4
+    nuv2 = u32(); off += nuv2 * 4
+    ncol = u32(); off += ncol * 4
+    nnorm = u32(); off += nnorm * 4                        # normals udec3
+    ntan = u32()
+    tvecs, tws = [], []
+    for i in range(ntan):
+        bits = struct.unpack_from("<I", data, off + i * 4)[0]
+        tvecs.append(dec(bits)); tws.append(bits >> 30)
+    return tvecs, tws
+
+
+def _parse_sf_geometry_bounds(nif_bytes, meshname):
+    """Read a BSGeometry block's bounding volumes straight from raw NIF bytes -- pynifly's
+    NiShapeBuf is blind to them (always reports 0), so a property read can't validate the export.
+    Located relative to the length-prefixed meshName string; the fixed fields precede it:
+      boundingSphere(4f: cx,cy,cz,r) boundMinMax(6f) skinRef shaderRef alphaRef present
+      triSize numVerts flags strlen <string>.
+    Returns (sphere=(cx,cy,cz,r), boundMinMax=(cx,cy,cz,hx,hy,hz))."""
+    import struct
+    i = nif_bytes.find(meshname.encode("latin1"))
+    assert i >= 0, f"meshName {meshname!r} present in nif"
+    sphere = struct.unpack_from("<4f", nif_bytes, i - 69)
+    minmax = struct.unpack_from("<6f", nif_bytes, i - 53)
+    return sphere, minmax
+
+
+def TEST_SF_BOUNDS():
+    """Starfield export: creating a BSGeometry computes the block-level bounding sphere +
+    boundMinMax AABB. A STATIC shape with zero bounds is frustum-culled -> invisible in game
+    and the CK (though fine in Blender). Regression for that bug: the exported bounds must be
+    non-zero and match the geometry's AABB in metric (.mesh) space."""
+    import math
+    havokScale = 69.969
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        srcgeom.load_mesh(f.read(), 0)
+    verts = list(srcgeom.verts)                       # game units
+
+    meshname = r"geometries\test\bounds.mesh"
+    nif = NifFile()
+    nif.initialize('SF', r"tests\Out\TEST_SF_BOUNDS.nif")
+    geom = nif.createShapeFromData("Body", verts, list(srcgeom.tris),
+                                   list(srcgeom.uvs), list(srcgeom.normals), parent=nif.root)
+    geom.set_mesh_name(meshname, 0)
+    nif.save()
+
+    with open(r"tests\Out\TEST_SF_BOUNDS.nif", "rb") as f:
+        sphere, minmax = _parse_sf_geometry_bounds(f.read(), meshname)
+
+    # Expected AABB in metric space (the exporter divides game-unit verts by havokScale).
+    xs = [v[0] for v in verts]; ys = [v[1] for v in verts]; zs = [v[2] for v in verts]
+    cx, cy, cz = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, (min(zs) + max(zs)) / 2
+    hx, hy, hz = (max(xs) - min(xs)) / 2, (max(ys) - min(ys)) / 2, (max(zs) - min(zs)) / 2
+    radius = max(math.dist((cx, cy, cz), v) for v in verts)
+
+    # The bug: all zero. First, it must not be degenerate.
+    assert sphere[3] > 0.0, f"Bounding-sphere radius is non-zero (was {sphere[3]})"
+    assert any(abs(m) > 0 for m in minmax), f"boundMinMax is non-zero (was {minmax})"
+
+    # And it must actually bound the geometry (metric = game units / havokScale).
+    assert math.isclose(sphere[3], radius / havokScale, rel_tol=1e-3), \
+        f"Sphere radius matches geometry: {sphere[3]} vs {radius / havokScale}"
+    for got, exp, nm in zip(minmax[3:], (hx, hy, hz), "xyz"):
+        assert math.isclose(got, exp / havokScale, rel_tol=1e-3), \
+            f"boundMinMax half-extent {nm}: {got} vs {exp / havokScale}"
+    for got, exp, nm in zip(minmax[:3], (cx, cy, cz), "xyz"):
+        assert math.isclose(got, exp / havokScale, abs_tol=1e-4), \
+            f"boundMinMax centre {nm}: {got} vs {exp / havokScale}"
+
+
+def TEST_SF_TANGENTS():
+    """Starfield export: creating a BSGeometry computes per-vertex tangents (BSGeometryMeshData
+    has no CalcTangentSpace of its own). Feeding the vanilla body's geometry must reproduce the
+    vanilla .mesh's tangents -- same U-direction and same 2-bit bitangent-sign W (0 or 3)."""
+    import math
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        vanilla_bytes = f.read()
+    van_t, van_w = _parse_sf_mesh_tangents(vanilla_bytes)
+
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    srcgeom.load_mesh(vanilla_bytes, 0)
+    verts, tris, uvs, normals = (list(srcgeom.verts), list(srcgeom.tris),
+                                 list(srcgeom.uvs), list(srcgeom.normals))
+
+    nif = NifFile()
+    nif.initialize('SF', r"tests\Out\TEST_SF_TANGENTS.nif")
+    geom = nif.createShapeFromData("Body", verts, tris, uvs, normals, parent=nif.root)
+    geom.set_mesh_name(r"geometries\test\body.mesh", 0)
+    out_t, out_w = _parse_sf_mesh_tangents(geom.save_mesh(0))
+
+    assert len(out_t) == len(van_t) == len(verts), \
+        f"Tangent count matches verts: {len(out_t)}/{len(van_t)}/{len(verts)}"
+
+    # Tangents must be real (unit-length), not the zeroed placeholder.
+    lengths = [math.sqrt(sum(c * c for c in t)) for t in out_t]
+    assert all(0.9 < L < 1.1 for L in lengths), \
+        f"Tangents are unit-length (min {min(lengths):.3f}, max {max(lengths):.3f})"
+
+    # W (bitangent sign) uses only the vanilla values and matches vanilla per-vertex.
+    assert set(out_w) <= {0, 3}, f"Tangent W in the vanilla set {{0,3}}: {set(out_w)}"
+    w_match = sum(1 for a, b in zip(out_w, van_w) if a == b)
+    assert w_match / len(van_w) > 0.99, \
+        f"Bitangent sign W matches vanilla: {w_match}/{len(van_w)}"
+
+    # Directions align with vanilla (same U-direction; sign-corrected the same way).
+    dots = [sum(o * v for o, v in zip(ot, vt)) for ot, vt in zip(out_t, van_t)]
+    aligned = sum(1 for d in dots if d > 0.85)
+    assert aligned / len(dots) > 0.95, \
+        f"Tangent directions match vanilla ({aligned}/{len(dots)} aligned)"
+
+
+def TEST_SF_MESH_CREATE():
+    """Starfield export (pyn layer): CREATE a BSGeometry from geometry, write the external
+    .mesh bytes, and round-trip. Mirrors the DLL CreateStarfieldMesh test one level up.
+
+    createShapeFromData on an SF nif builds a BSGeometry (not a NiTriShape); set_mesh_name
+    records the external path; set_mesh_tangents/set_mesh_colors fill the extra channels;
+    save_mesh serializes. Re-loading the bytes reproduces the geometry within quantization.
+    """
+    # Source geometry from the read fixture.
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        srcgeom.load_mesh(f.read(), 0)
+    verts = list(srcgeom.verts)
+    tris = list(srcgeom.tris)
+    uvs = list(srcgeom.uvs)
+    normals = list(srcgeom.normals)
+    assert len(verts) > 0 and len(tris) > 0, "Have source geometry"
+
+    # Build a fresh Starfield nif and create a BSGeometry in it from that data.
+    outfile = r"tests\Out\TEST_SF_MESH_CREATE.nif"
+    nif = NifFile()
+    nif.initialize('SF', outfile)
+    geom = nif.createShapeFromData("TestBody", verts, tris, uvs, normals, parent=nif.root)
+    assert isinstance(geom, BSGeometry), f"Created a BSGeometry: {type(geom).__name__}"
+    assert geom.mesh_count == 1, f"One mesh slot: {geom.mesh_count}"
+    assert not geom.is_internal_geom, "External geometry"
+
+    geom.set_mesh_name(r"geometries\test\testbody.mesh", 0)
+    assert geom.mesh_path(0) == r"geometries\test\testbody.mesh", geom.mesh_path(0)
+
+    # Extra channels: colors (white) + placeholder tangents.
+    geom.set_mesh_colors([(1.0, 1.0, 1.0, 1.0)] * len(verts), 0)
+    geom.set_mesh_tangents([(1.0, 0.0, 0.0)] * len(verts), None, 0)
+
+    # Geometry is readable straight off the created shape.
+    assert len(geom.verts) == len(verts), f"Verts off created shape: {len(geom.verts)}"
+    assert len(geom.tris) == len(tris), f"Tris off created shape: {len(geom.tris)}"
+
+    # Serialize -> reload -> compare.
+    data = geom.save_mesh(0)
+    assert len(data) > 0, "Serialized .mesh bytes"
+    assert geom.load_mesh(data, 0), "Re-loaded serialized bytes"
+    verts1 = list(geom.verts)
+    tris1 = list(geom.tris)
+    assert len(verts1) == len(verts), f"Vertex count preserved: {len(verts1)} vs {len(verts)}"
+    assert len(tris1) == len(tris), f"Triangle count preserved: {len(tris1)} vs {len(tris)}"
+    maxerr = max(abs(a - b) for v0, v1 in zip(verts, verts1) for a, b in zip(v0, v1))
+    assert maxerr < 0.1, f"Verts round-trip within tolerance (max err {maxerr})"
+
+
+def TEST_SF_SKIN_EXPORT():
+    """Starfield export (pyn layer): CREATE a skinned BSGeometry, save NIF + .mesh, reload,
+    and confirm bone names (SkinAttach), a bind transform, and per-vertex weights survive."""
+    src = NifFile(r"tests\SF\naked_f.nif")
+    srcgeom = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        srcgeom.load_mesh(f.read(), 0)
+    verts = list(srcgeom.verts)
+    tris = list(srcgeom.tris)
+    uvs = list(srcgeom.uvs)
+    normals = list(srcgeom.normals)
+    bone_names = list(srcgeom.bone_names)
+    assert len(bone_names) > 10, f"Source is multi-bone: {len(bone_names)}"
+    bind0 = srcgeom.get_shape_skin_to_bone_by_index(0)
+    assert bind0 is not None, "Read source bind for bone 0"
+
+    outfile = r"tests\Out\TEST_SF_SKIN_EXPORT.nif"
+    outmesh = r"tests\Out\TEST_SF_SKIN_EXPORT.mesh"
+    nif = NifFile()
+    nif.initialize('SF', outfile)
+    geom = nif.createShapeFromData("SkinBody", verts, tris, uvs, normals, parent=nif.root)
+    geom.set_mesh_name(r"geometries\test\skin.mesh", 0)
+
+    geom.skin_bones(bone_names)
+    geom.set_bone_bind(0, bind0)
+    for v in range(len(verts)):
+        geom.set_vert_weights(v, [0], [1.0])
+
+    # Save NIF + external .mesh.
+    nif.save()
+    with open(outmesh, "wb") as f:
+        f.write(geom.save_mesh(0))
+
+    # Reload and verify.
+    rnif = NifFile(outfile)
+    rgeom = rnif.shapes[0]
+    with open(outmesh, "rb") as f:
+        rgeom.load_mesh(f.read(), 0)
+
+    assert len(rgeom.bone_names) == len(bone_names), \
+        f"Bone names round-trip: {len(rgeom.bone_names)} vs {len(bone_names)}"
+    rbind0 = rgeom.get_shape_skin_to_bone_by_index(0)
+    assert rbind0 is not None, "Reloaded bind for bone 0"
+    dt = max(abs(a - b) for a, b in zip(bind0.translation, rbind0.translation))
+    assert dt < 0.1, f"Bone 0 bind translation round-trips (max err {dt})"
+    w0 = rgeom.bone_weights[rgeom.bone_names[0]]
+    assert len(w0) == len(verts), f"Every vertex weighted to bone 0: {len(w0)} vs {len(verts)}"
+
+
+def TEST_SF_SKINNED_STRUCTURE():
+    """Starfield skinned-body EXPORT structure: the several non-obvious hard requirements the
+    engine + Creation Kit impose on an authored skinned BSGeometry, each of which produced a
+    distinct in-game/CK failure before it was fixed. Regression guard for all of them at once.
+
+    Builds a fully-skinned body (real per-bone binds + weights so per-bone bounds populate) and
+    asserts on the raw NIF/.mesh bytes -- the ctypes buffer reader is blind to several of these."""
+    import struct
+    src = NifFile(r"tests\SF\naked_f.nif")
+    sg = src.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        sg.load_mesh(f.read(), 0)
+    verts, tris, uvs, normals = list(sg.verts), list(sg.tris), list(sg.uvs), list(sg.normals)
+    bones = list(sg.bone_names)
+    nb = len(bones)
+    # invert bone_weights (bone -> [(vert,w)]) into per-vertex lists
+    perv = [[] for _ in verts]
+    for bi, bn in enumerate(bones):
+        for vi, w in sg.bone_weights[bn]:
+            perv[vi].append((bi, w))
+
+    outnif = r"tests\Out\TEST_SF_SKINNED_STRUCTURE.nif"
+    outmesh = r"tests\Out\TEST_SF_SKINNED_STRUCTURE.mesh"
+    nif = NifFile(); nif.initialize('SF', outnif)
+    g = nif.createShapeFromData("Body", verts, tris, uvs, normals, parent=nif.root)
+    g.set_mesh_name(r"geometries\test\body.mesh", 0)
+    g.skin_bones(bones)
+    for bi in range(nb):
+        g.set_bone_bind(bi, sg.get_shape_skin_to_bone_by_index(bi))
+    for vi, ws in enumerate(perv):
+        if ws:
+            g.set_vert_weights(vi, [b for b, _ in ws], [w for _, w in ws])
+    g.update_skin_bounds()
+    nif.save()
+    meshbytes = g.save_mesh(0)
+    with open(outmesh, "wb") as f:
+        f.write(meshbytes)
+    nifbytes = open(outnif, "rb").read()
+
+    # 1) Vertex Scale carries margin -> no int16 at the SNORM edge (the "heel flyers" bug).
+    o = 0
+    _ver, nidx = struct.unpack_from("<II", meshbytes, o); o += 8 + nidx * 2
+    o += 4                                   # scale
+    _wpv, nv = struct.unpack_from("<II", meshbytes, o); o += 8
+    pos = struct.unpack_from("<%dh" % (nv * 3), meshbytes, o)
+    assert max(abs(p) for p in pos) < 32766, \
+        f"No vertex encodes at the int16 SNORM edge (max |int16| = {max(abs(p) for p in pos)})"
+
+    # 2) SkinAttach named "SkinBMP" + 3) BSXFlags present.
+    assert b"SkinBMP" in nifbytes, "SkinAttach carries the 'SkinBMP' name"
+    root = nif.nodes[nif.rootName]
+    bsx = [e for e in root.extra_data() if e.blockname == "BSXFlags"]
+    assert bsx and bsx[0].flags == 65536, f"Root BSXFlags == 0x10000 ({[e.flags for e in bsx]})"
+
+    # 4) boneRefs: a run of exactly nb empty (0xFFFFFFFF) refs (CK null-crashes without it).
+    run = mx = 0
+    for i in range(0, len(nifbytes) - 3):
+        run = run + 1 if nifbytes[i:i+4] == b"\xff\xff\xff\xff" else 0
+        mx = max(mx, run)
+    assert mx >= nb, f"boneRefs has >= {nb} empty refs (longest 0xFFFFFFFF run = {mx})"
+
+    # 5) Skinned block bounds are the FLT_MAX sentinel, NOT a computed AABB.
+    sph, mm = _parse_sf_geometry_bounds(nifbytes, r"geometries\test\body.mesh")
+    FMAX = 3.4028234663852886e+38
+    assert sph[3] == 0.0 and all(abs(m - FMAX) < 1e30 for m in mm), \
+        f"Skinned block bounds = FLT_MAX sentinel (sphere r={sph[3]}, minmax={mm})"
+
+    # 6) Per-bone BoneData bounds are non-zero for used bones (CK crashes on zero radius).
+    ENT = 68; tgt = struct.pack("<I", nb); s0 = 0; base = None
+    while True:
+        i = nifbytes.find(tgt, s0)
+        if i < 0: break
+        s0 = i + 1; bb = i + 4
+        if bb + ENT * nb > len(nifbytes): continue
+        if all(0.99 < struct.unpack_from("<f", nifbytes, bb + k * ENT + 64)[0] < 1.01 for k in range(nb)):
+            base = bb; break
+    assert base is not None, "Found BSSkin::BoneData block"
+    radii = [struct.unpack_from("<4f", nifbytes, base + k * ENT)[3] for k in range(nb)]
+    nonzero = sum(1 for r in radii if r > 0)
+    assert nonzero >= nb - 2, f"Per-bone bounding spheres computed (non-zero: {nonzero}/{nb})"
+
+
+def TEST_SF_SKIN_BIND():
+    """Starfield: per-bone bind (skin-to-bone) transforms come through by INDEX.
+
+    SF stores bind transforms in BSSkinBoneData indexed by position and carries no NiNode
+    boneRefs, so the name-based GetBoneID walk returns NIF_NPOS and the name lookup fails.
+    The index-based accessor reads BSSkinBoneData directly. This is what lets us build the
+    armature that reconciles each shape's arbitrary skin bind space onto one skeleton.
+    """
+    nif = NifFile(r"tests\SF\naked_f.nif")
+    geom = nif.shapes[0]
+    with open(r"tests\SF\body_skinned.mesh", "rb") as f:
+        geom.load_mesh(f.read(), 0)
+
+    # Name-based lookup fails for SF (no NiNode boneRefs) ...
+    assert geom.get_shape_skin_to_bone(geom.bone_names[0]) is None, \
+        "Name-based skin-to-bone returns None for Starfield"
+
+    # ... but the index-based accessor returns a real transform for every bone.
+    found = 0
+    for i in range(len(geom.bone_names)):
+        xf = geom.get_shape_skin_to_bone_by_index(i)
+        if xf is not None:
+            found += 1
+    assert found == len(geom.bone_names), \
+        f"Index-based bind found for all bones: {found}/{len(geom.bone_names)}"
+
+    # A non-degenerate transform (not all-zero) came back.
+    xf0 = geom.get_shape_skin_to_bone_by_index(0)
+    assert any(abs(c) > 1e-6 for c in xf0.translation) or \
+           any(abs(xf0.rotation[r][c]) > 1e-6 for r in range(3) for c in range(3)), \
+        "Bind transform is non-degenerate"
+
+
+def TEST_SF_BONE_NAMES():
+    """Starfield bone names convert to Blender-friendly form and round-trip exactly.
+
+    SF uses L_/R_/C_ side prefixes; we move the side to a Blender .L/.R/.C suffix so
+    mirror/symmetry works. The conversion is a pure reversible rule (covers vanilla and
+    modder-added bones), which the export path relies on to recover the nif name.
+    """
+    from pyn.niflytools import sf_blender_bone_name, sf_nif_bone_name, sfDict
+
+    cases = {
+        'L_Thigh': 'Thigh.L', 'R_Calf': 'Calf.R', 'C_Spine': 'Spine.C',
+        'C_Neck_Twist': 'Neck_Twist.C', 'L_Thumb2': 'Thumb2.L',
+        # unprefixed utility bones pass through unchanged
+        'COM': 'COM', 'HumanExportRoot': 'HumanExportRoot',
+        'Camera Control': 'Camera Control', 'WeaponLeft': 'WeaponLeft',
+    }
+    for nif_bn, bl_bn in cases.items():
+        assert sf_blender_bone_name(nif_bn) == bl_bn, \
+            f"{nif_bn} -> {sf_blender_bone_name(nif_bn)} (expected {bl_bn})"
+        assert sf_nif_bone_name(bl_bn) == nif_bn, \
+            f"{bl_bn} -> {sf_nif_bone_name(bl_bn)} (expected {nif_bn})"
+
+    # Blender's '.001' duplicate suffix is stripped before reversing.
+    assert sf_nif_bone_name('Thigh.L.001') == 'L_Thigh', "Handles Blender duplicate suffix"
+
+    # The game dictionary routes through the rule and is seeded with the full skeleton.
+    assert sfDict.blender_name('R_Wrist') == 'Wrist.R', "Dict blender_name uses the rule"
+    assert sfDict.nif_name('Wrist.R') == 'R_Wrist', "Dict nif_name reverses it"
+    assert len(sfDict.byNif) == 115, f"Seeded with the vanilla skeleton: {len(sfDict.byNif)}"
+
+
+def TEST_SF_MORPH_ROUNDTRIP():
+    """Starfield: read/write a vanilla morph.dat byte-exact; positions-only rebuild round-trips.
+
+    morph.dat is a set of named per-vertex position deltas (Blender shape keys). The pyn codec is
+    lossless -- re-serializing a parsed file reproduces it byte-for-byte. The positions-only
+    builder (from_deltas, used by the Blender exporter) drops the stored normal/tangent/colour
+    channels, so its round-trip is checked on position deltas only: same moved-vertex set, deltas
+    within half-float precision.
+    """
+    from pyn.sf_morph import MorphFile
+
+    path = r"tests\SF\morphs\female_chargen_body_morph.dat"
+    raw = open(path, 'rb').read()
+    m = MorphFile.from_file(path)
+
+    # Header + key names match the known vanilla body morph.
+    assert m.num_vertices == 6616, f"Vertex count: {m.num_vertices}"
+    assert m.morph_names == ['Overweight', 'Thin', 'Strong'], f"Keys: {m.morph_names}"
+    assert len(m.offsets) == m.num_vertices, "One offset entry per vertex"
+
+    # Lossless: re-serialize == original bytes.
+    assert m.to_bytes() == raw, "morph.dat re-serializes byte-exact"
+
+    # Position view: a known Overweight delta at vertex 0 (game units).
+    deltas = m.key_deltas()
+    dx, dy, dz = deltas['Overweight'][0]
+    assert abs(dx - 0.5039) < 0.01 and abs(dy - 0.8242) < 0.01 and abs(dz - 1.0377) < 0.01, \
+        f"Overweight vtx0 delta: {(dx, dy, dz)}"
+
+    # Positions-only rebuild -> re-read -> same moved-vertex set, deltas within half-float precision.
+    rebuilt = MorphFile.from_deltas(m.morph_names, m.num_vertices, deltas)
+    deltas2 = MorphFile.from_bytes(rebuilt.to_bytes()).key_deltas()
+    maxerr = 0.0
+    for name in m.morph_names:
+        assert set(deltas[name]) == set(deltas2[name]), f"{name}: moved-vertex set preserved"
+        for vi, a in deltas[name].items():
+            for ca, cb in zip(a, deltas2[name][vi]):
+                maxerr = max(maxerr, abs(ca - cb))
+    assert maxerr < 0.01, f"positions-only round-trip max error: {maxerr} game units"
+
+
+def TEST_SF_MORPH_CLASSIFY():
+    """Starfield: shape-key names classify as performance (expression) vs chargen morphs.
+
+    Export routes performance/action-unit keys to a performance/ morph.dat and chargen sliders to
+    a chargen/ one. The performance set is the vanilla action-unit vocabulary (+ tongue + HideEar/
+    Hat/Mask); everything else (phenotype sliders, body shapes) is chargen. Blender's .NNN
+    duplicate suffix is ignored.
+    """
+    from pyn.sf_morph import is_expression_morph, SF_EXPRESSION_MORPHS
+
+    # Performance (expression) morphs.
+    for name in ("jawOpen", "browLowererL", "innerBrowRaiseR", "HideEar", "c_jawdrop",
+                 "tongueCurlUp", "lipCornerPullL", "swallow"):
+        assert is_expression_morph(name), f"{name!r} is a performance morph"
+    # Chargen sliders / body shapes.
+    for name in ("Overweight", "Thin", "Strong", "female_af_md1_Chin", "male_eu_md2_Cheeks",
+                 "NoseSizeType1", "SomeCustomSlider"):
+        assert not is_expression_morph(name), f"{name!r} is a chargen morph"
+    # Blender duplicate suffix is stripped before matching.
+    assert is_expression_morph("jawOpen.001"), "Duplicate-suffixed AU still classifies as performance"
+    assert len(SF_EXPRESSION_MORPHS) == 108, f"Expected 108 expression morphs, got {len(SF_EXPRESSION_MORPHS)}"
+
+
+def TEST_SF_MORPH_PATHS():
+    """Starfield: morph paths are stored relative to 'meshes' so they re-home under a new nif.
+
+    Import stashes the morph.dat path from its 'meshes' segment onward; export resolves that
+    relative path against the exported nif's location (its 'meshes' root -> Data root), so a morph
+    exported alongside a nif in a new folder lands in that folder's meshes/morphs tree.
+    """
+    from pyn.sf_morph import (split_at_meshes, morph_relpath, resolve_morph_output, swap_morph_tree)
+
+    src = r"C:\Games\Starfield\Data\meshes\morphs\human\female\chargen\head\morph.dat"
+    root, rel = split_at_meshes(src)
+    assert root == "C:/Games/Starfield/Data", f"Data root before 'meshes': {root}"
+    assert rel == "meshes/morphs/human/female/chargen/head/morph.dat", f"rel: {rel}"
+    assert morph_relpath(src) == rel, "morph_relpath stores the meshes-rooted relative path"
+    # No 'meshes' segment -> falls back to the full path.
+    assert morph_relpath(r"C:\tmp\loose\morph.dat").endswith("morph.dat")
+
+    # Re-home: the same relative morph path resolves under a *different* nif's meshes root.
+    import os
+    out = resolve_morph_output(rel, r"D:\MyMod\Data\meshes\FSF\head.nif")
+    assert out == os.path.normpath(r"D:\MyMod\Data\meshes\morphs\human\female\chargen\head\morph.dat"), out
+    # An absolute stored path is an explicit override -- passes through unchanged.
+    assert resolve_morph_output(r"C:\out\x.dat", r"D:\MyMod\head.nif") == r"C:\out\x.dat"
+    # chargen <-> performance sibling swap.
+    perf = swap_morph_tree(rel)
+    assert perf == "meshes/morphs/human/female/performance/head/morph.dat", perf
+    assert swap_morph_tree(perf).endswith("chargen/head/morph.dat"), "swap is reversible"
+
+
+def TEST_SF_MAT_PARSE():
+    """Starfield: parse a loose layered .mat, extracting texture slots by index.
+
+    The .mat is a typed-node object graph; concrete texture files live in MRTextureFile
+    components keyed by slot Index (0 albedo, 1 normal, 3 rough, ...). Paths are stored with
+    the Data\\ prefix + .DDS ext; the parser strips Data\\ and keys by a stable slot name.
+    First-declared layer wins per slot; empty FileNames are skipped.
+    """
+    from pyn.sf_materials import parse_mat, SF_TEXTURE_SLOTS
+
+    mat = r'''{
+      "Filename": "MATERIALS\\Test\\Body.mat",
+      "Objects": [
+        { "Components": [
+            { "Data": { "Name": "Body_TextureSet" }, "Index": 0, "Type": "BSComponentDB::CTName" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_color.dds" }, "Index": 0, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_normal.dds" }, "Index": 1, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "" }, "Index": 2, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_rough.dds" }, "Index": 3, "Type": "BSMaterial::MRTextureFile" },
+            { "Data": { "FileName": "Data\\Textures\\Body\\body_ao.dds" }, "Index": 5, "Type": "BSMaterial::MRTextureFile" }
+          ], "ID": "res:00000001:00000002:00000003" },
+        { "Components": [
+            { "Data": { "FileName": "Data\\Textures\\Body\\LAYER2_color.dds" }, "Index": 0, "Type": "BSMaterial::MRTextureFile" }
+          ], "ID": "res:00000004:00000005:00000006" }
+      ]
+    }'''
+
+    parsed = parse_mat(mat)
+    assert parsed is not None, "Parsed the .mat JSON"
+    assert parsed['filename'] == "MATERIALS\\Test\\Body.mat", f"Filename: {parsed['filename']}"
+
+    tx = parsed['textures']
+    # Data\ prefix stripped; keyed by stable slot name.
+    assert tx['Albedo'] == r"Textures\Body\body_color.dds", f"Albedo: {tx.get('Albedo')}"
+    assert tx['Normal'] == r"Textures\Body\body_normal.dds", f"Normal: {tx.get('Normal')}"
+    assert tx['Roughness'] == r"Textures\Body\body_rough.dds", f"Roughness: {tx.get('Roughness')}"
+    assert tx['AO'] == r"Textures\Body\body_ao.dds", f"AO: {tx.get('AO')}"
+    # Empty FileName (slot 2 opacity) is not recorded.
+    assert 'Opacity' not in tx, "Empty texture slots are skipped"
+    # First-declared layer wins: slot 0 keeps the first object's albedo, not LAYER2.
+    assert 'LAYER2' not in tx['Albedo'], "First-declared layer dominates a slot"
+
+    # A LAYERED material is a graph: the albedo must be reached via the base layer's chain
+    # (LayerID -> MaterialID -> TextureSetID -> MRTextureFile), NOT the first MRTextureFile in
+    # the file -- which on a layered material is the blender MASK, not the albedo.
+    # A real 2-layer skin: base (albedo+normal, UV 1:1) + a detail normal tiled 50x, composited
+    # by a Skin-mode blender masked by MASK.dds. The layer graph is walked in LayerID Index order;
+    # UVStreamID sits on the layer -> the layer's tiling; the blender carries mode + mask.
+    layered = r'''{
+      "Objects": [
+        { "Components": [
+            { "Type": "BSMaterial::LayerID", "Index": 0, "Data": { "ID": "res:L1" } },
+            { "Type": "BSMaterial::LayerID", "Index": 1, "Data": { "ID": "res:L2" } },
+            { "Type": "BSMaterial::BlenderID", "Index": 0, "Data": { "ID": "res:B1" } }
+          ] },
+        { "ID": "res:B1", "Components": [
+            { "Type": "BSMaterial::BlendModeComponent", "Index": 0, "Data": { "Value": "Skin" } },
+            { "Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": { "FileName": "Data\\Textures\\Skin\\MASK.dds" } }
+          ] },
+        { "ID": "res:L1", "Components": [
+            { "Type": "BSMaterial::MaterialID", "Index": 0, "Data": { "ID": "res:M1" } } ] },
+        { "ID": "res:M1", "Components": [
+            { "Type": "BSMaterial::TextureSetID", "Index": 0, "Data": { "ID": "res:T1" } } ] },
+        { "ID": "res:T1", "Components": [
+            { "Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": { "FileName": "Data\\Textures\\Skin\\skin_color.dds" } },
+            { "Type": "BSMaterial::MRTextureFile", "Index": 1, "Data": { "FileName": "Data\\Textures\\Skin\\skin_normal.dds" } }
+          ] },
+        { "ID": "res:L2", "Components": [
+            { "Type": "BSMaterial::MaterialID", "Index": 0, "Data": { "ID": "res:M2" } },
+            { "Type": "BSMaterial::UVStreamID", "Index": 0, "Data": { "ID": "res:UV2" } } ] },
+        { "ID": "res:M2", "Components": [
+            { "Type": "BSMaterial::TextureSetID", "Index": 0, "Data": { "ID": "res:T2" } } ] },
+        { "ID": "res:T2", "Components": [
+            { "Type": "BSMaterial::MRTextureFile", "Index": 1, "Data": { "FileName": "Data\\Textures\\Skin\\detail_normal.dds" } } ] },
+        { "ID": "res:UV2", "Components": [
+            { "Type": "BSMaterial::Scale", "Index": 0, "Data": { "Value": { "Type": "XMFLOAT2", "Data": { "x": "50.0", "y": "50.0" } } } } ] }
+      ]
+    }'''
+    parsed_l = parse_mat(layered)
+    ltx = parsed_l['textures']
+    assert ltx['Albedo'] == r"Textures\Skin\skin_color.dds", \
+        f"Albedo followed the layer chain, not the blender mask: {ltx.get('Albedo')}"
+    assert ltx['Normal'] == r"Textures\Skin\skin_normal.dds", f"Normal: {ltx.get('Normal')}"
+    assert 'MASK' not in ltx.get('Albedo', ''), "Blender mask is not taken as the albedo"
+
+    # P1: the full layer/blender graph is exposed.
+    layers = parsed_l['layers']
+    assert len(layers) == 2, f"Two layers: {len(layers)}"
+    assert layers[0]['textures']['Albedo'] == r"Textures\Skin\skin_color.dds", "Base layer albedo"
+    assert layers[0]['uv_scale'] == (1.0, 1.0), f"Base UV 1:1: {layers[0]['uv_scale']}"
+    assert layers[1]['textures'] == {'Normal': r"Textures\Skin\detail_normal.dds"}, \
+        f"Detail layer = normal only: {layers[1]['textures']}"
+    assert layers[1]['uv_scale'] == (50.0, 50.0), f"Detail tiled 50x: {layers[1]['uv_scale']}"
+    blenders = parsed_l['blenders']
+    assert len(blenders) == 1, f"One blender between two layers: {len(blenders)}"
+    assert blenders[0]['mode'] == 'Skin', f"Blend mode: {blenders[0]['mode']}"
+    assert blenders[0]['mask'] == r"Textures\Skin\MASK.dds", f"Blend mask: {blenders[0]['mask']}"
+
+    # A flat (single-object) material has no layer graph -> empty layers/blenders (textures still
+    # resolve via the fallback sweep).
+    flat = parse_mat(mat)
+    assert flat['layers'] == [], f"flat material has no layer graph: {flat['layers']}"
+    assert flat['blenders'] == [], "flat material has no blenders"
+
+    # Bad JSON returns None rather than raising.
+    assert parse_mat("{ not valid json") is None, "Invalid JSON -> None"
+    assert SF_TEXTURE_SLOTS[1] == 'Normal', "Slot map exposes the normal slot"
+
+    # SETTINGS components (SSS / emissive / shader model) are pulled into parsed['settings'],
+    # decoding the .mat's string-typed values (bool/float) and XMFLOAT4 colors. Field names +
+    # nesting mirror real vanilla skin (BodySkin2Layer): TranslucencySettingsComponent wraps a
+    # TranslucencySettings.Data (UseSSS + spec-lobe roughness scales); LayeredEmissivityComponent
+    # carries Enabled + a FirstLayerTint Color (XMFLOAT4).
+    settings_mat = r'''{
+      "Objects": [
+        { "Components": [
+            { "Type": "BSMaterial::ShaderModelComponent", "Index": 0, "Data": { "FileName": "BodySkin2Layer" } },
+            { "Type": "BSMaterial::TranslucencySettingsComponent", "Index": 0, "Data": {
+                "Enabled": "true",
+                "Settings": { "Type": "BSMaterial::TranslucencySettings", "Data": {
+                    "UseSSS": "true",
+                    "SpecLobe0RoughnessScale": "0.9300000071525574",
+                    "SpecLobe1RoughnessScale": "1.149999976158142" } } } },
+            { "Type": "BSMaterial::LayeredEmissivityComponent", "Index": 0, "Data": {
+                "Enabled": "false",
+                "FirstLayerIndex": "MATERIAL_LAYER_0",
+                "FirstLayerTint": { "Type": "BSMaterial::Color", "Data": {
+                    "Value": { "Type": "XMFLOAT4", "Data": { "x": "0.5", "y": "0.25", "z": "0.1", "w": "1.0" } } } },
+                "FirstBlenderMode": "Lerp" } },
+            { "Type": "BSMaterial::AlphaSettingsComponent", "Index": 0, "Data": {
+                "HasOpacity": "true", "AlphaTestThreshold": "0.3333" } }
+          ] }
+      ]
+    }'''
+    sp = parse_mat(settings_mat)['settings']
+    assert sp['shader_model'] == 'BodySkin2Layer', f"shader_model: {sp.get('shader_model')}"
+    tr = sp['translucency']
+    assert tr['enabled'] is True, "translucency enabled decoded from 'true'"
+    assert tr['use_sss'] is True, "use_sss decoded from 'true'"
+    assert abs(tr['spec_lobe0_roughness'] - 0.93) < 1e-4, f"spec lobe0: {tr['spec_lobe0_roughness']}"
+    assert abs(tr['spec_lobe1_roughness'] - 1.15) < 1e-4, f"spec lobe1: {tr['spec_lobe1_roughness']}"
+    em = sp['emissive']
+    assert em['enabled'] is False, "emissive enabled decoded from 'false'"
+    assert em['first_layer_index'] == 0, f"first layer index from MATERIAL_LAYER_0: {em['first_layer_index']}"
+    assert em['blender_mode'] == 'Lerp', f"blender mode: {em['blender_mode']}"
+    r, g, b, a = em['tint']
+    assert abs(r - 0.5) < 1e-4 and abs(g - 0.25) < 1e-4 and abs(b - 0.1) < 1e-4 and abs(a - 1.0) < 1e-4, \
+        f"emissive tint XMFLOAT4 decoded: {em['tint']}"
+    al = sp['alpha']
+    assert al['has_opacity'] is True, "alpha has_opacity decoded from 'true'"
+    assert abs(al['threshold'] - 0.3333) < 1e-4, f"alpha test threshold: {al['threshold']}"
+
+    # A material with no settings components still parses; 'settings' is present but its
+    # sub-blocks are absent (callers test membership).
+    bare = parse_mat(r'{ "Objects": [ { "Components": [] } ] }')
+    assert 'settings' in bare, "settings key always present"
+    assert 'translucency' not in bare['settings'], "no translucency block when absent"
+
+
+def TEST_SF_MAT_WRITE():
+    """Starfield P2: write a loose .mat back from a normalised material dict, round-tripping.
+
+    parse_mat(write_mat(d)) must reproduce d's layers/blenders/settings/filename. The writer emits
+    a self-contained graph (no template Parent) -- LayeredMaterial (LayerID/BlenderID refs + settings
+    components) + per-layer Layer/Material/TextureSet(+UVStream) + per-blender objects, values as
+    strings, colors as nested XMFLOAT. This proves the graph is recoverable to a file (the payoff of
+    'build for export')."""
+    from pyn.sf_materials import parse_mat, write_mat
+
+    data = {
+        'filename': r'MATERIALS\Test\Body.mat',
+        'settings': {
+            'shader_model': 'BodySkin2Layer',
+            'translucency': {'enabled': True, 'use_sss': True,
+                             'spec_lobe0_roughness': 0.93, 'spec_lobe1_roughness': 1.15},
+            'emissive': {'enabled': False, 'first_layer_index': 0, 'blender_mode': 'Lerp',
+                         'tint': (0.9, 0.1, 0.1, 1.0)},
+            'alpha': {'has_opacity': True, 'threshold': 0.3333}},
+        'layers': [
+            {'textures': {'Albedo': r'Textures\Skin\color.dds', 'Normal': r'Textures\Skin\normal.dds'},
+             'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+            {'textures': {'Normal': r'Textures\Skin\detail_normal.dds'},
+             'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)}],
+        'blenders': [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds'}]}
+
+    back = parse_mat(write_mat(data))
+    assert back is not None, "written .mat is valid JSON that re-parses"
+    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
+    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
+    assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+    assert back['filename'] == data['filename'], f"filename round-trip: {back['filename']}"
+    # The flat base-wins textures collapse is re-derived from the layers.
+    assert back['textures']['Albedo'] == r'Textures\Skin\color.dds', "base albedo re-derived"
+    assert back['textures']['Normal'] == r'Textures\Skin\normal.dds', "base normal wins over detail"
+
+    # The Data\ prefix is re-added on write and stripped on re-parse (the round-trip proves it).
+    import json
+    written = json.loads(write_mat(data))
+    all_paths = [c['Data']['FileName'] for o in written['Objects'] for c in o.get('Components', [])
+                 if c.get('Type') == 'BSMaterial::MRTextureFile']
+    assert all(p.startswith('Data\\') for p in all_paths), \
+        f"written texture paths carry the Data\\ prefix: {all_paths}"
+
+
 def TEST_RW_HEAD():
     """Test reading and writing the male head"""
     testfile = r"tests\Skyrim\malehead.nif"

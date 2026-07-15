@@ -7,6 +7,7 @@
 
 #include "pch.h"
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -1046,6 +1047,321 @@ namespace NiflyDLLTests
 				outfile2, "Armor",
 				targetVert, targetBone);
 		};
+
+		TEST_METHOD(LoadStarfieldMesh)
+		{
+			/* UNIT TEST: Load a Starfield BSGeometry nif + its external .mesh, read geometry. */
+			std::filesystem::path testfile = testRoot / "SF/naked_f.nif";
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif);
+
+			void* shapes[5];
+			int shapeCount = getShapes(nif, shapes, 5, 0);
+			Assert::AreEqual(1, shapeCount);
+			void* geom = shapes[0];
+
+			// A BSGeometry with one external mesh slot, no inline data.
+			Assert::AreEqual(1, getBSGeometryMeshCount(nif, geom));
+			Assert::AreEqual(0, getBSGeometryInternalFlag(nif, geom));
+
+			char path[256];
+			int pathLen = getBSGeometryMeshPath(nif, geom, 0, path, 256);
+			Assert::IsTrue(pathLen > 0, L"BSGeometry has an external mesh path");
+
+			// Load the external .mesh bytes into slot 0.
+			std::ifstream in(meshfile, std::ios::binary);
+			Assert::IsTrue(in.good(), L"Can open the .mesh file");
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			int ok = loadBSGeometryMeshData(nif, geom, 0, bytes.data(), (int)bytes.size());
+			Assert::AreEqual(1, ok, L"Loaded external mesh data");
+
+			// The standard accessors now return the mesh geometry (BSGeometry routes
+			// them through GetGeometryData once a slot is loaded + selected).
+			Vector3* verts = new Vector3[60000];
+			Triangle* tris = new Triangle[120000];
+			Vector2* uv = new Vector2[60000];
+			Vector3* norms = new Vector3[60000];
+			int vertCount = getVertsForShape(nif, geom, verts, 60000 * 3, 0);
+			int triCount = getTriangles(nif, geom, tris, 120000 * 3, 0);
+			int uvCount = getUVs(nif, geom, uv, 60000 * 2, 0);
+			int normCount = getNormalsForShape(nif, geom, norms, 60000 * 3, 0);
+
+			Assert::IsTrue(vertCount > 0, L"Read vertices from .mesh");
+			Assert::IsTrue(triCount > 0, L"Read triangles from .mesh");
+			Assert::AreEqual(vertCount, uvCount, L"One UV per vertex");
+			Assert::AreEqual(vertCount, normCount, L"One normal per vertex");
+			// havokScale applied on load -> game-unit magnitude (like SSE/FO4), not raw metric.
+			Assert::IsTrue(verts[0].x > -1000.0f && verts[0].x < 1000.0f,
+						   L"Vertex in game-unit range");
+
+			// Skin works through the EXISTING wrapper functions: nifly reads BSGeometry bone
+			// names from the SkinAttach extra data and per-vertex weights from the loaded
+			// .mesh (BSGeometryMeshData::skinWeights). No new skin wrapper functions needed.
+			char bones[4000];
+			int boneStrLen = getShapeBoneNames(nif, geom, bones, 4000);
+			Assert::IsTrue(boneStrLen > 0, L"BSGeometry has bones (from SkinAttach)");
+			int boneCount = 1;
+			for (int i = 0; i < boneStrLen; i++) if (bones[i] == '\n') boneCount++;
+			Assert::IsTrue(boneCount > 10, L"Skinned body uses many bones");
+			int totalWeighted = 0;
+			for (int b = 0; b < boneCount; b++)
+				totalWeighted += getShapeBoneWeightsCount(nif, geom, b);
+			Assert::IsTrue(totalWeighted > 0, L"Bones weight vertices (per-vertex skinWeights)");
+
+			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
+		}
+
+		TEST_METHOD(SaveStarfieldMesh)
+		{
+			/* UNIT TEST: Round-trip a Starfield BSGeometry external .mesh through the save
+			   wrapper (serialize with meshlet regen, re-load, compare geometry). */
+			std::filesystem::path testfile = testRoot / "SF/naked_f.nif";
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			void* nif = load(testfile.u8string().c_str());
+			Assert::IsNotNull(nif);
+			void* shapes[5];
+			getShapes(nif, shapes, 5, 0);
+			void* geom = shapes[0];
+
+			std::ifstream in(meshfile, std::ios::binary);
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			Assert::AreEqual(1, loadBSGeometryMeshData(nif, geom, 0, bytes.data(), (int)bytes.size()));
+
+			Vector3* verts0 = new Vector3[60000];
+			Triangle* tris0 = new Triangle[120000];
+			int vertCount0 = getVertsForShape(nif, geom, verts0, 60000 * 3, 0);
+			int triCount0 = getTriangles(nif, geom, tris0, 120000 * 3, 0);
+			Assert::IsTrue(vertCount0 > 0 && triCount0 > 0);
+
+			// Save: length-only first pass sizes the buffer, second pass fills it.
+			int len = saveBSGeometryMeshData(nif, geom, 0, nullptr, 0);
+			Assert::IsTrue(len > 0, L"Serialized some bytes");
+			std::string saved(len, '\0');
+			int len2 = saveBSGeometryMeshData(nif, geom, 0, &saved[0], len);
+			Assert::AreEqual(len, len2, L"Both passes report the same length");
+
+			// Re-load the serialized bytes and confirm the geometry survives the round-trip.
+			Assert::AreEqual(1, loadBSGeometryMeshData(nif, geom, 0, saved.data(), len));
+			Vector3* verts1 = new Vector3[60000];
+			Triangle* tris1 = new Triangle[120000];
+			int vertCount1 = getVertsForShape(nif, geom, verts1, 60000 * 3, 0);
+			int triCount1 = getTriangles(nif, geom, tris1, 120000 * 3, 0);
+			Assert::AreEqual(vertCount0, vertCount1, L"Vertex count preserved");
+			Assert::AreEqual(triCount0, triCount1, L"Triangle count preserved");
+
+			// Positions are int16-SNORM * Scale; re-quantizing already-quantized values
+			// stays within a fraction of a quantum (~0.004 game units here).
+			float maxErr = 0.0f;
+			for (int i = 0; i < vertCount0; i++) {
+				float dx = verts0[i].x - verts1[i].x; if (dx < 0) dx = -dx;
+				float dy = verts0[i].y - verts1[i].y; if (dy < 0) dy = -dy;
+				float dz = verts0[i].z - verts1[i].z; if (dz < 0) dz = -dz;
+				if (dx > maxErr) maxErr = dx;
+				if (dy > maxErr) maxErr = dy;
+				if (dz > maxErr) maxErr = dz;
+			}
+			Assert::IsTrue(maxErr < 0.1f, L"Vertex positions round-trip within quantization tolerance");
+
+			delete[] verts0; delete[] tris0; delete[] verts1; delete[] tris1;
+		}
+
+		TEST_METHOD(CreateStarfieldMesh)
+		{
+			/* UNIT TEST: CREATE a Starfield BSGeometry from raw geometry (not loaded from a
+			   .mesh), serialize it to the external-.mesh byte layout, reload, and confirm the
+			   geometry survives. Exercises the export path: PyniflyCreateShape's IsSF() branch
+			   + setBSGeometryMeshName + saveBSGeometryMeshData. */
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			// Source geometry: reuse a real body's verts/tris/uv/normals by loading the
+			// fixture .mesh into a throwaway BSGeometry.
+			void* srcNif = load((testRoot / "SF/naked_f.nif").u8string().c_str());
+			Assert::IsNotNull(srcNif);
+			void* srcShapes[5];
+			getShapes(srcNif, srcShapes, 5, 0);
+			void* srcGeom = srcShapes[0];
+			std::ifstream in(meshfile, std::ios::binary);
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			Assert::AreEqual(1, loadBSGeometryMeshData(srcNif, srcGeom, 0, bytes.data(), (int)bytes.size()));
+
+			Vector3* verts = new Vector3[60000];
+			Triangle* tris = new Triangle[120000];
+			Vector2* uv = new Vector2[60000];
+			Vector3* norms = new Vector3[60000];
+			int vcount = getVertsForShape(srcNif, srcGeom, verts, 60000 * 3, 0);
+			int tcount = getTriangles(srcNif, srcGeom, tris, 120000 * 3, 0);
+			int uvcount = getUVs(srcNif, srcGeom, uv, 60000 * 2, 0);
+			int ncount = getNormalsForShape(srcNif, srcGeom, norms, 60000 * 3, 0);
+			Assert::IsTrue(vcount > 0 && tcount > 0);
+			Assert::AreEqual(vcount, uvcount);
+			Assert::AreEqual(vcount, ncount);
+
+			// Build a fresh Starfield NIF and CREATE a BSGeometry in it from that data.
+			void* newNif = createNif("SF", "NiNode", "Scene Root");
+			Assert::IsNotNull(newNif);
+
+			NiShapeBuf buf{};
+			buf.scale = 1.0f;
+			buf.rotation[0][0] = 1.0f; buf.rotation[1][1] = 1.0f; buf.rotation[2][2] = 1.0f;
+			buf.vertexCount = (uint32_t)vcount;
+			buf.triangleCount = (uint32_t)tcount;
+			buf.shaderPropertyID = NO_SHADER_REF;
+
+			void* newGeom = createNifShapeFromData(newNif, "TestBody", &buf,
+				verts, uv, norms, tris, nullptr);
+			Assert::IsNotNull(newGeom, L"Created a BSGeometry from data");
+			Assert::AreEqual(1, getBSGeometryMeshCount(newNif, newGeom),
+				L"New shape is a BSGeometry with one mesh slot");
+			Assert::AreEqual(0, getBSGeometryInternalFlag(newNif, newGeom),
+				L"New BSGeometry is external (flag 0x200 off)");
+
+			// Geometry must be readable straight off the created shape (before any save).
+			Vector3* vchk = new Vector3[60000];
+			int vchkCount = getVertsForShape(newNif, newGeom, vchk, 60000 * 3, 0);
+			delete[] vchk;
+			Assert::AreEqual(vcount, vchkCount, L"Verts readable off the freshly created BSGeometry");
+
+			// Give it an external .mesh path.
+			Assert::AreEqual(1, setBSGeometryMeshName(newNif, newGeom, 0, "test\\testbody.mesh"));
+			char pathBuf[256];
+			Assert::IsTrue(getBSGeometryMeshPath(newNif, newGeom, 0, pathBuf, 256) > 0);
+			Assert::AreEqual("test\\testbody.mesh", pathBuf);
+
+			// Serialize to .mesh bytes (length-only pass, then fill).
+			int len = saveBSGeometryMeshData(newNif, newGeom, 0, nullptr, 0);
+			Assert::IsTrue(len > 0, L"Serialized the created mesh");
+			std::string saved(len, '\0');
+			Assert::AreEqual(len, saveBSGeometryMeshData(newNif, newGeom, 0, &saved[0], len));
+
+			// Reload the bytes and confirm the geometry survives the create->save->load trip.
+			Assert::AreEqual(1, loadBSGeometryMeshData(newNif, newGeom, 0, saved.data(), len));
+			Vector3* verts2 = new Vector3[60000];
+			Triangle* tris2 = new Triangle[120000];
+			int vcount2 = getVertsForShape(newNif, newGeom, verts2, 60000 * 3, 0);
+			int tcount2 = getTriangles(newNif, newGeom, tris2, 120000 * 3, 0);
+			Assert::AreEqual(vcount, vcount2, L"Vertex count preserved through create->save->load");
+			Assert::AreEqual(tcount, tcount2, L"Triangle count preserved");
+
+			// Positions are int16-SNORM * per-mesh scale; re-quantizing stays sub-quantum.
+			float maxErr = 0.0f;
+			for (int i = 0; i < vcount; i++) {
+				float dx = std::fabs(verts[i].x - verts2[i].x);
+				float dy = std::fabs(verts[i].y - verts2[i].y);
+				float dz = std::fabs(verts[i].z - verts2[i].z);
+				maxErr = std::max(maxErr, std::max(dx, std::max(dy, dz)));
+			}
+			Assert::IsTrue(maxErr < 0.1f, L"Vertex positions round-trip within quantization tolerance");
+
+			// Triangle indices must be exact.
+			for (int i = 0; i < tcount; i++) {
+				Assert::IsTrue(tris[i].p1 == tris2[i].p1 && tris[i].p2 == tris2[i].p2
+					&& tris[i].p3 == tris2[i].p3, L"Triangle indices preserved exactly");
+			}
+
+			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
+			delete[] verts2; delete[] tris2;
+		}
+
+		TEST_METHOD(CreateStarfieldSkin)
+		{
+			/* UNIT TEST: CREATE a skinned Starfield BSGeometry, save NIF + .mesh, reload, and
+			   confirm the skin survives: bone names (SkinAttach), a bind transform
+			   (BSSkin::BoneData), and per-vertex weights (in the .mesh). */
+			std::filesystem::path meshfile = testRoot / "SF/body_skinned.mesh";
+
+			// Source: geometry + bone names + a bind transform from the read fixture.
+			void* srcNif = load((testRoot / "SF/naked_f.nif").u8string().c_str());
+			void* srcShapes[5]; getShapes(srcNif, srcShapes, 5, 0);
+			void* srcGeom = srcShapes[0];
+			std::ifstream in(meshfile, std::ios::binary);
+			std::string bytes((std::istreambuf_iterator<char>(in)),
+							   std::istreambuf_iterator<char>());
+			loadBSGeometryMeshData(srcNif, srcGeom, 0, bytes.data(), (int)bytes.size());
+
+			Vector3* verts = new Vector3[60000];
+			Triangle* tris = new Triangle[120000];
+			Vector2* uv = new Vector2[60000];
+			Vector3* norms = new Vector3[60000];
+			int vcount = getVertsForShape(srcNif, srcGeom, verts, 60000 * 3, 0);
+			int tcount = getTriangles(srcNif, srcGeom, tris, 120000 * 3, 0);
+			getUVs(srcNif, srcGeom, uv, 60000 * 2, 0);
+			getNormalsForShape(srcNif, srcGeom, norms, 60000 * 3, 0);
+
+			char boneBuf[4000];
+			int boneStrLen = getShapeBoneNames(srcNif, srcGeom, boneBuf, 4000);
+			Assert::IsTrue(boneStrLen > 0, L"Source has bone names");
+			int nBones = 1;
+			for (int i = 0; i < boneStrLen; i++) if (boneBuf[i] == '\n') nBones++;
+			Assert::IsTrue(nBones > 10, L"Source is multi-bone");
+
+			MatTransform bind0src{};
+			Assert::IsTrue(getShapeSkinToBoneByIndex(srcNif, srcGeom, 0, bind0src),
+						   L"Read source bind for bone 0");
+
+			// Create a fresh Starfield nif + a BSGeometry from the geometry.
+			void* newNif = createNif("SF", "NiNode", "Scene Root");
+			NiShapeBuf buf{};
+			buf.scale = 1.0f;
+			buf.rotation[0][0] = 1.0f; buf.rotation[1][1] = 1.0f; buf.rotation[2][2] = 1.0f;
+			buf.vertexCount = (uint32_t)vcount;
+			buf.triangleCount = (uint32_t)tcount;
+			buf.shaderPropertyID = NO_SHADER_REF;
+			void* newGeom = createNifShapeFromData(newNif, "SkinBody", &buf,
+				verts, uv, norms, tris, nullptr);
+			Assert::AreEqual(1, setBSGeometryMeshName(newNif, newGeom, 0, "geometries\\test\\skin.mesh"));
+
+			// Skin: instance + bone data + SkinAttach, then copy bone 0's bind, then weight
+			// every vertex fully to bone 0.
+			Assert::AreEqual(1, skinBSGeometry(newNif, newGeom, boneBuf, nBones, 4),
+				L"Created SF skinning");
+			Assert::AreEqual(1, setBSGeometryBoneBind(newNif, newGeom, 0, bind0src),
+				L"Set bone 0 bind");
+			for (int v = 0; v < vcount; v++) {
+				uint8_t bid = 0; float w = 1.0f;
+				setBSGeometryVertWeights(newNif, newGeom, v, &bid, &w, 1);
+			}
+
+			// Save NIF + external .mesh.
+			std::filesystem::path outNif = testRoot / "Out/CreateStarfieldSkin.nif";
+			std::filesystem::path outMesh = testRoot / "Out/CreateStarfieldSkin.mesh";
+			Assert::AreEqual(0, saveNif(newNif, outNif.u8string().c_str()), L"Saved NIF");
+			int mlen = saveBSGeometryMeshData(newNif, newGeom, 0, nullptr, 0);
+			std::string mbytes(mlen, '\0');
+			saveBSGeometryMeshData(newNif, newGeom, 0, &mbytes[0], mlen);
+			{ std::ofstream out(outMesh, std::ios::binary); out.write(mbytes.data(), mlen); }
+
+			// Reload NIF + .mesh and verify the skin.
+			void* rNif = load(outNif.u8string().c_str());
+			void* rShapes[5]; getShapes(rNif, rShapes, 5, 0);
+			void* rGeom = rShapes[0];
+			Assert::AreEqual(1, loadBSGeometryMeshData(rNif, rGeom, 0, mbytes.data(), mlen),
+				L"Reloaded external .mesh");
+
+			char rBoneBuf[4000];
+			int rBoneStrLen = getShapeBoneNames(rNif, rGeom, rBoneBuf, 4000);
+			int rNBones = 1;
+			for (int i = 0; i < rBoneStrLen; i++) if (rBoneBuf[i] == '\n') rNBones++;
+			Assert::AreEqual(nBones, rNBones, L"Bone names round-trip (SkinAttach)");
+
+			MatTransform bind0r{};
+			Assert::IsTrue(getShapeSkinToBoneByIndex(rNif, rGeom, 0, bind0r),
+				L"Read reloaded bind for bone 0");
+			Assert::IsTrue(std::fabs(bind0src.translation.x - bind0r.translation.x) < 0.1f
+				&& std::fabs(bind0src.translation.y - bind0r.translation.y) < 0.1f
+				&& std::fabs(bind0src.translation.z - bind0r.translation.z) < 0.1f,
+				L"Bone 0 bind translation round-trips (in game units)");
+
+			int wcount0 = getShapeBoneWeightsCount(rNif, rGeom, 0);
+			Assert::AreEqual(vcount, wcount0, L"Every vertex weighted to bone 0 survives round-trip");
+
+			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
+		}
 
 		TEST_METHOD(LoadAndStoreFO4)
 		{

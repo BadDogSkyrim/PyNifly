@@ -25,7 +25,7 @@ _needs_reload = "bpy" in locals()
 
 import bpy
 from contextlib import suppress
-from . import nif, tri, hkx, kf
+from . import nif, tri, hkx, kf, sfmorph
 if DEBUGGING:
     from . import osd
 
@@ -87,6 +87,39 @@ class PyNiflyPreferences(AddonPreferences):
     fo4_texture_path_4: StringProperty(
         name="Fallout Texture Path 4",
         subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_texture_path_1: StringProperty(
+        name="Starfield Texture Path 1",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_texture_path_2: StringProperty(
+        name="Starfield Texture Path 2",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_texture_path_3: StringProperty(
+        name="Starfield Texture Path 3",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_texture_path_4: StringProperty(
+        name="Starfield Texture Path 4",
+        subtype='DIR_PATH',
+        default=""
+    ) # type: ignore
+
+    sf_cdb_path: StringProperty(
+        name="Starfield Material Database (.cdb)",
+        description=("Path to Starfield's materialsbeta.cdb (extract it from "
+                    "'Starfield - Materials.ba2'). When set, importing a Starfield shape whose "
+                    "loose .mat can't be found reads the material straight from this database."),
+        subtype='FILE_PATH',
         default=""
     ) # type: ignore
 
@@ -166,6 +199,11 @@ class PyNiflyPreferences(AddonPreferences):
         layout.prop(self, "fo4_texture_path_2")
         layout.prop(self, "fo4_texture_path_3")
         layout.prop(self, "fo4_texture_path_4")
+        layout.prop(self, "sf_texture_path_1")
+        layout.prop(self, "sf_texture_path_2")
+        layout.prop(self, "sf_texture_path_3")
+        layout.prop(self, "sf_texture_path_4")
+        layout.prop(self, "sf_cdb_path")
         layout.prop(self, "rename_bones")
         layout.prop(self, "rename_bones_niftools")
         layout.prop(self, "rotate_bones_pretty")
@@ -207,6 +245,7 @@ def register():
     kf.register()
     nif.register()
     tri.register()
+    sfmorph.register()
     if DEBUGGING:
         osd.register()
 
@@ -217,6 +256,7 @@ def unregister():
     kf.unregister()
     nif.unregister()
     tri.unregister()
+    sfmorph.unregister()
     if DEBUGGING:
         osd.unregister()
 

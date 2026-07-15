@@ -38,6 +38,7 @@ extern "C" NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, nif
 extern "C" NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, nifly::MatTransform * xform);
 extern "C" NIFLY_API int hasSkinInstance(void* shapeRef);
 extern "C" NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const  char* boneName, nifly::MatTransform& buf);
+extern "C" NIFLY_API bool getShapeSkinToBoneByIndex(void* nifPtr, void* shapePtr, int boneIndex, nifly::MatTransform& buf);
 extern "C" NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const nifly::MatTransform & buf);
 extern "C" NIFLY_API void getNodeTransform(void* theNode, nifly::MatTransform* buf);
 extern "C" NIFLY_API int getNodeTransformToGlobal(void* nifref, const char* nodeName, nifly::MatTransform* buf);
@@ -201,3 +202,19 @@ extern "C" NIFLY_API int setCollCompressedMeshMaterials(void* nifref, int dataID
 extern "C" NIFLY_API int getCollPackedStripsDataID(void* nifref, int shapeID);
 extern "C" NIFLY_API int setCollPackedStripsVerts(void* nifref, int dataID, float* verts, int vertCount);
 extern "C" NIFLY_API int setCollPackedStripsTris(void* nifref, int dataID, uint16_t* tris, int triCount, float* normals);
+
+// Starfield BSGeometry / external .mesh data
+extern "C" NIFLY_API int getBSGeometryMeshCount(void* theNif, void* theShape);
+extern "C" NIFLY_API int getBSGeometryMeshPath(void* theNif, void* theShape, int whichMesh, char* buf, int buflen);
+extern "C" NIFLY_API int getBSGeometryInternalFlag(void* theNif, void* theShape);
+extern "C" NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, const char* bytes, int len);
+extern "C" NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh);
+extern "C" NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh, char* buf, int buflen);
+extern "C" NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh, const char* name);
+extern "C" NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh, nifly::Vector3* tangents, uint8_t* tangentWs, int count);
+extern "C" NIFLY_API int getBSGeometryColors(void* theNif, void* theShape, nifly::Color4* colors, int count);
+extern "C" NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh, nifly::Color4* colors, int count);
+extern "C" NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones, int weightsPerVertex);
+extern "C" NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex, const nifly::MatTransform& xf);
+extern "C" NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertIndex, uint8_t* boneIndices, float* weights, int count);
+extern "C" NIFLY_API int updateBSGeometrySkinBounds(void* theNif, void* theShape);

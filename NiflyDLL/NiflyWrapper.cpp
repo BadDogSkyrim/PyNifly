@@ -13,7 +13,9 @@
 #include <iostream>
 #include <filesystem>
 #include <string>
+#include <sstream>
 #include <algorithm>
+#include <limits>
 #include "niffile.hpp"
 #include "bhk.hpp"
 #include "NiflyFunctions.hpp"
@@ -141,6 +143,8 @@ enum TargetGame StrToTargetGame(const char* gameName) {
     else if (strcmp(gameName, "SKYRIMSE") == 0) { return TargetGame::SKYRIMSE; }
     else if (strcmp(gameName, "SKYRIMVR") == 0) { return TargetGame::SKYRIMVR; }
     else if (strcmp(gameName, "FO76") == 0) { return TargetGame::FO76; }
+    else if (strcmp(gameName, "SF") == 0) { return TargetGame::SF; }
+    else if (strcmp(gameName, "STARFIELD") == 0) { return TargetGame::SF; }
     else { return TargetGame::SKYRIM; }
 }
 
@@ -214,6 +218,7 @@ NIFLY_API int getGameName(void* f, char* buf, int len) {
     else if (vers.IsSSE()) { name = "SKYRIMSE"; }
     else if (vers.IsFO4()) { name = "FO4"; }
     else if (vers.IsFO76()) { name = "FO76"; }
+    else if (vers.IsSF()) { name = "SF"; }
 
     int copylen = std::min((int)len - 1, (int)name.length());
     name.copy(buf, copylen, 0);
@@ -268,6 +273,12 @@ void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType,
         version.SetFile(V20_2_0_7);
         version.SetUser(12);
         version.SetStream(155);
+        break;
+    case TargetGame::SF:
+        // Starfield: file 20.2.0.7, user 12, stream 172-175 (vanilla assets use 173).
+        version.SetFile(V20_2_0_7);
+        version.SetUser(12);
+        version.SetStream(173);
         break;
     }
 
@@ -1255,7 +1266,10 @@ int setShapeFromBuf(NifFile* nif, NiShape* theShape, NiShapeBuf* buf)
     theShape->transform.scale = buf->scale;
     theShape->collisionRef.index = buf->collisionID;
 
-    BSTriShape* ts = static_cast<BSTriShape*>(theShape);
+    // dynamic_cast, NOT static_cast: this must be null for non-BSTriShape shapes
+    // (NiTriShape, BSGeometry). A static_cast is never null and writing ts->vertexDesc
+    // through it corrupts a BSGeometry's mesh data (its layout has no vertexDesc there).
+    BSTriShape* ts = dynamic_cast<BSTriShape*>(theShape);
     if (ts) {
         if (buf->hasFullPrecision) ts->SetFullPrecision(true);
 
@@ -1440,6 +1454,34 @@ NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
         buf);
     //if (hasXform) XformToBuffer(buf, xf);
     return hasXform;
+}
+
+NIFLY_API bool getShapeSkinToBoneByIndex(void* nifPtr, void* shapePtr, int boneIndex, MatTransform& buf)
+/* Return the skin-to-bone transform for the bone at the given INDEX in the given shape.
+
+    Starfield (BSGeometry/BSSkinBoneData) stores bind transforms indexed by position and has no
+    NiNode boneRefs, so the name-based GetBoneID walk returns NIF_NPOS and getShapeSkinToBone fails.
+    This index-based accessor reads BSSkinBoneData directly. Returns false if no such bone.
+
+    SCALE: nifly applies havokScale (69.969) to BSGeometry VERTEX positions on load
+    (Geometry.cpp) but BSSkinBoneData::Sync reads the bind transform's translation RAW (metric).
+    So the raw bind translation is ~70x too small relative to the (already-scaled) verts. We scale
+    the translation here so PyNifly sees the bind in the same game-unit space as the verts — the
+    same "SSE-sized positions for free" the vertex path already provides. Export must divide back
+    by havokScale, exactly as the vertex path does. Only the translation is a length; rotation and
+    scale are unit-invariant. Constant mirrors nifly Geometry.hpp:547 (havokScale = 69.969f). */
+{
+    const float havokScale = 69.969f;
+    bool found = static_cast<NifFile*>(nifPtr)->GetShapeTransformSkinToBone(
+        static_cast<NiShape*>(shapePtr),
+        static_cast<uint32_t>(boneIndex),
+        buf);
+    if (found) {
+        buf.translation.x *= havokScale;
+        buf.translation.y *= havokScale;
+        buf.translation.z *= havokScale;
+    }
+    return found;
 }
 
 NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const MatTransform& buf)
@@ -1809,7 +1851,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     buf->controllerID = bssh->controllerRef.index;
     buf->extraDataCount = bssh->extraDataRefs.GetSize();
 
-    buf->shaderFlags = bssh->shaderFlags;
+    buf->shaderFlags = 1;  // nifly upstream removed BSShaderProperty::shaderFlags (legacy uint16); field kept for buffer ABI, defaulted to old value
     buf->Shader_Type = bssh->GetShaderType();
     buf->Shader_Flags_1 = bssh->shaderFlags1;
     buf->Shader_Flags_2 = bssh->shaderFlags2;
@@ -1997,7 +2039,7 @@ int copyNiShader(NifFile* nif, BSShaderProperty* bssh, const char* name, NiShade
     bssh->bslspShaderType = buf->Shader_Type;
     bssh->controllerRef.index = buf->controllerID;
 
-    bssh->shaderFlags = buf->shaderFlags;
+    // bssh->shaderFlags removed upstream (legacy uint16 field deleted) — nothing to write; SLSF words are shaderFlags1/2 below
     bssh->shaderType = BSShaderType(buf->Shader_Type);
     bssh->shaderFlags1 = buf->Shader_Flags_1;
     bssh->shaderFlags2 = buf->Shader_Flags_2;
@@ -2013,7 +2055,7 @@ int copyNiShader(NifFile* nif, BSShaderProperty* bssh, const char* name, NiShade
         for (int i=0; i < 3; i++) bslsp->emissiveColor[i] = buf->Emissive_Color[i];
         bslsp->emissiveMultiple = buf->Emissive_Mult;
         bslsp->rootMaterialName = hdr->GetStringById(buf->rootMaterialNameID);
-        bslsp->textureClampMode = buf->textureClampMode;
+        bslsp->textureClampMode = TexClampMode(buf->textureClampMode);  // upstream made textureClampMode a strongly-typed enum
         bslsp->alpha = buf->Alpha;
         bslsp->refractionStrength = buf->Refraction_Str;
         bslsp->glossiness = buf->Glossiness;
@@ -6897,5 +6939,387 @@ NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {
         return NIF_NPOS;
     }
     return creatorFunctions[theBuf->bufType](f, name, buf, parent);
+}
+
+
+/* ============================================================================
+   STARFIELD — BSGeometry / external .mesh data
+
+   A Starfield BSGeometry is a NiShape holding one BSGeometryMesh per LOD slot.
+   Each slot carries an external .mesh path (meshName) but NO geometry until the
+   .mesh bytes are loaded. Flow: get the path(s) -> Python resolves each to a
+   loose .mesh -> loadBSGeometryMeshData(bytes) -> the existing getVertsForShape/
+   getTriangles/getNormalsForShape/getUVs then work (BSGeometry routes them
+   through GetGeometryData). nifly applies havokScale (69.969) on load, so
+   positions come back in game units, same regime as Skyrim/FO4.
+   ============================================================================ */
+
+// Safe downcast: a NiShape* to BSGeometry* only when the block really is one.
+// Follows the wrapper's existing strcmp(GetBlockName()) idiom (no RTTI dependency).
+static nifly::BSGeometry* asBSGeometry(void* theShape) {
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (shape && strcmp(shape->GetBlockName(), "BSGeometry") == 0)
+        return static_cast<nifly::BSGeometry*>(shape);
+    return nullptr;
+}
+
+// Number of mesh (LOD) slots on a BSGeometry. 0 if the shape isn't a BSGeometry.
+NIFLY_API int getBSGeometryMeshCount(void* theNif, void* theShape) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    return geom ? geom->MeshCount() : 0;
+}
+
+// The external .mesh path (meshName) for LOD slot 'whichMesh'. Fills 'buf' (NUL-
+// terminated) and returns the full path length (may exceed buflen-1 -> caller can
+// resize and retry). Returns 0 if not a BSGeometry / slot out of range.
+NIFLY_API int getBSGeometryMeshPath(void* theNif, void* theShape, int whichMesh,
+                                    char* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) { if (buflen > 0) buf[0] = 0; return 0; }
+
+    std::vector<std::reference_wrapper<std::string>> refs =
+        nif->GetExternalGeometryPathRefs(shape);
+    if (whichMesh < 0 || whichMesh >= (int)refs.size()) {
+        if (buflen > 0) buf[0] = 0;
+        return 0;
+    }
+    const std::string& path = refs[whichMesh].get();
+    int n = (int)path.size();
+    if (buflen > 0) {
+        int copy = (n < buflen - 1) ? n : buflen - 1;
+        for (int i = 0; i < copy; i++) buf[i] = path[i];
+        buf[copy] = 0;
+    }
+    return n;
+}
+
+// 1 if the BSGeometry stores its mesh data inline in the NIF (flag 0x200), else 0.
+NIFLY_API int getBSGeometryInternalFlag(void* theNif, void* theShape) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    return (geom && geom->HasInternalGeomData()) ? 1 : 0;
+}
+
+// Load external .mesh bytes into LOD slot 'whichMesh' and select that slot, so the
+// standard geometry accessors read from it. Returns 1 on success, 0 on failure.
+NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh,
+                                     const char* bytes, int len) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+
+    std::string data(bytes, len);
+    std::istringstream stream(data, std::ios::binary);
+    bool ok = nif->LoadExternalShapeData(shape, stream, (uint8_t)whichMesh);
+    if (ok) geom->SelectMesh((uint8_t)whichMesh);
+    return ok ? 1 : 0;
+}
+
+// Select a LOD slot so subsequent getVertsForShape/getTriangles/etc. read from it.
+NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (geom) geom->SelectMesh((uint8_t)whichMesh);
+}
+
+// Serialize a BSGeometry LOD slot's mesh data to the external-.mesh byte layout and copy
+// it into 'buf'. Regenerates meshlets + cull data first (Starfield requires them; nifly's
+// onlyIfMissing keeps any already present). Returns the total byte length -- which may
+// exceed buflen, so the caller can size a buffer with a length-only first call (buf=NULL /
+// buflen=0), then call again to fill it (the getTriangles two-pass idiom). Meshlet
+// generation runs once and is a no-op on the second pass, so both passes serialize the
+// same bytes. Returns 0 if the shape isn't a BSGeometry or the slot is out of range.
+NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh,
+                                     char* buf, int buflen) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
+
+    geom->SelectMesh((uint8_t)whichMesh);
+    geom->GenerateMeshlets();   // maxVerts=128, maxPrims=128, onlyIfMissing=true
+    std::ostringstream stream(std::ios::binary);
+    if (!nif->SaveExternalShapeData(shape, stream, (uint8_t)whichMesh)) return 0;
+
+    std::string data = stream.str();
+    int n = (int)data.size();
+    if (buf && buflen > 0) {
+        int copy = (n < buflen) ? n : buflen;
+        for (int i = 0; i < copy; i++) buf[i] = data[i];
+    }
+    return n;
+}
+
+// Set the external .mesh path (meshName) for LOD slot 'whichMesh'. This is the path
+// the NIF's BSGeometry references; the actual .mesh bytes are written separately via
+// saveBSGeometryMeshData. Uses the same writable string refs as the getter. Returns 1
+// on success, 0 if not a BSGeometry / slot out of range.
+NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh,
+                                    const char* name) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) return 0;
+
+    std::vector<std::reference_wrapper<std::string>> refs =
+        nif->GetExternalGeometryPathRefs(shape);
+    if (whichMesh < 0 || whichMesh >= (int)refs.size()) return 0;
+    refs[whichMesh].get() = name ? std::string(name) : std::string();
+    return 1;
+}
+
+// Set the tangents for LOD slot 'whichMesh'. tangents = count Vector3 (unit tangents);
+// tangentWs = count bytes, the 2-bit bitangent-sign W of each tangent (1 or 3 in the
+// packed UDEC3.W; pass 1 if unknown). nifly packs both into the .mesh on save. These
+// have no read counterpart on the generic accessors, hence a dedicated setter. Returns
+// 1 on success.
+NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh,
+                                    Vector3* tangents, uint8_t* tangentWs, int count) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
+    nifly::BSGeometryMesh* mesh = geom->SelectMesh((uint8_t)whichMesh);
+    if (!mesh) return 0;
+
+    auto& md = mesh->meshData;
+    md.tangents.assign(tangents, tangents + count);
+    md.tangentWs.resize(count);
+    for (int i = 0; i < count; i++)
+        md.tangentWs[i] = tangentWs ? tangentWs[i] : 1;
+    return 1;
+}
+
+// Get the per-vertex colors of the currently-selected LOD mesh. The .mesh's colors live in
+// BSGeometryMeshData::vColors (ByteColor4), NOT the inherited NiGeometryData::vertexColors that
+// the generic getColorsForShape reads -- so a BSGeometry needs this dedicated reader or every
+// color comes back black. Mirrors setBSGeometryColors's straight RGBA byte mapping. Fills up to
+// 'count' Color4 (float RGBA 0..1); returns the number of colors available.
+NIFLY_API int getBSGeometryColors(void* theNif, void* theShape, Color4* colors, int count) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+    nifly::BSGeometryMeshData* md = static_cast<nifly::BSGeometryMeshData*>(geom->GetGeomData());
+    if (!md) return 0;
+    int n = (int)md->vColors.size();
+    for (int i = 0; i < n && i < count; i++) {
+        colors[i].r = md->vColors[i].r / 255.0f;
+        colors[i].g = md->vColors[i].g / 255.0f;
+        colors[i].b = md->vColors[i].b / 255.0f;
+        colors[i].a = md->vColors[i].a / 255.0f;
+    }
+    return n;
+}
+
+// Set the per-vertex colors for LOD slot 'whichMesh'. colors = count Color4 (float RGBA,
+// 0..1), converted to the .mesh's ByteColor4 (BGRA-order bytes are handled by nifly's
+// Sync; we store straight RGBA bytes). Returns 1 on success.
+NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh,
+                                  Color4* colors, int count) {
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
+    nifly::BSGeometryMesh* mesh = geom->SelectMesh((uint8_t)whichMesh);
+    if (!mesh) return 0;
+
+    auto clamp8 = [](float f) -> uint8_t {
+        int v = (int)std::lround(f * 255.0f);
+        if (v < 0) v = 0; if (v > 255) v = 255;
+        return (uint8_t)v;
+    };
+    auto& md = mesh->meshData;
+    md.vColors.resize(count);
+    for (int i = 0; i < count; i++) {
+        md.vColors[i].r = clamp8(colors[i].r);
+        md.vColors[i].g = clamp8(colors[i].g);
+        md.vColors[i].b = clamp8(colors[i].b);
+        md.vColors[i].a = clamp8(colors[i].a);
+    }
+    return 1;
+}
+
+/* ----------------------------------------------------------------------------
+   Starfield BSGeometry skinning (write side)
+
+   SF skinning has no NiNode bone refs. Bone NAMES live in a SkinAttach extra-data
+   block; bind (skin-to-bone) transforms live in a BSSkin::BoneData indexed by
+   position; per-vertex {boneIndex, weight} pairs live in the external .mesh
+   (BSGeometryMeshData::skinWeights). nifly's CreateSkinning doesn't handle
+   BSGeometry, so we assemble the skin instance ourselves.
+   ---------------------------------------------------------------------------- */
+
+// Create SF-style skinning on a BSGeometry: a BSSkin::Instance + BSSkin::BoneData with
+// `nBones` identity binds, plus a SkinAttach extra-data block carrying the newline-separated
+// bone-name list. Zeroes the per-vertex weight slots (nWeightsPerVert=4) so the .mesh writer
+// emits them. Set binds with setBSGeometryBoneBind and weights with setBSGeometryVertWeights.
+// Returns 1 on success, 0 if the shape isn't a BSGeometry.
+NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones,
+                             int weightsPerVertex) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+    NiHeader& hdr = nif->GetHeader();
+
+    // BSSkin::BoneData -- nBones identity binds (translations set later).
+    auto boneData = std::make_unique<BSSkinBoneData>();
+    boneData->nBones = (uint32_t)nBones;
+    boneData->boneXforms.resize(nBones);
+    uint32_t boneDataID = hdr.AddBlock(std::move(boneData));
+
+    // BSSkin::Instance -- targets the root, references the bone data.
+    auto skinInst = std::make_unique<BSSkinInstance>();
+    skinInst->targetRef.index = hdr.GetBlockID(nif->GetRootNode());
+    skinInst->dataRef.index = boneDataID;
+    // SF keeps a boneRefs entry PER BONE even though every ref is empty -- the actual skeleton
+    // bones live in an external skeleton.nif, not this file, so the names come from SkinAttach.
+    // But the array length must still equal nBones: the Creation Kit walks boneRefs in lockstep
+    // with the bone data when it opens an actor, and an empty (length-0) array runs the iterator
+    // off the end -> "Invalid iterator" -> null-pointer crash. Fill nBones empty (NIF_NPOS) refs;
+    // Sync preserves them for SF via SetKeepEmptyRefs. (Verified: vanilla naked_f has 38.)
+    skinInst->boneRefs.SetKeepEmptyRefs(true);
+    skinInst->boneRefs.SetSize((uint32_t)nBones);
+    uint32_t skinInstID = hdr.AddBlock(std::move(skinInst));
+    shape->SkinInstanceRef()->index = skinInstID;
+    shape->SetSkinned(true);
+
+    // Skinned shapes are frustum-culled by per-bone bounds, not the block-level volume, so the
+    // block bound must never cull the (bone-driven, moving) mesh. Vanilla bodies set radius 0 +
+    // boundMinMax all-FLT_MAX ("infinite"). This overrides the tight bind-space AABB that
+    // PyniflyCreateShape computes for the static case -- that box would cull the body the moment
+    // it animates out of bind pose (verified against vanilla naked_f.nif).
+    const float fmax = std::numeric_limits<float>::max();
+    const float infMinMax[6] = { fmax, fmax, fmax, fmax, fmax, fmax };
+    geom->SetGeometryBounds(BoundingSphere(Vector3(0.0f, 0.0f, 0.0f), 0.0f), infMinMax);
+
+    // SkinAttach extra data -- the bone-name list (SF has no NiNode bone refs). The extra-data
+    // NAME must be "SkinBMP" (Skin Bone MaP): the engine locates the shape's bone map by this
+    // name, and an unnamed SkinAttach leaves it unable to resolve the .mesh's weight indices ->
+    // the body falls back to bind space (lying on its side) with garbage bone transforms
+    // (spazzing). Verified against vanilla naked_f.nif.
+    auto skinAttach = std::make_unique<SkinAttach>();
+    skinAttach->name.get() = "SkinBMP";
+    std::string all(boneNamesNL ? boneNamesNL : "");
+    std::vector<std::string> names;
+    size_t start = 0;
+    while (start <= all.size()) {
+        size_t nl = all.find('\n', start);
+        if (nl == std::string::npos) {
+            if (start < all.size()) names.push_back(all.substr(start));
+            break;
+        }
+        names.push_back(all.substr(start, nl - start));
+        start = nl + 1;
+    }
+    skinAttach->bones.resize((uint32_t)names.size());
+    for (uint32_t i = 0; i < names.size(); i++)
+        skinAttach->bones[i].get() = names[i];
+    uint32_t attachID = hdr.AddBlock(std::move(skinAttach));
+    shape->extraDataRefs.AddBlockRef(attachID);
+
+    // BSXFlags on the root node: vanilla skinned bodies carry 0x10000 (65536). Add once if the
+    // root doesn't already have one (a multi-part body skins several shapes but needs one BSX).
+    NiNode* rootNode = nif->GetRootNode();
+    if (rootNode) {
+        bool hasBSX = false;
+        for (auto& ref : rootNode->extraDataRefs) {
+            NiExtraData* ed = hdr.GetBlock<NiExtraData>(ref.index);
+            if (ed && std::string(ed->GetBlockName()) == "BSXFlags") { hasBSX = true; break; }
+        }
+        if (!hasBSX) {
+            auto bsx = std::make_unique<BSXFlags>();
+            bsx->name.get() = "BSX";
+            bsx->integerData = 65536;
+            uint32_t bsxID = hdr.AddBlock(std::move(bsx));
+            rootNode->extraDataRefs.AddBlockRef(bsxID);
+        }
+    }
+
+    // Set how many bone influences the .mesh stores per vertex (uniform for the whole shape).
+    // Must precede ClearShapeVertWeights, which sizes each vertex's weight slots to this count
+    // -- and SetShapeVertWeights then caps writes to it. Vanilla varies (body 6, hair 7); the
+    // caller passes the max influence count its verts use. Guard to a sane floor of 4.
+    if (auto* md = dynamic_cast<BSGeometryMeshData*>(geom->GetGeomData())) {
+        md->nWeightsPerVert = (weightsPerVertex > 0) ? (uint32_t)weightsPerVertex : 4;
+    }
+
+    // Zero the per-vertex weight slots so SetShapeVertWeights can fill them.
+    nif->ClearShapeVertWeights(shape->name.get());
+    return 1;
+}
+
+// Set the bind (skin-to-bone) transform for one bone on a skinned BSGeometry. The translation
+// is divided by havokScale on write (inverse of the read path's multiply), so callers pass the
+// bind in game units like the vertices. Rotation/scale are unit-invariant. Returns 1 on success.
+NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex,
+                                    const MatTransform& xf) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) return 0;
+    NiHeader& hdr = nif->GetHeader();
+
+    auto skinInst = hdr.GetBlock<BSSkinInstance>(shape->SkinInstanceRef());
+    if (!skinInst) return 0;
+    auto boneData = hdr.GetBlock<BSSkinBoneData>(skinInst->dataRef);
+    if (!boneData || boneIndex < 0 || boneIndex >= (int)boneData->boneXforms.size()) return 0;
+
+    const float havokScale = 69.969f;
+    MatTransform t = xf;
+    t.translation.x /= havokScale;
+    t.translation.y /= havokScale;
+    t.translation.z /= havokScale;
+    boneData->boneXforms[boneIndex].boneTransform = t;
+    return 1;
+}
+
+// Set the per-vertex bone weights for one vertex of a skinned BSGeometry. boneIndices index
+// the shape's bone list (SkinAttach order); weights are floats (normalized + quantized to the
+// .mesh's uint16 by nifly). Routes through nifly's BSGeometry-aware SetShapeVertWeights.
+// Returns 1 on success.
+NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertIndex,
+                                       uint8_t* boneIndices, float* weights, int count) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    if (!asBSGeometry(theShape)) return 0;
+
+    std::vector<uint8_t> ids(boneIndices, boneIndices + count);
+    std::vector<float> ws(weights, weights + count);
+    nif->SetShapeVertWeights(shape->name.get(), (uint16_t)vertIndex, ids, ws);
+    return 1;
+}
+
+// Recompute the per-bone bounding spheres in BSSkin::BoneData for a skinned BSGeometry. Each
+// bone's sphere bounds the vertices weighted to it, expressed in that bone's local space
+// (skin-to-bone bind applied). These are culling data the game -- and, more strictly, the
+// Creation Kit -- reads on load; leaving them at the default zero radius crashes the CK when it
+// opens an actor using the mesh. Call AFTER binds (setBSGeometryBoneBind) and weights
+// (setBSGeometryVertWeights) are set. Verts are game units in md, binds are stored metric
+// (translation /havokScale), so verts are divided by havokScale to match. Returns 1 on success.
+NIFLY_API int updateBSGeometrySkinBounds(void* theNif, void* theShape) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom) return 0;
+    NiHeader& hdr = nif->GetHeader();
+
+    auto skinInst = hdr.GetBlock<BSSkinInstance>(shape->SkinInstanceRef());
+    if (!skinInst) return 0;
+    auto boneData = hdr.GetBlock<BSSkinBoneData>(skinInst->dataRef);
+    if (!boneData) return 0;
+    auto md = dynamic_cast<BSGeometryMeshData*>(geom->GetGeomData());
+    if (!md) return 0;
+
+    const float havokScale = 69.969f;
+    size_t nb = boneData->boneXforms.size();
+    std::vector<std::vector<Vector3>> pts(nb);
+    size_t nv = std::min(md->skinWeights.size(), md->vertices.size());
+    for (size_t vi = 0; vi < nv; vi++) {
+        Vector3 vm = md->vertices[vi] / havokScale;   // game units -> metric (bind space)
+        for (const auto& bw : md->skinWeights[vi]) {
+            if (bw.weight == 0 || bw.boneIndex >= nb) continue;
+            pts[bw.boneIndex].push_back(
+                boneData->boneXforms[bw.boneIndex].boneTransform.ApplyTransform(vm));
+        }
+    }
+    for (size_t b = 0; b < nb; b++) {
+        if (!pts[b].empty())
+            boneData->boneXforms[b].bounds = BoundingSphere(pts[b]);
+    }
+    return 1;
 }
 

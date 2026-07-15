@@ -1961,10 +1961,177 @@ class FO4FacebonesDict(FO4BoneDict):
 fo4Dict = FO4BoneDict(fo4Bones, fo4Expressions, fo4Parts, fo4BoneIDs)
 fo4FaceDict = FO4FacebonesDict(fo4FaceBones, fo4Expressions, fo4Parts, fo4BoneIDs)
 
+# ----------------------- Starfield skeleton -----------------------
+# Starfield bone names carry an L_/R_/C_ prefix for the left/right/centre side of a
+# symmetric skeleton (L_Thigh, R_Calf, C_Spine) plus unprefixed utility bones
+# (COM, Root, WEAPON...). We convert the side PREFIX to a Blender-friendly .L/.R/.C
+# SUFFIX so Blender's mirror/symmetry tools work and the names read naturally. The
+# conversion is a pure rule, so it also covers modder-added bones (L_Tail_01 ->
+# Tail_01.L) and round-trips exactly. Unprefixed bones pass through unchanged.
+_SF_SIDE_PREFIX = (('L_', '.L'), ('R_', '.R'), ('C_', '.C'))
+
+def sf_blender_bone_name(nif_name):
+    """Starfield nif bone name -> Blender bone name (side prefix -> .L/.R/.C suffix)."""
+    for pre, suf in _SF_SIDE_PREFIX:
+        if nif_name.startswith(pre):
+            return nif_name[len(pre):] + suf
+    return nif_name
+
+def sf_nif_bone_name(blender_name):
+    """Blender bone name -> Starfield nif bone name (reverse of sf_blender_bone_name).
+    Strips Blender's '.001' duplicate suffix first."""
+    base = blender_basename(blender_name)
+    for pre, suf in _SF_SIDE_PREFIX:
+        if base.endswith(suf):
+            return pre + base[:-len(suf)]
+    return base
+
+class SFBoneDict(BoneDict):
+    """Starfield bone dictionary. Name conversion is rule-based (L_/R_/C_ <-> .L/.R/.C)
+    so it covers vanilla and modder-added bones alike; the dict is also seeded with the
+    full vanilla skeleton (below) for hierarchy / introspection."""
+    def blender_name(self, nif_name):
+        if self.use_niftools and nif_name in self.byNif:
+            return self.byNif[nif_name].niftools
+        return sf_blender_bone_name(nif_name)
+
+    def nif_name(self, blender_name):
+        return sf_nif_bone_name(blender_name)
+
+# (nif_name, parent_nif_name) for the vanilla Starfield human skeleton, root first,
+# parents before children. Extracted from skeleton.nif. Blender names + parent links
+# are derived from the side-prefix rule at build time.
+sfSkeletonHierarchy = [
+    ('HumanExportRoot', None),
+    ('Root', 'HumanExportRoot'),
+    ('CharacterBumper', 'HumanExportRoot'),
+    ('CharacterController', 'HumanExportRoot'),
+    ('AnimObjectA', 'Root'),
+    ('AnimObjectB', 'Root'),
+    ('AnimObjectC', 'Root'),
+    ('AnimObjectD', 'Root'),
+    ('Camera Control', 'Root'),
+    ('CamTargetParent', 'Root'),
+    ('COM', 'Root'),
+    ('Camera Control FP', 'Root'),
+    ('Camera', 'Root'),
+    ('CameraTarget', 'CamTargetParent'),
+    ('C_Hips', 'COM'),
+    ('C_Spine', 'COM'),
+    ('R_Thigh', 'C_Hips'),
+    ('L_Thigh', 'C_Hips'),
+    ('L_Butt', 'C_Hips'),
+    ('R_Butt', 'C_Hips'),
+    ('C_Spine1', 'C_Spine'),
+    ('R_Calf', 'R_Thigh'),
+    ('R_Knee', 'R_Thigh'),
+    ('R_Thigh_Twist', 'R_Thigh'),
+    ('R_Thigh_Twist1', 'R_Thigh'),
+    ('L_Calf', 'L_Thigh'),
+    ('L_Knee', 'L_Thigh'),
+    ('L_Thigh_Twist', 'L_Thigh'),
+    ('L_Thigh_Twist1', 'L_Thigh'),
+    ('C_Spine2', 'C_Spine1'),
+    ('R_Foot', 'R_Calf'),
+    ('R_CalfMass', 'R_Calf'),
+    ('L_Foot', 'L_Calf'),
+    ('L_CalfMass', 'L_Calf'),
+    ('C_Chest', 'C_Spine2'),
+    ('R_Toe', 'R_Foot'),
+    ('L_Toe', 'L_Foot'),
+    ('C_Neck', 'C_Chest'),
+    ('L_Clavicle', 'C_Chest'),
+    ('C_BackPack', 'C_Chest'),
+    ('R_Clavicle', 'C_Chest'),
+    ('WEAPON', 'C_Chest'),
+    ('WeaponLeft', 'C_Chest'),
+    ('DirectAt', 'C_Chest'),
+    ('C_Neck1', 'C_Neck'),
+    ('C_Neck_Twist', 'C_Neck'),
+    ('L_Biceps', 'L_Clavicle'),
+    ('C_BackPackHose', 'C_BackPack'),
+    ('R_Biceps', 'R_Clavicle'),
+    ('R_HandIk', 'WEAPON'),
+    ('L_HandIk', 'WEAPON'),
+    ('C_Head', 'C_Neck1'),
+    ('L_Forearm', 'L_Biceps'),
+    ('L_Elbow', 'L_Biceps'),
+    ('L_Biceps_Twist', 'L_Biceps'),
+    ('L_Biceps_Twist1', 'L_Biceps'),
+    ('R_Forearm', 'R_Biceps'),
+    ('R_Elbow', 'R_Biceps'),
+    ('R_Biceps_Twist', 'R_Biceps'),
+    ('R_Biceps_Twist1', 'R_Biceps'),
+    ('L_Eye', 'C_Head'),
+    ('R_Eye', 'C_Head'),
+    ('Eye_Target', 'C_Head'),
+    ('L_Wrist', 'L_Forearm'),
+    ('L_Arm', 'L_Forearm'),
+    ('L_Wrist_Twist', 'L_Forearm'),
+    ('L_Wrist_Twist1', 'L_Forearm'),
+    ('L_Wrist_Twist2', 'L_Forearm'),
+    ('L_ArmMass', 'L_Biceps_Twist'),
+    ('L_Deltoid', 'L_Biceps_Twist'),
+    ('R_Wrist', 'R_Forearm'),
+    ('R_Arm', 'R_Forearm'),
+    ('R_Wrist_Twist', 'R_Forearm'),
+    ('R_Wrist_Twist1', 'R_Forearm'),
+    ('R_Wrist_Twist2', 'R_Forearm'),
+    ('R_ArmMass', 'R_Biceps_Twist'),
+    ('R_Deltoid', 'R_Biceps_Twist'),
+    ('L_Thumb', 'L_Wrist'),
+    ('L_Cup', 'L_Wrist'),
+    ('L_Ring', 'L_Wrist'),
+    ('L_Middle', 'L_Wrist'),
+    ('L_Index', 'L_Wrist'),
+    ('L_AnimObject1', 'L_Wrist'),
+    ('L_AnimObject2', 'L_Wrist'),
+    ('L_AnimObject3', 'L_Wrist'),
+    ('R_Thumb', 'R_Wrist'),
+    ('R_Cup', 'R_Wrist'),
+    ('R_Ring', 'R_Wrist'),
+    ('R_Middle', 'R_Wrist'),
+    ('R_Index', 'R_Wrist'),
+    ('R_AnimObject1', 'R_Wrist'),
+    ('R_AnimObject2', 'R_Wrist'),
+    ('R_AnimObject3', 'R_Wrist'),
+    ('L_Thumb1', 'L_Thumb'),
+    ('L_Pinky', 'L_Cup'),
+    ('L_Ring1', 'L_Ring'),
+    ('L_Middle1', 'L_Middle'),
+    ('L_Index1', 'L_Index'),
+    ('R_Thumb1', 'R_Thumb'),
+    ('R_Pinky', 'R_Cup'),
+    ('R_Ring1', 'R_Ring'),
+    ('R_Middle1', 'R_Middle'),
+    ('R_Index1', 'R_Index'),
+    ('L_Thumb2', 'L_Thumb1'),
+    ('L_Pinky1', 'L_Pinky'),
+    ('L_Ring2', 'L_Ring1'),
+    ('L_Middle2', 'L_Middle1'),
+    ('L_Index2', 'L_Index1'),
+    ('R_Thumb2', 'R_Thumb1'),
+    ('R_Pinky1', 'R_Pinky'),
+    ('R_Ring2', 'R_Ring1'),
+    ('R_Middle2', 'R_Middle1'),
+    ('R_Index2', 'R_Index1'),
+    ('L_Pinky2', 'L_Pinky1'),
+    ('R_Pinky2', 'R_Pinky1'),
+    ]
+
+def _build_sf_bones(hierarchy):
+    return [SkeletonBone(sf_blender_bone_name(n),
+                         n,
+                         (sf_blender_bone_name(p) if p else None))
+            for n, p in hierarchy]
+
+sfDict = SFBoneDict(_build_sf_bones(sfSkeletonHierarchy), [], [])
+
 gameSkeletons = {
     'SKYRIM': skyrimDict,
     'SKYRIMSE': skyrimDict,
     'FO4': fo4Dict,
     'FO76': fo4Dict,
     'FO3': fnvDict,
-    'FONV': fnvDict}
+    'FONV': fnvDict,
+    'SF': sfDict}

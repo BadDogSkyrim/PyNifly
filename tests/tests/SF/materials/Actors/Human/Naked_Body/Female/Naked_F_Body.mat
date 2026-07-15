@@ -1,0 +1,92 @@
+{
+  "Filename": "MATERIALS\\Actors\\Human\\Naked_Body\\Female\\Naked_F_Body.mat",
+  "Objects": [
+    {
+      "Components": [
+        {
+          "Data": {
+            "Name": "Naked_F_TextureSet"
+          },
+          "Index": 0,
+          "Type": "BSComponentDB::CTName"
+        },
+        {
+          "Data": {
+            "FileName": "Data\\Textures\\SF\\test\\body_color.dds"
+          },
+          "Index": 0,
+          "Type": "BSMaterial::MRTextureFile"
+        },
+        {
+          "Data": {
+            "FileName": "Data\\Textures\\SF\\test\\body_normal.dds"
+          },
+          "Index": 1,
+          "Type": "BSMaterial::MRTextureFile"
+        },
+        {
+          "Data": {
+            "FileName": "Data\\Textures\\SF\\test\\body_rough.dds"
+          },
+          "Index": 3,
+          "Type": "BSMaterial::MRTextureFile"
+        },
+        {
+          "Data": {
+            "FileName": "Data\\Textures\\SF\\test\\body_metal.dds"
+          },
+          "Index": 4,
+          "Type": "BSMaterial::MRTextureFile"
+        },
+        {
+          "Data": {
+            "FileName": "Data\\Textures\\SF\\test\\body_ao.dds"
+          },
+          "Index": 5,
+          "Type": "BSMaterial::MRTextureFile"
+        },
+        {
+          "Data": {
+            "FileName": "BodySkin2Layer"
+          },
+          "Index": 0,
+          "Type": "BSMaterial::ShaderModelComponent"
+        },
+        {
+          "Data": {
+            "Enabled": "true",
+            "Settings": {
+              "Type": "BSMaterial::TranslucencySettings",
+              "Data": {
+                "UseSSS": "true",
+                "SpecLobe0RoughnessScale": "0.9300000071525574",
+                "SpecLobe1RoughnessScale": "1.149999976158142"
+              }
+            }
+          },
+          "Index": 0,
+          "Type": "BSMaterial::TranslucencySettingsComponent"
+        },
+        {
+          "Data": {
+            "Enabled": "false",
+            "FirstLayerIndex": "MATERIAL_LAYER_0",
+            "FirstLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": { "x": "0.9", "y": "0.1", "z": "0.1", "w": "1.0" }
+                }
+              }
+            },
+            "FirstBlenderMode": "Lerp"
+          },
+          "Index": 0,
+          "Type": "BSMaterial::LayeredEmissivityComponent"
+        }
+      ],
+      "ID": "res:00000001:00000002:00000003"
+    }
+  ]
+}

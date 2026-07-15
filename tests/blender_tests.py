@@ -1301,7 +1301,7 @@ def TEST_BRIARHEART_ROOT_EXPORT():
     # BriarheartFlesh has weights on Clavicle.L, UpperArm.L, UpperarmTwist1.L,
     # Spine1, Spine2. UpperArm.L and UpperarmTwist1.L are NOT in the 13-bone stub
     # — only present in the full 56-bone armature reached via the mesh's modifier.
-    # If the stub wins, those two bones get filtered out by trim_to_four.
+    # If the stub wins, those two bones get filtered out by trim_weights.
     used = set(flesh.get_used_bones())
     required = {"NPC L UpperArm [LUar]", "NPC L UpperarmTwist1 [LUt1]"}
     missing = required - used
@@ -1597,11 +1597,11 @@ def TEST_DEER_SKEL():
     assert TT.is_contains("BSBoneLOD:BSBoneLOD", [obj.name for obj in root.children], "Have Bone LOD object")
     
     # Check for SkeletonID 
-    skel_id_obj = next((obj for obj in root.children if "NiIntegerExtraData_Name" in obj), None)
+    skel_id_obj = next((obj for obj in root.children if obj.name.startswith("NiIntegerExtraData")), None)
     assert skel_id_obj, "Have SkeletonID object"
-    assert TT.is_eq(skel_id_obj['NiIntegerExtraData_Name'], "SkeletonID", "SkeletonID name value")
-    assert TT.is_contains('NiIntegerExtraData_Value', skel_id_obj, "SkeletonID has Data property")
-    assert TT.is_eq(skel_id_obj['NiIntegerExtraData_Value'], 178509022, "SkeletonID Data value")
+    assert TT.is_eq(skel_id_obj.pyn_niintdata.name, "SkeletonID", "SkeletonID name value")
+    assert skel_id_obj.pyn_niintdata.is_property_set('value'), "SkeletonID has Data property"
+    assert TT.is_eq(skel_id_obj.pyn_niintdata.value, 178509022, "SkeletonID Data value")
 
     ### EXPORT ###
 
@@ -2633,7 +2633,7 @@ def TEST_BP_SEGMENTS():
 
     assert visor.name == "glass:0", "Read the visor object"
     assert "FO4 Seg 001 | Hair Top" in visor.vertex_groups, "FO4 body segments read in as vertex groups with sensible names"
-    TT.assert_eq(visor.active_material['envMapTexture'], "shared/cubemaps/shinyglass_e.dds", 
+    TT.assert_eq(visor.active_material.pyn_shader.envMapTexture, "shared/cubemaps/shinyglass_e.dds",
                  "Environment map texture")
 
     print("### Can write FO4 segments")
@@ -2759,6 +2759,615 @@ def TEST_PARTITIONS_EMPTY():
     assert set([p.id for p in head.partitions]) == set([130, 230]), "Have all head parts"
 
 
+@TT.category('STARFIELD')
+def TEST_SF_IMPORT():
+    """Starfield: import a BSGeometry body, resolving + reading its external .mesh."""
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    body = TTB.find_shape("Naked_F:0")
+    assert body is not None, "Imported the body mesh"
+
+    # Starfield representation: a BSGeometry Empty (block container) parents one mesh child
+    # per LOD. Single-LOD here, so one child named "<shape>:LOD0" under the container Empty,
+    # which is flagged with the block-type naming convention "BSGeometry:<shape>".
+    empty = bpy.data.objects.get("BSGeometry:Naked_F:0")
+    assert empty is not None and empty.type == 'EMPTY', "BSGeometry container is an Empty"
+    assert empty['pynBlockName'] == 'BSGeometry', "Empty carries the BSGeometry block name"
+    assert body.name == "Naked_F:0:LOD0", f"Mesh child is the LOD0 child, got {body.name}"
+    assert body.parent is empty, "Mesh child is parented to the BSGeometry Empty"
+    # The Empty is identity relative to its parent -> the child's world transform is
+    # unchanged by the wrap (verified by the upright/at-origin checks further down).
+    assert empty.parent is not None and 'pynRoot' in empty.parent, \
+        "BSGeometry Empty hangs off the NIF root"
+
+    assert len(body.data.vertices) == 6616, f"Vertex count: {len(body.data.vertices)}"
+    assert len(body.data.polygons) == 12132, f"Polygon count: {len(body.data.polygons)}"
+    assert body.data.uv_layers, "Has a UV layer"
+    # Per-vertex skin weights import as vertex groups (one per SkinAttach bone).
+    assert len(body.vertex_groups) == 38, f"Bone vertex groups: {len(body.vertex_groups)}"
+    assert body.active_material, "Has a material"
+
+    # Bone names convert to Blender-friendly form via the SF dictionary: the L_/R_/C_
+    # side prefix becomes a .L/.R/.C suffix (so Blender mirror/symmetry works).
+    assert 'Thigh.L' in body.vertex_groups and 'L_Thigh' not in body.vertex_groups, \
+        "Vertex groups use Blender .L naming"
+    assert 'Chest.C' in body.vertex_groups, "Centre bones use .C naming"
+
+    # The shape binds to a real armature, built from the BSSkinBoneData bind transforms
+    # (read by index, since SF carries no NiNode boneRefs).
+    arma_mod = next((m for m in body.modifiers if m.type == 'ARMATURE'), None)
+    assert arma_mod and arma_mod.object, "Body is bound to an armature"
+    arma = arma_mod.object
+    assert 'Thigh.L' in arma.data.bones and 'Hips.C' in arma.data.bones, "Bones renamed"
+
+    # Connected skeleton: the SF reference skeleton supplies the hierarchy (and the
+    # connecting bones above the weighted set), so there is a single root and every
+    # other bone is parented — not a flat pile of unconnected weighted bones.
+    roots = [b for b in arma.data.bones if b.parent is None]
+    assert len(roots) == 1, f"Single root bone, got {[b.name for b in roots]}"
+    assert len(arma.data.bones) >= 38, f"At least the weighted bones: {len(arma.data.bones)}"
+
+    # Bones must land in game-unit space (not 1/70th metric): the DLL scales the raw
+    # (metric) bind translation by havokScale, and the bundled SF reference skeleton is
+    # pre-scaled to match. A body-sized armature spans ~100 units, far above metric scale.
+    heads = [arma.matrix_world @ b.head_local for b in arma.data.bones]
+    extent = max(max(h[i] for h in heads) - min(h[i] for h in heads) for i in range(3))
+    assert extent > 30, f"Bones span game-unit distances (extent {extent:.1f}), not metric/collapsed"
+
+    # The skin->world transform (recovered from the reference skeleton, since SF has no
+    # bone NiNodes) puts the mesh + its weighted bones into skeleton space: the body
+    # stands upright (Z is the tall axis) and NO bone sits below the origin -- the
+    # weighted bones land at the same skeleton positions as the connecting bones, not in
+    # the raw, head-at-origin skin space.
+    assert min(h.z for h in heads) > -5, \
+        f"No bones below the origin (min Z {min(h.z for h in heads):.1f})"
+    wv = [body.matrix_world @ v.co for v in body.data.vertices]
+    span = [max(v[i] for v in wv) - min(v[i] for v in wv) for i in range(3)]
+    assert span[2] > span[0] and span[2] > span[1], \
+        f"Body stands upright (Z is the tall axis): spans {[round(s) for s in span]}"
+    assert min(v.z for v in wv) > -5, \
+        f"Body sits at/above the origin (min Z {min(v.z for v in wv):.1f})"
+
+    # The external .mesh path / LOD slot / internal flag are recorded on the object for
+    # round-trip (they can't be recovered from the Blender mesh). Stored verbatim (the raw
+    # meshName: no 'geometries\' root, no '.mesh' extension) for byte-exact write-back.
+    sfg = body.pyn_sf_geometry
+    assert sfg.mesh_path and 'geometries' not in sfg.mesh_path.lower() \
+        and not sfg.mesh_path.lower().endswith('.mesh'), \
+        f"Verbatim external .mesh path recorded: {sfg.mesh_path!r}"
+    assert sfg.mesh_path == body.pyn_sf_geometry.mesh_path  # sanity: same group
+    assert sfg.lod_slot == 0, f"LOD slot 0 recorded, got {sfg.lod_slot}"
+    assert sfg.is_internal is False, "External geometry (not internal 0x200) recorded"
+    # Source per-vertex influence count recorded (this body uses 6, > the Skyrim/FO4 cap of 4).
+    assert sfg.weights_per_vertex == 6, \
+        f"Source weightsPerVertex recorded: {sfg.weights_per_vertex}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MATERIAL():
+    """Starfield: import the layered .mat as a native Principled-BSDF PBR material.
+
+    SF carries no NIF texture set -- the shader Name points at a loose .mat listing one
+    texture per PBR property. We resolve + parse it, wire each map to the matching Principled
+    input (normal Z reconstructed from BC5 XY), and stash the raw slot paths for round-trip.
+    """
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    body = TTB.find_shape("Naked_F:0")  # the LOD0 mesh child
+    mat = body.active_material
+    assert mat, "Body has a material"
+
+    # Raw .mat slot paths are stashed for round-trip + the panel (Data\ prefix stripped).
+    assert mat['BSShaderTextureSet_Albedo'] == r"Textures\SF\test\body_color.dds", \
+        f"Albedo path stashed: {mat.get('BSShaderTextureSet_Albedo')}"
+    assert mat['BSShaderTextureSet_Normal'] == r"Textures\SF\test\body_normal.dds", \
+        f"Normal path stashed: {mat.get('BSShaderTextureSet_Normal')}"
+    # The material's own .mat path is kept for export round-trip.
+    assert mat['BSLSP_Shader_Name'].lower().endswith('naked_f_body.mat'), \
+        f"Material .mat path kept: {mat.get('BSLSP_Shader_Name')}"
+
+    # A native Principled BSDF wired from the PBR maps.
+    nt = mat.node_tree
+    bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    assert bsdf, "Has a Principled BSDF"
+    assert bsdf.inputs['Base Color'].is_linked, "Base Color wired (albedo x AO)"
+    assert bsdf.inputs['Roughness'].is_linked, "Roughness wired"
+    assert bsdf.inputs['Metallic'].is_linked, "Metallic wired"
+    assert bsdf.inputs['Normal'].is_linked, "Normal wired"
+
+    # One image node per resolved map (albedo/normal/rough/metal/ao).
+    teximgs = [n for n in nt.nodes if n.type == 'TEX_IMAGE']
+    assert len(teximgs) == 5, f"One image node per PBR map: {len(teximgs)}"
+    # Normal Z is reconstructed (BC5 XY) -> a Normal Map node fed by combine/math nodes.
+    assert any(n.type == 'NORMAL_MAP' for n in nt.nodes), "Normal reconstructed via Normal Map"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_PARAMS():
+    """Starfield: the .mat's non-texture settings land on PER-COMPONENT value-holder group nodes
+    (SF TranslucencySettings, SF LayeredEmissivityComponent, ...), one per .mat settings component,
+    each recoverable by socket name and driving the Principled. The skin fixture has translucency +
+    emissive but no AlphaSettings (opaque). SSS Weight = AND(Translucency Enable, Use SSS) drives
+    Subsurface Weight.
+    """
+    from io_scene_nifly.nif.shader_io import (sf_component_node_of, SF_SHADER_MODEL_PROP,
+                                              SF_SUBSURFACE_SCALE)
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    body = TTB.find_shape("Naked_F:0")
+    mat = body.active_material
+    nt = mat.node_tree
+
+    # Translucency component node, recovered by socket name.
+    tr = sf_component_node_of(mat, 'translucency')
+    assert tr is not None, "SF TranslucencySettings node present"
+    tin = tr.inputs
+    assert tin["Translucency Enable"].default_value is True, "Translucency enabled"
+    assert tin["Use SSS"].default_value is True, "Use SSS enabled"
+    assert abs(tin["Spec Lobe 0 Roughness"].default_value - 0.93) < 1e-4, \
+        f"spec lobe 0: {tin['Spec Lobe 0 Roughness'].default_value}"
+    assert abs(tin["Spec Lobe 1 Roughness"].default_value - 1.15) < 1e-4, \
+        f"spec lobe 1: {tin['Spec Lobe 1 Roughness'].default_value}"
+
+    # Emissive component node.
+    em = sf_component_node_of(mat, 'emissive')
+    assert em is not None, "SF LayeredEmissivityComponent node present"
+    assert em.inputs["Emissive Enable"].default_value is False, "Emissive disabled (skin)"
+    tint = tuple(em.inputs["Emissive Tint"].default_value)
+    assert abs(tint[0] - 0.9) < 1e-4 and abs(tint[1] - 0.1) < 1e-4 and abs(tint[2] - 0.1) < 1e-4, \
+        f"Emissive tint recovered: {tint}"
+
+    # Shader-model identity is a string -> a material custom property.
+    assert mat[SF_SHADER_MODEL_PROP] == "BodySkin2Layer", \
+        f"Shader-model identity kept: {mat.get(SF_SHADER_MODEL_PROP)!r}"
+    # Opaque skin -> no AlphaSettings component -> no such node.
+    assert sf_component_node_of(mat, 'alpha') is None, "no AlphaSettings node for opaque skin"
+
+    # SSS drives the Principled Subsurface Weight from the translucency component's output.
+    bsdf = next((n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    ssw = bsdf.inputs.get('Subsurface Weight')
+    assert ssw is not None and ssw.is_linked, "Subsurface Weight is driven"
+    assert ssw.links[0].from_node == tr, "Subsurface Weight fed by the translucency component"
+    # Scatter Scale is baked to game-unit scale (Blender's default is microscopic on a ~70x mesh).
+    assert abs(bsdf.inputs['Subsurface Scale'].default_value - SF_SUBSURFACE_SCALE) < 1e-4, \
+        f"Subsurface Scale baked to game units: {bsdf.inputs['Subsurface Scale'].default_value}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_ALPHA():
+    """Starfield P0: an AlphaSettingsComponent (HasOpacity + AlphaTestThreshold) drives cutout
+    alpha -- the opacity map (slot 2) wires into Principled Alpha, the threshold sets the
+    material clip, and both values are held on the SF Parameters node for round-trip.
+
+    Driven directly through _build_sf_nodes with a synthetic settings/resolved pair (the real
+    hair material lives in the cdb) so the test needs no game assets.
+    """
+    from io_scene_nifly.nif.shader_io import ShaderImporter, sf_component_node_of
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")  # content irrelevant; test wiring
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Alpha_Test")
+    mat.use_nodes = True
+    si.material = mat
+    settings = {'shader_model': 'Hair1Layer',
+                'alpha': {'has_opacity': True, 'threshold': 0.3333}}
+    si._build_sf_nodes({'Albedo': tex, 'Opacity': tex}, settings)
+
+    # Alpha values held on the SF AlphaSettingsComponent node (the export source).
+    p = sf_component_node_of(mat, 'alpha')
+    assert p is not None, "SF AlphaSettingsComponent node present"
+    assert p.inputs["Has Opacity"].default_value is True, "Has Opacity stored"
+    assert abs(p.inputs["Alpha Test Threshold"].default_value - 0.3333) < 1e-4, \
+        f"Alpha test threshold stored: {p.inputs['Alpha Test Threshold'].default_value}"
+
+    # Alpha is a real test: opacity > threshold -> Alpha, via a GREATER_THAN node whose threshold
+    # input is driven by the alpha component (single editable source), not baked into the node.
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+    assert bsdf.inputs['Alpha'].is_linked, "Alpha is driven"
+    clip = bsdf.inputs['Alpha'].links[0].from_node
+    assert clip.type == 'MATH' and clip.operation == 'GREATER_THAN', \
+        f"Alpha fed by a GREATER_THAN alpha-test node, got {clip.type}/{getattr(clip,'operation',None)}"
+    assert clip.inputs[0].is_linked, "Opacity map feeds the alpha test"
+    thr_src = clip.inputs[1].links[0].from_node if clip.inputs[1].is_linked else None
+    assert thr_src == p, "Threshold driven by the SF AlphaSettingsComponent node (single source)"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_HAIR():
+    """Starfield P4: HairSettings lands on its own SF HairSettingsComponent node (per-component
+    settings groups), holds the ~11 hair params for round-trip, and drives Principled Sheen
+    (Backscatter -> Sheen Weight, Roughness -> Sheen Roughness). Transmission scales are held only.
+    """
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, sf_component_node_of,
+                                              recover_sf_material)
+    from pyn.sf_materials import write_mat, parse_mat
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Hair_Test")
+    mat.use_nodes = True
+    si.material = mat
+    mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Hair.mat'
+    hair = {'enabled': True, 'is_spiky': False, 'roughness': 0.25, 'spec_scale': 0.0,
+            'backscatter_strength': 0.4, 'backscatter_wrap': 0.1, 'spec_transmission': 0.675,
+            'direct_transmission': 0.2375, 'diffuse_transmission': 0.7, 'max_depth_offset': 0.01,
+            'dither_scale': 1.0}
+    si._build_sf_nodes({'Albedo': tex}, {'shader_model': 'Hair1Layer', 'hair': hair})
+
+    # Its own component node, holding the hair params (including the held-only transmission scales).
+    h = sf_component_node_of(mat, 'hair')
+    assert h is not None, "SF HairSettingsComponent node present"
+    assert h.inputs["Hair Enable"].default_value is True, "hair enabled"
+    assert abs(h.inputs["Roughness"].default_value - 0.25) < 1e-4, "roughness held"
+    assert abs(h.inputs["Diffuse Transmission"].default_value - 0.7) < 1e-4, "transmission held"
+
+    # Drives Principled Sheen from the hair node.
+    bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+    if 'Sheen Weight' in bsdf.inputs:
+        assert bsdf.inputs['Sheen Weight'].is_linked, "Sheen Weight driven"
+        assert bsdf.inputs['Sheen Weight'].links[0].from_node == h, "Sheen from the hair component"
+
+    # Round-trips out of the graph.
+    data = recover_sf_material(mat)
+    back = parse_mat(write_mat(data))
+    assert back['settings']['hair'] == data['settings']['hair'], \
+        f"hair round-trips: {back['settings'].get('hair')}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_LAYERED():
+    """Starfield P3: a two-layer material is built as SF Layer groups chained through an SF Blend
+    group carrying the PBR bundle; the Skin blend RNM-composites the detail normal over the base
+    (RNM now lives *inside* the SF Blend Skin group), tiled by the detail layer's UV scale.
+
+    Driven through _build_sf_nodes directly with a synthetic 2-layer/1-blender graph (test PNGs,
+    no game assets).
+    """
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, SF_LAYER_GROUP, SF_BLEND_GROUP,
+                                              SF_NORMAL_BLEND_GROUP)
+
+    alb = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
+    nrm = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
+    mask = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Layered_Test")
+    mat.use_nodes = True
+    si.material = mat
+    resolved = {'Albedo': alb, 'Normal': nrm}
+    layers_resolved = [
+        {'textures': {'Albedo': alb, 'Normal': nrm}, 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+        {'textures': {'Normal': nrm}, 'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)},
+    ]
+    blenders_resolved = [{'mode': 'Skin', 'mask': mask}]
+    si._build_sf_nodes(resolved, {}, layers_resolved, blenders_resolved)
+    nt = mat.node_tree
+
+    def groups(prefix):
+        return [n for n in nt.nodes if n.type == 'GROUP' and n.node_tree
+                and n.node_tree.name.startswith(prefix)]
+
+    # Two SF Layer groups (one per layer) each carrying the bundle.
+    assert len(groups(SF_LAYER_GROUP)) == 2, f"two SF Layer groups: {len(groups(SF_LAYER_GROUP))}"
+
+    # One SF Blend group, fed both layers' bundles + the mask.
+    blends = groups(SF_BLEND_GROUP)
+    assert len(blends) == 1, f"one SF Blend group: {len(blends)}"
+    blend = blends[0]
+    assert blend.inputs['A Normal'].is_linked and blend.inputs['B Normal'].is_linked, \
+        "both layer bundles wired into the blend"
+    assert blend.inputs['Mask'].is_linked, "blend mask wired"
+    # The RNM math lives inside the SF Blend Skin group now.
+    assert any(inner.type == 'GROUP' and inner.node_tree
+               and inner.node_tree.name.startswith(SF_NORMAL_BLEND_GROUP)
+               for inner in blend.node_tree.nodes), "SF Blend Skin uses the RNM group internally"
+
+    # Detail layer's 50x tiling comes through a Mapping node.
+    assert any(n.type == 'MAPPING' for n in nt.nodes), "detail UV tiling via a Mapping node"
+
+    # Principled Normal is fed from the bundle (through a Normal Map node).
+    bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    assert bsdf.inputs['Normal'].is_linked, "Principled Normal wired"
+    assert bsdf.inputs['Normal'].links[0].from_node.type == 'NORMAL_MAP', \
+        "Normal fed via a Normal Map node"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_ROUNDTRIP():
+    """Starfield P2: recover a material's graph back to a .mat and round-trip it.
+
+    Build a 2-layer material (with .mat-stamped image nodes + SF Layer/Blend markers + the SF
+    Parameters node), recover_sf_material() walks it back to a normalised dict, write_mat() emits a
+    loose .mat, and parse_mat() reads it -- reproducing the layers/blenders/settings. Proves the
+    graph is the recoverable source of truth (the 'build for export' payoff)."""
+    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from pyn.sf_materials import write_mat, parse_mat
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_RT_Test")
+    mat.use_nodes = True
+    si.material = mat
+    mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Body.mat'
+    settings = {'shader_model': 'BodySkin2Layer',
+                'translucency': {'enabled': True, 'use_sss': True,
+                                 'spec_lobe0_roughness': 0.93, 'spec_lobe1_roughness': 1.15},
+                'emissive': {'enabled': False, 'first_layer_index': 0, 'blender_mode': 'Lerp',
+                             'tint': (0.9, 0.1, 0.1, 1.0)},
+                'alpha': {'has_opacity': False, 'threshold': 0.5}}
+    # Resolved entries are (filepath, .mat-path) so image nodes get stamped for recovery.
+    A = (tex, r'Textures\Skin\color.dds'); N = (tex, r'Textures\Skin\normal.dds')
+    D = (tex, r'Textures\Skin\detail.dds'); M = (tex, r'Textures\Skin\mask.dds')
+    resolved = {'Albedo': A, 'Normal': N}
+    layers_resolved = [
+        {'textures': {'Albedo': A, 'Normal': N}, 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+        {'textures': {'Normal': D}, 'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)}]
+    blenders_resolved = [{'mode': 'Skin', 'mask': M}]
+    si._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved)
+
+    data = recover_sf_material(mat)
+    assert data is not None, "recovered a material dict from the graph"
+    # Structure recovered from markers + stamped images.
+    assert len(data['layers']) == 2, f"two layers recovered: {len(data['layers'])}"
+    assert data['layers'][0]['textures'].get('Albedo') == r'Textures\Skin\color.dds', \
+        f"base albedo path recovered: {data['layers'][0]['textures']}"
+    assert data['layers'][1]['textures'] == {'Normal': r'Textures\Skin\detail.dds'}, \
+        f"detail layer recovered: {data['layers'][1]['textures']}"
+    assert data['layers'][1]['uv_scale'] == (50.0, 50.0), \
+        f"detail tiling recovered: {data['layers'][1]['uv_scale']}"
+    assert data['blenders'] == [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds'}], \
+        f"blender recovered: {data['blenders']}"
+    assert data['settings']['shader_model'] == 'BodySkin2Layer', "shader model recovered"
+    assert data['settings']['translucency']['use_sss'] is True, "SSS recovered"
+    assert data['filename'] == r'MATERIALS\Test\Body.mat', "material path recovered"
+
+    # Full write -> parse round-trip of the recovered data.
+    back = parse_mat(write_mat(data))
+    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
+    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
+    assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(("Could not find material", "Could not find SF texture"))
+def TEST_SF_EXPORT():
+    """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),
+    re-import the result and confirm geometry, bones, and weights survive.
+
+    The re-import warns that the material is missing -- the exported nif's Out/ tree has no
+    materials/ sibling -- which is expected and whitelisted; the geometry/skin is the point.
+    """
+    import os
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_EXPORT\meshes\naked_f.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    assert body is not None, "Imported the LOD0 body mesh"
+    v_in = len(body.data.vertices)
+    p_in = len(body.data.polygons)
+    vg_in = len(body.vertex_groups)
+
+    # Export by selecting the WHOLE imported hierarchy (root Empty + BSGeometry container Empty +
+    # mesh + armature) -- the natural user action. The BSGeometry container Empty must NOT be
+    # emitted as a NiNode (it's represented by the shape block); routing it through export_node
+    # crashes on add_block(NiShape). Selecting only the leaf mesh dodged that path.
+    BD.ObjectSelect(list(bpy.context.scene.objects))
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", write_sf_materials=True)
+
+    # The external .mesh must have been written into a geometries/ tree beside meshes/.
+    import os
+    geodir = os.path.join(os.path.dirname(os.path.dirname(outfile)), "geometries")
+    meshes_written = []
+    for root, _dirs, files in os.walk(geodir):
+        meshes_written += [os.path.join(root, f) for f in files if f.endswith(".mesh")]
+    assert meshes_written, f"Wrote an external .mesh under {geodir}"
+
+    # Weights-per-vertex is not capped at 4: this vanilla body uses 6 influences/vertex, and the
+    # export must preserve that (Skyrim/FO4 trim to 4; Starfield allows more). Read it from the
+    # written .mesh header (version, index count+indices, scale, then weightsPerVertex).
+    import struct
+    md = open(meshes_written[0], 'rb').read()
+    o = 4
+    o += 4 + struct.unpack_from('<I', md, o)[0] * 2
+    o += 4
+    wpv = struct.unpack_from('<I', md, o)[0]
+    assert wpv > 4, f"weightsPerVertex preserved, not capped at 4: {wpv}"
+
+    # A loose .mat was recovered from the body's shader graph and written to the output tree
+    # (materials/ sibling of meshes/), and it re-parses.
+    from pyn.sf_materials import parse_mat
+    matdir = os.path.join(os.path.dirname(os.path.dirname(outfile)), "materials")
+    mats_written = []
+    for root, _d, files in os.walk(matdir):
+        mats_written += [os.path.join(root, f) for f in files if f.endswith(".mat")]
+    assert mats_written, f"Wrote a loose .mat under {matdir}"
+    with open(mats_written[0], encoding='utf-8') as f:
+        remat = parse_mat(f.read())
+    assert remat is not None and remat['layers'], "written .mat re-parses with a layer"
+
+    # Re-import the exported nif (resolves the .mesh from the geometries/ sibling). Deselect
+    # first so it imports as a fresh object, not a shape key on the active mesh.
+    BD.ObjectSelect([], active=None)
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+    # Two imports now exist; grab the most-recently-added matching body mesh.
+    bodies = [o for o in bpy.data.objects
+              if o.type == 'MESH' and o.name.startswith("Naked_F:0:LOD0")]
+    assert len(bodies) >= 2, f"Re-imported the body ({[b.name for b in bodies]})"
+    body2 = bodies[-1]
+
+    assert len(body2.data.vertices) == v_in, \
+        f"Vertex count round-trips: {len(body2.data.vertices)} vs {v_in}"
+    assert len(body2.data.polygons) == p_in, \
+        f"Polygon count round-trips: {len(body2.data.polygons)} vs {p_in}"
+    assert len(body2.vertex_groups) == vg_in, \
+        f"Bone vertex groups round-trip: {len(body2.vertex_groups)} vs {vg_in}"
+    assert 'Thigh.L' in body2.vertex_groups, "Bone naming survives (Thigh.L)"
+    arma_mod = next((m for m in body2.modifiers if m.type == 'ARMATURE'), None)
+    assert arma_mod and arma_mod.object, "Re-imported body is bound to an armature"
+
+
+@TT.category('STARFIELD')
+def TEST_SF_MORPH():
+    """Starfield round-trip: apply a vanilla morph.dat to an imported body as shape keys,
+    export it back, and confirm the deltas survive.
+
+    The vanilla chargen body morph.dat (Overweight/Thin/Strong) is authored against the same
+    6616-vertex body, in the same vertex order the importer preserves -- so applying it produces
+    correct shape keys and re-exporting reproduces the original per-vertex deltas (positions only).
+    """
+    import os
+    from pyn.sf_morph import MorphFile
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    morphfile = TTB.test_file(r"tests\SF\morphs\female_chargen_body_morph.dat")
+    outdat = TTB.test_file(r"tests\Out\TEST_SF_MORPH\body_morph.dat")
+    os.makedirs(os.path.dirname(outdat), exist_ok=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    assert body is not None, "Imported the LOD0 body mesh"
+    assert len(body.data.vertices) == 6616, f"Body vertex count: {len(body.data.vertices)}"
+
+    # Import the morph.dat as shape keys onto the active body.
+    BD.ObjectSelect([body])
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.import_scene.pyniflysfmorph(filepath=morphfile)
+
+    kb = body.data.shape_keys.key_blocks
+    assert "Basis" in kb, "Basis shape key created"
+    for name in ("Overweight", "Thin", "Strong"):
+        assert name in kb, f"Shape key {name!r} created"
+
+    # Overweight moves nearly the whole body; vtx0's delta matches the known vanilla value.
+    basis0 = kb["Basis"].data[0].co
+    ow0 = kb["Overweight"].data[0].co
+    d0 = (ow0[0] - basis0[0], ow0[1] - basis0[1], ow0[2] - basis0[2])
+    assert abs(d0[0] - 0.5039) < 0.02 and abs(d0[1] - 0.8242) < 0.02 and abs(d0[2] - 1.0377) < 0.02, \
+        f"Overweight vtx0 delta matches vanilla: {tuple(round(c, 3) for c in d0)}"
+
+    # Import recorded the source path on pyn_sf_morph.chargen_path (round-trip default); redirect
+    # to the Out dir so this test doesn't overwrite its own vanilla fixture. Body morphs are all
+    # chargen (no expression AUs), so they write to the chargen path.
+    body.pyn_sf_morph.chargen_path = outdat
+    body.pyn_sf_morph.performance_path = ""
+
+    # Export back to a morph.dat and re-read it; per-vertex deltas match the original vanilla file
+    # (same vertex indexing), confirming the full import->shape-key->export chain round-trips.
+    bpy.ops.export_scene.pyniflysfmorph(filepath=outdat)
+    assert os.path.exists(outdat), "Exported a morph.dat"
+
+    original = MorphFile.from_file(morphfile).key_deltas()
+    exported = MorphFile.from_file(outdat).key_deltas()
+    maxerr = 0.0
+    for name in ("Overweight", "Thin", "Strong"):
+        assert set(original[name]) == set(exported[name]), \
+            f"{name}: same moved-vertex set ({len(original[name])} vs {len(exported[name])})"
+        for vi, a in original[name].items():
+            for ca, cb in zip(a, exported[name][vi]):
+                maxerr = max(maxerr, abs(ca - cb))
+    assert maxerr < 0.02, f"Exported deltas match vanilla within precision: max err {maxerr}"
+
+
+@TT.category('STARFIELD')
+def TEST_SF_MORPH_SPLIT():
+    """Starfield: morph export splits shape keys into performance + chargen morph.dat files.
+
+    Expression/action-unit keys (e.g. jawOpen) go to the performance/ file; chargen sliders (e.g.
+    Overweight) go to the chargen/ file. The two output paths come from the object's pyn_sf_morph
+    group.
+    """
+    import os
+    from pyn.sf_morph import MorphFile
+
+    me = bpy.data.meshes.new("sfsplitmesh")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)], [], [(0, 1, 3, 2)])
+    me.update()
+    obj = bpy.data.objects.new("SFSplitHead", me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.shape_key_add(name="Basis")
+    kj = obj.shape_key_add(name="jawOpen")       # -> performance
+    kj.data[0].co.z += 1.0
+    ko = obj.shape_key_add(name="Overweight")    # -> chargen
+    ko.data[1].co.x += 0.5
+
+    cp = TTB.test_file(r"tests\Out\TEST_SF_MORPH_SPLIT\chargen\head\morph.dat")
+    pp = TTB.test_file(r"tests\Out\TEST_SF_MORPH_SPLIT\performance\head\morph.dat")
+    for p in (cp, pp):
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+    obj.pyn_sf_morph.chargen_path = cp
+    obj.pyn_sf_morph.performance_path = pp
+
+    BD.ObjectSelect([obj])
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.export_scene.pyniflysfmorph(filepath=cp)
+
+    assert os.path.exists(cp), "Chargen morph.dat written"
+    assert os.path.exists(pp), "Performance morph.dat written"
+    cm = MorphFile.from_file(cp)
+    pm = MorphFile.from_file(pp)
+    assert cm.morph_names == ["Overweight"], f"Chargen file holds the slider: {cm.morph_names}"
+    assert pm.morph_names == ["jawOpen"], f"Performance file holds the action unit: {pm.morph_names}"
+
+
+@TT.category('STARFIELD')
+def TEST_SF_MORPH_NIFEXPORT():
+    """Starfield: exporting the nif writes the shape's morph.dat files, gated by write_tris.
+
+    Morphs are written alongside the nif (anchored on the nif's output path). With no prior morph
+    path on the shape, they default to meshes/morphs/<nifstem>/{chargen,performance}/morph.dat under
+    the nif's meshes root. write_tris=False skips them entirely.
+    """
+    import os, shutil
+    from pyn.sf_morph import MorphFile
+
+    # Clean prior output so the write_tris-off assertion can't see stale files.
+    for sub in ("TEST_SF_MORPH_NIFEXPORT", "TEST_SF_MORPH_NIFEXPORT_OFF"):
+        d = os.path.dirname(TTB.test_file(os.path.join("tests", "Out", sub, "marker")))
+        shutil.rmtree(d, ignore_errors=True)
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    body.shape_key_add(name="Basis")
+    kj = body.shape_key_add(name="jawOpen")     # -> performance
+    kj.data[0].co.z += 1.0
+    ko = body.shape_key_add(name="Overweight")  # -> chargen
+    ko.data[1].co.x += 0.5
+
+    def morph_paths(outnif):
+        meshes = os.path.dirname(os.path.dirname(outnif))                 # .../meshes
+        stem = os.path.splitext(os.path.basename(outnif))[0]
+        return (os.path.join(meshes, "morphs", stem, "chargen", "morph.dat"),
+                os.path.join(meshes, "morphs", stem, "performance", "morph.dat"))
+
+    # Export with morphs ON (default): both files land under the nif's meshes/morphs tree.
+    outnif = TTB.test_file(r"tests\Out\TEST_SF_MORPH_NIFEXPORT\meshes\FSF\FoxBody.nif")
+    os.makedirs(os.path.dirname(outnif), exist_ok=True)
+    BD.ObjectSelect(list(bpy.context.scene.objects))
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outnif, target_game="SF")
+    cp, pp = morph_paths(outnif)
+    assert os.path.exists(cp), f"chargen morph written on nif export: {cp}"
+    assert os.path.exists(pp), f"performance morph written on nif export: {pp}"
+    assert MorphFile.from_file(cp).morph_names == ["Overweight"], "chargen file has the slider"
+    assert MorphFile.from_file(pp).morph_names == ["jawOpen"], "performance file has the AU"
+
+    # Turn morphs off via the sticky setting on the nif root; re-export writes no morph files.
+    root = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    root.pyn_export.write_tris = False
+    outnif2 = TTB.test_file(r"tests\Out\TEST_SF_MORPH_NIFEXPORT_OFF\meshes\FSF\FoxBody.nif")
+    os.makedirs(os.path.dirname(outnif2), exist_ok=True)
+    bpy.ops.export_scene.pynifly(filepath=outnif2, target_game="SF")
+    cp2, pp2 = morph_paths(outnif2)
+    assert not os.path.exists(cp2) and not os.path.exists(pp2), "write_tris off skips morph export"
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
@@ -2820,7 +3429,7 @@ def TEST_SHADER_SE():
     boots = bpy.context.object
     shadernodes = boots.active_material.node_tree.nodes
     TT.assert_gt(len(shadernodes), 4, "Number of shader nodes")
-    TT.assert_eq(boots.active_material['Env_Map_Scale'], shaderAttrsSE.Env_Map_Scale, "environment map scale")
+    TT.assert_eq(boots.active_material.pyn_shader.Env_Map_Scale, shaderAttrsSE.Env_Map_Scale, "environment map scale")
     TT.assert_eq(bpy.data.materials["Shoes.Mat"].node_tree.nodes["UV_Converter"].inputs[4].default_value, 1, "Wrap U")
 
     print("## Shader attributes are written on export")
@@ -3090,7 +3699,7 @@ def TEST_HIGHTECH_FLOORLIGHT():
     assert 'AddOnNode211' in bpy.context.scene.objects
     addon = bpy.context.scene.objects['AddOnNode211']
     TT.assert_eq(addon['pynBlockName'], 'BSValueNode', "Addon block name")
-    TT.assert_eq(addon['value'], 211, "Addon value")
+    TT.assert_eq(addon.pyn_valuenode.value, 211, "Addon value")
     TT.assert_eq(addon['pynValueNodeFlags'], '', "Addon flags")
     TT.assert_eq(json.loads(addon['pynActionSlots']),
                  json.loads('{"UnpoweredOn": "AddOnNode211", "On": "AddOnNode211", '
@@ -3893,9 +4502,9 @@ def TEST_SHEATH():
 
     bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
     slist = [obj for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")]
-    bgnames = set([obj['BSBehaviorGraphExtraData_Name'] for obj in bglist])
+    bgnames = set([obj.pyn_bsbehavior.name for obj in bglist])
     assert TT.is_eq(bgnames, set(["BGED"]), f"BG extra data properties")
-    snames = set([obj['NiStringExtraData_Name'] for obj in slist])
+    snames = set([obj.pyn_nistrdata.name for obj in slist])
     assert TT.is_eq(snames, set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), 
         f"string extra data properties")
 
@@ -3933,8 +4542,8 @@ def TEST_FEET():
 
     feet = bpy.data.objects['FootLowRes']
     assert TT.is_eq(len(feet.children), 1, "Feet have children")
-    assert TT.is_eq(feet.children[0]['NiStringExtraData_Name'], "SDTA", "Feet have extra data child")
-    assert TT.is_eq(feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), True, f"Feet have string data")
+    assert TT.is_eq(feet.children[0].pyn_nistrdata.name, "SDTA", "Feet have extra data child")
+    assert TT.is_eq(feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), True, f"Feet have string data")
 
     # Write and check that it's correct. Only the feet have to be selected--the extra data
     # goes because the object is a child of the feet object.
@@ -3961,8 +4570,8 @@ def TEST_FEET_MULTI():
 
     feet = bpy.data.objects['FootLowRes']
     TT.assert_eq(len(feet.children), 1, "Feet children")
-    TT.assert_eq(feet.children[0]['NiStringExtraData_Name'], "SDTA", "extra data child name")
-    assert feet.children[0]['NiStringExtraData_Value'].startswith('[{"name"'), f"Feet have string data"
+    TT.assert_eq(feet.children[0].pyn_nistrdata.name, "SDTA", "extra data child name")
+    assert feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), f"Feet have string data"
 
     ### WRITE ###
      
@@ -4013,12 +4622,12 @@ def TEST_DECAL_PLACEMENT():
     import_coll = bpy.context.collection
 
     decal_objs = [o for o in import_coll.all_objects
-                  if 'BSDecalPlacementVectorExtraData_Name' in o]
+                  if o.name.startswith("BSDecalPlacementVectorExtraData")]
     TT.assert_gt(len(decal_objs), 0, "decal empties imported")
 
     for dobj in decal_objs:
-        dname = dobj['BSDecalPlacementVectorExtraData_Name']
-        dval = json.loads(dobj['BSDecalPlacementVectorExtraData_Value'])
+        dname = dobj.pyn_bsdecal.name
+        dval = json.loads(dobj.pyn_bsdecal.value)
         log.info(f"Imported decal '{dname}': {len(dval)} blocks")
         TT.assert_gt(len(dval), 0, f"decal '{dname}' has blocks")
 
@@ -4180,8 +4789,10 @@ def TEST_TRIP_SE():
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
 
-    bpy.ops.export_scene.pynifly(filepath=outfile, intuit_defaults=True)
-    # bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', write_bodytri=True)
+    # intuit_defaults=False honors these kwargs directly, so the test doesn't depend on the
+    # (user-configurable) addon preference default for write_bodytri.
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', write_bodytri=True,
+                                 intuit_defaults=False)
 
     print(' ------- Check --------- ')
     nifcheck = pyn.NifFile(outfile1)
@@ -4214,7 +4825,8 @@ def TEST_TRIP():
     body.select_set(True)
     bpy.context.view_layer.objects.active = body
 
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', write_bodytri=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', write_bodytri=True,
+                                 intuit_defaults=False)
 
     print(' ------- Check --------- ')
     nifcheck = pyn.NifFile(outfile)
@@ -5053,7 +5665,7 @@ def TEST_TREE():
     assert root['pynBlockName'] == "BSLeafAnimNode", f"Have correct root type: {root['pynBlockName']}"
 
     tree = next(obj for obj in bpy.data.objects if obj.name.startswith("Tree") and obj.type == 'MESH')
-    assert 'TREE_ANIM' in tree.active_material['Shader_Flags_2'], f"Have shader flags"
+    assert 'TREE_ANIM' in tree.active_material.pyn_shader.Shader_Flags_2, f"Have shader flags"
     assert tree['pynBlockName'] == "BSMeshLODTriShape", f"Have correct block type: {tree['pynBlockName']}"
     assert TT.is_eq(lod0_size, 1126, "Have correct LOD0 size")
 
@@ -5488,8 +6100,8 @@ def TEST_COLLISION_BOW():
     # Check collision info
     coll = arma.pose.bones['Bow_MidBone'].constraints['bhkCollisionConstraint'].target
     TT.assert_eq(coll.name, 'bhkBoxShape', "Collision shape")
-    TT.assert_eq(coll['pynCollisionFlags'], "ACTIVE | SYNC_ON_UPDATE", "bhkCollisionShape represents a collision")
-    TT.assert_eq(coll['collisionFilter_layer'], SkyrimCollisionLayer.WEAPON.name, 
+    TT.assert_eq(coll.pyn_collisionobj.flags, "ACTIVE | SYNC_ON_UPDATE", "bhkCollisionShape represents a collision")
+    TT.assert_eq(coll.pyn_rigidbody.collisionFilter_layer, SkyrimCollisionLayer.WEAPON.name,
                  "Collsion filter layer")
 
     # Default collision response is 1 = SIMPLE_CONTACT, so no property for it.
@@ -5497,8 +6109,8 @@ def TEST_COLLISION_BOW():
 
     # assert NT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
-    TT.assert_eq(coll['bhkMaterial'], 'MATERIAL_BOWS_STAVES', f"Shape material")
-    TT.assert_equiv(coll['bhkRadius'], 0.0136, f"Radius")
+    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'MATERIAL_BOWS_STAVES', f"Shape material")
+    TT.assert_equiv(coll.pyn_collshape.bhkRadius, 0.0136, f"Radius")
 
     # Covers the bow closely in the Y axis
     bowmax = max((bow.matrix_world @ v.co).y for v in bow.data.vertices)
@@ -5518,21 +6130,21 @@ def TEST_COLLISION_BOW():
 
     # Check extra data
     bged = TTB.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
-    TT.assert_eq(bged['BSBehaviorGraphExtraData_Value'], "Weapons\Bow\BowProject.hkx", "BGED node value")
+    TT.assert_eq(bged.pyn_bsbehavior.value, "Weapons\Bow\BowProject.hkx", "BGED node value")
 
     strd = TTB.find_shape("NiStringExtraData", type='EMPTY')
-    TT.assert_eq(strd['NiStringExtraData_Value'], "WeaponBow", f"string extra data value")
+    TT.assert_eq(strd.pyn_nistrdata.value, "WeaponBow", f"string extra data value")
 
     bsxf = TTB.find_shape("BSXFlags", type='EMPTY')
     root = [o for o in bpy.data.objects if "pynRoot" in o][0]
     TT.assert_eq(bsxf.parent, root, f"Extra data parent")
-    TT.assert_eq(bsxf['BSXFlags_Name'], "BSX", "BSX Flags name")
-    TT.assert_eq(bsxf['BSXFlags_Value'], "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags value")
+    TT.assert_eq(bsxf.pyn_bsxflags.name, "BSX", "BSX Flags name")
+    TT.assert_eq(bsxf.pyn_bsxflags.value, "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags value")
 
     invm = TTB.find_shape("BSInvMarker", type='CAMERA')
-    TT.assert_eq(invm['BSInvMarker_Name'], "INV", "Inventory marker name")
-    TT.assert_eq(invm['BSInvMarker_RotX'], 4712, "Inventory marker x rotation")
-    TT.assert_equiv(invm['BSInvMarker_Zoom'], 1.1273, "Inventory marker zoom")
+    TT.assert_eq(invm.pyn_invmarker.name, "INV", "Inventory marker name")
+    TT.assert_eq(invm.pyn_invmarker.rotation[0], 4712, "Inventory marker x rotation")
+    TT.assert_equiv(invm.pyn_invmarker.zoom, 1.1273, "Inventory marker zoom")
 
     # Check shape as deformed by armature
     BD.ObjectSelect([bow], active=True)
@@ -5949,7 +6561,7 @@ def TEST_COLLISION_CONVEXVERT(bx):
     TT.assert_eq(coll.rigid_body.type, 'ACTIVE', f"Collision body type")
     TT.assert_equiv(coll.rigid_body.mass, 2.5, f"mass")
     TT.assert_equiv(coll.rigid_body.friction, 0.5, f"friction")
-    TT.assert_eq(coll['bhkMaterial'], 'CLOTH', f"Shape material custom property")
+    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'CLOTH', f"Shape material custom property")
 
     xmax1 = max([v.co.x for v in cheese.data.vertices])
     xmax2 = max([v.co.x for v in coll.data.vertices])
@@ -6032,7 +6644,7 @@ def TEST_COLLISION_CAPSULE(bx):
 
     staff = TTB.find_shape("3rdPersonStaff04")
     coll = staff.parent.constraints[0].target
-    assert coll['bhkMaterial'] == 'SOLID_METAL', f"Have correct material"
+    assert coll.pyn_collshape.bhkMaterial == 'SOLID_METAL', f"Have correct material"
     strd = TTB.find_shape("NiStringExtraData", type="EMPTY")
     bsxf = TTB.find_shape("BSXFlags", type="EMPTY")
     invm = TTB.find_shape("BSInvMarker", type="EMPTY")
@@ -6919,8 +7531,7 @@ def TEST_CONNECT_POINT():
     assert p == parentnames, f"Found correct parentnames: {p}"
 
     assert cpchildren, f"Found child connect points: {cpchildren}"
-    assert (cpchildren[0]['PYN_CONNECT_CHILD_0'] == "C-Receiver") or \
-        (cpchildren[0]['PYN_CONNECT_CHILD_1'] == "C-Receiver"), \
+    assert "C-Receiver" in cpchildren[0].pyn_connectpoint.child_names.split('\n'), \
         f"Did not find child name"
 
     # assert NT.NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
@@ -7132,7 +7743,7 @@ def TEST_CONNECT_IMPORT_MULT():
     assert len(barrelparent) == 1, f"Have barrel parent connect point {barrelparent}"
     barrelchild = [obj for obj in bpy.data.objects \
                 if obj.name.startswith('BSConnectPointChildren')
-                        and obj['PYN_CONNECT_CHILD_0'] == 'C-Barrel']
+                        and 'C-Barrel' in obj.pyn_connectpoint.child_names.split('\n')]
     assert len(barrelchild) == 1, f"Have a single barrel child {barrelchild}"
     
 
@@ -9266,8 +9877,8 @@ def TEST_MISSING_MAT():
     mat = hands.active_material
     assert mat['BSLSP_Shader_Name'] == r"Materials\foo\basehumanmaleskinhands.bgsm", \
         f"Have correct materials: {mat['BS_Shader_Block_Name']}"
-    # assert 'SKIN_TINT' in mat['Shader_Flags_1'], f"Have correct flags: {mat['Shader_Flags_1']}"
-    assert mat['Shader_Type'] == 'Skin_Tint', f"Have correct shader type: {mat['Shader_Type']}"
+    # assert 'SKIN_TINT' in mat.pyn_shader.Shader_Flags_1, f"Have correct flags: {mat.pyn_shader.Shader_Flags_1}"
+    assert mat.pyn_shader.Shader_Type == 'Skin_Tint', f"Have correct shader type: {mat.pyn_shader.Shader_Type}"
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nifin = pyn.NifFile(testfile)
@@ -10608,7 +11219,7 @@ def TEST_NISWITCHNODE_IMPORT():
     switches = [o for o in bpy.data.objects
                 if o.get('pynBlockName') == 'NiSwitchNode']
     assert TT.is_eq(len(switches), 2, "Two NiSwitchNode empties imported")
-    flags = sorted(s['switchFlags'] for s in switches)
+    flags = sorted(s.pyn_switchnode.switchFlags for s in switches)
     assert TT.is_eq(flags, [1, 3], "Switch flags preserved on import")
 
 
