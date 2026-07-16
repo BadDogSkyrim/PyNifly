@@ -147,20 +147,6 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0, max_weig
     return verts, weights, morphdict
 
 
-def _under_switchnode(obj):
-    """True if obj is parented (directly or transitively) under a NiSwitchNode empty.
-
-    Such a shape, when it carries no bone weights, is the switch's unskinned LOD
-    branch and should export as static geometry rather than a skinned shape.
-    """
-    p = obj.parent
-    while p is not None:
-        if p.get('pynBlockName') == 'NiSwitchNode':
-            return True
-        p = p.parent
-    return False
-
-
 def tag_unweighted(obj, bones):
     """ Find and return verts that are not weighted to any of the given bones
         result = (v_index, ...) list of indices into the vertex list
@@ -1207,10 +1193,14 @@ class NifExporter:
         colors = []
         partition_map = []
 
-        # Calculating normals messes up the passed-in UV, so get the data out of it first
-        for f in mesh.polygons:
-            for i in f.loop_indices:
-                orig_uvs.append(uvlayer[i].uv[:])
+        # Calculating normals messes up the passed-in UV, so get the data out of it first.
+        # Read the UVs in bulk: a UV layer is a generic mesh attribute, and indexing it
+        # per-element is pathologically slow -- on a 127K-loop body that loop cost 122s
+        # against 0.05s for foreach_get. (Per-element access on vertices/loops is fine;
+        # it's the attribute layer that's slow.) orig_uvs is indexed by loop index.
+        uvflat = [0.0] * (len(mesh.loops) * 2)
+        uvlayer.foreach_get("uv", uvflat)
+        orig_uvs = [(uvflat[i*2], uvflat[i*2+1]) for i in range(len(mesh.loops))]
 
         # CANNOT figure out how to get the loop normals correctly.  They seem to follow the
         # face normals even on smooth shading.  (TEST_NORMAL_SEAM tests for this.) So use the
@@ -1808,17 +1798,17 @@ class NifExporter:
 
             retval = set()
 
-            # Prepare for reporting any bone weight errors
-            is_skinned = (arma is not None)
-            # A shape with no bone vertex groups that lives under a NiSwitchNode is
-            # the switch's unskinned (LOD / "second child") branch -- e.g. the leaf
-            # cards on a skinned tree. The exporter passes the file's armature to
-            # every shape, which would otherwise skin these and report all their
-            # vertices as unweighted. Export them as static geometry instead.
-            if is_skinned \
-                    and not any(vg.name in arma.data.bones for vg in obj.vertex_groups) \
-                    and _under_switchnode(obj):
-                is_skinned = False
+            # Prepare for reporting any bone weight errors.
+            # A shape with no vertex groups naming armature bones has nothing to skin
+            # with. The exporter hands the file's armature to every shape, so without
+            # this it gets a skin instance with zero bones and every vertex reported
+            # unweighted. The game follows that empty skin instance to a null pointer
+            # and dies in BSSkin::Instance::UpdateModelBound -- e.g. the fire/dirt/
+            # wood/refraction shapes in the vanilla FO4 workbenches, which are static
+            # geometry sharing a nif with a skinned bench.
+            is_skinned = (arma is not None
+                          and any(vg.name in arma.data.bones for vg in obj.vertex_groups))
+            if not is_skinned:
                 arma = None
             unweighted = []
             if BD.UNWEIGHTED_VERTEX_GROUP in obj.vertex_groups:
@@ -2141,6 +2131,14 @@ class NifExporter:
             controller.ControllerHandler.export_named_animations(self, self.objs_written)
             if self.armature:
                 controller.ControllerHandler.export_animated_armature(self, self.armature)
+            # Child nodes get their animation exported as they're created; the root
+            # node isn't created on that path, so its own animation needs exporting
+            # here or it's silently dropped. (The vanilla FO4 workbenches animate
+            # from their root node.)
+            if self.root_object:
+                root_repr = self.objs_written.find_blend(self.root_object)
+                if root_repr:
+                    controller.ControllerHandler.export_animated_obj(self, root_repr)
 
         self.nif.save()
         log.info(f"..Wrote {fpath}")
@@ -2494,7 +2492,16 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         self.blender_xf = sticky.get('blender_xf', prefs.blender_xf)
         self.rename_bones = sticky.get('rename_bones', prefs.rename_bones)
         self.rename_bones_niftools = sticky.get('rename_bones_niftools', prefs.rename_bones_niftools)
-        self.rotate_bones_pretty = sticky.get('rotate_bones_pretty', prefs.rotate_bones_pretty)
+        # The armature records how its bones were actually built, and that recorded
+        # value -- not this setting -- is what the animation export reads (see
+        # controller.py's use of PYN_ROTATE_BONES_PRETTY_PROP). Seed the dialog from
+        # it so the user sees what will actually happen instead of a preference the
+        # data may contradict. They can still override it in the dialog.
+        if first_arma is not None and PYN_ROTATE_BONES_PRETTY_PROP in first_arma:
+            self.rotate_bones_pretty = first_arma[PYN_ROTATE_BONES_PRETTY_PROP]
+        else:
+            self.rotate_bones_pretty = sticky.get('rotate_bones_pretty',
+                                                  prefs.rotate_bones_pretty)
         self.write_bodytri = sticky.get('write_bodytri', prefs.write_bodytri)
         self.preserve_hierarchy = sticky.get('preserve_hierarchy', dfld["preserve_hierarchy"].default)
         self.export_pose = sticky.get('export_pose', dfld["export_pose"].default)

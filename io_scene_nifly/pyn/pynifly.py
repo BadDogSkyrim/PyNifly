@@ -1989,12 +1989,23 @@ class NiTransformData(NiKeyFrameData):
         elif dimension == "S": 
             keytype = self.properties.scales.interpolation
         
+        d = c_char()
+        d.value = dimension.encode('utf-8')
         if keytype == NiKeyType.QUADRATIC_KEY:
-            d = c_char()
-            d.value = dimension.encode('utf-8')
             for q in key_list:
                 nifly.addAnimKeyQuadXYZ(
                     self.file._handle, self.id, d, byref(q.getbuf()))
+        elif keytype in (NiKeyType.LINEAR_KEY, NiKeyType.NO_INTERP):
+            # Linear keys are time/value only--no tangents.
+            for q in key_list:
+                nifly.addAnimKeyLinearXYZ(
+                    self.file._handle, self.id, d, byref(q.getbuf()))
+        elif key_list:
+            # Don't drop keys silently: an empty channel is a broken animation and
+            # much harder to spot than a loud failure here.
+            raise NotImplementedError(
+                f"Cannot write {len(key_list)} '{dimension}' rotation keys of type "
+                f"{keytype!r}")
 
 
 class NiInterpolator(NiObject):

@@ -348,6 +348,290 @@ def TEST_FO4_RECENTER_HALF_PRECISION():
                            "recenter preserves head world placement", e=0.1)
 
 
+@TT.category('FO4', 'XFORM')
+def TEST_FO4_SKINNED_UNDER_NODE():
+    """A skinned shape parented to a non-identity node is placed correctly.
+
+    An FO4 skinned shape's verts are placed entirely by the armature: its bones
+    carry the nif's bind position as their rest and the nif's node position as
+    their pose, so the armature modifier maps the verts from skin space to
+    world. The shape stays parented to its nif parent node, so that node's
+    transform must not also land on the object -- that applies it twice.
+
+    In the vanilla armor workbench the bench is skinned under the
+    'WorkstationArmor' node, which sits at (27.85, 36.81, 0). Every bone's
+    pose-to-rest delta is exactly that offset, and the object was picking it up
+    from the parent as well, sliding the bench off its collision.
+
+    NOTE: this checks the EVALUATED mesh. The armature is a modifier, so raw
+    vertex coordinates (what edit mode shows) do NOT reflect where the shape
+    actually lands -- reading `v.co` here hides the bug completely.
+    """
+    testfile = TTB.test_file(r"tests\FO4\WorkstationArmorB01.nif")
+
+    # Animation import is irrelevant here and warns about this nif's keyframes.
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_animations=False)
+
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+
+    def evaluated_pts(obj):
+        """World-space verts AFTER modifiers (i.e. after the armature deforms)."""
+        obj_eval = obj.evaluated_get(depsgraph)
+        mesh = obj_eval.to_mesh()
+        pts = [obj_eval.matrix_world @ v.co for v in mesh.vertices]
+        obj_eval.to_mesh_clear()
+        return pts
+
+    top = bpy.data.objects['WorkstationArmor:0']
+    assert top.find_armature() is not None, "bench top is skinned"
+    assert top.parent and TT.is_equiv(
+        list(top.parent.matrix_world.translation), [27.85, 36.81, 0.0],
+        "bench top's parent node carries the offset", e=0.01)
+
+    pts = evaluated_pts(top)
+    xs = [p.x for p in pts]
+    ys = [p.y for p in pts]
+    assert TT.is_equiv([min(xs), max(xs)], [-71.52, 96.10],
+                       "bench top x bounds where the armature puts it", e=0.5)
+    assert TT.is_equiv([min(ys), max(ys)], [-33.00, 62.42],
+                       "bench top y bounds where the armature puts it", e=0.5)
+
+    # Scene-level invariant: the collision is built to cover the bench, so the
+    # far corner of all the collision shapes together should land near the far
+    # corner of all the meshes together. This catches a shape sliding off its
+    # collision without relying on any one shape's expected coordinates.
+    # The meshes do legitimately overhang a little (the gear sticks out ~7 past
+    # any collision), so allow some slop -- the doubled-offset bug puts these
+    # 32 (x) and 37 (y) apart, well outside it.
+    mesh_pts, coll_pts = [], []
+    for o in bpy.data.objects:
+        if o.type != 'MESH' or not len(o.data.vertices): continue
+        if o.name.startswith('bhk'):
+            coll_pts.extend(evaluated_pts(o))
+        else:
+            mesh_pts.extend(evaluated_pts(o))
+
+    assert TT.is_lt(abs(max(p.x for p in mesh_pts) - max(p.x for p in coll_pts)), 10,
+                    "max X of all meshes is near max X of all collisions")
+    assert TT.is_lt(abs(max(p.y for p in mesh_pts) - max(p.y for p in coll_pts)), 10,
+                    "max Y of all meshes is near max Y of all collisions")
+
+
+@TT.category('FO4', 'ANIMATION')
+@TT.expect_errors(("Keyframes do not align",
+                   # Only the armature and its shapes are selected, so the action's
+                   # slots for the (unselected) emitters and shaders have no export
+                   # target. Not what this test is about.
+                   "Target of fcurve not found in armature",))
+def TEST_FO4_LINEAR_ROTATION_KEYS():
+    """Rotation channels using LINEAR keys can be exported.
+
+    An NiTransformData with rotationType XYZ_ROTATION_KEY carries a separate
+    interpolation per channel. The vanilla armor workbench animates two bones
+    (WorkstationArmorGearBBone, WorkstationArmorSpindleBone) whose channels are
+    LINEAR_KEY rather than QUADRATIC_KEY, and exporting them used to raise
+    NotImplementedError.
+
+    Those two bones' single keys carry a garbage time in vanilla (-447392.4375,
+    confirmed in NifSkope -- not a misread). It's harmless in game: a lone key is
+    a constant, and the value is 0. But it lands ~10.7M frames from the origin,
+    outside float32 keyframe precision, so it cannot round-trip. Rather than have
+    the importer or exporter launder vanilla's data, this test moves the keys to
+    the animation start so it exercises the linear-key path, not the junk.
+    """
+    testfile = TTB.test_file(r"tests\FO4\WorkstationArmorB01.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_FO4_LINEAR_ROTATION_KEYS.nif", output=True)
+
+    # rotate_bones_pretty matches the shipped default, not the headless one: with it
+    # off, this nif's bones happen to have unrotated rests so no rotation conversion
+    # runs and the export path here is never reached.
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_animations=True,
+                                 rotate_bones_pretty=True)
+
+    arma = bpy.data.objects['WorkstationArmorB01:ARMATURE']
+    action = arma.animation_data.action
+    linear_bones = ['WorkstationArmorGearBBone', 'WorkstationArmorSpindleBone']
+
+    # Move the junk-time keys to frame 1 (nif time 0). Identify them by their
+    # absurd frame, not by bone: this nif has several animations, so the same
+    # bone also has ordinary bezier curves in other action slots.
+    moved = 0
+    for fc in BD.action_fcurves(action):
+        for k in fc.keyframe_points:
+            if k.co.x < 0:
+                assert TT.is_eq(k.interpolation, 'LINEAR',
+                                "junk-time key is a linear key")
+                assert any(b in fc.data_path for b in linear_bones), \
+                    f"junk-time key is on a known linear bone: {fc.data_path}"
+                k.co.x = 1
+                moved += 1
+    assert TT.is_eq(moved, 4, "normalized the junk-time linear keys")
+
+    # Export just the armature and the shapes skinned to it. (Exporting the whole
+    # workbench reports unweighted verts on the unskinned shapes -- unrelated.)
+    BD.ObjectSelect([arma,
+                     bpy.data.objects['WorkstationArmor:0'],
+                     bpy.data.objects['WorkstationArmor:1']], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4',
+                                 export_animations=True)
+
+    ### CHECK ###
+
+    nifcheck = pyn.NifFile(outfile)
+    for bone in linear_bones:
+        node = nifcheck.nodes[bone]
+        assert node.controller, f"{bone} has a controller"
+        td = node.controller.interpolator.data
+        assert TT.is_eq(td.properties.rotationType, pyn.NiKeyType.XYZ_ROTATION_KEY,
+                        f"{bone} rotation type")
+        for chan, keys in (('xRotations', td.xrotations),
+                           ('yRotations', td.yrotations),
+                           ('zRotations', td.zrotations)):
+            assert TT.is_eq(getattr(td.properties, chan).interpolation,
+                            pyn.NiKeyType.LINEAR_KEY, f"{bone} {chan} stayed linear")
+            assert TT.is_eq(len(keys), 1, f"{bone} {chan} key count")
+            assert TT.is_equiv(keys[0].time, 0.0, f"{bone} {chan} key time", e=0.001)
+            assert TT.is_equiv(keys[0].value, 0.0, f"{bone} {chan} key value", e=0.001)
+
+
+@TT.category('FO4', 'ANIMATION')
+@TT.expect_errors(("Keyframes do not align",
+                   "Target of fcurve not found in armature",
+                   "Some vertices are not weighted to the armature",
+                   "Could not find materials file",))
+def TEST_FO4_EULER_CURVES_UNALIGNED():
+    """Euler rotation channels with different key times can be exported.
+
+    The nif keeps X/Y/Z rotations as three independent channels, each free to
+    have its own key times. Exporting them needs a rotation conversion (Euler ->
+    quaternion -> Euler) whenever the bone frame differs from the nif frame, and
+    that needs all three values at one instant -- so the channels get resampled
+    onto a common timeline. This used to raise "NYI: Euler bone rotations when
+    fcurve keyframes at different times".
+
+    The vanilla armor workbench has two sources of misalignment:
+      - GearBBone/SpindleBone: single keys at vanilla's junk time (-447392) on
+        some channels and 0 on others.
+      - The SuperSpraySmoke emitters: genuinely 5/5/4 keys, real animation data.
+
+    Whether the export works must not depend on rotate_bones_pretty -- it's a
+    display option. It only decides whether a conversion runs; a bone with a
+    rotated rest needs the same conversion with pretty off.
+    """
+    testfile = TTB.test_file(r"tests\FO4\WorkstationArmorB01.nif")
+
+    for pretty in (True, False):
+        TTB.clear_all()
+        outfile = TTB.test_file(
+            rf"tests\out\TEST_FO4_EULER_CURVES_UNALIGNED_{pretty}.nif", output=True)
+        bpy.ops.import_scene.pynifly(filepath=testfile, import_animations=True,
+                                     rotate_bones_pretty=pretty)
+
+        # The whole workbench, junk key times and all -- no cleanup, because this
+        # is what a user actually exports.
+        BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+        try:
+            bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4',
+                                         export_animations=True)
+        except RuntimeError as e:
+            # The unskinned shapes report unweighted verts, which bpy.ops raises
+            # even though the nif is written (the report comes after the export).
+            # Tolerate that one and nothing else.
+            assert "unweighted vertices" in str(e), f"unexpected export error: {e}"
+
+        nifcheck = pyn.NifFile(outfile)
+        for bone in ['WorkstationArmorGearBBone', 'WorkstationArmorSpindleBone']:
+            td = nifcheck.nodes[bone].controller.interpolator.data
+            assert TT.is_eq(len(td.xrotations), len(td.yrotations),
+                            f"pretty={pretty}: {bone} x/y channels aligned")
+            assert TT.is_eq(len(td.xrotations), len(td.zrotations),
+                            f"pretty={pretty}: {bone} x/z channels aligned")
+            assert TT.is_gt(len(td.xrotations), 0,
+                            f"pretty={pretty}: {bone} kept its keys")
+
+
+@TT.category('FO4', 'ANIMATION')
+@TT.expect_errors(("Keyframes do not align",
+                   "Some vertices are not weighted to the armature",
+                   "Could not find materials file",))
+def TEST_FO4_ROOT_ANIMATION():
+    """A nif root node's own animation round-trips.
+
+    Child nodes get their animation exported as they are created, but the root
+    node isn't created on that path, so its animation used to be dropped without
+    a word. The vanilla FO4 armor workbench animates from its root.
+
+    The root is also the one node whose blender object name can't be matched to
+    its nif node (the importer appends ":ROOT"), so the export resolves it from
+    the ReprObject pairing rather than by name.
+    """
+    testfile = TTB.test_file(r"tests\FO4\WorkstationArmorB01.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_FO4_ROOT_ANIMATION.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_animations=True,
+                                 rotate_bones_pretty=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+    try:
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4',
+                                     export_animations=True)
+    except RuntimeError as e:
+        assert "unweighted vertices" in str(e), f"unexpected export error: {e}"
+
+    src = pyn.NifFile(testfile)
+    dst = pyn.NifFile(outfile)
+    assert dst.rootNode.controller, "root node kept its controller"
+
+    srcdat = src.nodes['WorkstationArmorB01'].controller.interpolator.data
+    dstdat = dst.rootNode.controller.interpolator.data
+    assert TT.is_eq(dstdat.properties.rotationType, pyn.NiKeyType.XYZ_ROTATION_KEY,
+                    "root rotation type")
+    for chan in ('xrotations', 'yrotations', 'zrotations'):
+        srckeys = getattr(srcdat, chan)
+        dstkeys = getattr(dstdat, chan)
+        assert TT.is_eq(len(dstkeys), len(srckeys), f"root {chan} key count")
+        for s, d in zip(srckeys, dstkeys):
+            assert TT.is_equiv(d.time, s.time, f"root {chan} key time", e=0.001)
+            assert TT.is_equiv(d.value, s.value, f"root {chan} key value", e=0.001)
+
+
+@TT.category('FO4', 'XFORM')
+@TT.expect_errors(("Keyframes do not align",
+                   "Could not find materials file",))
+def TEST_FO4_UNSKINNED_SHAPES_STAY_UNSKINNED():
+    """Static shapes sharing a nif with a skinned shape don't get a skin instance.
+
+    The exporter hands the file's armature to every shape, so a shape with no
+    vertex groups naming armature bones used to be written with a skin instance
+    holding zero bones (and every vertex reported unweighted). The game follows
+    that empty skin instance to a null pointer and crashes in
+    BSSkin::Instance::UpdateModelBound -- confirmed in game on this nif, on
+    'm_Refraction:0'.
+
+    The vanilla armor workbench is the case: a skinned bench plus 15 static
+    shapes (fire, dirt, wood, gears, refraction) in one nif.
+    """
+    testfile = TTB.test_file(r"tests\FO4\WorkstationArmorB01.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_FO4_UNSKINNED_SHAPES.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_animations=False)
+    BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    src = pyn.NifFile(testfile)
+    dst = pyn.NifFile(outfile)
+    exported = {s.name: s for s in dst.shapes}
+
+    for s in src.shapes:
+        e = exported.get(s.name)
+        assert e, f"{s.name} was exported"
+        assert TT.is_eq(bool(e.has_skin_instance), bool(s.has_skin_instance),
+                        f"{s.name} skinned-ness matches vanilla")
+        if e.has_skin_instance:
+            # A skin instance with no bones is the null the game dies on.
+            assert TT.is_gt(len(e.get_used_bones()), 0,
+                            f"{s.name} skin instance has bones")
+
+
 @TT.category('SKYRIM', 'BODYPART', 'XFORM')
 def TEST_SKIN_BONE_XFORM():
     """Skin-to-bone transforms work correctly"""

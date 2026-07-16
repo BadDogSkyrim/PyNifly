@@ -5975,6 +5975,29 @@ NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int f
     buf->value = k.value;
 }
 
+NIFLY_API void addAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, NiAnimKeyLinearBuf *buf)
+/* Add a linear key (time, value) to one dimension of a transform data block's rotations.
+   Linear keys carry no tangents, which is the only difference from addAnimKeyQuadXYZ. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiTransformData* td = hdr->GetBlock<NiTransformData>(tdID);
+
+    if (!td) {
+        niflydll::LogWriteEf("addAnimKeyLinearXYZ called on invalid node %d", tdID);
+        return;
+    }
+
+    NiAnimationKey<float> k;
+    k.time = buf->time;
+    k.value = buf->value;
+
+    if (dimension == 'X') td->xRotations.AddKey(k);
+    else if (dimension == 'Y') td->yRotations.AddKey(k);
+    else if (dimension == 'Z') td->zRotations.AddKey(k);
+    else if (dimension == 'S') td->scales.AddKey(k);
+}
+
 NIFLY_API int getAnimKeyLinear(void* nifref, int blockID, int frame, NiAnimKeyLinearBuf *buf)
 /* Return linear data (time, value) from an NiFloatData block. */
 {

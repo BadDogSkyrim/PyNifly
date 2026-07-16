@@ -1910,7 +1910,16 @@ class NifImporter():
             unscaled_skin_xf = unscaled_skin_xf.inverted() @ s2a_xf 
 
         # FO4 facegen nifs can have wonky transforms. They can be ignored. ### Is this true?
-        obj.matrix_local = unscaled_skin_xf.copy()
+        # The skin transform is relative to the nif root, so set it as the world
+        # transform. A skinned shape stays parented to its nif parent node, but its
+        # verts are placed entirely by the armature (whose bones carry the nif's
+        # bind and pose positions). Setting this as the LOCAL transform would let a
+        # non-identity parent node's offset leak in on top of the armature's
+        # placement, applying that offset twice -- as in the FO4 workbenches, where
+        # the bench is skinned under a node offset from the origin.
+        obj.matrix_world = ((self.root_object.matrix_world if self.root_object
+                             else Matrix.Identity(4))
+                            @ unscaled_skin_xf)
         skin_xf = unscaled_skin_xf.copy()
 
         # Create bones. If import_pose, positions are the P.NiNode positions of the

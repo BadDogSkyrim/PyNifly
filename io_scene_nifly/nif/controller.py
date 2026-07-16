@@ -865,10 +865,20 @@ class ControllerHandler():
 
     def _get_curve_linear_values(self, curve):
         """
-        Transform a blender curve into nif keys. 
-        Returns [[time, value]...] for each keyframe in the curve.
+        Transform a blender curve into nif keys.
+        Returns [LinearScalarKey, ...] for each keyframe in the curve.
+
+        Used when the channel's key type is LINEAR_KEY, where the nif stores only
+        time and value -- no tangents. (Bezier handles on the blender keyframe, if
+        any, have nowhere to go in a linear key and are dropped.)
         """
-        raise NotImplementedError("Linear keys not implemented yet")
+        keys = []
+        for p in curve.keyframe_points:
+            k = LinearScalarKey()
+            k.time = (p.co.x - 1) / (self.fps * ANIMATION_TIME_ADJUST)
+            k.value = p.co.y
+            keys.append(k)
+        return keys
 
 
     def _get_curve_quad_values(self, curve):
@@ -1236,7 +1246,14 @@ class ControllerHandler():
         exporter.action = arma.animation_data.action
         exporter.start_time=(exporter.action.curve_frame_range[0]-1)/exporter.fps
         exporter.stop_time=(exporter.action.curve_frame_range[1]-1)/exporter.fps
-        curves = list(BD.action_fcurves(exporter.action))
+        # A nif's whole animation lands in one action, with a slot per animated
+        # element -- bones, shader node trees, EMPTYs standing in for nif nodes. Only
+        # this armature's slot holds bone curves; walking the rest just warns that a
+        # shader or node isn't a bone and drops it. Those belong to their own
+        # exporters. (Node animations aren't exported yet -- see TODO.md.)
+        slot = arma.animation_data.action_slot
+        curves = (actionslot_fcurves(exporter.action, slot) if slot
+                  else list(BD.action_fcurves(exporter.action)))
         while curves:
             bonename, ti = NiTransformController.fcurve_exporter(exporter, curves, arma)
             nifbonename = exporter.nif_name(bonename)
@@ -1286,10 +1303,18 @@ class ControllerHandler():
         while curves:
             targetnodename, ti = NiTransformController.fcurve_exporter(exporter, curves, robj)
             nifnodename = exporter.nif_name(targetnodename)
-            # KF animation files have no controllers, so only create one if the target
-            # bone exists in the nif.
+            nifnode = None
             if nifnodename in exporter.nif.nodes:
                 nifnode = exporter.nif.nodes[nifnodename]
+            elif robj.nifnode is not None and targetnodename == robj.name:
+                # Curves on the object itself (not a bone) target this object's node,
+                # which we already have paired here. Needed for the nif root, whose
+                # blender object carries a ":ROOT" suffix so its name never matches
+                # the node's.
+                nifnode = robj.nifnode
+            # KF animation files have no controllers, so only create one if the target
+            # bone exists in the nif.
+            if nifnode is not None:
                 ctlr = NiTransformController.New(
                     file=exporter.nif,
                     flags=TimeControllerFlags(
@@ -1725,11 +1750,20 @@ def _import_transform_controller(tc:NiTransformController,
 
     if importer.animation_target and interp:
         if importer.animation_target.type == 'ARMATURE':
-            importer._animate_bone(tc.target.name)
+            # If the target isn't a bone, _animate_bone leaves path_name alone rather
+            # than clearing it, so importing anyway would write this controller's keys
+            # onto whatever bone was handled last.
+            if not importer._animate_bone(tc.target.name):
+                return
             if not importer.action: importer._new_action()
             importer._new_slot()
             interp.import_node(importer, None)
         else:
+            # Target is the object itself, not a bone. Clear the bone path left over
+            # from any bone handled earlier, or its keys land on that bone: an Empty
+            # has no pose.bones, so those fcurves are silently inert.
+            importer.path_name = ""
+            importer.bone_target = None
             importer.action_group = "Object Transforms"
             if not importer.action: importer._new_action()
             importer._new_slot()
@@ -2159,6 +2193,60 @@ def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q,
             td.add_qrotation_key(timesig, kq)
 
 
+def _curves_aligned(keylists):
+    """True if all the given key lists have keys at the same times."""
+    if len({len(k) for k in keylists}) != 1:
+        return False
+    return all(all_NearEqual([k.time for k in keys]) for keys in zip(*keylists))
+
+
+def _resample_euler_curves(exporter, td, eu):
+    """
+    Sample all three Euler fcurves at the union of their keyframe times.
+
+    The nif stores X/Y/Z rotations as three independent channels, each free to
+    have its own key times. Converting them (to un-conjugate a pretty-bone or
+    bone rotation) means going Euler->quaternion->Euler, which needs all three
+    values at the same instant, so the channels have to be put on a common
+    timeline first.
+
+    Sampling at the union keeps every original key time; only the added samples
+    are interpolated, and those are evaluated on the blender curve so they sit
+    on the existing shape. Tangents for a quadratic channel are taken from the
+    curve's local slope. (Note the caller does not convert tangents anyway --
+    it converts values and keeps the tangents as-is -- so a quadratic channel
+    is already approximate through this path.)
+
+    Returns [xkeys, ykeys, zkeys].
+    """
+    frames = sorted({round(p.co.x, 4) for c in eu for p in c.keyframe_points})
+    scale = exporter.fps * ANIMATION_TIME_ADJUST
+    keytypes = [td.properties.xRotations.interpolation,
+                td.properties.yRotations.interpolation,
+                td.properties.zRotations.interpolation]
+    result = []
+    for curve, keytype in zip(eu, keytypes):
+        keys = []
+        for i, f in enumerate(frames):
+            if keytype == NiKeyType.QUADRATIC_KEY:
+                k = QuadScalarKey()
+                # Local slope by central difference; tangents are slope scaled by
+                # the gap to the neighbouring key, matching _key_blender_to_nif.
+                eps = 0.01
+                slope = (curve.evaluate(f + eps) - curve.evaluate(f - eps)) / (2 * eps)
+                prev_gap = f - frames[i-1] if i > 0 else 1.0
+                next_gap = frames[i+1] - f if i < len(frames)-1 else 1.0
+                k.forward = slope * prev_gap
+                k.backward = slope * next_gap
+            else:
+                k = LinearScalarKey()
+            k.time = (f - 1) / scale
+            k.value = curve.evaluate(f)
+            keys.append(k)
+        result.append(keys)
+    return result
+
+
 def _export_euler_curves(exporter, td, eu, targ_q, R_q=None, R_q_inv=None):
     """
     Export Euler fcurves.
@@ -2185,11 +2273,13 @@ def _export_euler_curves(exporter, td, eu, targ_q, R_q=None, R_q_inv=None):
     # make the conversion if necessary. Also needed to un-conjugate pretty bone R.
     need_conversion = (targ_q and not NearEqual(targ_q.angle, 0, epsilon=0.01)) or R_q
     if need_conversion:
-        if not (len(xkeys) == len(ykeys) == len(zkeys)):
-            raise Exception("NYI: Euler bone rotations when different number of fcurve keyframes")
+        if not _curves_aligned([xkeys, ykeys, zkeys]):
+            # The channels have their own key times, but the conversion below needs
+            # x/y/z together. Put them on a common timeline. Whether this is needed
+            # must not depend on the pretty-bones display option, so resample rather
+            # than fail: a bone with a rotated rest needs the conversion regardless.
+            xkeys, ykeys, zkeys = _resample_euler_curves(exporter, td, eu)
         for xk, yk, zk in zip(xkeys, ykeys, zkeys):
-            if not all_NearEqual([xk.time, yk.time, zk.time]):
-                raise Exception("NYI: Euler bone rotations when fcurve keyframes at different times")
             euk = Euler([xk.value, yk.value, zk.value])
             quatk = euk.to_quaternion()
             if R_q:
