@@ -1,3 +1,85 @@
+# PyNifly 28.0.0 Release Notes
+
+This is a major release. Headline: **Starfield support** — PyNifly can now import and
+export Starfield meshes, materials, and facial morphs. It also fixes Fallout 4 furniture
+with compound collision (which crashed the game), corrects the placement of shapes
+skinned under an offset node, and adds **Blender 5.2** support.
+
+## New: Starfield support
+
+- **Import and export Starfield meshes.** Starfield stores geometry in external `.mesh`
+  files referenced by a `BSGeometry` block in the NIF; PyNifly reads and writes both,
+  including per-LOD meshes, tangents, and bounding volumes (vanilla conventions).
+- **Skinning.** Skinned bodies round-trip with their bones, bind transforms, and weights,
+  including meshes that use **more than 4 bone weights per vertex**. Verified in-game and
+  in the Creation Kit.
+- **Materials.** Starfield's layered materials are imported as PBR shader graphs, read
+  from a loose `.mat` file or, when there isn't one, straight from the material database
+  (`materialsbeta.cdb` — set its path in the add-on preferences). Writing `.mat` files
+  back out is available as an opt-in export option.
+- **Facial morphs.** Starfield facial `morph.dat` files import and export as Blender
+  shape keys, with expressions classified into the chargen and performance sets a custom
+  head needs for sculpting and dialogue/lip-sync. Morphs are written next to the NIF on
+  export (gated by the tri-export option).
+- Dedicated Starfield texture-path preferences, and typed property panels for the NIF
+  block types.
+
+## New: Fallout 4 furniture with compound collision works in game
+
+- **Fallout 4 furniture whose collision is a single "compound" body — the armor,
+  weapons, and cooking workbenches, and similar — now imports and exports without
+  crashing the game.** These build their collision from dozens of convex pieces plus a
+  Havok bounding-volume tree; PyNifly preserves that data faithfully on export, and sets
+  the collision body reference the engine needs (an unset reference was the crash). The
+  collision is shown in Blender as a `bhkPhysicsSystem` → `bhkCompound` group of the
+  individual shapes.
+- Editing the *geometry* of a compound collision in Blender and exporting it is not yet
+  supported (the Havok bounding tree can't be regenerated yet) — a warning is emitted if
+  you try. Re-texturing and editing the visible meshes of such a NIF is unaffected.
+
+## Bugfix: shapes skinned under an offset node were mispositioned
+
+- **A shape skinned to bones but parented under a non-identity node (common in Fallout 4
+  furniture) is now placed correctly on both import and export.** Previously the node's
+  offset was applied twice on import (the shape slid off its collision), and on export
+  the skin transforms didn't carry the offset, so the shape rendered in the wrong place
+  with skinning on (correct with skinning off) in NifSkope, Outfit Studio, and the game.
+
+## Bugfix: Fallout 4 static shapes no longer crash the game
+
+- **Static shapes that share a NIF with a skinned shape are no longer given an empty
+  skin binding.** Fallout 4 furniture often mixes a skinned mesh with static decoration;
+  exporting the static pieces with a (bone-less) skin instance crashed the game on load.
+  They now export as plain static geometry.
+
+## Faster Fallout 4 export
+
+- **Exporting dense Fallout 4 meshes is dramatically faster.** A per-vertex read of the
+  UV layer scaled badly on modern Blender (over two minutes on a ~130k-loop body); it is
+  now read in bulk, cutting that shape's export from ~120 s to ~3 s, with byte-identical
+  output.
+
+## Animation fixes (Fallout 4 / Skyrim)
+
+- **Linear rotation keys export.** Node/bone rotations stored as linear (rather than
+  quadratic) keys now export instead of failing.
+- **Rotation channels with mismatched key times are handled.** A NIF can store X/Y/Z
+  rotation as three independent curves with different key times; import and export now
+  put them on a common timeline when needed instead of mis-combining them (and the
+  spurious "Keyframes do not align" warning is gone).
+- **Node and root-node animations export.** Animations on a nif's ordinary nodes — and on
+  the root node itself — are no longer dropped or written onto the wrong bone.
+
+## New: Blender 5.2 support
+
+- **PyNifly works on Blender 5.2.** Blender 5.2 changed how geometry-node modifier inputs
+  are set, which broke collision import; fixed. The full test suite passes on 5.2 and 5.1.
+
+## Other
+
+- The convex-radius collision visualization now uses one node group per radius, so shapes
+  with different convex radii are shown correctly.
+
 # PyNifly 27.4.0 Release Notes
 
 ## Bugfix: export of nifs with many child nodes
