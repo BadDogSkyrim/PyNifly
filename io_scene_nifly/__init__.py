@@ -17,18 +17,20 @@ bl_info = {
 # below identifies which build is actually LOADED. Blender caches modules in
 # sys.modules, so a reload can leave old bytecode running while the source on
 # disk is new -- reading the file (e.g. inspect.getsource) can't tell you what
-# is really executing, but this banner can. Not the release version; it's a
-# dev-only counter and does not need to sync with blender_manifest.toml.
+# is really executing, but this banner can. Dev-only: the "build N" suffix is
+# shown only when running from a dev checkout (PYNIFLY_DEV_ROOT set), never in a
+# release install. Not the release version.
 PYN_BUILD = 13
 
 import os
 import logging
 log = logging.getLogger('pynifly')
 
-log.info(f"PyNifly version {'.'.join(map(str, bl_info['version']))} "
-         f"build {PYN_BUILD} initializing")
-
 DEBUGGING = ('PYNIFLY_DEV_ROOT' in os.environ)
+_build_tag = f" build {PYN_BUILD}" if DEBUGGING else ""
+
+log.info(f"PyNifly version {'.'.join(map(str, bl_info['version']))}"
+         f"{_build_tag} initializing")
 
 _needs_reload = "bpy" in locals()
 
@@ -258,8 +260,8 @@ def register():
     if DEBUGGING:
         osd.register()
 
-    log.info(f"PyNifly {'.'.join(map(str, bl_info['version']))} "
-             f"build {PYN_BUILD} registered")
+    log.info(f"PyNifly {'.'.join(map(str, bl_info['version']))}"
+             f"{_build_tag} registered")
 
 def unregister():
     hkx.unregister()
