@@ -50,7 +50,7 @@ COLLISION_COLOR = (0.559, 0.624, 1.0, 0.5) # Default color
 
 
 
-def _get_or_create_push_nodegroup():
+def _get_or_create_push_nodegroup(radius_bl: float):
     """Return a Geometry Nodes group that expands a convex hull by Radius.
 
     Pipeline: Extrude Mesh (individual faces, offset=Radius) → Convex Hull.
@@ -60,16 +60,21 @@ def _get_or_create_push_nodegroup():
     vertex at the intersection of the three adjacent offset face planes — the
     mathematically correct Minkowski expansion vertex.  The triangular facets
     the hull adds at original corners approximate the sphere caps.
-    The node group is created once and reused for all polytope collision objects.
+    The radius is baked into the group's Radius input default, so one group is
+    created per distinct radius and shared by all polytopes using it. (Blender 5.2
+    removed id-properties from the NODES modifier, so a per-modifier input value
+    can no longer be set with `modifier[socket.identifier] = value`; the interface
+    default drives the modifier instead, which works on every supported version.)
     """
-    name = 'bhkPushOut'
+    name = f'bhkPushOut_{radius_bl:.4f}'
     if name in bpy.data.node_groups:
         return bpy.data.node_groups[name]
     ng = bpy.data.node_groups.new(name, 'GeometryNodeTree')
     # Blender 4.0+ / 5.0 uses ng.interface rather than ng.inputs/outputs
     ng.interface.new_socket('Geometry', in_out='INPUT',  socket_type='NodeSocketGeometry')
     ng.interface.new_socket('Geometry', in_out='OUTPUT', socket_type='NodeSocketGeometry')
-    ng.interface.new_socket('Radius',   in_out='INPUT',  socket_type='NodeSocketFloat')
+    rad_socket = ng.interface.new_socket('Radius', in_out='INPUT', socket_type='NodeSocketFloat')
+    rad_socket.default_value = radius_bl
     gin  = ng.nodes.new('NodeGroupInput')
     gout = ng.nodes.new('NodeGroupOutput')
     ext  = ng.nodes.new('GeometryNodeExtrudeMesh')
@@ -85,13 +90,9 @@ def _get_or_create_push_nodegroup():
 
 def _add_collision_radius_modifiers(obj, radius_bl: float):
     """Add push + bevel modifiers to visualise convex radius expansion."""
-    ng = _get_or_create_push_nodegroup()
+    ng = _get_or_create_push_nodegroup(radius_bl)
     push = obj.modifiers.new('bhkPush', 'NODES')
     push.node_group = ng
-    for item in ng.interface.items_tree:
-        if getattr(item, 'in_out', None) == 'INPUT' and item.name == 'Radius':
-            push[item.identifier] = radius_bl
-            break
     bev = obj.modifiers.new('bhkBevel', 'BEVEL')
     bev.width = radius_bl
     bev.limit_method = 'NONE'

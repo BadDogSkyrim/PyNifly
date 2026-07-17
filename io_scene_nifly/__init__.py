@@ -19,7 +19,7 @@ bl_info = {
 # disk is new -- reading the file (e.g. inspect.getsource) can't tell you what
 # is really executing, but this banner can. Not the release version; it's a
 # dev-only counter and does not need to sync with blender_manifest.toml.
-PYN_BUILD = 12
+PYN_BUILD = 13
 
 import os
 import logging
