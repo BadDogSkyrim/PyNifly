@@ -3,6 +3,7 @@
 # Copyright © 2024, Bad Dog.
 
 import math
+import base64
 import bpy
 import bmesh
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
@@ -565,41 +566,58 @@ class CollisionHandler():
 
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
 
+        # A compound body is one rigid body whose shape is an hknpDynamicCompoundShape
+        # of N convex polytopes. To round-trip it (see pack_compound), keep each
+        # child's verts in local space and carry its instance transform on the
+        # Blender object instead of baking it into the verts -- the world placement
+        # is identical either way.
+        compound_mode = any(b.shape_type == 'compound' for b in bodies_to_import)
+
         # Flatten all bodies into leaf shapes with their transform context.
-        leaf_entries = []  # list of (leaf_shape, parentxf, apply_transform)
+        # (leaf_shape, parentxf, apply_transform, instance_xf)
+        # instance_xf (Havok BodyTransform) is set only for compound children; it
+        # becomes the object's matrix_local so export can rebuild the compound.
+        leaf_entries = []
         for body_shape in bodies_to_import:
             is_compound = body_shape.shape_type == 'compound'
             if single_body:
                 # Per-body mode.  Use node_xf to position the collision
                 # at the NIF node's world location.  Standalone shape
                 # verts don't get the body rotation applied (it's Havok
-                # simulation metadata).  Compound children carry instance
-                # transforms that DO need applying.
+                # simulation metadata).
                 body_xf = node_xf
-                apply_body = is_compound
+                apply_body = is_compound and not compound_mode
             else:
                 # Bulk mode: always apply body transform (we don't have each
                 # node's world matrix, so use import_xf for all shapes).
                 body_xf = import_xf
                 apply_body = True
 
-            leaves = []
-            def _collect(s):
-                if s.shape_type == 'compound':
-                    for child in s.children:
-                        _collect(child)
-                else:
-                    leaves.append(s)
-            _collect(body_shape)
-
-            for s in leaves:
-                leaf_entries.append((s, body_xf, apply_body))
+            if is_compound and compound_mode:
+                # Keep child verts local; the instance transform goes on the object.
+                for child in body_shape.children:
+                    leaf_entries.append((child, body_xf, False, child.transform))
+            else:
+                leaves = []
+                def _collect(s):
+                    if s.shape_type == 'compound':
+                        for child in s.children:
+                            _collect(child)
+                    else:
+                        leaves.append(s)
+                _collect(body_shape)
+                for s in leaves:
+                    leaf_entries.append((s, body_xf, apply_body, None))
 
         if not leaf_entries:
             return None
 
         multi = len(leaf_entries) > 1
 
+        # shape_parent is what the shape meshes hang off. For a compound body we
+        # insert a bhkCompound empty between the bhkPhysicsSystem (the shared
+        # packfile) and the shapes, so the grouping is explicit and the model
+        # generalizes to a system holding several bodies.
         if multi:
             container = bpy.data.objects.new("bhkPhysicsSystem", None)
             container.matrix_world = leaf_entries[0][1].copy()
@@ -608,11 +626,35 @@ class CollisionHandler():
             container['pynRigidBody'] = 'bhkPhysicsSystem'
             self.collection.objects.link(container)
             anchor = container
+            shape_parent = container
+            if compound_mode:
+                # One rigid body whose shape is a compound. Its own empty carries
+                # the compound tag + body_id so export rebuilds it via pack_compound
+                # and points the collision object's body_id at it.
+                compound_obj = bpy.data.objects.new("bhkCompound", None)
+                compound_obj.empty_display_type = 'CUBE'
+                compound_obj.empty_display_size = 0.1
+                # Not tagged pynRigidBody -- that identifies the system container.
+                # This empty is the body; export finds it as the container's child.
+                compound_obj['pynCollisionCompound'] = True
+                compound_obj['pynCollisionBodyID'] = body_id if single_body else 0
+                # Stash the original packfile bytes. Regenerating a compound would
+                # require rebuilding its Havok AABB BVH tree (hknpDynamicCompoundShapeData),
+                # which we don't do yet; preserving the bytes round-trips the collision
+                # exactly for unmodified geometry (the common case). See TODO.md.
+                _raw = ps.data
+                if _raw:
+                    compound_obj['pynPhysicsData'] = base64.b64encode(_raw).decode('ascii')
+                self.collection.objects.link(compound_obj)
+                compound_obj.parent = container
+                compound_obj.matrix_local = Matrix.Identity(4)
+                shape_parent = compound_obj
         else:
             container = None
             anchor = None
+            shape_parent = None
 
-        for i, (s, shape_xf, apply_xf) in enumerate(leaf_entries):
+        for i, (s, shape_xf, apply_xf, instance_xf) in enumerate(leaf_entries):
             _SUFFIXES = {'compressed_mesh': '_cm', 'sphere': '_sphere',
                          'polytope': '_poly'}
             if len(leaf_entries) == 1:
@@ -657,9 +699,21 @@ class CollisionHandler():
                     pyn_props.set_group(obj, 'pyn_fo4phys', collision_radius=radius_bl)
                     _add_collision_radius_modifiers(obj, radius_bl)
 
-            if container is not None:
-                obj.parent = container
-                obj.matrix_local = Matrix.Identity(4)
+            if shape_parent is not None:
+                obj.parent = shape_parent
+                if instance_xf is not None:
+                    # Compound child: its instance transform (Havok space, scaled
+                    # translation) becomes matrix_local (relative to the bhkCompound
+                    # empty, which sits at identity under the system) so it
+                    # round-trips. Verts were kept local (apply_transform=False).
+                    t = Vector((instance_xf.position[0]*sf,
+                                instance_xf.position[1]*sf,
+                                instance_xf.position[2]*sf))
+                    r = Matrix(instance_xf.rotation).to_4x4()
+                    obj.matrix_local = MatrixLocRotScale(t, r.to_quaternion(),
+                                                         Vector((1, 1, 1)))
+                else:
+                    obj.matrix_local = Matrix.Identity(4)
             else:
                 anchor = obj
 
@@ -1306,6 +1360,92 @@ class CollisionHandler():
         return body_node
 
 
+    def _export_compound_body(self, coll, targnode, flags, sf):
+        """Export a single-body compound collision (pynCollisionCompound container).
+
+        The container's child polytope meshes are the compound's instances: each
+        child's mesh verts are the polytope's local geometry and its matrix_local
+        (relative to the container) is the instance transform. Rebuilds one rigid
+        body whose shape is an hknpDynamicCompoundShape and points the collision
+        object's body_id at it.
+        """
+        from ..pyn.bhk_autounpack import PhysicsProps
+        from ..pyn.bhk_autopack import pack_compound
+        from . import pyn_props
+
+        body_id = coll.get('pynCollisionBodyID', 0)
+
+        # Preferred path: write back the original packfile bytes. Regenerating a
+        # compound needs its Havok AABB BVH tree rebuilt (not implemented yet), so a
+        # from-scratch pack would crash the game in updateAabb. Preserving the bytes
+        # round-trips unmodified collision exactly. (Editing collision geometry in
+        # Blender won't take effect until the tree builder exists -- see TODO.md.)
+        stashed = coll.get('pynPhysicsData')
+        if stashed:
+            data = base64.b64decode(stashed)
+            coll_node = targnode.add_collision(
+                None, flags=flags or 0,
+                collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
+                body_id=body_id)
+            bhkPhysicsSystem.New(self.nif, data=data, parent=coll_node)
+            return
+
+        kids = [ch for ch in coll.children
+                if ch.get('pynCollisionShapeType') == 'polytope']
+        if not kids:
+            self.warn(f"Compound collision {coll.name} has no polytope children")
+            return
+
+        # Physics props are shared by the whole body; read them off the first child.
+        ref = kids[0]
+        rb = ref.rigid_body
+        gp = pyn_props.get_group(ref, 'pyn_fo4phys')
+        is_dyn = (rb is not None and rb.type == 'ACTIVE')
+        common = dict(
+            body_props_raw=bytes.fromhex(
+                gp.material_hex or '00ff003f003fcd3e01024c3deeff7f7f'),
+            friction=rb.friction if rb else 0.5,
+            restitution=rb.restitution if rb else 0.4,
+            linear_damping=rb.linear_damping if rb else 0.1,
+            angular_damping=rb.angular_damping if rb else 0.05,
+            gravity_factor=gp.gravity_factor,
+            max_linear_velocity=gp.max_lin_vel,
+            max_angular_velocity=gp.max_ang_vel,
+        )
+        if is_dyn:
+            physics = PhysicsProps(is_dynamic=True, mass=rb.mass,
+                                   inertia=tuple(gp.inertia), **common)
+        else:
+            physics = PhysicsProps(is_dynamic=False, **common)
+
+        # Each child: local polytope geometry + its instance transform (matrix_local,
+        # relative to the compound container).
+        children = []
+        for ch in kids:
+            ml = ch.matrix_local
+            rot3 = ml.to_3x3()
+            rotation = tuple(tuple(rot3[r][c] for c in range(3)) for r in range(3))
+            translation = tuple(ml.translation[i] / sf for i in range(3))
+            verts = [tuple(v.co[i] / sf for i in range(3)) for v in ch.data.vertices]
+            faces = [list(p.vertices) for p in ch.data.polygons]
+            children.append((verts, faces, rotation, translation))
+
+        # Reached only for a compound with no preserved packfile (e.g. built from
+        # scratch in Blender). pack_compound emits the shapes but NOT the Havok AABB
+        # BVH tree, so the game crashes in hknpDynamicCompoundShape::updateAabb. Warn
+        # loudly until the tree builder exists (TODO.md).
+        self.warn(f"Compound collision {coll.name} was built without a preserved "
+                  "packfile; the exported physics has no bounding-volume tree and "
+                  "will crash the game. Regenerating compound collision is not yet "
+                  "supported.")
+        packed = pack_compound(children, physics)
+        coll_node = targnode.add_collision(
+            None, flags=flags or 0,
+            collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
+            body_id=body_id)
+        bhkPhysicsSystem.New(self.nif, data=packed, parent=coll_node)
+
+
     def export_collision_object(self, targobj, coll):
         """
         Export the given collision object. 
@@ -1331,6 +1471,21 @@ class CollisionHandler():
         if coll.get('pynRigidBody') == 'bhkPhysicsSystem':
             from ..pyn.bhk_autounpack import CollisionShape, PhysicsProps, BodyTransform
             sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
+
+            # A compound body is a bhkCompound empty (child of the system, or the
+            # collision object itself for back-compat) grouping the polytope shapes.
+            compound_obj = None
+            if coll.get('pynCollisionCompound'):
+                compound_obj = coll
+            else:
+                for ch in coll.children:
+                    if ch.get('pynCollisionCompound'):
+                        compound_obj = ch
+                        break
+            if compound_obj is not None:
+                self._export_compound_body(compound_obj, targnode, flags, sf)
+                self.objs_written.add(ReprObject(coll, targnode))
+                return
 
             _SHAPE_TYPES = ('compressed_mesh', 'polytope', 'sphere')
             # Collect the main collision object and any children that carry

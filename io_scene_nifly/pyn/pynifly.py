@@ -1364,7 +1364,7 @@ class bhkBlendCollisionObject(bhkCollisionObject):
 
 
 class NiAVObject(NiObjectNET):
-    def add_collision(self, body, flags=None, collision_type=None):
+    def add_collision(self, body, flags=None, collision_type=None, body_id=None):
         if collision_type == PynBufferTypes.bhkSPCollisionObjectBufType:
             buf = bhkSPCollisionObjectBuf()
         elif collision_type == PynBufferTypes.bhkPCollisionObjectBufType:
@@ -1377,7 +1377,14 @@ class NiAVObject(NiObjectNET):
             buf = bhkCollisionObjectBuf()
         if flags is not None: buf.flags = flags
         buf.targetID = self.id
-        if collision_type != PynBufferTypes.bhkNPCollisionObjectBufType:
+        if collision_type == PynBufferTypes.bhkNPCollisionObjectBufType:
+            # bodyID indexes the shared bhkPhysicsSystem's body array. It defaults
+            # to a sentinel; leaving it unset makes the engine dereference a bad
+            # index in bhkNPCollisionObject::CreateInstance and crash, so the
+            # caller must pass the body this node uses.
+            if body_id is not None:
+                buf.bodyID = body_id
+        else:
             buf.bodyID = NODEID_NONE
             if body: buf.bodyID = body.id
         new_coll = NiCollisionObject.New(file=self.file, properties=buf, parent=self)

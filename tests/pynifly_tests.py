@@ -4923,6 +4923,53 @@ def TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP():
     assert TT.is_eq(reimported[1].shape_type, 'polytope', "Reimported shape 1 is polytope")
 
 
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_COMPOUND_ROUNDTRIP():
+    """pack_compound round-trips the vanilla armor workbench's compound body.
+
+    The workbench collision is one rigid body whose shape is an
+    hknpDynamicCompoundShape of 36 convex polytopes. The decoder produces a
+    'compound' CollisionShape with 36 children carrying per-instance transforms;
+    pack_compound must produce a single-body compound the decoder reads back
+    identically (geometry + each instance's rotation and translation).
+    """
+    from pyn.bhk_autopack import pack_compound
+    from pyn.bhk_autounpack import parse_bytes
+
+    nif = NifFile(r"tests/FO4/WorkstationArmorB01.nif")
+    ps = nif.nodes['WorkstationArmor'].collision_object.physics_system
+    shapes = parse_bytes(ps.data)
+
+    compounds = [s for s in shapes if s.shape_type == 'compound']
+    assert TT.is_eq(len(compounds), 1, "vanilla decodes to one compound body")
+    src = compounds[0]
+    assert TT.is_eq(len(src.children), 36, "compound has 36 children")
+
+    children = [(c.verts, c.faces,
+                 c.transform.rotation if c.transform else None,
+                 c.transform.position if c.transform else (0, 0, 0))
+                for c in src.children]
+
+    packed = pack_compound(children)
+    assert TT.is_gt(len(packed), 0, "pack_compound produced non-empty bytes")
+
+    out = parse_bytes(packed)
+    out_comp = [s for s in out if s.shape_type == 'compound']
+    assert TT.is_eq(len(out_comp), 1, "packed bytes decode to one compound body")
+    assert TT.is_eq(len(out_comp[0].children), 36, "round-trip keeps 36 children")
+
+    for a, b in zip(src.children, out_comp[0].children):
+        assert TT.is_eq(len(a.verts), len(b.verts), "child vert count preserved")
+        for va, vb in zip(a.verts, b.verts):
+            assert TT.is_equiv(list(va), list(vb), "child vertex preserved", e=0.001)
+        pa = a.transform.position if a.transform else (0, 0, 0)
+        pb = b.transform.position if b.transform else (0, 0, 0)
+        assert TT.is_equiv(list(pa), list(pb), "instance translation preserved", e=0.001)
+        if a.transform and b.transform:
+            for ra, rb in zip(a.transform.rotation, b.transform.rotation):
+                assert TT.is_equiv(list(ra), list(rb), "instance rotation preserved", e=0.001)
+
+
 def TEST_TRIANGULATE():
     """Test minimum-angle ear clipping triangulation, writing each result to a NIF."""
     from pyn.triangulate import triangulate

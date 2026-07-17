@@ -1489,85 +1489,77 @@ def _import_transform_data(td:NiTransformData,
             curveZ = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_euler", index=2)
             _add_actionslot(importer.action_target, curveX)
 
-            if all_equal([len(td.xrotations), len(td.yrotations), len(td.zrotations)]):
-                x_bezier = (td.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY)
-                y_bezier = (td.properties.yRotations.interpolation == NiKeyType.QUADRATIC_KEY)
-                z_bezier = (td.properties.zRotations.interpolation == NiKeyType.QUADRATIC_KEY)
-                x_rot = 'BEZIER' if x_bezier else 'LINEAR'
-                y_rot = 'BEZIER' if y_bezier else 'LINEAR'
-                z_rot = 'BEZIER' if z_bezier else 'LINEAR'
-                apply_tangents = not (have_parent_rotation or pretty_R_q)
-                nkeys = len(td.xrotations)
-                for idx, (x, y, z) in enumerate(zip(td.xrotations, td.yrotations, td.zrotations)):
-                    # In theory the X/Y/Z dimensions do not have to have key frames at
-                    # the same time signatures. But an Euler rotation needs all 3.
-                    # Probably they will all line up because generating them any other
-                    # way is surely hard. So hope for that and post a warning if not.
-                    if not all_NearEqual([x.time, y.time, z.time]):
-                        importer.warn(f"Keyframes do not align for '{importer.path_name}. Animations may be incorrect.")
+            x_bezier = (td.properties.xRotations.interpolation == NiKeyType.QUADRATIC_KEY)
+            y_bezier = (td.properties.yRotations.interpolation == NiKeyType.QUADRATIC_KEY)
+            z_bezier = (td.properties.zRotations.interpolation == NiKeyType.QUADRATIC_KEY)
 
-                    # Need to apply the parent rotation. If we stay in Eulers, we may
-                    # have gimbal lock. If we convert to quaternions, we may lose the
-                    # distinction between +180 and -180, which are different things
-                    # for animations. So only apply the parent rotation if there is
-                    # one; in those cases we're just hoping it comes out right.
-                    ve = Euler(Vector((x.value, y.value, z.value)), 'XYZ')
-                    if have_parent_rotation or pretty_R_q:
-                        kq = ve.to_quaternion()
-                        vq = qinv @ kq
-                        if pretty_R_q:
-                            vq = pretty_R_q_inv @ vq @ pretty_R_q
-                        ve = vq.to_euler()
-                    kx = curveX.keyframe_points.insert(x.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[0])
-                    kx.interpolation = x_rot
-                    ky = curveY.keyframe_points.insert(y.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[1])
-                    ky.interpolation = y_rot
-                    kz = curveZ.keyframe_points.insert(z.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, ve[2])
-                    kz.interpolation = z_rot
+            # The X/Y/Z rotation channels are independent unless a base (parent) or
+            # pretty-bone rotation has to be applied -- that combines the three
+            # through a quaternion, which needs all three sampled at the same
+            # instant. When no such rotation applies, import each channel on its own
+            # key times: correct for any per-channel key count or misalignment,
+            # since Blender evaluates the three fcurves independently.
+            need_conversion = have_parent_rotation or pretty_R_q
 
-                    if apply_tangents:
-                        xprev = td.xrotations[idx-1] if idx > 0 else None
-                        xnext = td.xrotations[idx+1] if idx < nkeys-1 else None
-                        yprev = td.yrotations[idx-1] if idx > 0 else None
-                        ynext = td.yrotations[idx+1] if idx < nkeys-1 else None
-                        zprev = td.zrotations[idx-1] if idx > 0 else None
-                        znext = td.zrotations[idx+1] if idx < nkeys-1 else None
-                        if x_bezier:
-                            kx.handle_left_type = "FREE"
-                            kx.handle_right_type = "FREE"
-                            kx.handle_left, kx.handle_right = importer._key_nif_to_blender(xprev, x, xnext)
-                        if y_bezier:
-                            ky.handle_left_type = "FREE"
-                            ky.handle_right_type = "FREE"
-                            ky.handle_left, ky.handle_right = importer._key_nif_to_blender(yprev, y, ynext)
-                        if z_bezier:
-                            kz.handle_left_type = "FREE"
-                            kz.handle_right_type = "FREE"
-                            kz.handle_left, kz.handle_right = importer._key_nif_to_blender(zprev, z, znext)
-
-                    importer.start_time = min(importer.start_time, x.time, y.time, z.time)
-                    importer.end_time = max(importer.end_time, x.time, y.time, z.time)
-                    
+            if not need_conversion:
+                for curve, keys, is_bezier in ((curveX, list(td.xrotations), x_bezier),
+                                               (curveY, list(td.yrotations), y_bezier),
+                                               (curveZ, list(td.zrotations), z_bezier)):
+                    for idx, k in enumerate(keys):
+                        kp = curve.keyframe_points.insert(
+                            k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, k.value)
+                        kp.interpolation = 'BEZIER' if is_bezier else 'LINEAR'
+                        if is_bezier:
+                            prev = keys[idx-1] if idx > 0 else None
+                            nxt = keys[idx+1] if idx < len(keys)-1 else None
+                            kp.handle_left_type = "FREE"
+                            kp.handle_right_type = "FREE"
+                            kp.handle_left, kp.handle_right = \
+                                importer._key_nif_to_blender(prev, k, nxt)
+                        importer.start_time = min(importer.start_time, k.time)
+                        importer.end_time = max(importer.end_time, k.time)
             else:
-                # This method of getting the inverse of the Euler doesn't always
-                # work, maybe because of gimbal lock.
-                ve = tiq.to_euler()
+                # Resample all three channels onto the union of their key times so
+                # the quaternion conversion sees a consistent rotation at each key.
+                # For already-aligned channels the union is just the original times
+                # (no interpolation). Tangents are not carried through the
+                # conversion (as before) -- resampled keys are linear.
+                xk, yk, zk = list(td.xrotations), list(td.yrotations), list(td.zrotations)
 
-                for i, k in enumerate(td.xrotations):
-                    val = k.value - ve[0]
-                    curveX.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, val)
-                    importer.start_time = min(importer.start_time, k.time)
-                    importer.end_time = max(importer.end_time, k.time)
-                for i, k in enumerate(td.yrotations):
-                    val = k.value - ve[1]
-                    curveY.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, val)
-                    importer.start_time = min(importer.start_time, k.time)
-                    importer.end_time = max(importer.end_time, k.time)
-                for i, k in enumerate(td.zrotations):
-                    val = k.value - ve[2]
-                    curveZ.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, val)
-                    importer.start_time = min(importer.start_time, k.time)
-                    importer.end_time = max(importer.end_time, k.time)
+                def _sample(keys, t):
+                    if not keys:
+                        return 0.0
+                    if t <= keys[0].time:
+                        return keys[0].value
+                    if t >= keys[-1].time:
+                        return keys[-1].value
+                    for i in range(1, len(keys)):
+                        if keys[i].time >= t:
+                            k0, k1 = keys[i-1], keys[i]
+                            span = k1.time - k0.time
+                            f = (t - k0.time) / span if span else 0.0
+                            return k0.value + f * (k1.value - k0.value)
+                    return keys[-1].value
+
+                frames = sorted({round(k.time, 6) for k in xk}
+                                | {round(k.time, 6) for k in yk}
+                                | {round(k.time, 6) for k in zk})
+                for t in frames:
+                    ve = Euler(Vector((_sample(xk, t), _sample(yk, t), _sample(zk, t))), 'XYZ')
+                    vq = qinv @ ve.to_quaternion()
+                    if pretty_R_q:
+                        vq = pretty_R_q_inv @ vq @ pretty_R_q
+                    ve = vq.to_euler()
+                    fr = t * (importer.fps * ANIMATION_TIME_ADJUST) + 1
+                    for curve, val, is_bezier in ((curveX, ve[0], x_bezier),
+                                                  (curveY, ve[1], y_bezier),
+                                                  (curveZ, ve[2], z_bezier)):
+                        kp = curve.keyframe_points.insert(fr, val)
+                        # Match the channel's key type. Tangents are auto (the
+                        # conversion doesn't carry the nif's), as before.
+                        kp.interpolation = 'BEZIER' if is_bezier else 'LINEAR'
+                    importer.start_time = min(importer.start_time, t)
+                    importer.end_time = max(importer.end_time, t)
     
     elif td.properties.rotationType in [NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY]:
         if td.properties.rotationType == NiKeyType.LINEAR_KEY:

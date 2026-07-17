@@ -53,56 +53,105 @@ export, read back: `co.body_id == 0xFFFFFFFF`, `physics_system.geometry` = 36 po
 shapes instead of 1 compound. Vanilla via `NifFile`: body_id=0, geometry=1 compound
 (36 children), packfile has `hknpConvexPolytopeShape`=1 + `hknpPhysicsSystemData`=1.
 
-## Euler rotation import: misaligned X/Y/Z keyframe times
+## Euler rotation import: misaligned X/Y/Z keyframe times — DONE
 
-**Status:** partially addressed 2026-07-15. **Export side is DONE** — see "2." below;
-`_export_euler_curves` now resamples misaligned channels onto the union of their key
-times (`_resample_euler_curves`), so export no longer raises and no longer depends on
-the `rotate_bones_pretty` display option. Test: `TEST_FO4_EULER_CURVES_UNALIGNED`.
-**Still open: the import-side warning (1.)** — the junk key times below.
+**Status:** RESOLVED 2026-07-16 (both export and import).
 
-Importing vanilla `Meshes/Furniture/Workstations/WorkbenchArmor/WorkstationArmorB01.nif`
-warns twice:
+**Export** (`_export_euler_curves`): resamples misaligned channels onto the union of
+their key times (`_resample_euler_curves`) before the quaternion conversion, so export
+no longer raises "NYI: keyframes at different times" and no longer depends on the
+`rotate_bones_pretty` display option. Test `TEST_FO4_EULER_CURVES_UNALIGNED`.
 
-```
-WARNING: Keyframes do not align for 'pose.bones["WorkstationArmorSpindleBone"]. Animations may be incorrect.
-WARNING: Keyframes do not align for 'pose.bones["WorkstationArmorGearBBone"]. Animations may be incorrect.
-```
+**Import** (`_import_transform_data`): restructured. The three Euler channels are
+independent unless a base (parent) or pretty-bone rotation must be applied — that
+combines them through a quaternion, which needs all three at the same instant.
+- `not need_conversion`: import each channel on its own key times (with tangents).
+  Correct for any per-channel count/alignment — Blender evaluates the fcurves
+  independently. This replaced the old zip-by-index equal-count branch.
+- `need_conversion`: resample all three onto the union of their key times, then combine
+  and convert (mirrors export). Per-channel key type (BEZIER/LINEAR) preserved.
+The old "Keyframes do not align" warning is **removed** — obsolete now that both paths
+handle misalignment. Also fixes the pre-existing `zip()`-truncation bug on genuinely
+different per-channel counts (e.g. SuperSpraySmoke 5/5/4) and the mis-combine of
+misaligned channels under a parent/pretty rotation.
 
-Source: `io_scene_nifly/nif/controller.py:1482`. An XYZ_ROTATION_KEY (`rotationType=4`)
-`NiTransformData` needs all 3 Euler channels to share time signatures; the importer zips
-them index-wise and warns when they don't line up. Two **separate** problems hide behind
-that one warning:
+**Still latent (minor):** the `-447392.4375` junk key times (vanilla garbage on lone
+constant keys, confirmed real not a misread) still produce keyframes at frame ~-10.7M
+and now, post-resample, one such key per channel. Harmless (value 0, constant), but see
+the next item for the planned cleanup.
 
-**1. Garbage key times on single-key channels (the warning above).** Both bones have
-`numKeys=1` on all 3 channels, all **values 0.0**, but some channel times come back as
-**-447392.4375** (bits `0e74dac8`) — identical across both bones and channels, so it's
-deterministic, not random uninit:
+## FO4 compound collision: regenerate the BVH tree (currently preserved)
 
-| bone | x (time, value) | y | z |
-|---|---|---|---|
-| GearBBone | (0.0, -0.0) | (**-447392.4375**, 0.0) | (**-447392.4375**, 0.0) |
-| SpindleBone | (**-447392.4375**, -0.0) | (**-447392.4375**, -0.0) | (0.0, 0.0) |
+**Status:** open (2026-07-17). Compound export currently PRESERVES the original
+packfile (byte-identical) rather than regenerating it — see below. This item is to
+finish true regeneration so edited/new compound collisions can be exported.
 
-Not cosmetic: each channel inserts its keyframe at *its own* time
-(`controller.py:1496-1500`, `x.time * fps * ANIMATION_TIME_ADJUST + 1`), so we plant
-keyframes at a wildly negative frame. Two hypotheses, undecided — needs a raw-bytes read
-of the block to settle:
-- **Vanilla junk:** a single key is a constant, so the engine likely never reads its time,
-  and the exporter left garbage. Plausible and harmless in-game — but we should sanitize
-  (a lone key belongs at the animation start, not frame -447392).
-- **PyNifly misread:** wrong offset/stride for LINEAR (`interp=1`) keys in this block.
-  Note the two clean bones nearby use `interp=2` (QUADRATIC) and read fine (times 0.0/38.8).
+**Context:** An FO4 `hknpDynamicCompoundShape` (armor/weapons/cooking workbenches,
+BOSRadarDish, etc.) is one rigid body whose shape is a compound of N convex polytopes.
+The compound object is **0xD0 bytes** (not 0x70) and carries, after the templated
+header: an AABB min (+0x80 vec4) / max (+0x90 vec4), and at +0xC0 a global-fixup
+pointer to a separate **`hknpDynamicCompoundShapeData`** object. That Data object holds
+the **bounding-volume BVH tree** — for the armor bench, 73 nodes × 32 bytes over 36
+leaves. Node layout: `min(vec3,12) + field(4) + max(vec3,12) + link(u16,u16 at +0x1C)`
+where the link encodes child/leaf references (e.g. `02 00 23 00`, `03 00 14 00`). The
+engine walks this tree in `hknpDynamicCompoundShape::updateAabb` at load; without it
+(or with garbage where the +0xC0 pointer should be) it dereferences bad memory and
+crashes. `pack_compound` (bhk_autopack.py) emits the header + instances + polytopes but
+NOT the 0x80-0xD0 bounding region or the Data/tree — so a from-scratch pack crashes the
+game. `_export_compound_body` warns and refuses in that case.
 
-**2. Genuinely different key counts per channel (separate bug, same file).**
-`SuperSpraySmoke003-Emitter` has `nkeys x=5 y=5 z=4`. Here the channels really do have
-different time signatures, which the code's own comment admits is legal but hopes never
-happens. `zip()` silently truncates to the shortest channel — so we drop a key and pair
-mismatched times (`[1] x=0.5333 y=0.5333 z=1.4667`). Correct fix is to resample the three
-channels onto a common timeline rather than zipping by index.
+**Current preserve approach (shipped):** import stashes the raw packfile (base64) on the
+`bhkCompound` empty as `pynPhysicsData` plus `pynCollisionBodyID`; export writes those
+bytes back verbatim and sets body_id. Byte-identical to vanilla, loads in game. The
+two-level `bhkPhysicsSystem -> bhkCompound -> polytopes` hierarchy is still built for
+viewing, but editing collision **geometry** in Blender does not round-trip (the stashed
+bytes win). Test `TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP` asserts byte-identical + tree
+present. `pack_compound` and its round-trip test (`TEST_FO4_COMPOUND_ROUNDTRIP`) remain
+as the geometry-packing half, ready for when the tree is added.
 
-Dodged in `TEST_FO4_SKINNED_UNDER_NODE` with `import_animations=False`. See
-[project_skinned_under_node](memory).
+**To finish (regenerate):**
+1. Decode the node link encoding (the `(u16,u16)` at node +0x1C) and the tree's
+   traversal/escape-index scheme. Compare across the 3 vanilla benches (36/33/11 leaves).
+2. Implement BVH construction over the N instance AABBs (median-split/SAH) emitting that
+   node format + the `hknpDynamicCompoundShapeData` object + the compound's +0x80/+0x90
+   AABB and +0xC0 pointer (global fixup). Add `hknpDynamicCompoundShapeData` to the
+   compound classnames (hash `0xF33DC3CC`).
+3. Also revisit `+0x10` (0x02060004 for the benches, 0x02040004 for the 11-leaf stove) —
+   likely encodes tree depth/node count; derive it rather than templating.
+4. Switch `_export_compound_body` to regenerate when geometry changed (keep preserve as
+   the fast path for unmodified collision).
+
+**START HERE — reuse the Skyrim MOPP tree code (Bad Dog's tip, 2026-07-17):** we already
+BUILD BVH bytecode for Skyrim MOPP collisions (`bhkMoppBvTreeShape` — see the MOPP
+compiler and `project_mopp_export`/`project_mopp_output_id_encoding` memories, and the
+`TEST_MOPP_*` pyn tests). The FO4 hknp compound tree format is probably NOT identical but
+very likely similar (both are AABB BVHs over collision shapes). Diff the two node formats
+first; the MOPP builder's spatial-partition logic may port directly.
+
+## Constrain imported key times to the animation's time frame
+
+**Status:** open (idea from Bad Dog, 2026-07-16).
+
+An animation/controller has a defined time range (start_time/stop_time on the
+NiTransformController, and the importer already tracks `importer.start_time` /
+`importer.end_time`). Some vanilla keys carry times far outside that range — most
+visibly the `-447392.4375` junk times on the armor workbench's lone constant keys, which
+land at blender frame ~-10.7M and pollute the timeline (see the item above).
+
+**Idea:** clamp/constrain imported key times to the animation's own time frame. A key
+whose time falls outside [start, stop] is either garbage (a lone constant key, where the
+time is meaningless) or out-of-range noise; snapping it into range keeps the fcurve
+timeline sane without changing the animation (a constant channel is unaffected, and
+in-range keys are untouched).
+
+**Where:** `_import_transform_data` in `io_scene_nifly/nif/controller.py` (and the sibling
+key-import paths — translations, quaternion, float). The controller's start/stop times
+are available at import; a lone key could simply be placed at the start.
+
+**Care:** don't distort genuine multi-key animations — only clamp keys that are actually
+out of the controller's declared range, and be sure a legitimately short animation isn't
+mistaken for garbage. Add a test with the workbench asserting no imported key lands
+before frame 0 (or the animation start).
 
 ## Starfield `.mat` writer must be diff-only (don't clobber inherited fields)
 

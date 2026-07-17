@@ -261,6 +261,21 @@ _CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0xE9191728, 'hknpShapeMassProperties'),
 ]
 
+# Class entries for a single-body compound (one hknpDynamicCompoundShape whose
+# instances reference N hknpConvexPolytopeShapes). Same as the polytope set plus
+# the compound class. Kept separate so the existing packers' output is unchanged.
+_COMPOUND_CLASS_ENTRIES: List[Tuple[int, str]] = [
+    (0x33D42383, 'hkClass'),
+    (0xB0EFA719, 'hkClassMember'),
+    (0x8A3609CF, 'hkClassEnum'),
+    (0xCE6F8A6C, 'hkClassEnumItem'),
+    (0xB857718B, 'hknpPhysicsSystemData'),
+    (0x4620D11C, 'hknpDynamicCompoundShape'),
+    (0x3CE9B3E3, 'hknpConvexPolytopeShape'),
+    (0x7C574867, 'hkRefCountedProperties'),
+    (0xE9191728, 'hknpShapeMassProperties'),
+]
+
 # Class entries for sphere shape packfiles.
 _SPHERE_CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0x33D42383, 'hkClass'),
@@ -1225,6 +1240,17 @@ def _build_classnames_mixed() -> Tuple[bytes, Dict[str, int]]:
     return data, name_offs
 
 
+def _build_classnames_compound() -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for a single-body compound packfile."""
+    data = b''
+    name_offs: Dict[str, int] = {}
+    for hash_val, name in _COMPOUND_CLASS_ENTRIES:
+        name_offs[name] = len(data) + 5   # 4-byte hash + 1-byte flag
+        data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
+    data = _pad16(data, fill=0xFF)
+    return data, name_offs
+
+
 def _build_classnames_sphere() -> Tuple[bytes, Dict[str, int]]:
     """Build __classnames__ section for a sphere shape packfile."""
     data = b''
@@ -1413,6 +1439,180 @@ def pack_mixed(cm_shape, poly_shape, physics=None) -> bytes:
 
 
 # ── Multi-body polytope data section builder ─────────────────────────────────
+
+# hknpShape::m_userData (uint64 at +0x18). Application data Bethesda sets to a
+# per-file value shared by a compound and all its children -- the engine does not
+# interpret it. Vanilla differs per file (064003D4 / 2A1A6690 / B26A84C5); the
+# existing convex-polytope template (_CONVEX_HDR +0x18) ships 0x7DFA6E05, which
+# ships and works in game. We reuse that so the compound and its children agree,
+# matching vanilla's invariant that they share one value.
+_SHAPE_USER_DATA = 0x7DFA6E05
+
+# hknpDynamicCompoundShape header (0x70 bytes), templated from vanilla
+# WorkstationArmorB01. Opaque except: the instance hkArray at +0x60 (ptr via local
+# fixup, size/cap patched per pack); m_userData at +0x18 (set below to match the
+# children); and +0x10 (0x02060004) an opaque flag that matches both vanilla
+# workbenches (the 11-shape cooking stove uses 0x02040004).
+_COMPOUND_HEADER = bytearray.fromhex(
+    "00000000000000000000000000000000"   # +0x00
+    "04000602000000000000000000000000"   # +0x10  (+0x18 = m_userData, patched below)
+    "00000000000000000000000000000000"   # +0x20
+    "ffffffff000000000000000000000000"   # +0x30
+    "00000000000000800000000000000000"   # +0x40  (empty hkArray)
+    "0000000000000080ffffffff00000000"   # +0x50  (empty hkArray, +0x58 sentinel)
+    "00000000000000000000000000000000"   # +0x60  (instance hkArray, patched)
+)
+struct.pack_into('<Q', _COMPOUND_HEADER, 0x18, _SHAPE_USER_DATA)
+_COMPOUND_HEADER = bytes(_COMPOUND_HEADER)
+assert len(_COMPOUND_HEADER) == 0x70
+
+
+def _build_compound_instance(rotation, translation) -> bytes:
+    """One hknpDynamicCompoundShape instance (0x80 bytes).
+
+    rotation is a row-major 3x3; Havok stores it as three column vectors. The
+    w-lane of each row and the +0x40 vector are constant metadata the decoder
+    ignores (templated from vanilla). The shape pointer at +0x50 is left null for
+    a global fixup to patch.
+    """
+    b = bytearray(0x80)
+
+    def col(j):
+        return (rotation[0][j], rotation[1][j], rotation[2][j])
+
+    struct.pack_into('<3f', b, 0x00, *col(0)); struct.pack_into('<f', b, 0x0C, 0.5)
+    struct.pack_into('<3f', b, 0x10, *col(1)); struct.pack_into('<f', b, 0x1C, 0.0)
+    struct.pack_into('<3f', b, 0x20, *col(2)); struct.pack_into('<f', b, 0x2C, 0.5)
+    struct.pack_into('<3f', b, 0x30, *translation); struct.pack_into('<f', b, 0x3C, 0.5)
+    struct.pack_into('<4f', b, 0x40, 1.0, 1.0, 1.0, 1.0)
+    # +0x50: shape pointer (global fixup patches it)
+    struct.pack_into('<I', b, 0x58, 0xFFFFFFFF)
+    return bytes(b)
+
+
+_IDENT3 = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
+
+def _build_compound_data_section(
+        children, name_offs: Dict[str, int],
+        physics=None) -> Tuple[bytes, '_FixupBuilder']:
+    """Build the __data__ section for a single-body compound packfile.
+
+    One rigid body whose shape is an hknpDynamicCompoundShape referencing N
+    hknpConvexPolytopeShape children, each placed by a per-instance transform.
+
+    children: list of (verts, faces, rotation3x3, translation) tuples. rotation
+    and translation are in Havok space; translation already divided by the
+    collision scale factor.
+    """
+    N = len(children)
+    assert N >= 1
+
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    def rel():
+        return len(data)
+
+    def write(b):
+        off = len(data)
+        data.extend(b)
+        return off
+
+    def align16():
+        while len(data) % 16:
+            data.append(0)
+
+    # ── PSD prefix: one body (body_props/BodyCInfo/ShapeEntry all size 1) ──
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics, num_bodies=1)
+
+    # ── hknpDynamicCompoundShape (the single body's shape) ──
+    comp_rel = write(_COMPOUND_HEADER)
+    fx.add_virtual(comp_rel, 0, name_offs['hknpDynamicCompoundShape'])
+    fx.add_global(body_cinfo_rel + 0x00, 2, comp_rel)   # BodyCInfo.shape → compound
+    fx.add_global(shape_entry_rel + 0x00, 2, comp_rel)  # ShapeEntry.shape → compound
+    struct.pack_into('<I', data, comp_rel + 0x68, N)                 # instance count
+    struct.pack_into('<I', data, comp_rel + 0x6C, 0x80000000 | N)    # capacity flags
+    align16()
+
+    # ── Instance array (N × 0x80) ──
+    inst_arr_rel = rel()
+    fx.add_local(comp_rel + 0x60, inst_arr_rel)         # compound → instance array
+    inst_rels = []
+    for (_verts, _faces, rot, trans) in children:
+        inst_rels.append(write(_build_compound_instance(rot or _IDENT3, trans)))
+    align16()
+
+    # ── Polytope child shapes (one per instance) ──
+    for i, (verts, faces, _rot, _trans) in enumerate(children):
+        shape_rel = rel()
+        write(_build_convex_polytope_shape(verts, faces))
+        align16()
+        fx.add_virtual(shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
+        fx.add_global(inst_rels[i] + 0x50, 2, shape_rel)  # instance → its polytope
+
+        refprop_rel = rel()
+        write(_REF_COUNTED_PROPS)
+        fx.add_virtual(refprop_rel, 0, name_offs['hkRefCountedProperties'])
+        fx.add_local(refprop_rel + 0x00, refprop_rel + 0x10)
+        fx.add_global(shape_rel + 0x20, 2, refprop_rel)
+        align16()
+
+        massprop_rel = rel()
+        write(_SHAPE_MASS_PROPS)
+        fx.add_global(refprop_rel + 0x10, 2, massprop_rel)
+        fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
+        align16()
+
+    return bytes(data), fx
+
+
+def pack_compound(children, physics=None) -> bytes:
+    """Pack a single-body compound: one rigid body whose shape is an
+    hknpDynamicCompoundShape of N convex-polytope instances.
+
+    children: list of (verts, faces, rotation3x3, translation). This is the
+    inverse of the "compound" CollisionShape the decoder produces; it round-trips
+    the FO4 armor/weapons workbenches, whose collision is one such compound body.
+    """
+    if not children:
+        raise ValueError("pack_compound requires at least one child shape")
+
+    cn_data, name_offs = _build_classnames_compound()
+    cn_name_off = name_offs['hknpPhysicsSystemData']
+
+    obj_data, fx = _build_compound_data_section(children, name_offs, physics=physics)
+
+    local_tbl = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl = fx.build_virtual_table()
+
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
+    cn_start = 0x100
+    cn_end = cn_start + len(cn_data)
+    data_start = cn_end
+    local_fix_abs = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs + len(local_tbl)
+    virt_fix_abs = global_fix_abs + len(global_tbl)
+    data_end = virt_fix_abs + len(virt_tbl)
+
+    hdr = _file_header(cn_name_off)
+    shdr0 = _section_header(
+        '__classnames__', cn_start,
+        local_fix=cn_start + len(cn_data), global_fix=cn_start + len(cn_data),
+        virt_fix=cn_start + len(cn_data), exports=cn_start + len(cn_data))
+    shdr1 = _section_header(
+        '__types__', cn_end,
+        local_fix=cn_end, global_fix=cn_end, virt_fix=cn_end, exports=cn_end)
+    shdr2 = _section_header(
+        '__data__', data_start,
+        local_fix=local_fix_abs, global_fix=global_fix_abs,
+        virt_fix=virt_fix_abs, exports=data_end)
+
+    return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
+
 
 def _build_multi_poly_data_section(
         poly_pairs: List[Tuple[List[Vert3], List[Face]]],

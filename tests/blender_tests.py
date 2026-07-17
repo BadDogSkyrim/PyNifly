@@ -416,6 +416,26 @@ def TEST_FO4_SKINNED_UNDER_NODE():
     assert TT.is_lt(abs(max(p.y for p in mesh_pts) - max(p.y for p in coll_pts)), 10,
                     "max Y of all meshes is near max Y of all collisions")
 
+    # Export and check the skin frame. A shape skinned under the non-identity
+    # 'WorkstationArmor' node must fold that node's offset into global-to-skin, or
+    # the skinned placement diverges from the unskinned one (NifSkope/the engine
+    # render the shape offset when skinning is on). The node sits at ~(27.85, 36.81),
+    # so global-to-skin is its negation -- matching vanilla.
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_SKINNED_UNDER_NODE.nif")
+    BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+    try:
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    except RuntimeError as e:
+        assert "unweighted vertices" in str(e), f"unexpected export error: {e}"
+
+    src = pyn.NifFile(testfile)
+    dst = pyn.NifFile(outfile)
+    for sn in ('WorkstationArmor:0', 'WorkstationArmor:1'):
+        vg2s = [s for s in src.shapes if s.name == sn][0].global_to_skin
+        eg2s = [s for s in dst.shapes if s.name == sn][0].global_to_skin
+        assert TT.is_equiv(list(eg2s.translation), list(vg2s.translation),
+                           f"{sn} exported global-to-skin matches vanilla", e=0.1)
+
 
 @TT.category('FO4', 'ANIMATION')
 @TT.expect_errors(("Keyframes do not align",
@@ -465,7 +485,10 @@ def TEST_FO4_LINEAR_ROTATION_KEYS():
                     f"junk-time key is on a known linear bone: {fc.data_path}"
                 k.co.x = 1
                 moved += 1
-    assert TT.is_eq(moved, 4, "normalized the junk-time linear keys")
+    # Import now resamples misaligned channels onto their common timeline (both
+    # the junk time and 0), so all three channels of each of the two bones carry a
+    # junk-time key: 3 channels x 2 bones = 6.
+    assert TT.is_eq(moved, 6, "normalized the junk-time linear keys")
 
     # Export just the armature and the shapes skinned to it. (Exporting the whole
     # workbench reports unweighted verts on the unskinned shapes -- unrelated.)
@@ -489,9 +512,14 @@ def TEST_FO4_LINEAR_ROTATION_KEYS():
                            ('zRotations', td.zrotations)):
             assert TT.is_eq(getattr(td.properties, chan).interpolation,
                             pyn.NiKeyType.LINEAR_KEY, f"{bone} {chan} stayed linear")
-            assert TT.is_eq(len(keys), 1, f"{bone} {chan} key count")
-            assert TT.is_equiv(keys[0].time, 0.0, f"{bone} {chan} key time", e=0.001)
-            assert TT.is_equiv(keys[0].value, 0.0, f"{bone} {chan} key value", e=0.001)
+            # Constant no-op rotation: one or more linear keys, all at the animation
+            # start with value 0. (Count isn't pinned -- resampling the misaligned
+            # channels onto their common timeline can leave more than one key, all
+            # equal.)
+            assert TT.is_gt(len(keys), 0, f"{bone} {chan} has keys")
+            for k in keys:
+                assert TT.is_equiv(k.time, 0.0, f"{bone} {chan} key time", e=0.001)
+                assert TT.is_equiv(k.value, 0.0, f"{bone} {chan} key value", e=0.001)
 
 
 @TT.category('FO4', 'ANIMATION')
@@ -7494,6 +7522,59 @@ def TEST_COLLISION_FO4_GEARDOOR():
     assert kzs, "VltGearKeySupport has child meshes"
     assert find_covering_collision(kxs, kys, kzs), \
         f"No collision covers VltGearKeySupport mesh z={min(kzs):.0f}..{max(kzs):.0f}"
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("Keyframes do not align",
+                   "Some vertices are not weighted to the armature",
+                   "Could not find materials file",))
+def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
+    """A single-body compound collision round-trips and stays loadable in game.
+
+    The vanilla armor workbench's collision is one rigid body whose shape is an
+    hknpDynamicCompoundShape of 36 convex polytopes (referenced by body_id 0),
+    plus a hknpDynamicCompoundShapeData bounding-volume BVH tree. PyNifly used to
+    flatten it to 36 sibling meshes and re-export it as 36 separate bodies with an
+    unset body_id (0xFFFFFFFF) -> crash in bhkNPCollisionObject::CreateInstance.
+
+    Import now groups the polytopes under a two-level bhkPhysicsSystem ->
+    bhkCompound hierarchy (each child carrying its instance transform) for viewing,
+    and stashes the original packfile. Export writes that packfile back verbatim
+    and sets body_id -- so the collision (including the BVH tree the engine's
+    updateAabb walks) is byte-identical to vanilla. Regenerating the tree from
+    Blender geometry is future work (see TODO.md).
+    """
+    testfile = TTB.test_file(r"tests\FO4\WorkstationArmorB01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, import_animations=False)
+
+    system = bpy.data.objects['bhkPhysicsSystem']
+    compound = bpy.data.objects['bhkCompound']
+    assert TT.is_eq(compound.parent, system, "bhkCompound is under the physics system")
+    assert compound.get('pynCollisionCompound'), "bhkCompound tagged as a compound body"
+    kids = [o for o in bpy.data.objects if o.parent == compound]
+    assert TT.is_eq(len(kids), 36, "compound groups 36 polytope children")
+
+    BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+    try:
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    except RuntimeError as e:
+        assert "unweighted vertices" in str(e), f"unexpected export error: {e}"
+
+    src = pyn.NifFile(testfile)
+    dst = pyn.NifFile(outfile)
+    vco = src.nodes['WorkstationArmor'].collision_object
+    eco = dst.nodes['WorkstationArmor'].collision_object
+
+    assert TT.is_eq(eco.body_id, 0, "exported collision object body_id is 0 (not the crash sentinel)")
+
+    # Preserved verbatim, so the physics packfile -- including the BVH tree the
+    # engine walks in updateAabb -- is byte-identical to vanilla.
+    assert TT.is_eq(eco.physics_system.data, vco.physics_system.data,
+                    "exported physics packfile is byte-identical to vanilla")
+    assert b'DynamicCompoundShapeData' in eco.physics_system.data, \
+        "exported packfile keeps the compound bounding-volume tree"
 
 
 @TT.category('FO4', 'PHYSICS')

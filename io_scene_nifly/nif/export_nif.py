@@ -1679,10 +1679,26 @@ class NifExporter:
         """
         log.info(f"Skinning {obj.name}")
         new_shape.skin()
+
+        # The block transform is parent-relative (new_xform). The SKIN frame
+        # (global-to-skin and skin-to-bone) is relative to the armature, where the
+        # bones live -- NOT the shape's immediate parent. For a shape parented to the
+        # root these coincide, but a shape skinned under a non-identity node (e.g. an
+        # FO4 workbench mesh under the offset 'WorkstationArmor' node) must fold that
+        # node's offset into the skin transforms, or the skinned placement won't match
+        # the unskinned one (NifSkope/engine render the shape offset with skinning on).
+        #
+        # Half-precision recentering shifts the verts and bakes a compensating offset
+        # into new_xform (new_xform = base_xf @ T(offset)); that same offset must ride
+        # along in the skin frame. base_xf.inverted() @ new_xform recovers it (identity
+        # when no recentering happened), applied on top of the armature-relative
+        # placement.
+        base_xf = self._export_shape_transform(obj)
+        skin_xf = (arma.matrix_world.inverted() @ obj.matrix_world) \
+            @ (base_xf.inverted() @ new_xform)
+
         new_shape.transform = BD.make_transformbuf(new_xform)
-        newxfi = new_xform.copy()
-        newxfi.invert()
-        new_shape.set_global_to_skin(BD.make_transformbuf(newxfi))
+        new_shape.set_global_to_skin(BD.make_transformbuf(skin_xf.inverted()))
     
         weights_by_bone = pynifly.get_weights_by_bone(weights_by_vert, arma.data.bones.keys())
 
@@ -1700,12 +1716,12 @@ class NifExporter:
                 new_shape.set_skin_to_bone_xform(nifname, tb_bind)
             else:
                 # Have to set skin-to-bone again because adding the bones nuked it.
-                # Use new_xform (not obj.matrix_local) so the skin-to-bone is in
-                # the same frame as the verts: these match except when the verts
-                # were shifted for half-precision recentering, where new_xform
-                # carries the compensating offset.
+                # Use the armature-relative skin frame (skin_xf), not the parent-
+                # relative block transform, so a shape skinned under a non-identity
+                # node folds that node's offset into skin-to-bone (matches vanilla and
+                # keeps skinned == unskinned placement).
                 xf = BD.get_bone_xform(arma, bone_name, self.game, False, self.settings.export_pose)
-                xfoffs = new_xform.inverted() @ xf
+                xfoffs = skin_xf.inverted() @ xf
                 xfinv = xfoffs.inverted()
                 tb = BD.pack_xf_to_buf(xfinv, self.scale)
 

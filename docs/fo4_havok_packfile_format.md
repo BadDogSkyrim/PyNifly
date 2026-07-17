@@ -280,8 +280,16 @@ The 0x30-byte fixed header is mostly undeciphered. Known fields:
 | 0x00 | 16 | vtable/parent pointers (zeros) |
 | 0x10 | 4 | type/quality flags (0x01000103) |
 | 0x14 | 4 | convex_radius (float32) |
-| 0x18 | 4 | large_convex_radius (purpose unclear) |
-| 0x1C | 20 | unknown (zeros) |
+| 0x18 | 8 | `hknpShape::m_userData` (u64) — see note |
+| 0x20 | 16 | unknown (zeros) |
+
+**`m_userData` (shape base, +0x18):** a `uint64` application-data field on every
+`hknp` shape. In a compound body it holds **one value shared by the compound and every
+child shape** in that file, differing from file to file (armor bench `0x064003D4`,
+weapons bench `0x2A1A6690`, cooking stove `0xB26A84C5`). The engine does not appear to
+interpret it, but a compound and its children must carry the same value. The
+single-shape packer historically wrote a fixed `0x7DFA6E05` here, which the game
+accepts; the compound packer reuses that so header and children agree.
 
 ### hknpCompressedMeshShape (0xC0 bytes) + ShapeData
 
@@ -321,11 +329,80 @@ z = section.base_z + qz * section.scale_z
 The sphere center is stored in the BodyCInfo position field, not in the
 shape object itself.
 
-### hknpDynamicCompoundShape
+### hknpDynamicCompoundShape (0xD0 bytes) + instance array + Data
 
-Container for multiple child shapes with per-instance transforms. Each
-instance references a child shape (typically `hknpConvexPolytopeShape`)
-and carries a position/rotation transform.
+One rigid body whose shape is a *compound* of N child shapes (typically
+`hknpConvexPolytopeShape`), each placed by a per-instance transform. Used by
+furniture with lots of collision detail — the armor/weapons/cooking workbenches are
+one compound body of dozens of polytopes (armor bench = 36).
+
+The compound object itself is **0xD0 bytes** (longer than the 0x30 shared by simple
+shapes — the extra region carries the compound's own AABB and a pointer to its
+bounding-volume tree):
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x00 | 16 | vtable/parent pointers (zeros) |
+| 0x10 | 4 | flags — `0x02060004` (armor/weapons benches), `0x02040004` (11-leaf cooking stove). *Likely encodes tree size/depth; not fully decoded.* |
+| 0x14 | 4 | zeros |
+| 0x18 | 8 | `m_userData` (see polytope note; shared with all children) |
+| 0x30 | 4 | `0xFFFFFFFF` sentinel |
+| 0x40 | 16 | empty `hkArray` (size 0) |
+| 0x50 | 8 | empty `hkArray` (size 0) |
+| 0x58 | 4 | `0xFFFFFFFF` sentinel |
+| 0x60 | 16 | **instances** `hkArray`: `u64 ptr` (local fixup), `u32 size = N`, `u32 cap = 0x80000000 \| N` |
+| 0x70 | 4 | `0xFFFFFFFF` sentinel |
+| 0x80 | 16 | AABB min — `float x, y, z, w` (compound's world bounds, Havok space) |
+| 0x90 | 16 | AABB max — `float x, y, z, w` |
+| 0xA0 | 4 | `0x00000001` (count?) then zeros |
+| 0xC0 | 8 | `u64 ptr` (global fixup) → `hknpDynamicCompoundShapeData` |
+
+**Instance (0x80 bytes each, in the +0x60 array):**
+
+```
++0x00: rotation column 0 (float x,y,z)   +0x0C: w = 0.5
++0x10: rotation column 1 (float x,y,z)   +0x1C: w = 0.0
++0x20: rotation column 2 (float x,y,z)   +0x2C: w = 0.5
++0x30: translation      (float x,y,z)    +0x3C: w = 0.5
++0x40: 1.0, 1.0, 1.0, 1.0               (scale? constant)
++0x50: u64 shape ptr (global fixup → child hknpConvexPolytopeShape)
++0x58: 0xFFFFFFFF sentinel
++0x60..0x7F: zeros
+```
+
+The 3×3 rotation is stored **column-major** (three column vectors); transpose for
+row-major `M*v`. The w-lanes (0.5 / 0.0 / 0.5 / 0.5) and the +0x40 vector are constant
+metadata the decoder ignores. Translation is in Havok units (÷ scale factor for Blender).
+
+### hknpDynamicCompoundShapeData (bounding-volume BVH tree)
+
+A separate object the compound points to (`+0xC0`). It holds an **AABB bounding-volume
+hierarchy** over the child shapes, which the engine walks in
+`hknpDynamicCompoundShape::updateAabb` at load. For the armor bench: **73 nodes over 36
+leaves**.
+
+| Offset | Size | Field |
+|--------|------|-------|
+| 0x10 | 16 | nodes `hkArray`: `u64 ptr` (local fixup), `u32 size` (node count), `u32 cap` |
+| 0x20 | 8 | `u32` (0x48?), `u32` = N (leaf count) — *needs confirmation* |
+| 0x30 | 4 | `0x00000001` |
+
+**Tree node (32 bytes each):**
+
+```
++0x00: aabb_min (float x, y, z)
++0x0C: (float/field)
++0x10: aabb_max (float x, y, z)
++0x1C: u16 link_a, u16 link_b   (child/leaf references — encoding NOT fully decoded)
+```
+
+!!! note
+    The BVH tree is a spatial function of the child shapes' positions, so it must be
+    rebuilt whenever they move. A compound written *without* a valid tree (dangling
+    `+0xC0` pointer) crashes the game in `hknpDynamicCompoundShape::updateAabb`.
+    PyNifly currently **preserves the original packfile bytes** for compounds rather
+    than regenerating the tree; a from-scratch tree builder is future work (the Skyrim
+    MOPP BVH compiler is a likely starting point — similar AABB-tree problem).
 
 ## Fixup Tables
 
