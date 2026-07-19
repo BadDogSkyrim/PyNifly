@@ -8,6 +8,7 @@ Loose-file resolution reuses the same search PyNifly already does for textures/m
 
 import logging
 import os
+import re
 from pathlib import Path
 import bpy
 from .. import __package__ as base_package
@@ -99,6 +100,25 @@ def sf_base_name(obj):
     return name
 
 
+# Characters illegal in a Windows filename. Note ':' in particular: Starfield block names are
+# 'Name:index' (e.g. 'MaleHead:0'), and writing a .mesh to a path containing ':' silently
+# creates an NTFS alternate data stream instead of a real file -- the geometry then loads
+# nowhere and the shape is invisible in-game/CK.
+_ILLEGAL_FILENAME_CHARS = '<>:"/\\|?*'
+
+
+def sanitize_mesh_component(name):
+    """Make `name` safe as a single .mesh path component: strip Blender's '.001'/'.002'
+    duplicate-name suffix, replace any character illegal in a Windows filename (notably ':'
+    from Starfield's 'Name:index' block names) with '_', and trim trailing dots/spaces. Never
+    returns empty (falls back to 'mesh')."""
+    name = re.sub(r'\.\d{3}$', '', name)  # Blender appends '.001' etc. to disambiguate names
+    cleaned = ''.join('_' if (c in _ILLEGAL_FILENAME_CHARS or ord(c) < 32) else c
+                      for c in name)
+    cleaned = cleaned.rstrip('. ')
+    return cleaned or 'mesh'
+
+
 def resolve_mesh_output_path(nif_filepath, mesh_name):
     """Where to write an external .mesh on export. `mesh_name` is the verbatim BSGeometry
     meshName (no 'geometries\\' root, no '.mesh' extension). The .mesh lives at
@@ -136,7 +156,16 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
     # meshName field is capped at ~46 chars).
     mesh_name = grp.mesh_path if (grp and grp.mesh_path) else ''
     if not mesh_name:
-        mesh_name = 'FSF\\' + sf_base_name(obj)
+        # No recorded meshName: this shape wasn't imported from a Starfield nif, so we generate
+        # the path ourselves from its block name. That name can carry characters illegal in a
+        # filename (Starfield's 'Name:index'), so sanitize before use -- an unsanitized ':'
+        # writes the .mesh to an NTFS alternate data stream and the shape is invisible in-game.
+        mesh_name = 'FSF\\' + sanitize_mesh_component(sf_base_name(obj))
+        # We only just recognized this as a Starfield export and the SF geometry props didn't
+        # exist for this shape. Create them now, recording the generated meshName, so the path
+        # is visible/editable in the SF Geometry panel and stable across re-exports.
+        from . import pyn_props
+        pyn_props.set_group(obj, 'pyn_sf_geometry', mesh_path=mesh_name, lod_slot=slot)
     new_shape.set_mesh_name(mesh_name, slot)
 
     # Vertex colors: SF meshes always carry them; default to white where Blender has none.

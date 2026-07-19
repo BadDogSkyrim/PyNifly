@@ -1286,6 +1286,12 @@ class NifExporter:
         elif active_color:
             colormap = active_color
 
+        # Prefer the canonically-named color map (VERTEX_COLOR) when present -- resolves the
+        # ambiguity of multiple non-alpha color attributes. Falls back to the active-color
+        # heuristic above for files authored before the convention.
+        if BD.COLOR_MAP_NAME in vc.keys():
+            colormap = vc[BD.COLOR_MAP_NAME]
+
         return colormap, alphamap
 
 

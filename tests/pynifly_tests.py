@@ -1118,10 +1118,10 @@ def TEST_SF_MAT_WRITE():
             'alpha': {'has_opacity': True, 'threshold': 0.3333}},
         'layers': [
             {'textures': {'Albedo': r'Textures\Skin\color.dds', 'Normal': r'Textures\Skin\normal.dds'},
-             'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+             'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0), 'override_color': ''},
             {'textures': {'Normal': r'Textures\Skin\detail_normal.dds'},
-             'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)}],
-        'blenders': [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds'}]}
+             'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0), 'override_color': ''}],
+        'blenders': [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds', 'channel': ''}]}
 
     back = parse_mat(write_mat(data))
     assert back is not None, "written .mat is valid JSON that re-parses"

@@ -3430,7 +3430,7 @@ def TEST_SF_MAT_ROUNDTRIP():
         f"detail layer recovered: {data['layers'][1]['textures']}"
     assert data['layers'][1]['uv_scale'] == (50.0, 50.0), \
         f"detail tiling recovered: {data['layers'][1]['uv_scale']}"
-    assert data['blenders'] == [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds'}], \
+    assert data['blenders'] == [{'mode': 'Skin', 'mask': r'Textures\Skin\mask.dds', 'channel': ''}], \
         f"blender recovered: {data['blenders']}"
     assert data['settings']['shader_model'] == 'BodySkin2Layer', "shader model recovered"
     assert data['settings']['translucency']['use_sss'] is True, "SSS recovered"
@@ -3441,6 +3441,70 @@ def TEST_SF_MAT_ROUNDTRIP():
     assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
     assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
     assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))
+def TEST_SF_HEAD_MATERIAL():
+    """Starfield functional: import the vanilla male head (male_default.mat, 6 layers / 5 blends)
+    and confirm the whole material path lands on the real graph. Checks: head mesh in place; 6 SF
+    Layer + 5 SF Blend nodes; per-layer UV tiling; blend masks are the channel-packed face-detail
+    mask TEXTURES (a couple sampling a specific channel -- chin=Green, lips=Blue); and the vertex-
+    color path (base layer multiplies albedo by VERTEX_COLOR -- an unpainted layer renders the head
+    black in-game). Textures are 64x64 fixtures copied from the game. Recovery + write/parse round-
+    trip the masks/channels/scales/override."""
+    from io_scene_nifly.nif.shader_io import recover_sf_material, COLOR_MAP_NAME
+    from pyn.sf_materials import write_mat, parse_mat
+
+    testfile = TTB.test_file(r"tests\SF\meshes\malehead.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    head = TTB.find_shape("MaleHead:0:LOD0")
+    assert head is not None, "imported the head mesh"
+    # Right position: the head sits at head height (world z ~96-125) and is centred on X, not
+    # dumped at the origin or doubled off somewhere.
+    ws = [head.matrix_world @ v.co for v in head.data.vertices]
+    zmax = max(v.z for v in ws)
+    xmid = (min(v.x for v in ws) + max(v.x for v in ws)) / 2
+    assert 100 < zmax < 140, f"head at head height (world z max {zmax:.1f})"
+    assert abs(xmid) < 5, f"head centred on X ({xmid:.2f})"
+    assert COLOR_MAP_NAME in head.data.color_attributes, "mesh carries the VERTEX_COLOR attribute"
+
+    nodes = head.active_material.node_tree.nodes
+    data = recover_sf_material(head.active_material)
+
+    # 6 layers / 5 blends -- counted from the stamped graph via recovery. (A plain "SF Layer"
+    # name-prefix count is wrong: it also matches the "SF LayeredEmissivityComponent" settings node.)
+    assert len(data['layers']) == 6, f"6 SF layers: {len(data['layers'])}"
+    assert len(data['blenders']) == 5, f"5 SF blends: {len(data['blenders'])}"
+
+    # Per-layer UV tiling (the detail layers tile 9x-14x over the base).
+    scales = [tuple(l['uv_scale']) for l in data['layers']]
+    assert scales == [(1.0, 1.0), (9.0, 9.0), (10.0, 10.0), (14.0, 14.0), (14.0, 14.0), (14.0, 14.0)], \
+        f"per-layer UV scales: {scales}"
+
+    # Blend masks are the mask TEXTURES; ColorChannelTypeComponent (chin=Green, lips=Blue) selects a
+    # channel of that texture. The texture must survive alongside the channel -- the 'young lips'
+    # regression was the channel replacing male_lips_mask with a bare vertex-color channel.
+    masks = [(b['mask'], b['channel']) for b in data['blenders']]
+    lips = next((mc for mc in masks if 'lips_mask' in mc[0].lower()), None)
+    assert lips is not None, f"lips mask texture kept as the blend mask: {masks}"
+    assert lips[1] == 'Blue', f"lips blends via its mask's Blue channel: {lips}"
+    assert [b['channel'] for b in data['blenders']] == ['', 'Green', 'Blue', '', ''], \
+        f"mask channels: {[b['channel'] for b in data['blenders']]}"
+
+    # Vertex color enters via the base layer's albedo multiply (the black-head mechanism), fed by a
+    # VERTEX_COLOR Attribute node.
+    assert any(n.type == 'ATTRIBUTE' and n.attribute_name == COLOR_MAP_NAME for n in nodes), \
+        "a VERTEX_COLOR Attribute node was created"
+    assert data['layers'][0]['override_color'] == 'Multiply', \
+        f"base-layer albedo x vertex-color recovered: {data['layers'][0].get('override_color')}"
+
+    # The recovered material round-trips to a .mat (masks/channels/scales/override preserved).
+    back = parse_mat(write_mat(data))
+    assert [(b['mask'], b['channel']) for b in back['blenders']] == masks, "masks + channels survive"
+    assert [tuple(l['uv_scale']) for l in back['layers']] == scales, "UV scales survive"
+    assert back['layers'][0]['override_color'] == 'Multiply', "override survives"
 
 
 @TT.category('STARFIELD')
@@ -3522,6 +3586,59 @@ def TEST_SF_EXPORT():
     assert 'Thigh.L' in body2.vertex_groups, "Bone naming survives (Thigh.L)"
     arma_mod = next((m for m in body2.modifiers if m.type == 'ARMATURE'), None)
     assert arma_mod and arma_mod.object, "Re-imported body is bound to an armature"
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(("Could not find material", "Could not find SF texture"))
+def TEST_SF_MESH_NAME_SANITIZE():
+    """Starfield export: a shape with no recorded meshName (freshly authored, not round-tripped
+    from an SF nif) autogenerates its external .mesh path. Starfield block names carry a ':'
+    (e.g. 'Head:0'), which is illegal in a Windows filename and silently redirects the .mesh
+    write into an NTFS alternate data stream -- so the geometry loads nowhere and the head is
+    invisible in-game/CK. The autogen must (a) sanitize the name to a legal path and (b) record
+    the generated meshName back onto the object's SF geometry props (which didn't exist because
+    the shape wasn't imported from SF)."""
+    import os
+    # Unit-level: the sanitizer strips the ':index' illegal char and Blender's '.001' dedup
+    # suffix, and never yields an empty component.
+    from io_scene_nifly.nif.sf_geometry import sanitize_mesh_component
+    assert sanitize_mesh_component("MaleHead:0") == "MaleHead_0", "colon sanitized"
+    assert sanitize_mesh_component("MaleHead.001") == "MaleHead", "Blender .001 suffix stripped"
+    assert sanitize_mesh_component("Head:0.002") == "Head_0", "suffix + colon together"
+    assert sanitize_mesh_component(":::") == "___", "never empty"
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_MESH_NAME_SANITIZE\meshes\naked_f.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    assert body is not None, "Imported the LOD0 body mesh"
+
+    # Simulate a freshly-authored shape: clear the recorded meshName so export must autogen
+    # from the object's block name (which contains the illegal ':').
+    body.pyn_sf_geometry.mesh_path = ''
+
+    BD.ObjectSelect(list(bpy.context.scene.objects))
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF")
+
+    # (a) The autogenerated meshName must be a legal path -- no characters illegal in a Windows
+    # filename ('\' is the legitimate path separator, so it's excluded from the check).
+    from pyn.pynifly import NifFile
+    nif = NifFile(outfile)
+    mp = nif.shapes[0].mesh_path(0)
+    assert not any(c in mp for c in '<>:"|?*'), f"Autogen meshName is a legal path: {mp!r}"
+
+    # ...and the .mesh was written as a REAL loose file (not an alternate data stream), non-empty.
+    from io_scene_nifly.nif.sf_geometry import resolve_mesh_output_path
+    meshpath = resolve_mesh_output_path(outfile, mp)
+    assert os.path.isfile(meshpath) and os.path.getsize(meshpath) > 0, \
+        f"External .mesh written as a real loose file: {meshpath}"
+
+    # (b) The SF geometry props were created/recorded on the object with the generated meshName.
+    assert body.pyn_sf_geometry.mesh_path == mp, \
+        f"Generated meshName recorded on the object's SF props: {body.pyn_sf_geometry.mesh_path!r}"
 
 
 @TT.category('STARFIELD')
@@ -4605,7 +4722,7 @@ def TEST_CAVE_GREEN():
     
     assert bsdf.inputs['Vertex Color'].is_linked, "Vertex Color linked to node"
     n = BD.find_node(bsdf.inputs['Vertex Color'], 'ShaderNodeAttribute')[0]
-    assert n.attribute_name == "Col", f"Using vertex colors"
+    assert n.attribute_name == "VERTEX_COLOR", f"Using vertex colors"
     assert n.attribute_type == "GEOMETRY", f"Using vertex colors"
 
     roots = TTB.find_shape("L2_Roots:5")
@@ -5254,8 +5371,8 @@ def TEST_COLORS2():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    assert obj.data.attributes['Col'].domain == 'POINT', f"Have vertec colors in Blender"
-    colordata = obj.data.attributes['Col'].data
+    assert obj.data.attributes['VERTEX_COLOR'].domain == 'POINT', f"Have vertec colors in Blender"
+    colordata = obj.data.attributes['VERTEX_COLOR'].data
     targetv = TTB.find_vertex(obj.data, (1.62, 7.08, 0.37))
     assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
     assert colordata[targetv].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[targetv].color[:]}"
@@ -5356,8 +5473,8 @@ def TEST_NOTEXTURES():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    assert obj.data.attributes['Col'].domain == 'POINT', "Have vertex colors"
-    colordata = obj.data.attributes['Col'].data
+    assert obj.data.attributes['VERTEX_COLOR'].domain == 'POINT', "Have vertex colors"
+    colordata = obj.data.attributes['VERTEX_COLOR'].data
     targetv = TTB.find_vertex(obj.data, (1.62, 7.08, 0.37))
     assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
     assert colordata[targetv].color[:] == (0.0, 0.0, 0.0, 1.0), f"Color for vert not read correctly: {colordata[targetv].color[:]}"
@@ -5548,7 +5665,7 @@ def TEST_VERTEX_ALPHA():
         for i, c in enumerate(alphamap.data):
             TT.assert_equiv(c.color[1], 0.5, "alpha value")
 
-        for i, c in enumerate(objcheck.data.attributes['Col'].data):
+        for i, c in enumerate(objcheck.data.attributes['VERTEX_COLOR'].data):
             TT.assert_equiv(c.color, (1.0, 1.0, 1.0, 1.0), "color value")
 
 

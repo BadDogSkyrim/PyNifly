@@ -1,0 +1,1190 @@
+{
+  "Version": 1,
+  "Objects": [
+    {
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlenderID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB14BD:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlenderID",
+          "Index": 1,
+          "Data": {
+            "ID": "res:B2BB1524:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlenderID",
+          "Index": 2,
+          "Data": {
+            "ID": "res:B2BB1572:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlenderID",
+          "Index": 3,
+          "Data": {
+            "ID": "res:B2BB15A2:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlenderID",
+          "Index": 4,
+          "Data": {
+            "ID": "res:D6521E53:0005C459:A23A50C9"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB15C9:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 1,
+          "Data": {
+            "ID": "res:B2BB1652:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 2,
+          "Data": {
+            "ID": "res:B2BB16EF:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 3,
+          "Data": {
+            "ID": "res:1EF3074D:0005C059:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 4,
+          "Data": {
+            "ID": "res:4A2B5B41:0005C0A8:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 5,
+          "Data": {
+            "ID": "res:D652201E:0005C459:A23A50C9"
+          }
+        },
+        {
+          "Type": "BSMaterial::TranslucencySettingsComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "true",
+            "Settings": {
+              "Type": "BSMaterial::TranslucencySettings",
+              "Data": {
+                "UseSSS": "true",
+                "SpecLobe0RoughnessScale": "0.9300000071525574",
+                "SpecLobe1RoughnessScale": "1.149999976158142"
+              }
+            }
+          }
+        },
+        {
+          "Type": "BSMaterial::ShaderModelComponent",
+          "Index": 0,
+          "Data": {
+            "FileName": "Skin5Layer"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayeredEmissivityComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "false",
+            "FirstLayerIndex": "MATERIAL_LAYER_0",
+            "FirstLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "FirstLayerMaskIndex": "None",
+            "SecondLayerActive": "false",
+            "SecondLayerIndex": "MATERIAL_LAYER_1",
+            "SecondLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "SecondLayerMaskIndex": "None",
+            "FirstBlenderIndex": "BLEND_LAYER_0",
+            "FirstBlenderMode": "Lerp",
+            "ThirdLayerActive": "false",
+            "ThirdLayerIndex": "MATERIAL_LAYER_2",
+            "ThirdLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "ThirdLayerMaskIndex": "None",
+            "SecondBlenderIndex": "BLEND_LAYER_1",
+            "SecondBlenderMode": "Lerp",
+            "EmissiveClipThreshold": "0.0",
+            "AdaptiveEmittance": "false",
+            "LuminousEmittance": "432.0",
+            "ExposureOffset": "0.0",
+            "EnableAdaptiveLimits": "false",
+            "MaxOffsetEmittance": "1.0",
+            "MinOffsetEmittance": "0.0",
+            "IgnoresFog": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 3,
+          "Data": {
+            "Value": "false"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layeredmaterials.mat"
+    },
+    {
+      "ID": "res:B2BB14BD:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Blender1"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2D9CCE8:0005C058:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlendModeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Skin"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 1,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 2,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\male_forehead_mask.dds"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\blenders.mat"
+    },
+    {
+      "ID": "res:B2BB1524:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Blender2"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB153E:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlendModeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Skin"
+          }
+        },
+        {
+          "Type": "BSMaterial::ColorChannelTypeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Green"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 1,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 2,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\male_chin_mask.dds"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\blenders.mat"
+    },
+    {
+      "ID": "res:B2BB1572:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Blender3"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB1582:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlendModeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Skin"
+          }
+        },
+        {
+          "Type": "BSMaterial::ColorChannelTypeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Blue"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 1,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 2,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\male_lips_mask.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialParamFloat",
+          "Index": 4,
+          "Data": {
+            "Value": "0.7699999809265137"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\blenders.mat"
+    },
+    {
+      "ID": "res:B2BB15A2:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Blender4"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB15B1:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlendModeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Skin"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 1,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 2,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\male_nose_mask.dds"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\blenders.mat"
+    },
+    {
+      "ID": "res:D6521E53:0005C459:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Skin5Layer_Blender5"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": ""
+          }
+        },
+        {
+          "Type": "BSMaterial::BlendModeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Skin"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 1,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 2,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 6,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\male_noise_mask.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialParamFloat",
+          "Index": 4,
+          "Data": {
+            "Value": "0.7250000238418579"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\blenders.mat"
+    },
+    {
+      "ID": "res:B2BB15C9:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Layer1"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB15DE:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB163F:0005C057:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:B2BB1652:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Layer2"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB165F:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB16DB:0005C057:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:B2BB16EF:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Layer3"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB16FC:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB175E:0005C057:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:1EF3074D:0005C059:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Layer4"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:2084C863:0005C059:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:23766F69:0005C059:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:4A2B5B41:0005C0A8:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Layer5"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:4A5D322E:0005C0A8:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:4B16B9D6:0005C0A8:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:D652201E:0005C459:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Skin5Layer_Layer6"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:D6522028:0005C459:A23A50C9"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:D6522074:0005C459:A23A50C9"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:B2D9CCE8:0005C058:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamB"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:B2BB153E:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamC"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:B2BB1582:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamD"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:B2BB15B1:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamE"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:B2BB15DE:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Material1"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB161A:0005C057:A2A909D2"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialOverrideColorTypeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Multiply"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "true"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:B2BB163F:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamA"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:B2BB165F:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Material2"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB16A9:0005C057:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:B2BB16DB:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamB1"
+          }
+        },
+        {
+          "Type": "BSMaterial::Scale",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "9.0",
+                "y": "9.0"
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:B2BB16FC:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Material3"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:B2BB1739:0005C057:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:B2BB175E:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamC1"
+          }
+        },
+        {
+          "Type": "BSMaterial::Scale",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "10.0",
+                "y": "10.0"
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:2084C863:0005C059:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Material4"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:2114D363:0005C059:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:23766F69:0005C059:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamF"
+          }
+        },
+        {
+          "Type": "BSMaterial::Scale",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "14.0",
+                "y": "14.0"
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:4A5D322E:0005C0A8:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_Material5"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:4A883A0C:0005C0A8:A2A909D2"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:4B16B9D6:0005C0A8:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_UVStreamG"
+          }
+        },
+        {
+          "Type": "BSMaterial::Scale",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "14.0",
+                "y": "14.0"
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:D6522028:0005C459:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Skin5Layer_Material6"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:D6522058:0005C459:A23A50C9"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:D6522074:0005C459:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Skin5Layer_UVStreamF"
+          }
+        },
+        {
+          "Type": "BSMaterial::Scale",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "14.0",
+                "y": "14.0"
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:B2BB161A:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_TextureSet1"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureReplacement",
+          "Index": 2,
+          "Data": {
+            "Enabled": "true"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureReplacement",
+          "Index": 4,
+          "Data": {
+            "Enabled": "true"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\Chargen\\male_default_sk3_color.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Faces\\Chargen\\male_default_normal.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 3,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\Chargen\\male_default_rough.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\Chargen\\male_default_ao.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 8,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\male_default_transmissive.dds"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    },
+    {
+      "ID": "res:B2BB16A9:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_TextureSet2"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\Old_Pore_detail_normal.dds"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    },
+    {
+      "ID": "res:B2BB1739:0005C057:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_TextureSet3"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\StubblePore_detail_normal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\StubblePore_detail_ao.dds"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    },
+    {
+      "ID": "res:2114D363:0005C059:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_TextureSet4"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\Young_Lips_detail_normal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\young_lips_detail_ao.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialParamFloat",
+          "Index": 0,
+          "Data": {
+            "Value": "0.5600000023841858"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    },
+    {
+      "ID": "res:4A883A0C:0005C0A8:A2A909D2",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "male_default_TextureSet5"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\Mid_Cheek_detail_normal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\Mid_Cheek_detail_ao.dds"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    },
+    {
+      "ID": "res:D6522058:0005C459:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Skin5Layer_TextureSet6"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\human\\faces\\FaceDetails\\skindetail_normal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialParamFloat",
+          "Index": 0,
+          "Data": {
+            "Value": "0.675000011920929"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    }
+  ]
+}

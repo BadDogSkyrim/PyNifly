@@ -43,7 +43,7 @@ NO_PARTITION_GROUP = "*NO_PARTITIONS*"
 MULTIPLE_PARTITION_GROUP = "*MULTIPLE_PARTITIONS*"
 UNWEIGHTED_VERTEX_GROUP = "*UNWEIGHTED_VERTICES*"
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
-COLOR_MAP_NAME = "Col"
+COLOR_MAP_NAME = "VERTEX_COLOR"
 
 # Structural special node types that import as "<name>:<blocktype>" Empties so
 # the outliner shows the type. Excludes nodes referenced by name (e.g.

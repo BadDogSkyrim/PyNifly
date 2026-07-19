@@ -45,6 +45,11 @@ _MATERIAL_ID = 'BSMaterial::MaterialID'
 _TEXTURESET_ID = 'BSMaterial::TextureSetID'
 _BLEND_MODE = 'BSMaterial::BlendModeComponent'
 _BLENDER_ID = 'BSMaterial::BlenderID'
+# A blender can mask its composite with a vertex-color channel (Red/Green/Blue/Alpha) instead of
+# (or as well as) a texture mask; a layer's material can multiply its albedo by the vertex color.
+# Both are how Starfield meshes' vertex colors feed the shader -- see reference_sf_vertex_colors.
+_COLOR_CHANNEL = 'BSMaterial::ColorChannelTypeComponent'
+_OVERRIDE_COLOR = 'BSMaterial::MaterialOverrideColorTypeComponent'
 _UVSTREAM_ID = 'BSMaterial::UVStreamID'
 _UV_SCALE = 'BSMaterial::Scale'
 _UV_OFFSET = 'BSMaterial::Offset'
@@ -250,27 +255,37 @@ def _extract_layers(root, by_id):
         texset = by_id.get(_first_ref(mat, _TEXTURESET_ID)) if mat else None
         uv_host = layer if _first_ref(layer, _UVSTREAM_ID) else (mat or layer)
         scale, offset = _uv_stream_of(uv_host, by_id)
+        # A MaterialOverrideColorTypeComponent on the layer's material (e.g. 'Multiply') multiplies
+        # the layer albedo by the mesh's vertex color -- '' when the layer doesn't use vertex color.
+        override = ''
+        if mat:
+            for c in mat.get('Components', []):
+                if c.get('Type') == _OVERRIDE_COLOR:
+                    override = (c.get('Data') or {}).get('Value', '') or override
         layers.append({'textures': _textureset_slots(texset) if texset else {},
-                       'uv_scale': scale, 'uv_offset': offset})
+                       'uv_scale': scale, 'uv_offset': offset, 'override_color': override})
     return layers
 
 
 def _extract_blenders(root, by_id):
     """The material's blenders in order. Blender k composites layer k+1 over the running
-    composite: it carries a BlendModeComponent (Skin/Lerp/Additive/...) and, usually, a mask
-    MRTextureFile. There are (#layers - 1) of them."""
+    composite: it carries a BlendModeComponent (Skin/Lerp/Additive/...) and a mask that is either
+    a texture (MRTextureFile) or a vertex-color channel (ColorChannelTypeComponent: Red/Green/
+    Blue/Alpha). There are (#layers - 1) of them."""
     blenders = []
     for bc in sorted(_components_of(root, _BLENDER_ID), key=lambda c: c.get('Index', 0)):
         b = by_id.get((bc.get('Data') or {}).get('ID'))
         if not b:
             continue
-        mode, mask = '', ''
+        mode, mask, channel = '', '', ''
         for c in b.get('Components', []):
             if c.get('Type') == _BLEND_MODE:
                 mode = (c.get('Data') or {}).get('Value', '') or mode
             elif c.get('Type') == _TEXTURE_FILE_TYPE:
                 mask = _clean_texture_path((c.get('Data') or {}).get('FileName')) or mask
-        blenders.append({'mode': mode, 'mask': mask})
+            elif c.get('Type') == _COLOR_CHANNEL:
+                channel = (c.get('Data') or {}).get('Value', '') or channel
+        blenders.append({'mode': mode, 'mask': mask, 'channel': channel})
     return blenders
 
 
@@ -280,8 +295,12 @@ def parse_mat(text):
         { 'filename': <the material's own Filename, or ''>,
           'textures': { slot_name: cleaned_path, ... },     # base-layer-wins collapse (flat)
           'settings': { ... },                              # present settings blocks only
-          'layers':   [ {textures, uv_scale, uv_offset}, ... ],   # full layer graph, base first
-          'blenders': [ {mode, mask}, ... ] }               # (#layers - 1) compositing blenders
+          'layers':   [ {textures, uv_scale, uv_offset, override_color}, ... ],  # base first
+          'blenders': [ {mode, mask, channel}, ... ] }      # (#layers - 1) compositing blenders
+
+    A layer's `override_color` (e.g. 'Multiply', or '') multiplies its albedo by the mesh's vertex
+    color; a blender's `channel` (Red/Green/Blue/Alpha, or '') masks its composite with that vertex-
+    color channel instead of a texture. Both are how vertex colors feed the SF shader.
 
     A `.mat` is a small object graph, so the PBR textures must be reached by following the
     material's layer chain -- root `LayerID` -> `MaterialID` -> `TextureSetID` -> the texture
@@ -417,8 +436,11 @@ def write_mat(data, filename=None):
                      "Data": {"FileName": _reprefix(path)}}
                     for slot, path in ly.get('textures', {}).items() if slot in _SF_SLOT_INDEX]
         objects.append({"ID": ts_id, "Components": ts_comps})
-        objects.append({"ID": mat_id, "Components":
-                        [{"Type": _TEXTURESET_ID, "Index": 0, "Data": {"ID": ts_id}}]})
+        mat_comps = [{"Type": _TEXTURESET_ID, "Index": 0, "Data": {"ID": ts_id}}]
+        if ly.get('override_color'):
+            mat_comps.append({"Type": _OVERRIDE_COLOR, "Index": 0,
+                              "Data": {"Value": ly['override_color']}})
+        objects.append({"ID": mat_id, "Components": mat_comps})
         layer_comps = [{"Type": _MATERIAL_ID, "Index": 0, "Data": {"ID": mat_id}}]
         scale = tuple(ly.get('uv_scale', (1.0, 1.0)))
         offset = tuple(ly.get('uv_offset', (0.0, 0.0)))
@@ -440,6 +462,9 @@ def write_mat(data, filename=None):
         if b.get('mask'):
             bcomps.append({"Type": _TEXTURE_FILE_TYPE, "Index": 0,
                            "Data": {"FileName": _reprefix(b['mask'])}})
+        if b.get('channel'):
+            bcomps.append({"Type": _COLOR_CHANNEL, "Index": 0,
+                           "Data": {"Value": b['channel']}})
         objects.append({"ID": blend_id, "Components": bcomps})
 
     root.extend(_settings_components(data.get('settings', {})))

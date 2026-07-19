@@ -20,6 +20,7 @@ from ..gamefinder import find_game
 log = logging.getLogger("pynifly")
 
 ALPHA_MAP_NAME = "VERTEX_ALPHA"
+COLOR_MAP_NAME = "VERTEX_COLOR"
 MSN_GROUP_NAME = "MSN_TRANSFORM"
 TANGENT_GROUP_NAME = "TANGENT_TRANSFORM"
 
@@ -355,6 +356,7 @@ PYN_SF_SLOT = 'pyn_sf_slot'     # slot name (Albedo/Normal/Mask/...)
 PYN_SF_LAYER = 'pyn_sf_layer'   # owning layer index (on image + SF Layer node)
 PYN_SF_BLEND = 'pyn_sf_blend'   # blender index (on SF Blend node)
 PYN_SF_MODE = 'pyn_sf_mode'     # blend mode string (also encoded in the group name)
+PYN_SF_OVERRIDE = 'pyn_sf_override'  # albedo vertex-color override on a layer (e.g. Multiply)
 
 # --- SF material graph layout ------------------------------------------------------------------
 # Columns, left -> right: textures | layers | blend row | BSDF. A 6-layer head is wide + tall, so
@@ -418,10 +420,12 @@ def ensure_sf_layer_group():
     return ng
 
 
-def ensure_sf_blend_skin_group():
-    """Composite bundle B over bundle A, `Skin` mode: pass every channel through from A, except
-    Normal = RNM(A.Normal, B.Normal, Mask). (First pass -- generalise to all channels later.)"""
-    name = SF_BLEND_GROUP + " Skin"
+def _ensure_sf_blend_group(suffix):
+    """Build (or fetch) an SF Blend group named "SF Blend <suffix>". All modes currently share one
+    body: pass every channel through from A, except Normal = RNM(A.Normal, B.Normal, Mask). The
+    suffix distinguishes concrete groups so an unimplemented mode reads as its own node in the
+    graph (a visible signal that its blend isn't really processed) rather than masquerading as Skin."""
+    name = SF_BLEND_GROUP + " " + suffix
     ng, fresh = _ensure_group(name)
     if not fresh:
         return ng
@@ -449,10 +453,17 @@ def ensure_sf_blend_skin_group():
     return ng
 
 
+def ensure_sf_blend_skin_group():
+    """The `Skin` blend group (B over A, Normal RNM-composited)."""
+    return _ensure_sf_blend_group("Skin")
+
+
 def sf_blend_group_for(mode):
-    """The SF Blend group for a blend mode. Only `Skin` is implemented; others fall back to it
-    (approximation) for now -- the group name still records the true mode for recovery."""
-    return ensure_sf_blend_skin_group()
+    """The SF Blend group for a blend mode. Only `Skin` is implemented; every other mode maps to a
+    distinct `SF Blend Unknown` group -- same body as Skin for now, but its own name so the graph
+    signals that this blend mode wasn't really processed. The true mode still rides on PYN_SF_MODE
+    for recovery, so export round-trips it regardless."""
+    return ensure_sf_blend_skin_group() if mode == 'Skin' else _ensure_sf_blend_group("Unknown")
 
 
 def _is_group(node, group_name):
@@ -508,18 +519,30 @@ def recover_sf_material(material):
         else:
             uv_scale, uv_offset = (1.0, 1.0), (0.0, 0.0)
         layers.append({'textures': images_by_layer.get(idx, {}),
-                       'uv_scale': uv_scale, 'uv_offset': uv_offset})
+                       'uv_scale': uv_scale, 'uv_offset': uv_offset,
+                       'override_color': layer_markers[idx].get(PYN_SF_OVERRIDE, '')})
 
+    # Mask texture per blend index (may sit behind a channel separator, so found by its stamp, not
+    # by walking the Mask link).
+    mask_tex_by_blend = {n[PYN_SF_BLEND]: n for n in nodes
+                         if getattr(n, 'type', '') == 'TEX_IMAGE'
+                         and PYN_SF_BLEND in n and PYN_SF_PATH in n}
     blenders = []
     blend_markers = {n[PYN_SF_BLEND]: n for n in nodes
                      if _is_group(n, SF_BLEND_GROUP) and PYN_SF_BLEND in n}
     for idx in sorted(blend_markers):
         m = blend_markers[idx]
-        mask = ''
+        mtex = mask_tex_by_blend.get(idx)
+        mask = mtex[PYN_SF_PATH] if mtex else ''
+        # The mask channel (ColorChannelTypeComponent) is the source socket feeding the blend Mask:
+        # a separator's Red/Green/Blue or the mask texture's own Alpha. A direct texture 'Color' link
+        # means no channel. The graph is the source of truth.
+        channel = ''
         if m.inputs['Mask'].is_linked:
-            src = m.inputs['Mask'].links[0].from_node
-            mask = src[PYN_SF_PATH] if PYN_SF_PATH in src else ''
-        blenders.append({'mode': m.get(PYN_SF_MODE, ''), 'mask': mask})
+            sock = m.inputs['Mask'].links[0].from_socket.name
+            channel = {SEPARATOR_OUT1: 'Red', SEPARATOR_OUT2: 'Green', SEPARATOR_OUT3: 'Blue',
+                       'Alpha': 'Alpha'}.get(sock, '')
+        blenders.append({'mode': m.get(PYN_SF_MODE, ''), 'mask': mask, 'channel': channel})
 
     textures = {}
     for ly in layers:
@@ -783,7 +806,7 @@ def append_groupnode(parent, name, label, shader_path, location=None):
 
 def make_shader_skyrim(parent, shader_path, location, 
                        msn=False, facegen=False, effect_shader=False, 
-                       colormap_name='Col'):
+                       colormap_name=COLOR_MAP_NAME):
     """
     Returns a group node implementing a shader for Skyrim.
     """
@@ -1333,6 +1356,13 @@ def get_effective_colormaps(mesh):
 
     if not alphamap:
         alphamap = vertcolors.get(ALPHA_MAP_NAME)
+
+    # Prefer the canonically-named color map (VERTEX_COLOR). When a mesh has more than one non-
+    # alpha color attribute the active-color heuristic above is ambiguous; this name resolves it.
+    # Falls back to the heuristic for files authored before the convention (attribute named "Col").
+    named_color = vertcolors.get(COLOR_MAP_NAME)
+    if named_color is not None:
+        colormap = named_color
 
     return colormap, alphamap
 
@@ -1992,31 +2022,43 @@ class ShaderImporter:
             self.material['BSShaderTextureSet_' + slot] = path
 
         # Resolve the flat base PBR (base-layer-wins) + each layer's own textures + blend masks.
-        # Each entry is (resolved_filepath, verbatim_mat_path) so image nodes can be stamped with
-        # the .mat path for export recovery.
-        def resolve_set(texdict):
-            out = {}
-            for slot, path in texdict.items():
-                p = self._sf_resolve(path)
-                if p:
-                    out[slot] = (p, path)
-            return out
-        resolved = resolve_set(textures)
-        layers_resolved = []
-        for ly in layers:
-            layers_resolved.append({
-                'textures': resolve_set(ly['textures']),
-                'uv_scale': ly.get('uv_scale', (1.0, 1.0)),
-                'uv_offset': ly.get('uv_offset', (0.0, 0.0))})
-        blenders_resolved = []
-        for b in blenders:
-            mp = b.get('mask')
-            fp = self._sf_resolve(mp)
-            blenders_resolved.append({'mode': b.get('mode', ''),
-                                      'mask': (fp, mp) if fp else None})
+        resolved = self._resolve_sf_texset(textures)
+        layers_resolved = self._resolve_sf_layers(layers)
+        blenders_resolved = self._resolve_sf_blenders(blenders)
 
         self._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved)
         obj.active_material = self.material
+
+    def _resolve_sf_texset(self, texdict):
+        """Resolve a {slot: .mat-path} set to {slot: (resolved_filepath, verbatim_mat_path)} so image
+        nodes can be stamped with the .mat path for export recovery. Unresolvable slots are dropped."""
+        out = {}
+        for slot, path in texdict.items():
+            p = self._sf_resolve(path)
+            if p:
+                out[slot] = (p, path)
+        return out
+
+    def _resolve_sf_layers(self, layers):
+        """Resolve each parsed layer's textures, carrying its non-texture fields (uv tiling +
+        the vertex-color albedo override) through to the node build unchanged."""
+        return [{'textures': self._resolve_sf_texset(ly['textures']),
+                 'uv_scale': ly.get('uv_scale', (1.0, 1.0)),
+                 'uv_offset': ly.get('uv_offset', (0.0, 0.0)),
+                 'override_color': ly.get('override_color', '')}
+                for ly in layers]
+
+    def _resolve_sf_blenders(self, blenders):
+        """Resolve each parsed blender's texture mask, carrying its mode + vertex-color mask channel
+        through to the node build unchanged."""
+        out = []
+        for b in blenders:
+            mp = b.get('mask')
+            fp = self._sf_resolve(mp)
+            out.append({'mode': b.get('mode', ''),
+                        'mask': (fp, mp) if fp else None,
+                        'channel': b.get('channel', '')})
+        return out
 
     def _sf_resolve(self, path):
         """Resolve a .mat texture path to a loose file (prefer .png). None (with a warning) if
@@ -2186,11 +2228,47 @@ class ShaderImporter:
                 nt.links.new(uv_out, img.inputs['Vector'])
             nt.links.new(img.outputs['Color'], node.inputs[inp])
 
+        # MaterialOverrideColor 'Multiply': this layer's albedo is multiplied by the mesh vertex
+        # color. Insert the multiply on the layer's Base Color output and register it so downstream
+        # bundle reads (blends / the final BSDF wiring) pick up the overridden socket.
+        if layer.get('override_color') == 'Multiply':
+            vcol = self._sf_vertex_color_node(nt)
+            mix = make_mixnode(nt, node.outputs['Base Color'], vcol.outputs['Color'],
+                               factor=1.0, blend_type='MULTIPLY',
+                               location=(x + SF_LAYER_NODE_W + 2 * SF_MASK_GAP, y))
+            mix.label = 'Vertex Color x Albedo'
+            self._sf_base_override[node] = mix.outputs[MIXNODE_OUT]
+            node[PYN_SF_OVERRIDE] = layer['override_color']
+
         # This layer's lowest edge = the lower of the last texture node's bottom and the layer
         # node's bottom -- used to place the next layer just below it.
         last_tex_bottom = (y - (len(present) - 1) * SF_TEX_DY - SF_TEX_NODE_H) if present else y
         bottom = min(last_tex_bottom, y - SF_LAYER_NODE_H)
         return node, bottom
+
+    def _sf_vertex_color_node(self, nt):
+        """The mesh's vertex-color Attribute node (VERTEX_COLOR), created once per material and
+        cached. SF meshes always carry vertex colors; a layer's MaterialOverrideColor 'Multiply'
+        reads the full color from here to multiply into that layer's albedo."""
+        if getattr(self, '_sf_vcol', None) is None:
+            attr = nt.nodes.new('ShaderNodeAttribute')
+            attr.attribute_type = 'GEOMETRY'
+            attr.attribute_name = COLOR_MAP_NAME
+            attr.label = 'Vertex Color'
+            # Align with the per-layer texture-coordinate nodes (also at x - 1250).
+            attr.location = (SF_X_LAYER - 1250, SF_COMP_BASE_Y)
+            self._sf_vcol = attr
+        return self._sf_vcol
+
+    def _sf_bundle_out(self, node, chan):
+        """A bundle channel's output socket, honoring a per-layer Base Color override (a layer whose
+        material multiplies albedo by vertex color). Non-overridden channels read straight off the
+        group node -- so blends and the final BSDF wiring go through this uniformly."""
+        if chan == 'Base Color':
+            override = getattr(self, '_sf_base_override', {}).get(node)
+            if override is not None:
+                return override
+        return node.outputs[chan]
 
     def _build_sf_blend(self, nt, index, blender, bundle_a, bundle_b, x, y):
         """Composite two bundles via an SF Blend group (chosen by mode). Returns the group node."""
@@ -2202,8 +2280,13 @@ class ShaderImporter:
         node[PYN_SF_BLEND] = index
         node[PYN_SF_MODE] = blender.get('mode', '')
         for chan in _SF_BUNDLE_NAMES:
-            nt.links.new(bundle_a.outputs[chan], node.inputs['A ' + chan])
-            nt.links.new(bundle_b.outputs[chan], node.inputs['B ' + chan])
+            nt.links.new(self._sf_bundle_out(bundle_a, chan), node.inputs['A ' + chan])
+            nt.links.new(self._sf_bundle_out(bundle_b, chan), node.inputs['B ' + chan])
+        # Blend mask: the mask TEXTURE drives the blend. ColorChannelTypeComponent (when present)
+        # selects which channel of the mask to use -- face-detail masks are channel-packed (chin in
+        # green, lips in blue), so several blenders share the pattern of one mask + a channel. No
+        # channel means use the texture directly (as before).
+        channel = blender.get('channel')
         mask = blender.get('mask')
         if mask:
             mfile, mpath = self._sf_split(mask)
@@ -2214,7 +2297,16 @@ class ShaderImporter:
             mnode = self._sf_teximg_path(mfile, 'Non-Color', (mx, my),
                                          matpath=mpath, slot='Mask')
             mnode[PYN_SF_BLEND] = index
-            nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
+            if channel == 'Alpha':
+                nt.links.new(mnode.outputs['Alpha'], node.inputs['Mask'])
+            elif channel:
+                sep = make_separator(nt, mnode.outputs['Color'], (mx + SF_LAYER_TEX_DX, my))
+                out = {'Red': SEPARATOR_OUT1, 'Green': SEPARATOR_OUT2,
+                       'Blue': SEPARATOR_OUT3}.get(channel)
+                nt.links.new(sep.outputs[out] if out else mnode.outputs['Color'],
+                             node.inputs['Mask'])
+            else:
+                nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
         return node
 
     def _add_sf_component_nodes(self, nt, settings, anchor_x):
@@ -2241,7 +2333,10 @@ class ShaderImporter:
         present settings-component node driving its bit (SSS / emission / alpha test / hair sheen)."""
         o = bundle.outputs
         bx = bsdf.location[0]
-        make_mixnode(nt, o['Base Color'], o['AO'], output=bsdf.inputs['Base Color'],
+        # Base Color honors a per-layer vertex-color override when `bundle` is a lone overridden
+        # layer (single-layer material); composited bundles carry the override inside the blend.
+        base_color = self._sf_bundle_out(bundle, 'Base Color')
+        make_mixnode(nt, base_color, o['AO'], output=bsdf.inputs['Base Color'],
                      factor=1.0, blend_type='MULTIPLY', location=(bx - 300, 300))
         nt.links.new(o['Roughness'], bsdf.inputs['Roughness'])
         nt.links.new(o['Metallic'], bsdf.inputs['Metallic'])
@@ -2289,6 +2384,10 @@ class ShaderImporter:
         base normal via the SF Normal Blend group (RNM), masked by its blender."""
         nt = self.material.node_tree
         self.nodes = nt.nodes
+        # Per-material vertex-color state: the shared Attribute/separator node (lazily created) and
+        # the map of layer node -> overridden Base Color socket (MaterialOverrideColor 'Multiply').
+        self._sf_vcol = None
+        self._sf_base_override = {}
         bsdf = next((n for n in self.nodes if n.type == 'BSDF_PRINCIPLED'), None) \
             or self.nodes.new('ShaderNodeBsdfPrincipled')
         out = next((n for n in self.nodes if n.type == 'OUTPUT_MATERIAL'), None) \
