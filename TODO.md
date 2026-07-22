@@ -155,7 +155,16 @@ before frame 0 (or the animation start).
 
 ## Export should surface (create) the PyNifly property panels — all games
 
-**Status:** open (Bad Dog, 2026-07-17).
+**Status:** RESOLVED (2026-07-22). The SF-morph write-site was the real gap: `write_sf_morphs`
+now records the resolved chargen/performance paths back onto `pyn_sf_morph` (relative-to-meshes)
+and sets the `_migrated` flag via `set_group`, idempotently (never stomps an explicit path).
+The other typed groups already self-surface: any export that *reads* a group goes through
+`ensure_*_migrated`, which sets the flag as a side effect — verified by
+`TEST_COLLISION_PANEL_SURFACES`. Bug covered by `TEST_SF_MORPH_PANEL_SURFACES`.
+
+Original writeup below, for reference.
+
+**Status (original):** open (Bad Dog, 2026-07-17).
 
 **Problem:** an author-created object never shows its PyNifly property panels, so the
 only way a modder can see or set the values PyNifly writes (Starfield morph paths, and

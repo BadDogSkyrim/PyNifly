@@ -36,6 +36,7 @@ from io_scene_nifly.tri.tripfile import TripFile
 from io_scene_nifly.util.reprobj import ReprObject, ReprObjectCollection
 from io_scene_nifly.nif import controller
 from io_scene_nifly.nif import shader_io
+from io_scene_nifly.nif import pyn_props
 from . import test_tools as TT
 from . import test_tools_bpy as TTB
 from . import test_nifchecker as CHK
@@ -3807,6 +3808,58 @@ def TEST_SF_MORPH_NIFEXPORT():
     assert not os.path.exists(cp2) and not os.path.exists(pp2), "write_tris off skips morph export"
 
 
+@TT.category('STARFIELD')
+def TEST_SF_MORPH_PANEL_SURFACES():
+    """Exporting an author-created SF head surfaces its morph paths in the PyNifly panel.
+
+    An object whose shape keys were built in Blender (not imported from a morph.dat) never
+    got the pyn_sf_morph group's `_migrated` flag, so PYN_PT_block stayed hidden even though
+    export wrote real morph.dat files -- the modder had nothing to inspect or edit. Export
+    now records the resolved paths back on the group (relative-to-meshes, import's own
+    representation) and marks it migrated, and must not stomp a path the user set."""
+    import os
+
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    body.shape_key_add(name="Basis")
+    kj = body.shape_key_add(name="jawOpen")     # -> performance
+    kj.data[0].co.z += 1.0
+    ko = body.shape_key_add(name="Overweight")  # -> chargen
+    ko.data[1].co.x += 0.5
+
+    # Author-created: the morph group exists (registered type-wide) but was never migrated,
+    # so the panel wouldn't show it.
+    assert not body.get('pyn_sf_morph_migrated'), \
+        "precondition: an author-created head has no migrated morph group"
+
+    outnif = TTB.test_file(r"tests\Out\TEST_SF_MORPH_PANEL_SURFACES\meshes\FSF\FoxBody.nif")
+    os.makedirs(os.path.dirname(outnif), exist_ok=True)
+    BD.ObjectSelect(list(bpy.context.scene.objects))
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outnif, target_game="SF")
+
+    # The group is now migrated, so the panel polls visible with the head active.
+    assert body.get('pyn_sf_morph_migrated'), "export marked the morph group migrated"
+    assert pyn_props.PYN_PT_block.poll(bpy.context), "the PyNifly block panel now shows"
+
+    # Both resolved paths are recorded relative-to-meshes (re-homeable), not absolute.
+    cp = body.pyn_sf_morph.chargen_path
+    pp = body.pyn_sf_morph.performance_path
+    assert cp and not os.path.isabs(cp), f"chargen path recorded, relative-to-meshes: {cp!r}"
+    assert pp and not os.path.isabs(pp), f"performance path recorded, relative-to-meshes: {pp!r}"
+    assert cp.replace('\\', '/').startswith("meshes/morphs/"), f"chargen under meshes tree: {cp!r}"
+    assert "chargen" in cp and "performance" in pp, "paths landed in the right sibling trees"
+
+    # Idempotent: an explicit path the user set survives a re-export unchanged.
+    body.pyn_sf_morph.chargen_path = r"meshes\morphs\Custom\chargen\morph.dat"
+    outnif2 = TTB.test_file(r"tests\Out\TEST_SF_MORPH_PANEL_SURFACES2\meshes\FSF\FoxBody.nif")
+    os.makedirs(os.path.dirname(outnif2), exist_ok=True)
+    bpy.ops.export_scene.pynifly(filepath=outnif2, target_game="SF")
+    assert body.pyn_sf_morph.chargen_path == r"meshes\morphs\Custom\chargen\morph.dat", \
+        f"export didn't stomp the user's explicit path: {body.pyn_sf_morph.chargen_path!r}"
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""
@@ -7064,6 +7117,43 @@ def TEST_COLLISION_CONVEXVERT(bx):
     impcollshape = cheese_new.parent.constraints[0].target
     zmin = min([v.co.z for v in impcollshape.data.vertices])
     TT.assert_gt(zmin, -0.01, f"Minimum z")
+
+
+@TT.category('SKYRIM', 'PHYSICS')
+def TEST_COLLISION_PANEL_SURFACES():
+    """An author-created collision object gets its PyNifly panel back on export.
+
+    Verifies the general mechanism the SF-morph fix relies on: any export that *reads* a
+    typed group goes through ensure_*_migrated, which sets the group's `_migrated` flag as
+    a side effect -- so a shape whose group was never migrated (author-created) surfaces its
+    panel after export. We simulate an author-created shape by stripping the migrated flag
+    off an imported collision, then export and check the panel comes back."""
+    testfile = TTB.test_file(r"tests\Skyrim\cheesewedge01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_PANEL_SURFACES.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    cheese = bpy.data.objects["CheeseWedge01:0"]
+    root = cheese.parent
+    coll = root.constraints[0].target
+
+    # Simulate an author-created collision: clear every migrated flag import set (the object
+    # carries a group each for the shape, rigid body, and collision object), so the panel hides.
+    for k in ('pyn_collshape_migrated', 'pyn_rigidbody_migrated', 'pyn_collisionobj_migrated'):
+        if k in coll:
+            del coll[k]
+    bpy.context.view_layer.objects.active = coll
+    assert not pyn_props.PYN_PT_block.poll(bpy.context), \
+        "precondition: with no migrated groups the panel is hidden"
+
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIM')
+
+    # Export reads the shape's props through collshape_store -> ensure_handwired_migrated, which
+    # sets the flag as a side effect -- so the panel comes back with no morph-style change needed.
+    assert coll.get('pyn_collshape_migrated'), \
+        "export re-marked the collision-shape group migrated via the ensure_*_migrated read path"
+    bpy.context.view_layer.objects.active = coll
+    assert pyn_props.PYN_PT_block.poll(bpy.context), "the PyNifly block panel shows after export"
 
 
 @TT.category('SKYRIM', 'PHYSICS')

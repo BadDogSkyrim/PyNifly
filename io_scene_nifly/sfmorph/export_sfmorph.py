@@ -116,8 +116,14 @@ def write_sf_morphs(obj, anchor_path):
     morphs = build_morphs(obj)
     if morphs['chargen'] is None and morphs['performance'] is None:
         return []
+    # Snapshot the group's stored paths before we resolve, so we only fill the ones the user
+    # left empty -- an explicit path must survive a re-export unchanged.
+    grp = getattr(obj, 'pyn_sf_morph', None)
+    had = {'chargen': (getattr(grp, 'chargen_path', '') if grp else '') or '',
+           'performance': (getattr(grp, 'performance_path', '') if grp else '') or ''}
     cp, pp = resolve_morph_paths(obj, anchor_path)
     wrote = []
+    materialize = {}
     for which, path in (('chargen', cp), ('performance', pp)):
         mf = morphs[which]
         if mf is None:
@@ -129,6 +135,16 @@ def write_sf_morphs(obj, anchor_path):
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
         mf.to_file(path)
         wrote.append(f"{len(mf.morph_names)} {which} -> {path}")
+        # Record the resolved path back on the group (relative-to-meshes, import's own
+        # representation) so an author-created head shows editable morph paths in the panel.
+        # Only fill where the user hadn't set one, so we never stomp an explicit value.
+        if not had[which]:
+            materialize[f'{which}_path'] = morph_relpath(path)
+    if wrote:
+        # set_group also sets the pyn_sf_morph `_migrated` flag, which is what makes
+        # PYN_PT_block render the panel for an object that was never imported from a morph.dat.
+        from ..nif import pyn_props
+        pyn_props.set_group(obj, 'pyn_sf_morph', **materialize)
     return wrote
 
 
