@@ -153,6 +153,48 @@ out of the controller's declared range, and be sure a legitimately short animati
 mistaken for garbage. Add a test with the workbench asserting no imported key lands
 before frame 0 (or the animation start).
 
+## Export should surface (create) the PyNifly property panels — all games
+
+**Status:** open (Bad Dog, 2026-07-17).
+
+**Problem:** an author-created object never shows its PyNifly property panels, so the
+only way a modder can see or set the values PyNifly writes (Starfield morph paths, and
+the equivalent for every other typed group) is via the Python console
+(`obj.pyn_sf_morph.chargen_path = ...` + setting the `pyn_sf_morph_migrated` custom
+prop). That is not an acceptable UI. Concretely: Bad Dog exported a Lykaios head, the
+chargen/performance `morph.dat` files were written (paths auto-derived from the nif
+anchor), but **no PyNifly property panels appeared** on the object, so there was nothing
+to inspect or edit. This is **not Starfield-specific** — we now have typed property
+panels for the other games too and they have the same problem.
+
+**Why they don't show:** the typed groups (block groups + hand-wired groups like
+`pyn_sf_morph`) are registered type-wide on `bpy.types.Object`, so every object *has* the
+group — but the `PYN_PT_block` panel `poll`/`draw` gate on a per-group `<attr>_migrated`
+custom prop (`_migkey`), which is only set when the value came in through an *import*. An
+author-created object never gets it, so the panel stays hidden even after export writes
+real files/data for it.
+
+**Idea:** on export (any game), **materialize the relevant property groups** for each
+exported object — set the fields to the values the exporter actually resolved/derived
+(e.g. the chargen/performance paths from `resolve_morph_paths`, and likewise for other
+groups the export path fills in) and set the `_migrated` key so `PYN_PT_block` renders
+them. After exporting, the modder should see panels showing what PyNifly wrote and be
+able to change them and re-export. Use the existing helpers (`pyn_props.set_group` for
+hand-wired groups — sets fields + the migrated flag; the block-group equivalent for
+buffer-derived groups).
+
+**Scope / care:**
+- Cover the typed groups relevant to whatever was exported, across all games — not just
+  `pyn_sf_morph`. An author-made shape should end up with the same editable panels an
+  imported one has.
+- Only surface a group when it's actually meaningful for that object/export (don't
+  create empty/irrelevant panels on every object — e.g. don't add SF-morph fields to an
+  object with no shape keys). Gate on relevance, not on game.
+- Write back the **resolved** values in the same representation import uses (e.g. morph
+  paths relative-to-`meshes`, so they stay re-homeable).
+- Idempotent: re-export shouldn't stomp a value the user has since edited — only fill
+  when empty, or reflect what was actually written without overwriting an explicit value.
+
 ## Starfield `.mat` writer must be diff-only (don't clobber inherited fields)
 
 **Status:** open (found 2026-07-13, latent — `write_sf_materials` defaults OFF).

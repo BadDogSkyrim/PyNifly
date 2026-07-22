@@ -139,6 +139,46 @@ def armatures_match(a, b):
 
 # -----------------------------  MESH CREATION -------------------------------
 
+def filter_duplicate_tris(tris, shape_name):
+    """Drop coincident duplicate triangles, and report how many went.
+
+    Two triangles on the same set of vertex indices can't both exist in a Blender
+    mesh -- mesh.validate() deletes the second one after the fact regardless.
+    Doing it here instead means the loss can be counted and reported, and gives
+    us the tri_map below.
+
+    Vertex indices are untouched, so per-vertex data (UVs, weights, normals)
+    still lines up. Per-*triangle* data does not: tri_map gives the source
+    triangle index for each Blender face, and anything indexed by triangle
+    (partitions, LOD buckets) has to go through it. Blender was dropping these
+    on its own, without a map, which silently shifted partition assignment on
+    any shape that had duplicates.
+
+    Returns (kept triangles, tri_map, dropped count). Callers aggregate the
+    counts into one message per import -- vanilla assets hit this often enough
+    that a warning per shape is just noise.
+    """
+    if not tris:
+        return tris, [], 0
+
+    kept = []
+    tri_map = []
+    seen = set()
+    duplicate = 0
+    for i, t in enumerate(tris):
+        key = frozenset(t)
+        if key in seen:
+            duplicate += 1
+            continue
+        seen.add(key)
+        kept.append(t)
+        tri_map.append(i)
+
+    if duplicate:
+        log.debug(f"{shape_name}: dropped {duplicate} duplicate triangle(s)")
+    return kept, tri_map, duplicate
+
+
 def mesh_create_normals(the_mesh, normals):
     """ 
     Create custom normals in Blender to match those on the object 
@@ -153,8 +193,13 @@ def mesh_create_normals(the_mesh, normals):
         the_mesh.normals_split_custom_set_from_vertices([Vector(v).normalized() for v in normals])
 
 
-def mesh_create_partition_groups(the_shape, the_object):
-    """ Create groups to capture partitions """
+def mesh_create_partition_groups(the_shape, the_object, tri_map=None):
+    """ Create groups to capture partitions
+
+    tri_map maps each Blender face back to its source triangle (see
+    filter_duplicate_tris); without it, dropped triangles shift every
+    partition assignment after them.
+    """
     mesh = the_object.data
     vg = the_object.vertex_groups
     partn_groups = []
@@ -169,7 +214,10 @@ def mesh_create_partition_groups(the_shape, the_object):
             for sseg in p.subsegments:
                 new_vg = vg.new(name=sseg.name)
                 partn_groups.append(new_vg)
-    for part_idx, face in zip(the_shape.partition_tris, mesh.polygons):
+    part_tris = the_shape.partition_tris
+    if tri_map is not None and part_tris is not None:
+        part_tris = [part_tris[i] for i in tri_map if i < len(part_tris)]
+    for part_idx, face in zip(part_tris, mesh.polygons):
         if part_idx < len(partn_groups):
             this_vg = vg[partn_groups[part_idx].name]
             for lp in face.loop_indices:
@@ -204,7 +252,7 @@ def mesh_create_partition_groups(the_shape, the_object):
             "segments but no cut offsets — it will not dismember in game.")
 
 
-def mesh_create_lod_groups(the_shape, the_object):
+def mesh_create_lod_groups(the_shape, the_object, tri_map=None):
     """Create cumulative vertex groups for BSMeshLODTriShape LOD levels.
 
     Triangles are stored sorted by LOD: first lodSize0 are LOD0 (coarsest),
@@ -234,21 +282,21 @@ def mesh_create_lod_groups(the_shape, the_object):
             lod_groups.append(vg.new(name=name))
 
     # Cumulative population: a tri at LOD level L is added to groups L, L+1, L+2.
-    # tri 0..lodSize0-1     → LOD0, LOD1, LOD2
-    # next lodSize1 tris    → LOD1, LOD2
-    # remaining tris (LOD2) → LOD2
-    tri_idx = 0
-    for lod_level in range(3):
-        count = lod_sizes[lod_level] if lod_level < 2 else (len(mesh.polygons) - tri_idx)
-        for _ in range(count):
-            if tri_idx >= len(mesh.polygons):
-                break
-            face = mesh.polygons[tri_idx]
-            for lp in face.loop_indices:
-                vi = mesh.loops[lp].vertex_index
-                for g in range(lod_level, 3):
-                    lod_groups[g].add((vi,), 1.0, 'ADD')
-            tri_idx += 1
+    # source tri 0..lodSize0-1  → LOD0, LOD1, LOD2
+    # next lodSize1 tris        → LOD1, LOD2
+    # remaining tris (LOD2)     → LOD2
+    # The buckets are ranges over the *source* triangle list, so faces have to be
+    # placed by their source index (tri_map) -- dropped triangles would otherwise
+    # slide every later face into the wrong bucket.
+    lod0_end = lod_sizes[0]
+    lod1_end = lod0_end + lod_sizes[1]
+    for face_idx, face in enumerate(mesh.polygons):
+        src = tri_map[face_idx] if tri_map else face_idx
+        lod_level = 0 if src < lod0_end else (1 if src < lod1_end else 2)
+        for lp in face.loop_indices:
+            vi = mesh.loops[lp].vertex_index
+            for g in range(lod_level, 3):
+                lod_groups[g].add((vi,), 1.0, 'ADD')
 
     # Mask modifier with no vertex group — shows everything (LOD2).
     # User can switch to LOD0 or LOD1 to see coarser levels.
@@ -348,6 +396,9 @@ class NifImporter():
         # armature isn't yet bound to the mesh) and processed in a final pass
         # at the end of execute(), once self.armature is set up.
         self._pending_cut_disks = []
+        # (shape name, duplicates dropped) for triangles Blender can't hold.
+        # Summarized in one message at the end of execute().
+        self._dropped_tris = []
         self.context = bpy.context
         self.is_facegen = False
         self.is_skinned_tree = False
@@ -1299,6 +1350,9 @@ class NifImporter():
             # to "Object.NNN"; fall back to the block name. The true nif name
             # (possibly empty) is kept in pynNodeName for round-trip.
             shape_name = the_shape.name or the_shape.blockname
+            t, tri_map, dup = filter_duplicate_tris(t, shape_name)
+            if dup:
+                self._dropped_tris.append((shape_name, dup))
             new_mesh = bpy.data.meshes.new(shape_name)
             new_mesh.from_pydata(v, [], t)
             new_mesh.update(calc_edges=True, calc_edges_loose=True)
@@ -1338,11 +1392,11 @@ class NifImporter():
 
                 BD.mesh_create_uv(new_object.data, the_shape.uvs)
                 self.mesh_create_bone_groups(the_shape, new_object)
-                mesh_create_partition_groups(the_shape, new_object)
+                mesh_create_partition_groups(the_shape, new_object, tri_map)
                 # Queue for end-of-import cut-disk creation (needs the armature).
                 if 'FO4_CUT_OFFSETS' in new_object.keys():
                     self._pending_cut_disks.append((the_shape, new_object))
-                mesh_create_lod_groups(the_shape, new_object)
+                mesh_create_lod_groups(the_shape, new_object, tri_map)
                 for f in new_mesh.polygons:
                     f.use_smooth = True
 
@@ -2326,6 +2380,30 @@ class NifImporter():
             for the_shape, the_object in self._pending_cut_disks:
                 self.create_cut_offset_disks(the_shape, the_object)
         self._pending_cut_disks = []
+
+        self.report_dropped_tris()
+
+
+    def report_dropped_tris(self):
+        """Report, once for the whole import, the triangles Blender couldn't hold.
+
+        See filter_duplicate_tris. These triangles are gone for good -- an export
+        of this scene will not contain them -- so the user needs to know, but
+        per-shape messages would bury the import log on assets like
+        VltGearDoor01 where thirty-odd shapes each carry duplicates.
+        """
+        if not self._dropped_tris:
+            return
+        dup = sum(d for _, d in self._dropped_tris)
+        shapes = ", ".join(n for n, _ in self._dropped_tris[:5])
+        if len(self._dropped_tris) > 5:
+            shapes += f", +{len(self._dropped_tris) - 5} more"
+        log.warning(
+            f"Dropped {dup} duplicate triangle(s) across "
+            f"{len(self._dropped_tris)} shape(s) [{shapes}]: a Blender mesh holds "
+            "only one face per set of vertices. These will not be written back "
+            "out on export.")
+        self._dropped_tris = []
 
 
     @classmethod

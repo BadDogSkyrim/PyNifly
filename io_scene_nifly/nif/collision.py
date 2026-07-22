@@ -1183,14 +1183,16 @@ class CollisionHandler():
             self.warn("bhkMoppBvTreeShape: no triangles to export")
             return None, None, Quaternion()
 
-        # Determine game and radius
-        game = self.nif.game
-        radius = 0.005 if game != 'SKYRIM' else 0.1
-
         # Get default material from the collision-shape group (name string)
         from . import pyn_props
         pyn_props.collshape_store(s)  # migrate any legacy bhkMaterial prop onto the group
         mat_name = s.pyn_collshape.bhkMaterial
+
+        # Determine game and radius. A radius stored on the collision-shape group
+        # came from the source nif, so prefer it over the per-game default --
+        # vanilla shapes don't all use the default (SEVMageTower05 is 0.001).
+        game = self.nif.game
+        radius = s.pyn_collshape.bhkRadius or (0.005 if game != 'SKYRIM' else 0.1)
         default_material = 0
         if mat_name:
             try:

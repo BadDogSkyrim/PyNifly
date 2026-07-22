@@ -8,6 +8,10 @@
 /TestNifly/x64/Test
 tests/tests/Out/
 
+# Scratch/dev-only tooling and local state (not part of the addon)
+/tools/
+.claude/scheduled_tasks.lock
+
 # -----------------------------------------------------------------------------
 # Python cache and build artifacts
 # -----------------------------------------------------------------------------

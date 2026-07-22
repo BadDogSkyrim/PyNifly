@@ -71,6 +71,13 @@ test_categories = {
     }
 
 
+# Warnings that are a property of the test assets rather than a defect in the code
+# under test, so every test that touches such an asset would otherwise need to
+# whitelist them. Duplicate triangles turn up in a lot of vanilla meshes;
+# TEST_IMPORT_DUPLICATE_TRIS_WARNS covers that the warning still fires.
+ALWAYS_EXPECTED = ("duplicate triangle(s) across",)
+
+
 class TestLogHandler(logging.Handler):
     def __init__(self):
         super().__init__()
@@ -84,8 +91,11 @@ class TestLogHandler(logging.Handler):
             self.log.removeHandler(self)
 
     def emit(self, record):
+        msg = record.getMessage()
+        if any([e in msg for e in ALWAYS_EXPECTED]):
+            return
         if self.expected_errors:
-            if any([e in record.getMessage() for e in self.expected_errors]):
+            if any([e in msg for e in self.expected_errors]):
                 return # Expected error, ignore.
         self.max_error = max(self.max_error, record.levelno)
 
@@ -12513,6 +12523,122 @@ def TEST_COLLISION_MOPP_SEVMAGETOWER():
     assert TT.is_gt(len(re_coll), 0, "reimported collision found")
     assert TT.is_eq(len(re_coll[0].data.polygons), len(orig_tris),
                     "reimported tri count")
+
+
+@TT.category('SKYRIM', 'MOPP', 'COLLISION')
+@TT.expect_errors(("Could not find texture", "Could not load"))
+def TEST_COLLISION_MOPP_RADIUS():
+    """The bhkCompressedMeshShape convex radius round-trips.
+
+    SEVMageTower05 uses 0.001, not PyNifly's 0.005 default, so a hardcoded
+    export radius shows up as a changed value on the round trip."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\SEVMageTower05.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_COLLISION_MOPP_RADIUS.nif", output=True)
+
+    orig_radius = pyn.NifFile(testfile).rootNode.collision_object.body.shape.child.properties.radius
+    assert TT.is_neq(round(orig_radius, 5), 0.005,
+                     f"fixture radius {orig_radius} differs from the export default")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_collection=True)
+    import_coll = bpy.context.collection
+    BD.ObjectSelect(list(import_coll.all_objects), active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
+
+    out_radius = pyn.NifFile(outfile).rootNode.collision_object.body.shape.child.properties.radius
+    assert TT.is_equiv(out_radius, orig_radius,
+                       f"convex radius round-trips (was {orig_radius}, got {out_radius})")
+
+
+@TT.category('FO4', 'IMPORT', 'PARTITIONS')
+@TT.expect_errors(("Could not find materials file",))
+def TEST_IMPORT_DUPLICATE_TRIS_PARTITIONS():
+    """Partitions stay on the right faces when duplicate triangles are dropped.
+
+    partition_tris is 1:1 with the *source* triangles, so every dropped duplicate
+    slides the assignments after it by one unless import maps faces back through
+    tri_map. LBoot's L_Boot has 284 duplicates among 1786 triangles.
+
+    Caveat: this locks in the behaviour but doesn't currently discriminate --
+    in every fixture we have, the duplicates sit inside a single partition run,
+    so the shift happens to land on the same partition value. Checked with
+    scratchpad/partshift.py; no vanilla asset in tests/tests exercises it."""
+    testfile = TTB.test_file(r"tests\FO4\LBoot.nif")
+
+    shape = [s for s in pyn.NifFile(testfile).shapes if s.name == "L_Boot"][0]
+    tris = shape.tris
+    part_tris = shape.partition_tris
+    dups = len(tris) - len(set(frozenset(t) for t in tris))
+    assert TT.is_gt(dups, 0, f"fixture really has duplicate tris ({dups})")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    obj = TTB.find_object("L_Boot")
+    mesh = obj.data
+
+    # Rebuild the expected assignment straight from the nif: walk the source
+    # triangles in order, skipping duplicates exactly as import does, and check
+    # each surviving one landed in the vertex group its source partition names.
+    # partition_tris indexes the flattened partition list the importer builds:
+    # each partition followed by its subsegments (FO4 dismemberment).
+    partition_names = []
+    for p in shape.partitions:
+        partition_names.append(p.name)
+        for sseg in getattr(p, "subsegments", ()):
+            partition_names.append(sseg.name)
+    groups = {vg.index: vg.name for vg in obj.vertex_groups}
+    seen = set()
+    expected = []
+    for i, t in enumerate(tris):
+        key = frozenset(t)
+        if key in seen:
+            continue
+        seen.add(key)
+        expected.append(partition_names[part_tris[i]])
+    assert TT.is_eq(len(expected), len(mesh.polygons),
+                    "one expected partition per imported face")
+
+    wrong = 0
+    for face, want in zip(mesh.polygons, expected):
+        vi = mesh.loops[face.loop_start].vertex_index
+        names = {groups[g.group] for g in mesh.vertices[vi].groups}
+        if want not in names:
+            wrong += 1
+    assert TT.is_eq(wrong, 0,
+                    f"every face is in its source partition ({wrong} of "
+                    f"{len(mesh.polygons)} misassigned)")
+
+
+@TT.category('SKYRIM', 'IMPORT')
+def TEST_IMPORT_DUPLICATE_TRIS_WARNS():
+    """Triangles Blender can't represent are reported, not silently dropped.
+
+    Blender holds at most one face per set of vertex indices, so mesh.validate()
+    quietly deletes coincident duplicates. caveghall1way01's L2_Roots:8 has 12."""
+    import logging
+    testfile = TTB.test_file(
+        r"tests\SkyrimSE\meshes\dungeons\caves\green\smallhall\caveghall1way01.nif")
+
+    shape = [s for s in pyn.NifFile(testfile).shapes if s.name == "L2_Roots:8"][0]
+    dups = len(shape.tris) - len(set(frozenset(t) for t in shape.tris))
+    assert TT.is_gt(dups, 0, f"fixture really has duplicate tris ({dups})")
+
+    messages = []
+
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    cap = _Cap(level=logging.WARNING)
+    pyn_log = logging.getLogger("pynifly")
+    pyn_log.addHandler(cap)
+    try:
+        bpy.ops.import_scene.pynifly(filepath=testfile)
+    finally:
+        pyn_log.removeHandler(cap)
+
+    warned = [m for m in messages
+              if "L2_Roots:8" in m and f"{dups} duplicate" in m]
+    assert TT.is_neq(warned, [],
+                     f"duplicate-triangle drop was reported (saw {messages[:3]})")
 
 
 def show_all_tests():
