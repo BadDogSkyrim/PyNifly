@@ -3591,6 +3591,26 @@ def TEST_SF_HEAD_MATERIAL():
 
 
 @TT.category('STARFIELD')
+def TEST_SF_MATERIALS_FLAG_STICKY():
+    """The 'export materials' flag (write_sf_materials) is sticky per-nif, like the other export
+    options. Regression: it was missing from the consolidated export-settings group, so it never
+    persisted -- every export dialog reopened with it off, even after the user turned it on."""
+    from io_scene_nifly.nif import pyn_props
+    root = bpy.data.objects.new("SF_StickyRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+
+    # Untouched: not reported, so the operator keeps its own default (dialog seeds from prefs).
+    assert 'write_sf_materials' not in pyn_props.read_export_settings(root, None), \
+        "an unset flag defers to the operator default"
+
+    # After an export stores it, it reads back sticky off the nif root.
+    pyn_props.write_export_settings(root, None, {'write_sf_materials': True})
+    assert pyn_props.read_export_settings(root, None).get('write_sf_materials') is True, \
+        "the flag persists on the nif root and reads back True"
+    assert root.pyn_export.write_sf_materials is True, "stored on the typed export group"
+
+
+@TT.category('STARFIELD')
 @TT.expect_errors(("Could not find material", "Could not find SF texture"))
 def TEST_SF_EXPORT():
     """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),
