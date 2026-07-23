@@ -887,8 +887,8 @@ class NifExporter:
             return
         from ..sfmorph.export_sfmorph import write_sf_morphs
         wrote = write_sf_morphs(obj, self.nif.filepath)
-        if wrote:
-            log.info(f"Wrote Starfield morphs for {obj.name}: " + "; ".join(wrote))
+        for w in wrote:
+            log.info(f"Wrote Starfield morph: {w}")
 
     def export_tris(self, robj:ReprObject, verts, tris, uvs, morphdict):
         """ Export a tri file to go along with the given nif file, if there are shape keys
@@ -2163,7 +2163,6 @@ class NifExporter:
                     controller.ControllerHandler.export_animated_obj(self, root_repr)
 
         self.nif.save()
-        log.info(f"..Wrote {fpath}")
         if self.game == 'SF':
             from . import sf_geometry
             sf_geometry.write_sf_meshes(self)

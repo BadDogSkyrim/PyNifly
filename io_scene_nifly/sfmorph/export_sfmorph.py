@@ -175,7 +175,8 @@ class ExportSFMorph(bpy.types.Operator, ExportHelper):
                 self.report({"ERROR"}, "No morphs written (no shape keys or no output paths)")
                 status = {'CANCELLED'}
             else:
-                log.info(f"Exported Starfield morphs from {obj.name}: " + "; ".join(wrote))
+                for w in wrote:
+                    log.info(f"Wrote Starfield morph: {w}")
         except Exception:
             self.log_handler.log.exception("Export of Starfield morph.dat failed")
             self.report({"ERROR"}, "Export failed, see console window for details")
