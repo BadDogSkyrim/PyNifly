@@ -486,22 +486,41 @@ def _recover_sf_settings(material):
     return s
 
 
+def _sf_game_texture_path(node):
+    """The game-relative Textures\\...\\*.dds path for an SF image node, taken from its ASSIGNED
+    image datablock -- the shader graph is the source of truth (as FO4/Skyrim export reads the
+    node, not a stored property), so a swapped image is honored on export. Returns None when there
+    is no image or it doesn't live under a 'textures' tree, letting the caller fall back to the
+    imported pyn_sf_path stamp."""
+    img = getattr(node, 'image', None)
+    fp = getattr(img, 'filepath', '') if img else ''
+    if not fp:
+        return None
+    parts = Path(bpy.path.abspath(fp)).parts
+    lower = [p.lower() for p in parts]
+    if 'textures' not in lower:
+        return None
+    return str(Path(*parts[lower.index('textures'):]).with_suffix('.dds'))
+
+
 def recover_sf_material(material):
     """Walk a material's shader graph back into a normalised dict (as parse_mat returns), so it can
     be written out with sf_materials.write_mat. Sources: the SF Parameters node (settings), the SF
-    Layer / SF Blend marker nodes (structure + UV/mode), and stamped image nodes (texture paths).
-    Returns None if the material has no node tree."""
+    Layer / SF Blend marker nodes (structure + UV/mode), and the image nodes' assigned textures
+    (with the stamped pyn_sf_path as a fallback). Returns None if the material has no node tree."""
     nt = getattr(material, 'node_tree', None)
     if nt is None:
         return None
     nodes = nt.nodes
 
-    # Texture paths per layer, from stamped image nodes.
+    # Texture paths per layer: the assigned image wins (graph is the source of truth); the import
+    # stamp is the fallback for images that can't be resolved under a 'textures' tree.
     images_by_layer = {}
     for n in nodes:
         if (getattr(n, 'type', '') == 'TEX_IMAGE' and PYN_SF_LAYER in n
                 and PYN_SF_SLOT in n and PYN_SF_PATH in n):
-            images_by_layer.setdefault(n[PYN_SF_LAYER], {})[n[PYN_SF_SLOT]] = n[PYN_SF_PATH]
+            path = _sf_game_texture_path(n) or n[PYN_SF_PATH]
+            images_by_layer.setdefault(n[PYN_SF_LAYER], {})[n[PYN_SF_SLOT]] = path
 
     # UV tiling per layer, off the shared Mapping node stamped with the layer index (absent = 1:1).
     uv_by_layer = {n[PYN_SF_LAYER]: n for n in nodes
@@ -533,7 +552,7 @@ def recover_sf_material(material):
     for idx in sorted(blend_markers):
         m = blend_markers[idx]
         mtex = mask_tex_by_blend.get(idx)
-        mask = mtex[PYN_SF_PATH] if mtex else ''
+        mask = (_sf_game_texture_path(mtex) or mtex[PYN_SF_PATH]) if mtex else ''
         # The mask channel (ColorChannelTypeComponent) is the source socket feeding the blend Mask:
         # a separator's Red/Green/Blue or the mask texture's own Alpha. A direct texture 'Color' link
         # means no channel. The graph is the source of truth.

@@ -3431,6 +3431,16 @@ def TEST_SF_MAT_ROUNDTRIP():
     blenders_resolved = [{'mode': 'Skin', 'mask': M}]
     si._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved)
 
+    # Recovery reads texture paths from the ASSIGNED image (the graph is the source of truth), so
+    # give each stamped node an image sitting at its intended game location. Deriving that back
+    # reproduces the .mat-relative path -- the same path the import stamp carries.
+    from io_scene_nifly.nif.shader_io import PYN_SF_PATH
+    for n in mat.node_tree.nodes:
+        if n.type == 'TEX_IMAGE' and PYN_SF_PATH in n:
+            img = bpy.data.images.new(os.path.basename(n[PYN_SF_PATH]), 8, 8)
+            img.filepath = r"C:\Game\Data" + "\\" + n[PYN_SF_PATH]
+            n.image = img
+
     data = recover_sf_material(mat)
     assert data is not None, "recovered a material dict from the graph"
     # Structure recovered from markers + stamped images.
@@ -3452,6 +3462,68 @@ def TEST_SF_MAT_ROUNDTRIP():
     assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
     assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
     assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_IMAGE_SWAP():
+    """Starfield: the shader graph is the source of truth for texture paths on export.
+
+    Import stamps each image node with its .mat-relative path (pyn_sf_path). When the artist SWAPS
+    the image datablock -- e.g. a tailored Lykaios albedo/AO over the imported human one -- recovery
+    must follow the ASSIGNED image, deriving a Textures\\...\\*.dds game path from it. The stamp is
+    only a fallback for images that don't resolve under a 'textures' tree (matches how FO4/Skyrim
+    export reads the node, not a stored property). Regression: the swap was ignored and the human
+    paths re-exported, so the head stayed pink in-game."""
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material,
+                                              PYN_SF_LAYER, PYN_SF_SLOT, PYN_SF_PATH, PYN_SF_BLEND)
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Swap_Test")
+    mat.use_nodes = True
+    si.material = mat
+    mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Body.mat'
+    # Stamp the base-layer albedo with the HUMAN path, as a real import would.
+    HUMAN_ALBEDO = r'Textures\Actors\human\faces\Chargen\male_default_sk3_color.dds'
+    A = (tex, HUMAN_ALBEDO); N = (tex, r'Textures\Skin\normal.dds')
+    M = (tex, r'Textures\Skin\mask.dds')
+    layers_resolved = [{'textures': {'Albedo': A, 'Normal': N},
+                        'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+                       {'textures': {'Normal': N}, 'uv_scale': (9.0, 9.0), 'uv_offset': (0.0, 0.0)}]
+    blenders_resolved = [{'mode': 'Skin', 'mask': M}]
+    si._build_sf_nodes({'Albedo': A, 'Normal': N}, None, layers_resolved, blenders_resolved)
+
+    def stamped(pred):
+        return next(n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and pred(n))
+    alb = stamped(lambda n: n.get(PYN_SF_SLOT) == 'Albedo' and n.get(PYN_SF_LAYER) == 0)
+    assert alb[PYN_SF_PATH] == HUMAN_ALBEDO, "sanity: albedo stamped with the human path pre-swap"
+
+    # Swap in a tailored albedo living under a game 'Textures' tree. The file need not exist -- we
+    # only set the datablock's filepath (recovery reads the path, not the pixels).
+    def swap_image(node, game_abs_path):
+        img = bpy.data.images.new(os.path.basename(game_abs_path), 8, 8)
+        img.filepath = game_abs_path
+        node.image = img
+    swap_image(alb, r"C:\Steam\steamapps\common\Starfield\Data\Textures\FSF\Lykaios\Head\LykaiosMaleHead_col.png")
+
+    data = recover_sf_material(mat)
+    assert data['layers'][0]['textures']['Albedo'] == r'Textures\FSF\Lykaios\Head\LykaiosMaleHead_col.dds', \
+        f"swapped albedo follows the assigned image, not the stamp: {data['layers'][0]['textures']}"
+
+    # A swapped blend MASK is honored the same way.
+    mask_node = stamped(lambda n: n.get(PYN_SF_BLEND) == 0)
+    swap_image(mask_node, r"C:\Steam\steamapps\common\Starfield\Data\Textures\FSF\Lykaios\Head\lykaios_mask.png")
+    data = recover_sf_material(mat)
+    assert data['blenders'][0]['mask'] == r'Textures\FSF\Lykaios\Head\lykaios_mask.dds', \
+        f"swapped mask follows the assigned image: {data['blenders'][0]}"
+
+    # An UNSWAPPED node whose image still can't resolve under a 'textures' tree falls back to its
+    # stamp (never silently drops the path).
+    orphan = bpy.data.images.new("orphan", 8, 8)  # no filepath -> unresolvable
+    alb.image = orphan
+    data = recover_sf_material(mat)
+    assert data['layers'][0]['textures']['Albedo'] == HUMAN_ALBEDO, \
+        f"unresolvable image falls back to the stamp: {data['layers'][0]['textures']}"
 
 
 @TT.category('STARFIELD', 'SHADER')
