@@ -16,6 +16,7 @@ The `.mat` is an object graph: a top-level `Objects` list, each with `Components
 `starfield-materials.md` for the full DOM.
 """
 
+import hashlib
 import json
 import logging
 
@@ -59,6 +60,20 @@ _TRANSLUCENCY = 'BSMaterial::TranslucencySettingsComponent'
 _EMISSIVITY = 'BSMaterial::LayeredEmissivityComponent'
 _ALPHA_SETTINGS = 'BSMaterial::AlphaSettingsComponent'
 _HAIR = 'BSMaterial::HairSettingsComponent'
+
+# A game-valid loose `.mat` is NOT a self-contained graph: every node must inherit its base DOM from
+# the shipped Root template for its kind via a `Parent` link, carry a `CTName`, and have a unique
+# `res:` id. Without these the game/CK can't build the material and renders it magenta (a flat graph
+# only ever "worked" through NifSkope's/PyNifly's lenient parsers). Parent paths are the vanilla form
+# (lowercase, no `Data\` prefix), verified against a shipped male_default.mat.
+_CTNAME = 'BSComponentDB::CTName'
+_ROOT_TEMPLATE = 'materials\\layered\\root\\'
+_PARENT_LAYEREDMATERIAL = _ROOT_TEMPLATE + 'layeredmaterials.mat'
+_PARENT_LAYER = _ROOT_TEMPLATE + 'layers.mat'
+_PARENT_MATERIAL = _ROOT_TEMPLATE + 'materials.mat'
+_PARENT_TEXTURESET = _ROOT_TEMPLATE + 'texturesets.mat'
+_PARENT_UVSTREAM = _ROOT_TEMPLATE + 'uvstreams.mat'
+_PARENT_BLENDER = _ROOT_TEMPLATE + 'blenders.mat'
 
 # HairSettingsComponent fields we carry, as (dict key, .mat field, type). Floats default 0.0,
 # bools default False. The component has ~26 fields; these are the authored/visually-relevant ones.
@@ -417,17 +432,51 @@ def _settings_components(settings):
     return comps
 
 
+def _mat_basename(fn):
+    """The material's short name (for CTName labels), from its `.mat` path stem."""
+    stem = (fn or 'material').replace('/', '\\').split('\\')[-1]
+    if stem.lower().endswith('.mat'):
+        stem = stem[:-4]
+    return stem or 'material'
+
+
+def _id_namespace(fn):
+    """A per-material 64-bit id namespace (`res:` words 2 and 3) derived deterministically from the
+    material path. Mirrors vanilla, where nodes of one material share words 2-3 and vary word 1 --
+    so a differently-named material gets a disjoint namespace and its `res:` ids never collide with
+    another's in the material database. Deterministic (not random) so re-exports diff cleanly."""
+    h = hashlib.sha256((fn or 'material').lower().replace('/', '\\').encode('utf-8')).digest()
+    return int.from_bytes(h[0:4], 'big'), int.from_bytes(h[4:8], 'big')
+
+
 def write_mat(data, filename=None):
-    """Serialize a normalised material dict (as parse_mat returns) back to loose `.mat` JSON text.
-    Round-trips: parse_mat(write_mat(d)) reproduces d's textures/settings/layers/blenders."""
+    """Serialize a normalised material dict (as parse_mat returns) to a GAME-VALID loose `.mat`.
+
+    Each node inherits its base DOM from the shipped Root template for its kind via a `Parent` link,
+    carries a `CTName`, and gets a unique `res:` id (per-material namespace + per-node word). Without
+    this the game renders the material magenta -- a flat, Parent-less graph is only accepted by the
+    lenient NifSkope/PyNifly parsers. parse_mat(write_mat(d)) still round-trips d's
+    textures/settings/layers/blenders (the extra scaffolding is inert to the reader)."""
+    fn = filename or data.get('filename') or ''
+    base = _mat_basename(fn)
+    ns_hi, ns_lo = _id_namespace(fn)
     objects = []
     counter = [0]
 
     def new_id():
+        # word 1 mixes the node counter with the namespace (golden-ratio odd multiplier -> a
+        # bijection mod 2^32, so distinct counters give distinct, hash-looking words, never a
+        # 0000000N placeholder).
         counter[0] += 1
-        return f"res:{counter[0]:08X}:00000000:00000000"
+        w1 = (ns_hi ^ ((counter[0] * 0x9E3779B1) & 0xFFFFFFFF)) & 0xFFFFFFFF
+        return f"res:{w1:08X}:{ns_hi:08X}:{ns_lo:08X}"
 
-    root = []   # the root LayeredMaterial's components (LayerID/BlenderID refs + settings)
+    def emit(node_id, parent, name, comps):
+        """Append a child node: CTName first (vanilla order), then its components; ID + Parent."""
+        objects.append({"Components": [{"Type": _CTNAME, "Index": 0, "Data": {"Name": name}}] + comps,
+                        "ID": node_id, "Parent": parent})
+
+    root = [{"Type": _CTNAME, "Index": 0, "Data": {"Name": base}}]  # root LayeredMaterial components
 
     for i, ly in enumerate(data.get('layers', [])):
         layer_id, mat_id, ts_id = new_id(), new_id(), new_id()
@@ -435,12 +484,12 @@ def write_mat(data, filename=None):
         ts_comps = [{"Type": _TEXTURE_FILE_TYPE, "Index": _SF_SLOT_INDEX[slot],
                      "Data": {"FileName": _reprefix(path)}}
                     for slot, path in ly.get('textures', {}).items() if slot in _SF_SLOT_INDEX]
-        objects.append({"ID": ts_id, "Components": ts_comps})
+        emit(ts_id, _PARENT_TEXTURESET, f"{base}_TextureSet{i + 1}", ts_comps)
         mat_comps = [{"Type": _TEXTURESET_ID, "Index": 0, "Data": {"ID": ts_id}}]
         if ly.get('override_color'):
             mat_comps.append({"Type": _OVERRIDE_COLOR, "Index": 0,
                               "Data": {"Value": ly['override_color']}})
-        objects.append({"ID": mat_id, "Components": mat_comps})
+        emit(mat_id, _PARENT_MATERIAL, f"{base}_Material{i + 1}", mat_comps)
         layer_comps = [{"Type": _MATERIAL_ID, "Index": 0, "Data": {"ID": mat_id}}]
         scale = tuple(ly.get('uv_scale', (1.0, 1.0)))
         offset = tuple(ly.get('uv_offset', (0.0, 0.0)))
@@ -451,9 +500,9 @@ def write_mat(data, filename=None):
                 uv_comps.append({"Type": _UV_SCALE, "Index": 0, "Data": _xmfloat("XMFLOAT2", scale)})
             if offset != (0.0, 0.0):
                 uv_comps.append({"Type": _UV_OFFSET, "Index": 0, "Data": _xmfloat("XMFLOAT2", offset)})
-            objects.append({"ID": uv_id, "Components": uv_comps})
+            emit(uv_id, _PARENT_UVSTREAM, f"{base}_UVStream{i + 1}", uv_comps)
             layer_comps.append({"Type": _UVSTREAM_ID, "Index": 0, "Data": {"ID": uv_id}})
-        objects.append({"ID": layer_id, "Components": layer_comps})
+        emit(layer_id, _PARENT_LAYER, f"{base}_Layer{i + 1}", layer_comps)
 
     for i, b in enumerate(data.get('blenders', [])):
         blend_id = new_id()
@@ -465,13 +514,12 @@ def write_mat(data, filename=None):
         if b.get('channel'):
             bcomps.append({"Type": _COLOR_CHANNEL, "Index": 0,
                            "Data": {"Value": b['channel']}})
-        objects.append({"ID": blend_id, "Components": bcomps})
+        emit(blend_id, _PARENT_BLENDER, f"{base}_Blender{i + 1}", bcomps)
 
     root.extend(_settings_components(data.get('settings', {})))
-    objects.insert(0, {"Components": root})
+    objects.insert(0, {"Components": root, "Parent": _PARENT_LAYEREDMATERIAL})
 
     doc = {"Version": 1, "Objects": objects}
-    fn = filename or data.get('filename')
     if fn:
         doc["Filename"] = fn
     return json.dumps(doc, indent=2)

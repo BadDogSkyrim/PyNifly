@@ -1101,10 +1101,10 @@ def TEST_SF_MAT_WRITE():
     """Starfield P2: write a loose .mat back from a normalised material dict, round-tripping.
 
     parse_mat(write_mat(d)) must reproduce d's layers/blenders/settings/filename. The writer emits
-    a self-contained graph (no template Parent) -- LayeredMaterial (LayerID/BlenderID refs + settings
-    components) + per-layer Layer/Material/TextureSet(+UVStream) + per-blender objects, values as
-    strings, colors as nested XMFLOAT. This proves the graph is recoverable to a file (the payoff of
-    'build for export')."""
+    LayeredMaterial (LayerID/BlenderID refs + settings components) + per-layer Layer/Material/
+    TextureSet(+UVStream) + per-blender objects, values as strings, colors as nested XMFLOAT. This
+    proves the graph is recoverable to a file (the payoff of 'build for export'). The game-valid
+    scaffolding (Parent links / CTName / unique ids) is covered separately by TEST_SF_MAT_GAME_VALID."""
     from pyn.sf_materials import parse_mat, write_mat
 
     data = {
@@ -1140,6 +1140,82 @@ def TEST_SF_MAT_WRITE():
                  if c.get('Type') == 'BSMaterial::MRTextureFile']
     assert all(p.startswith('Data\\') for p in all_paths), \
         f"written texture paths carry the Data\\ prefix: {all_paths}"
+
+
+def TEST_SF_MAT_GAME_VALID():
+    """Starfield: write_mat must emit a GAME-VALID loose .mat, not just a self-parseable one.
+
+    A loose .mat renders magenta in-game unless every node (a) inherits from the shipped Root
+    template for its kind via a `Parent` link, (b) carries a `CTName`, and (c) has a UNIQUE res:
+    id (non-placeholder). Regression: write_mat emitted a flat graph -- no Parent, no CTName,
+    sequential res:00000001 placeholder ids -- so the material had no base DOM and the game
+    couldn't build it. Verified by diffing against vanilla male_default.mat (34/34 nodes have
+    Parent+CTName)."""
+    import json
+    from pyn.sf_materials import parse_mat, write_mat
+
+    data = {
+        'filename': r'Materials\FSF\Lykaios\MaleHead.mat',
+        'settings': {'shader_model': 'Skin5Layer'},
+        'layers': [
+            {'textures': {'Albedo': r'Textures\FSF\col.dds', 'Normal': r'Textures\FSF\n.dds'},
+             'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0), 'override_color': 'Multiply'},
+            {'textures': {'Normal': r'Textures\FSF\detail.dds'},
+             'uv_scale': (9.0, 9.0), 'uv_offset': (0.0, 0.0), 'override_color': ''}],
+        'blenders': [{'mode': 'Skin', 'mask': r'Textures\FSF\mask.dds', 'channel': 'Green'}]}
+
+    doc = json.loads(write_mat(data))
+    objs = doc['Objects']
+    root = objs[0]                       # the LayeredMaterial root (no ID)
+    children = objs[1:]
+
+    CTNAME = 'BSComponentDB::CTName'
+    def has_comp(o, t):
+        return any(c.get('Type') == t for c in o.get('Components', []))
+
+    # (a) Parent inheritance -- root + every child.
+    ROOT = 'materials\\layered\\root\\'
+    assert root.get('Parent') == ROOT + 'layeredmaterials.mat', \
+        f"root inherits LayeredMaterials template: {root.get('Parent')}"
+    for o in children:
+        p = o.get('Parent', '')
+        assert p.startswith(ROOT) and p.endswith('.mat'), \
+            f"every node inherits a Root template: {p!r}"
+    # The expected template set appears (layers/materials/texturesets/blenders; uvstreams for the
+    # tiled detail layer).
+    parents = {o.get('Parent', '').split('\\')[-1] for o in children}
+    for expect in ('layers.mat', 'materials.mat', 'texturesets.mat', 'blenders.mat', 'uvstreams.mat'):
+        assert expect in parents, f"a {expect}-parented node was emitted: {sorted(parents)}"
+
+    # (b) CTName on every node.
+    assert has_comp(root, CTNAME), "root carries a CTName"
+    for o in children:
+        assert has_comp(o, CTNAME), f"every child carries a CTName: {o.get('ID')}"
+
+    # (c) Unique, non-placeholder res: ids; referential integrity preserved.
+    ids = [o['ID'] for o in children if 'ID' in o]
+    assert ids, "children carry res: ids"
+    assert len(ids) == len(set(ids)), f"res: ids are unique: {ids}"
+    assert not any('res:00000001:' in i or ':00000000:00000000' in i for i in ids), \
+        f"no sequential placeholder ids: {ids}"
+    # Different material names -> different id namespace (no cross-material collisions).
+    other = json.loads(write_mat({**data, 'filename': r'Materials\FSF\Other.mat'}))
+    other_ids = {o['ID'] for o in other['Objects'] if 'ID' in o}
+    assert not (set(ids) & other_ids), "a differently-named material uses a disjoint id namespace"
+
+    # Every referenced id resolves to an emitted object (LayerID/MaterialID/TextureSetID/UVStreamID/
+    # BlenderID edges still consistent after the id-scheme change).
+    all_ids = {o['ID'] for o in objs if 'ID' in o}
+    for o in objs:
+        for c in o.get('Components', []):
+            ref = (c.get('Data') or {}).get('ID')
+            if ref:
+                assert ref in all_ids, f"dangling reference {c['Type']} -> {ref}"
+
+    # And the normalised round-trip still holds (didn't break parse_mat).
+    back = parse_mat(write_mat(data))
+    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
+    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
 
 
 def TEST_RW_HEAD():
