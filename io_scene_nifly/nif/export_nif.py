@@ -759,7 +759,7 @@ class NifExporter:
         modifier and is authoritative — it overrides any prior armature added as a
         fallback (e.g. a bare ARMATURE child of a root EMPTY).
         """
-        facebones_arma = (self.game in ['FO4', 'FO76']) and (BD.is_facebones(arma.data.bones.keys()))
+        facebones_arma = (self.game in ['FO4', 'FO76', 'SF']) and (BD.is_facebones(arma.data.bones.keys()))
         if facebones_arma:
             if self.facebones is None or (via_modifier and not self._facebones_via_modifier):
                 self.facebones = arma
@@ -2092,6 +2092,12 @@ class NifExporter:
         self.objs_written = ReprObjectCollection()
         pynifly.NifFile.clear_log()
         self.nif = pynifly.NifFile()
+        # Which file of the set we're writing ('' or '_faceBones'). SF geometry export reads
+        # this to give the facebones companion its own external .mesh.
+        self.file_suffix = suffix
+        # Queued external .mesh/.mat writes are per-file; the base nif's are already on disk.
+        self._sf_meshes = []
+        self._sf_materials = []
 
         if self.objects:
             shape = next(iter(self.objects))
@@ -2113,7 +2119,9 @@ class NifExporter:
                 except Exception as e:
                     log.warn(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
 
-        if suffix == '_faceBones':
+        if suffix == '_faceBones' and self.game != 'SF':
+            # FO4/FO76 rename face bones through fo4FaceDict. Starfield's facebones keep their
+            # authored 'faceBone_*' names, so leave the dictionary alone.
             self.nif.dict = fo4FaceDict
 
         self.nif.dict.use_niftools = self.settings.rename_bones_niftools

@@ -19,6 +19,7 @@ if 'tests.blender_tests' in sys.modules:
 from tests.blender_tests import *
 
 tests.blender_tests.do_tests(
+    target_tests=[],
     test_all=True,
     stop_on_fail=False,
     )

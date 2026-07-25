@@ -20,7 +20,7 @@ bl_info = {
 # is really executing, but this banner can. Dev-only: the "build N" suffix is
 # shown only when running from a dev checkout (PYNIFLY_DEV_ROOT set), never in a
 # release install. Not the release version.
-PYN_BUILD = 13
+PYN_BUILD = 16
 
 import os
 import logging

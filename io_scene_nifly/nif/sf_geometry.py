@@ -166,6 +166,12 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
         # is visible/editable in the SF Geometry panel and stable across re-exports.
         from . import pyn_props
         pyn_props.set_group(obj, 'pyn_sf_geometry', mesh_path=mesh_name, lod_slot=slot)
+    # The facebones companion nif needs its OWN .mesh: same positions, different skin (vanilla
+    # ships the pair as two distinct geometry files). Suffix the path we write with rather than
+    # the stored property, so the base path stays authoritative and round-trips unchanged.
+    # '_fb' not '_facebones' -- meshName is capped at ~46 chars.
+    if getattr(exporter, 'file_suffix', '') == '_faceBones':
+        mesh_name = mesh_name + '_fb'
     new_shape.set_mesh_name(mesh_name, slot)
 
     # Vertex colors: SF meshes always carry them; default to white where Blender has none.

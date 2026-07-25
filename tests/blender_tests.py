@@ -3646,6 +3646,81 @@ def TEST_SF_MATERIALS_FLAG_STICKY_ON_EXPORT():
 
 
 @TT.category('STARFIELD')
+def TEST_SF_FACEBONES_EXPORT():
+    """Starfield head parts ship as a <name>.nif + <name>_faceBones.nif pair; the facebones
+    variant is skinned to the faceBone_* rig and carries its OWN external .mesh.
+
+    Regression: facebones export was gated to FO4/FO76, and is_facebones() only recognised
+    FO4's 'skin_bone_' prefix -- so a correctly-rigged Starfield head silently exported
+    without its companion file, and the game had no head geometry to build."""
+    import os
+    from io_scene_nifly import blender_defs as _BD
+
+    assert _BD.is_facebones(['faceBone_C_Chin', 'faceBone_L_Cheek', 'faceBone_R_Cheek',
+                             'faceBone_L_EarMaster', 'faceBone_R_EarMaster',
+                             'faceBone_C_NoseRidge']), "SF faceBone_ prefix is recognised"
+    assert not _BD.is_facebones(['C_Head', 'C_Neck1', 'C_Spine2']), "body bones are not facebones"
+
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_FACEBONES_EXPORT\meshes\sfhead.nif", output=True)
+    outfile_fb = TTB.test_file(r"tests\Out\TEST_SF_FACEBONES_EXPORT\meshes\sfhead_faceBones.nif",
+                               output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    root = bpy.data.objects.new("SFHeadRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    root['pynRoot'] = True
+
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=8, ring_count=6)
+    head = bpy.context.object
+    head.name = "SFHead"
+    head.parent = root
+
+    fb_bones = ['faceBone_C_Chin', 'faceBone_L_Cheek', 'faceBone_R_Cheek',
+                'faceBone_L_EarMaster', 'faceBone_R_EarMaster', 'faceBone_C_NoseRidge']
+    arma_data = bpy.data.armatures.new("SFFaceBonesData")
+    arma = bpy.data.objects.new("SFFaceBones", arma_data)
+    bpy.context.scene.collection.objects.link(arma)
+    arma.parent = root
+    bpy.context.view_layer.objects.active = arma
+    bpy.ops.object.mode_set(mode='EDIT')
+    for i, bn in enumerate(fb_bones):
+        b = arma_data.edit_bones.new(bn)
+        b.head = (i * 0.1, 0, 0)
+        b.tail = (i * 0.1, 0, 1)
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # Weight every vertex to one facebone so the shape is skinned to the facebones rig.
+    vg = head.vertex_groups.new(name=fb_bones[0])
+    vg.add(list(range(len(head.data.vertices))), 1.0, 'REPLACE')
+    head.modifiers.new("Armature", 'ARMATURE').object = arma
+
+    BD.ObjectSelect([root, head, arma], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", intuit_defaults=False)
+
+    assert os.path.exists(outfile), "wrote the base nif"
+    assert os.path.exists(outfile_fb), f"wrote the facebones companion nif at {outfile_fb}"
+
+    nif_fb = pyn.NifFile(outfile_fb)
+    assert len(nif_fb.shapes) == 1, "facebones nif has the shape"
+    fb_shape = nif_fb.shapes[0]
+    assert [b for b in fb_shape.bone_names if b.startswith('faceBone_')], \
+        f"facebones nif is skinned to faceBone_* bones; got {fb_shape.bone_names}"
+
+    # The two nifs must reference DIFFERENT external .mesh files -- vanilla does, and sharing
+    # one means the facebones skin overwrites the base geometry's .mesh on disk.
+    base_mesh = pyn.NifFile(outfile).shapes[0].mesh_paths()[0]
+    fb_mesh = fb_shape.mesh_paths()[0]
+    assert base_mesh != fb_mesh, \
+        f"base and facebones nifs reference distinct .mesh paths (both were {base_mesh})"
+
+    geodir = os.path.join(os.path.dirname(os.path.dirname(outfile)), "geometries")
+    written = []
+    for r, _d, files in os.walk(geodir):
+        written += [f for f in files if f.endswith(".mesh")]
+    assert len(written) >= 2, f"wrote a separate .mesh for each nif; found {written}"
+
+
+@TT.category('STARFIELD')
 @TT.expect_errors(("Could not find material", "Could not find SF texture"))
 def TEST_SF_EXPORT():
     """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),

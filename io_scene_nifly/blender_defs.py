@@ -410,10 +410,16 @@ def pack_xf_to_buf(xf, scale_factor: float):
     return tb
 
 
+# Per-game prefix identifying a face-bone. FO4/FO76 rename face bones to 'skin_bone_*';
+# Starfield keeps them as 'faceBone_*' (see the vanilla malehead_facebones.nif rig).
+FACEBONE_PREFIXES = ('skin_bone_', 'faceBone_')
+
+
 def is_facebones(bone_names):
     """Determine whether the list of bone names indicates a facebones skeleton"""
     #return (fo4FaceDict.matches(set(list(arma.data.bones.keys()))) > 20)
-    return  len([x for x in bone_names if x.startswith('skin_bone_')]) > 5
+    return len([x for x in bone_names
+                if x.startswith(FACEBONE_PREFIXES)]) > 5
 
 
 def find_armatures(obj):
