@@ -3901,6 +3901,62 @@ def TEST_SF_MORPH_NIFEXPORT():
 
 
 @TT.category('STARFIELD')
+def TEST_SF_MORPH_MESH_MATCH():
+    """SF morph.dat must be 1:1 with the exported .mesh's POST-SPLIT vertex set.
+
+    The .mesh export splits verts at UV/normal seams (N -> N+k render verts); the morph must grow
+    the same way (each split vertex reuses its source delta) or the game's ApplyChargenMorph fails
+    on a vertex-count mismatch -- exactly what broke the Lykaios head facegen (Geometry[5558] vs
+    Morph[5405]). Regression: SF morph export rebuilt from the RAW shape keys (Blender count) instead
+    of the export's split morphdict, so any seam-splitting head desynced mesh vs morph."""
+    import os, shutil
+    from pyn.sf_morph import MorphFile
+
+    d = os.path.dirname(TTB.test_file(os.path.join("tests", "Out", "TEST_SF_MORPH_MESH_MATCH", "m")))
+    shutil.rmtree(d, ignore_errors=True)
+
+    # Two tris sharing the diagonal (verts 0 & 2), with a UV seam down it so both shared verts
+    # carry two UVs -> the .mesh export splits each (4 Blender verts -> 6 render verts). A chargen
+    # shape key moves v0, whose split copy must inherit the same delta.
+    me = bpy.data.meshes.new("SplitHead")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], [], [(0, 1, 2), (0, 2, 3)])
+    me.update()
+    uvl = me.uv_layers.new(name="UVMap")
+    for i, uv in enumerate([(0, 0), (1, 0), (1, 1),          # face0 loops: v0,v1,v2
+                            (0.5, 0), (0.5, 1), (0, 1)]):     # face1 loops: v0,v2,v3 (v0/v2 differ)
+        uvl.data[i].uv = uv
+    body = bpy.data.objects.new("SplitHead", me)
+    bpy.context.scene.collection.objects.link(body)
+    body["PYN_GAME"] = "SF"                    # so game discovery exports as Starfield (.mesh + morph.dat)
+    blender_verts = len(me.vertices)          # 4
+    body.shape_key_add(name="Basis")
+    ko = body.shape_key_add(name="Overweight")   # -> chargen
+    ko.data[0].co.x += 0.5                        # move v0 (splits) -> its render-copy must move too
+
+    outnif = TTB.test_file(r"tests\Out\TEST_SF_MORPH_MESH_MATCH\meshes\FSF\SplitHead.nif")
+    os.makedirs(os.path.dirname(outnif), exist_ok=True)
+    BD.ObjectSelect([body])
+    bpy.context.view_layer.objects.active = body
+    bpy.ops.export_scene.pynifly(filepath=outnif, target_game="SF")
+
+    cp = os.path.join(os.path.dirname(os.path.dirname(outnif)), "morphs", "SplitHead", "chargen", "morph.dat")
+    assert os.path.exists(cp), f"chargen morph written: {cp}"
+    morph_verts = MorphFile.from_file(cp).num_vertices
+
+    # Re-import into a clean scene to read the exported .mesh's real (post-split) vertex count.
+    for o in list(bpy.data.objects):
+        bpy.data.objects.remove(o, do_unlink=True)
+    bpy.ops.import_scene.pynifly(filepath=outnif)
+    mesh_verts = max(len(o.data.vertices) for o in bpy.data.objects if o.type == 'MESH')
+
+    assert mesh_verts > blender_verts, \
+        f"precondition: the mesh splits verts on export ({blender_verts} -> {mesh_verts})"
+    assert morph_verts == mesh_verts, \
+        f"morph matches the exported .mesh's split vertex count, not the raw Blender count " \
+        f"(morph={morph_verts}, mesh={mesh_verts}, blender={blender_verts})"
+
+
+@TT.category('STARFIELD')
 def TEST_SF_MORPH_PANEL_SURFACES():
     """Exporting an author-created SF head surfaces its morph paths in the PyNifly panel.
 

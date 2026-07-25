@@ -33,8 +33,33 @@ def _key_deltas(kb, base, n, scale, epsilon):
     return {int(vi): (float(d[vi, 0]), float(d[vi, 1]), float(d[vi, 2])) for vi in moved}
 
 
+def _pack_groups(named_deltas, nverts):
+    """Split {key_name: {vert_index: (dx,dy,dz)}} into chargen vs performance MorphFiles by
+    is_expression_morph. `nverts` is the morph's vertex count -- for a nif export this MUST be the
+    exported .mesh's post-split count (see build_morphs_from_split), not the raw Blender count.
+    Returns {'chargen': MorphFile|None, 'performance': MorphFile|None}."""
+    groups = {'chargen': ([], {}), 'performance': ([], {})}
+    for name, d in named_deltas.items():
+        which = 'performance' if is_expression_morph(name) else 'chargen'
+        names, deltas = groups[which]
+        names.append(name)
+        deltas[name] = d
+    out = {}
+    for which, (names, deltas) in groups.items():
+        if not names:
+            out[which] = None
+            continue
+        if len(names) > MAX_KEYS:
+            raise ValueError(f"{len(names)} {which} morphs exceeds the {MAX_KEYS}-morph cap")
+        out[which] = MorphFile.from_deltas(names, nverts, deltas)
+    return out
+
+
 def build_morphs(obj, scale=1.0, epsilon=1e-4):
-    """Split `obj`'s shape keys into performance vs chargen MorphFiles by is_expression_morph.
+    """Split `obj`'s shape keys into performance vs chargen MorphFiles by is_expression_morph, over
+    the RAW Blender vertices. Used by the standalone morph operator, where no mesh export is in play.
+    A NIF export must use build_morphs_from_split instead -- its .mesh export splits verts at seams,
+    and the morph has to match that post-split vertex set.
 
     Returns {'chargen': MorphFile|None, 'performance': MorphFile|None} (None where that group has
     no shape keys). Raises ValueError if the object has no Basis or a group exceeds the key cap.
@@ -49,24 +74,32 @@ def build_morphs(obj, scale=1.0, epsilon=1e-4):
     base = np.empty(n * 3, dtype=np.float32)
     basis.data.foreach_get('co', base)
 
-    groups = {'chargen': ([], {}), 'performance': ([], {})}
-    for kb in keys.key_blocks:
-        if kb.name == "Basis":
-            continue
-        which = 'performance' if is_expression_morph(kb.name) else 'chargen'
-        names, deltas = groups[which]
-        names.append(kb.name)
-        deltas[kb.name] = _key_deltas(kb, base, n, scale, epsilon)
+    named_deltas = {kb.name: _key_deltas(kb, base, n, scale, epsilon)
+                    for kb in keys.key_blocks if kb.name != "Basis"}
+    return _pack_groups(named_deltas, n)
 
-    out = {}
-    for which, (names, deltas) in groups.items():
-        if not names:
-            out[which] = None
+
+def build_morphs_from_split(morphdict, scale=1.0, epsilon=1e-4):
+    """Build chargen/performance MorphFiles from a NIF export's SPLIT `morphdict`: absolute morphed
+    positions per RENDER vertex (1:1 with the exported .mesh), keyed by Blender shape-key name and
+    including 'Basis'. The .mesh export duplicates a vertex wherever a UV/normal seam requires it
+    (niflytools.mesh_split_by_uv), duplicating each key's position for that vertex alongside -- so a
+    morph built from this dict keeps the same vertex set as the .mesh. Building from raw shape keys
+    instead gives the un-split Blender count, and the game's ApplyChargenMorph fails on the mismatch
+    (the Lykaios head facegen bug: Geometry 5558 vs Morph 5405)."""
+    base = morphdict.get('Basis')
+    if base is None:
+        raise ValueError("export morphdict has no 'Basis' to diff against")
+    b = np.asarray(base, dtype=np.float32)
+    named_deltas = {}
+    for name, positions in morphdict.items():
+        if name == 'Basis':
             continue
-        if len(names) > MAX_KEYS:
-            raise ValueError(f"{len(names)} {which} morphs exceeds the {MAX_KEYS}-morph cap")
-        out[which] = MorphFile.from_deltas(names, n, deltas)
-    return out
+        d = (np.asarray(positions, dtype=np.float32) - b) / scale
+        moved = np.nonzero(np.abs(d).max(axis=1) > epsilon)[0]
+        named_deltas[name] = {int(vi): (float(d[vi, 0]), float(d[vi, 1]), float(d[vi, 2]))
+                              for vi in moved}
+    return _pack_groups(named_deltas, len(b))
 
 
 def resolve_morph_paths(obj, dialog_path):
@@ -107,13 +140,17 @@ def resolve_morph_paths(obj, dialog_path):
     return resolve_morph_output(cp, seed), resolve_morph_output(pp, seed)
 
 
-def write_sf_morphs(obj, anchor_path):
+def write_sf_morphs(obj, anchor_path, morphdict=None):
     """Build + write `obj`'s chargen/performance morph.dat files, anchored at `anchor_path` (the
     exported nif, or an explicit dialog path). Returns a list of "N which -> path" strings for
-    what was written (empty if nothing)."""
+    what was written (empty if nothing).
+
+    `morphdict` is the NIF export's split positions-per-render-vertex (incl 'Basis'); when given the
+    morph is built 1:1 with the exported .mesh. Without it (the standalone-operator path, no mesh
+    export) the morph is built from the raw Blender shape keys."""
     if obj.data.shape_keys is None:
         return []
-    morphs = build_morphs(obj)
+    morphs = build_morphs_from_split(morphdict) if morphdict else build_morphs(obj)
     if morphs['chargen'] is None and morphs['performance'] is None:
         return []
     # Snapshot the group's stored paths before we resolve, so we only fill the ones the user

@@ -879,14 +879,17 @@ class NifExporter:
 
     # --------- DO THE EXPORT ---------
 
-    def export_sf_morphs(self, robj:ReprObject):
+    def export_sf_morphs(self, robj:ReprObject, verts, morphdict):
         """Starfield: write the shape's chargen + performance morph.dat files (split by expression
-        classification) alongside the exported nif, re-homed under the nif's meshes root."""
+        classification) alongside the exported nif, re-homed under the nif's meshes root. Uses the
+        export's SPLIT morphdict (absolute positions per render vertex, 1:1 with the exported .mesh)
+        so the morph matches the .mesh's post-split vertex set -- not the raw Blender vertices, which
+        would mismatch the .mesh wherever seams split verts and fail the game's ApplyChargenMorph."""
         obj = robj.blender_obj
         if obj.type != 'MESH' or obj.data.shape_keys is None:
             return
         from ..sfmorph.export_sfmorph import write_sf_morphs
-        wrote = write_sf_morphs(obj, self.nif.filepath)
+        wrote = write_sf_morphs(obj, self.nif.filepath, morphdict=morphdict)
         for w in wrote:
             log.info(f"Wrote Starfield morph: {w}")
 
@@ -2030,7 +2033,7 @@ class NifExporter:
         # expression classification; FO4/Skyrim use .tri files.
         if self.settings.write_tris:
             if self.game == 'SF':
-                self.export_sf_morphs(robj)
+                self.export_sf_morphs(robj, verts, morphdict)
             else:
                 retval |= self.export_tris(robj, verts, tris, uvmap_new, morphdict)
 
