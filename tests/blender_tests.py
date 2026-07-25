@@ -3611,6 +3611,41 @@ def TEST_SF_MATERIALS_FLAG_STICKY():
 
 
 @TT.category('STARFIELD')
+def TEST_SF_MATERIALS_FLAG_STICKY_ON_EXPORT():
+    """Root-level export settings must persist when the user exports with only the SHAPE
+    selected, not the nif root Empty.
+
+    Regression: _discover_settings walks up the parent chain to find the nif root when reading
+    sticky settings, but set_objects only assigned self.root_object if a pynRoot was directly in
+    the selection. Exporting a selected mesh therefore left root_object None, and
+    write_export_settings silently skipped every root-anchored field -- so 'export materials'
+    (and the other root options) read back sticky but never wrote back."""
+    import os
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_MATERIALS_FLAG_STICKY_ON_EXPORT\meshes\cube.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    root = bpy.data.objects.new("StickyExportRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    root['pynRoot'] = True
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.object
+    cube.name = "StickyCube"
+    cube.parent = root
+
+    assert not root.pyn_export.is_property_set('write_sf_materials'), "starts unset"
+
+    # Select ONLY the shape -- the root Empty stays unselected, as when a user clicks the mesh.
+    # intuit_defaults=False mirrors what invoke() does for a dialog-driven export: these
+    # settings are the user's authoritative choice, so they persist.
+    BD.ObjectSelect([cube], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF",
+                                 write_sf_materials=True, intuit_defaults=False)
+
+    assert root.pyn_export.write_sf_materials is True, \
+        "the flag persisted onto the nif root even though only the shape was selected"
+
+
+@TT.category('STARFIELD')
 @TT.expect_errors(("Could not find material", "Could not find SF texture"))
 def TEST_SF_EXPORT():
     """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),

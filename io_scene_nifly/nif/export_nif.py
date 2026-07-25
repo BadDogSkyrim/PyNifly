@@ -2051,9 +2051,20 @@ class NifExporter:
         # All other export settings are sticky in the typed groups: nif-level on the root,
         # skeleton settings on the armature (Bad Dog's root+armature split).
         from . import pyn_props
-        pyn_props.write_export_settings(self.root_object, arma, self.settings)
-        if self.root_object is not None:
-            self.root_object.pyn_export.blender_xf = MatNearEqual(self.export_xf, BD.blender_export_xf)
+        # Only persist settings that are authoritative -- i.e. the user's dialog choices
+        # (invoke() clears intuit_defaults) or an explicit intuit_defaults=False call. When
+        # intuit_defaults is True the settings were themselves *derived* from stickiness and
+        # preferences, so writing them back would let a programmatic export's derived values
+        # overwrite the user's stored choices.
+        if not getattr(self.settings, 'intuit_defaults', False):
+            # self.root_object is only set when a pynRoot is *in the selection*; exporting a
+            # selected shape leaves it None. The read side (_discover_settings) walks up to the
+            # nif root regardless, so resolve the anchor the same way here or nothing persists.
+            settings_root = self.root_object or pyn_props.find_settings_root(obj)
+            pyn_props.write_export_settings(settings_root, arma, self.settings)
+            if settings_root is not None:
+                settings_root.pyn_export.blender_xf = MatNearEqual(self.export_xf,
+                                                                   BD.blender_export_xf)
 
         if self.active_obj != obj:
             bpy.data.meshes.remove(self.active_obj.data)
@@ -2490,13 +2501,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         obj = self.objects_to_export[0]
         lst = [o for o in self.objects_to_export if "pynRoot" in o]
-        obj_root = lst[0] if lst else None
-        if obj_root is None:
-            # Selecting a child shape: walk up to its nif root so its sticky settings apply.
-            o = obj
-            while o is not None and 'pynRoot' not in o:
-                o = o.parent
-            obj_root = o
+        # Selecting a child shape: walk up to its nif root so its sticky settings apply.
+        # export_shape resolves the write-side anchor with the same helper.
+        from . import pyn_props as _pp
+        obj_root = lst[0] if lst else _pp.find_settings_root(obj)
 
         # `_discover_game` (called just before this) populates self.armatures via
         # expansion through EMPTY children, so use that list — self.export_armature

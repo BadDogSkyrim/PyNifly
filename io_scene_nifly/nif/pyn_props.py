@@ -783,6 +783,20 @@ def _migrate_export_anchor(datablock, attr, fields):
     datablock[_EXPORT_MIG_KEY] = True
 
 
+def find_settings_root(obj):
+    """The nif-root object that anchors sticky export settings for `obj`.
+
+    Walks up the parent chain: the root Empty needn't be selected (the user commonly
+    selects just the shape), but its typed groups are still where the nif-level settings
+    live. Both the read and the write side must resolve the anchor the same way or
+    settings read back sticky yet never persist.
+    """
+    o = obj
+    while o is not None and 'pynRoot' not in o:
+        o = o.parent
+    return o
+
+
 def read_export_settings(root_obj, armature_obj):
     """{field: value} for every setting the user has explicitly set (via a prior export or
     migrated from a legacy prop). Uses Blender's per-property `is_property_set`, so a field
