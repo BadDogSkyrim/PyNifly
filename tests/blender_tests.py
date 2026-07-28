@@ -1924,7 +1924,9 @@ def TEST_DEER_SKEL():
     assert skel_id_obj, "Have SkeletonID object"
     assert TT.is_eq(skel_id_obj.pyn_niintdata.name, "SkeletonID", "SkeletonID name value")
     assert skel_id_obj.pyn_niintdata.is_property_set('value'), "SkeletonID has Data property"
-    assert TT.is_eq(skel_id_obj.pyn_niintdata.value, 178509022, "SkeletonID Data value")
+    # Held as a decimal string: the nif field is a uint32, which Blender's IntProperty
+    # (signed 32-bit) can't represent across its whole range.
+    assert TT.is_eq(skel_id_obj.pyn_niintdata.value, '178509022', "SkeletonID Data value")
 
     ### EXPORT ###
 

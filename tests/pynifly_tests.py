@@ -442,6 +442,25 @@ def TEST_SF_MESH_READ():
         f"Body vertex color is gray 192/255 with full alpha: {cols[0]}"
 
 
+def TEST_SF_EXTRA_DATA_WALK():
+    """Walking extra data must not stop at a block that has no PyNifly representation.
+
+    The vanilla Starfield head carries NiIntegersExtraData ('AnimationFlagExtra', which
+    PyNifly doesn't implement) immediately ahead of NiIntegerExtraData ('MaterialID').
+    The walk used to break on the first unreadable block, so MaterialID -- which every
+    Starfield character shape carries -- was silently invisible to import and never
+    written back on export.
+    """
+    nif = NifFile(r"tests\SF\meshes\malehead.nif")
+    shape = nif.shapes[0]
+
+    found = dict((ed.name, ed) for ed in shape.extra_data())
+    assert 'MaterialID' in found, \
+        f"MaterialID survives the unreadable block ahead of it: {list(found.keys())}"
+    assert found['MaterialID'].integer_data == 1388984028, \
+        f"MaterialID value: {found['MaterialID'].integer_data}"
+
+
 def TEST_SF_MESH_WRITE():
     """Starfield: serialize a BSGeometry LOD back to .mesh bytes and round-trip the geometry.
 

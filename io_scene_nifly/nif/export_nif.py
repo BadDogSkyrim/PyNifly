@@ -833,6 +833,9 @@ class NifExporter:
             elif obj.name.startswith("BSDecalPlacementVectorExtraData"):
                 self.decal_data.add(obj)
 
+            elif obj.name.startswith("NiIntegerExtraData"):
+                self.int_data.add(obj)
+
             elif obj.name.startswith("BSXFlags"):
                 self.bsx_flag = obj
 
@@ -1047,14 +1050,31 @@ class NifExporter:
 
 
     def export_integer_data(self):
+        """NiIntegerExtraData attaches to whatever block its Empty is parented to, not always
+        the root: Starfield's MaterialID hangs off the BSGeometry shape itself, and the engine
+        looks for it there. Runs after the shapes are written so objs_written can resolve them.
+
+        The value is a decimal string (see pyn_props) because the nif field is a uint32 and
+        Blender's IntProperty can't hold the top half of that range."""
         from . import pyn_props
         for intdat in self.int_data:
             g = pyn_props.get_group(intdat, 'pyn_niintdata')
-            id = pynifly.NiIntegerExtraData.New(self.nif,
+            try:
+                value = int(g.value or 0) & 0xFFFFFFFF
+            except ValueError:
+                log.warning(f"NiIntegerExtraData '{g.name}' on {intdat.name} has a "
+                            f"non-numeric value '{g.value}'; writing 0")
+                value = 0
+            parent = self.nif.rootNode
+            if intdat.parent:
+                parent_repr = self.objs_written.find_blend(intdat.parent)
+                if parent_repr and parent_repr.nifnode:
+                    parent = parent_repr.nifnode
+            ed = pynifly.NiIntegerExtraData.New(self.nif,
                 name=g.name,
-                value=g.value,
-                parent=self.nif.root)
-            self.objs_written.add_pair(intdat, id)
+                integer_value=value,
+                parent=parent)
+            self.objs_written.add_pair(intdat, ed)
 
 
     def export_bone_lod(self):
@@ -1147,6 +1167,31 @@ class NifExporter:
         self.export_inv_marker()
         self.export_furniture_markers()
         self.export_integer_data()
+        self.export_sf_material_ids()
+
+
+    def export_sf_material_ids(self):
+        """Give every Starfield shape a MaterialID if it doesn't already have one.
+
+        SF shapes carry NiIntegerExtraData 'MaterialID' on the BSGeometry -- 372 of the 373
+        vanilla/mod shape nifs surveyed have it. It's a CRC of the shader's material path, so
+        it's derived data: a shape authored in Blender has no imported extra-data Empty to
+        write, and hand-maintaining a hash isn't reasonable. Runs after export_integer_data so
+        an Empty that DID come in from an import wins and we never write the block twice.
+        """
+        if self.nif.game != 'SF':
+            return
+        from ..pyn.sf_materials import material_id
+        for shape in self.nif.shapes:
+            if any(ed.name == 'MaterialID' for ed in shape.extra_data()):
+                continue
+            matpath = shape.shader.name if shape.shader else ''
+            if not matpath:
+                continue
+            pynifly.NiIntegerExtraData.New(self.nif,
+                name='MaterialID',
+                integer_value=material_id(matpath),
+                parent=shape)
 
 
     def get_loop_partitions(self, face, loops, weights):

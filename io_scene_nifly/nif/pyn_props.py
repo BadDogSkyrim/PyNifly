@@ -512,7 +512,13 @@ def ensure_handwired_migrated(datablock, spec):
             try:
                 setattr(grp, fn, datablock[legacy_key])
             except (TypeError, ValueError):
-                pass
+                # The stored type may not match the group's field type -- a legacy
+                # NiIntegerExtraData_Value is an int where the field is now a string.
+                # Fall back to the string form rather than dropping the value.
+                try:
+                    setattr(grp, fn, str(datablock[legacy_key]))
+                except (TypeError, ValueError):
+                    pass
     datablock[key] = True
 
 
@@ -584,8 +590,12 @@ def _reg_extradata(clsname, attr, label, value_prop, legacy, extra=None):
 _reg_extradata('PynBSXFlagsProps', 'pyn_bsxflags', 'BSXFlags',
                bpy.props.StringProperty(name='value', default=''),
                legacy={'name': 'BSXFlags_Name', 'value': 'BSXFlags_Value'})
+# NiIntegerExtraData holds a uint32, but Blender's IntProperty is a signed 32-bit int and
+# silently refuses anything above 2**31-1 (leaving 0). Starfield's MaterialID is a CRC, so it
+# lands above that range about half the time -- Felid's head is 3297623742. Keep the value as a
+# decimal string so the full uint32 range survives, as BSXFlags already does for its value.
 _reg_extradata('PynIntDataProps', 'pyn_niintdata', 'NiIntegerExtraData',
-               bpy.props.IntProperty(name='value', default=0),
+               bpy.props.StringProperty(name='value', default='0'),
                legacy={'name': 'NiIntegerExtraData_Name', 'value': 'NiIntegerExtraData_Value'})
 _reg_extradata('PynStrDataProps', 'pyn_nistrdata', 'NiStringExtraData',
                bpy.props.StringProperty(name='value', default=''),

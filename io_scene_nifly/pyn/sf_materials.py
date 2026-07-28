@@ -41,6 +41,35 @@ SF_TEXTURE_SLOTS = {
 _TEXTURE_FILE_TYPE = 'BSMaterial::MRTextureFile'
 
 
+# Reflected CRC-32 table for poly 0x04C11DB7, used with init=0 and no final XOR (NOT the
+# zlib/PKZIP parameterisation, which inits to all-ones and inverts the result).
+_CRC32_TABLE = []
+for _b in range(256):
+    _c = _b
+    for _ in range(8):
+        _c = (_c >> 1) ^ (0xEDB88320 if _c & 1 else 0)
+    _CRC32_TABLE.append(_c)
+
+
+def material_id(material_path):
+    """The MaterialID a Starfield shape carries for `material_path`.
+
+    Every SF character shape has a `NiIntegerExtraData` named 'MaterialID' on the BSGeometry
+    block holding this value -- 372 of the 373 shape nifs surveyed across vanilla and mod
+    archives, all of which match this function. It's derived data, so the exporter computes it
+    from the shader's material path rather than asking the user to maintain a hash by hand.
+
+    The hashed string is the path lowercased with backslash separators, and it includes both
+    the leading 'Materials\\' and the trailing '.mat' -- dropping either changes the result.
+    """
+    if not material_path:
+        return 0
+    crc = 0
+    for c in material_path.replace('/', '\\').lower().encode('utf-8'):
+        crc = (crc >> 8) ^ _CRC32_TABLE[(crc ^ c) & 0xFF]
+    return crc & 0xFFFFFFFF
+
+
 _LAYER_ID = 'BSMaterial::LayerID'
 _MATERIAL_ID = 'BSMaterial::MaterialID'
 _TEXTURESET_ID = 'BSMaterial::TextureSetID'

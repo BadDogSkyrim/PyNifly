@@ -1460,32 +1460,46 @@ class NiNode(NiAVObject):
             return None
 
 
+    def _extra_data_id(self, blockname=None, name=None, target_index=0):
+        """The nif block ID of the target extra data, or NODEID_NONE if the node has no
+        extra data at that index. Distinguishes "no such block" from "block we can't read"."""
+        if not self.file._handle: return NODEID_NONE
+
+        return nifly.getExtraData(self.file._handle, self.id,
+                                  blockname.encode('utf-8') if blockname else None,
+                                  name.encode('utf-8') if name else None,
+                                  target_index)
+
+
     def get_extra_data(self, blockname=None, name=None, target_index=0):
         """
-        Search for the target extra data. 
+        Search for the target extra data.
         blockname = the type of extra data to find. May be omitted.
         name = the name of the extra data to find. May be omitted.
         target_index = The index of the extra data, starting from 0.
         """
-        if not self.file._handle: return None
-        
-        ex_id = nifly.getExtraData(self.file._handle, self.id, 
-                                           blockname.encode('utf-8') if blockname else None, 
-                                           name.encode('utf-8') if name else None,
-                                           target_index)
+        ex_id = self._extra_data_id(blockname, name, target_index)
         if ex_id == NODEID_NONE:
             return None
         return self.file.read_node(id=ex_id, parent=self)
 
 
     def extra_data(self, blockname=None, name=None):
-        """Convenience routine to walk all extra data on a node."""
+        """Convenience routine to walk all extra data on a node.
+
+        A block whose TYPE PyNifly has no class for reads back as None -- read_node logs
+        "Unknown block type". Skip it and keep walking: stopping there hides every block
+        behind it. The Starfield head hits exactly that, with the unimplemented
+        NiIntegersExtraData sitting ahead of the NiIntegerExtraData carrying MaterialID.
+        """
         i = 0
         while True:
-            ed = self.get_extra_data(blockname=blockname, name=name, target_index=i)
-            if not ed:
+            ex_id = self._extra_data_id(blockname, name, i)
+            if ex_id == NODEID_NONE:
                 break
-            yield ed
+            ed = self.file.read_node(id=ex_id, parent=self)
+            if ed:
+                yield ed
             i += 1
 
 

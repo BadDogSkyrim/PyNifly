@@ -691,7 +691,8 @@ class NifImporter():
         ed.show_name = True
         ed.empty_display_type = 'SPHERE'
         from . import pyn_props
-        pyn_props.set_group(ed, 'pyn_niintdata', name=extblock.name, value=extblock.integer_data)
+        pyn_props.set_group(ed, 'pyn_niintdata', name=extblock.name,
+                            value=str(extblock.integer_data))
         ed.parent = parent_obj
         self.objects_created.add(ReprObject(blender_obj=ed))
         BD.link_to_collection(self.collection, ed)
