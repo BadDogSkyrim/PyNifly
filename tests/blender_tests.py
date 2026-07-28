@@ -3169,6 +3169,106 @@ def TEST_SF_IMPORT():
         f"Source weightsPerVertex recorded: {sfg.weights_per_vertex}"
 
 
+@TT.category('STARFIELD', 'GEOMETRY')
+@TT.expect_errors(("Could not find material",))  # the .mat lives in the mod's BA2, not loose
+def TEST_SF_INTERNAL_GEOMETRY():
+    """A shape with internal (embedded) geometry imports without an external .mesh.
+
+    Starfield BSGeometry normally points at an external .mesh, but flag 0x200 means the mesh
+    data is embedded in the nif and meshName is empty. Vanilla never ships these; mod-authored
+    heads do (this fixture is Felid's). load_geometry used to run the resolver anyway and warn
+    "Could not find external .mesh for 'X': ''" on a file whose geometry had read fine.
+
+    Also covers the extra-data walk: this shape's MaterialID must survive to Blender.
+    """
+    testfile = TTB.test_file(r"tests\SF\meshes\felidmalehead.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    head = next(o for o in bpy.data.objects if o.type == 'MESH')
+    assert TT.is_eq(len(head.data.vertices), 9773, "Embedded geometry imported")
+
+    matid = bpy.data.objects.get('NiIntegerExtraData:MaterialID')
+    assert matid, "MaterialID extra data imported"
+    assert TT.is_eq(matid.parent.name, head.name, "MaterialID parented to the shape")
+    g = matid.pyn_niintdata
+    assert TT.is_eq(g.name, 'MaterialID', "Extra data name")
+    assert TT.is_eq(g.value, '3297623742', "MaterialID value (uint32, kept as a string)")
+
+
+@TT.category('STARFIELD', 'GEOMETRY', 'SHADER')
+@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))  # AnimationFlagExtra, not implemented
+def TEST_SF_EXTRA_DATA_ROUNDTRIP():
+    """Starfield MaterialID round-trips onto the shape, and no texture set is invented.
+
+    Every Starfield character shape carries NiIntegerExtraData 'MaterialID' -- a CRC of the
+    material path -- on the BSGeometry itself. It used to export as a bare NiNode named
+    'NiIntegerExtraData:MaterialID' (no classifier branch, so the Empty fell through to the
+    generic node path and export_integer_data never saw it), losing the block entirely.
+
+    Starfield also has no NIF texture set; the exporter used to walk the Principled graph and
+    write a BSShaderTextureSet no vanilla SF nif has.
+    """
+    testfile = TTB.test_file(r"tests\SF\meshes\malehead.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_EXTRA_DATA_ROUNDTRIP.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_collection=True)
+    head = next(o for o in bpy.data.objects if o.type == 'MESH')
+
+    matid = bpy.data.objects.get('NiIntegerExtraData:MaterialID')
+    assert matid, "MaterialID imported"
+    assert TT.is_eq(matid.pyn_niintdata.value, '1388984028', "Imported MaterialID value")
+
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF')
+
+    nifcheck = pyn.NifFile(outfile)
+    shape = nifcheck.shapes[0]
+    eddict = dict((ed.name, ed) for ed in shape.extra_data())
+    assert 'MaterialID' in eddict, "MaterialID written on the SHAPE, not the root"
+    assert TT.is_eq(eddict['MaterialID'].integer_data, 1388984028, "Exported MaterialID value")
+
+    rootnames = [n.name for n in nifcheck.nodes.values()]
+    assert 'NiIntegerExtraData:MaterialID' not in rootnames, \
+        "Extra data is not exported as a stray NiNode"
+
+    # Starfield's textures come from the .mat, and no vanilla SF nif carries a texture set.
+    assert TT.is_eq(shape.shader.properties.textureSetID, pyn.NODEID_NONE,
+                    "No BSShaderTextureSet written for Starfield")
+    with open(outfile, 'rb') as f:
+        assert b'BSShaderTextureSet' not in f.read(2048), \
+            "BSShaderTextureSet absent from the block-type table"
+
+
+@TT.category('STARFIELD', 'GEOMETRY', 'SHADER')
+@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))  # AnimationFlagExtra, not implemented
+def TEST_SF_MATERIAL_ID_GENERATED():
+    """A Starfield shape with no imported MaterialID gets one generated from its material path.
+
+    MaterialID is a CRC of the shader's material path, and every vanilla shape carries one --
+    but a head authored in Blender has no extra-data Empty to write back. Deleting the imported
+    Empty here stands in for that: export must still put the right MaterialID on the shape.
+    """
+    testfile = TTB.test_file(r"tests\SF\meshes\malehead.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_MATERIAL_ID_GENERATED.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    matid = bpy.data.objects['NiIntegerExtraData:MaterialID']
+    bpy.data.objects.remove(matid, do_unlink=True)
+    assert 'NiIntegerExtraData:MaterialID' not in bpy.data.objects, "Imported MaterialID removed"
+
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF')
+
+    shape = pyn.NifFile(outfile).shapes[0]
+    eddict = dict((ed.name, ed) for ed in shape.extra_data())
+    assert 'MaterialID' in eddict, "MaterialID generated for a shape that had none"
+    # CRC of 'Materials\Actors\Human\Faces\male_default.mat' -- what vanilla malehead.nif holds.
+    assert TT.is_eq(eddict['MaterialID'].integer_data, 1388984028, "Generated MaterialID value")
+    assert TT.is_eq(len([e for e in shape.extra_data() if e.name == 'MaterialID']), 1,
+                    "Exactly one MaterialID block")
+
+
 @TT.category('STARFIELD', 'SHADER')
 def TEST_SF_MATERIAL():
     """Starfield: import the layered .mat as a native Principled-BSDF PBR material.

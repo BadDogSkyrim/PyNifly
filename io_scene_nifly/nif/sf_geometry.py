@@ -49,7 +49,13 @@ def resolve_mesh(mesh_path, nif_filepath):
 
 def load_geometry(the_shape, slot=0):
     """Resolve + load the external .mesh for a BSGeometry LOD slot so the shape's
-    verts/tris/uvs/normals/weights become available. Returns True if loaded."""
+    verts/tris/uvs/normals/weights become available. Returns True if loaded.
+
+    A shape with internal geometry (flag 0x200) carries its mesh data in the nif itself and
+    has no .mesh path -- nothing to resolve, and nothing to warn about. Vanilla never does
+    this, but mod-authored heads (Felid, Pantherine) commonly do."""
+    if the_shape.is_internal_geom:
+        return True
     mesh_path = the_shape.mesh_path(slot)
     resolved = resolve_mesh(mesh_path, the_shape.file.filepath)
     if not resolved:
