@@ -18,7 +18,7 @@ import numpy as np
 from bpy_extras.io_utils import ExportHelper
 from .. import blender_defs as BD
 from .. import bl_info
-from ..pyn.sf_morph import (MorphFile, MAX_KEYS, is_expression_morph,
+from ..pyn.sf_morph import (MorphFile, MAX_KEYS, is_expression_morph, morph_key_name,
                             morph_relpath, resolve_morph_output, swap_morph_tree)
 
 log = logging.getLogger("pynifly")
@@ -41,9 +41,15 @@ def _pack_groups(named_deltas, nverts):
     groups = {'chargen': ([], {}), 'performance': ([], {})}
     for name, d in named_deltas.items():
         which = 'performance' if is_expression_morph(name) else 'chargen'
+        # Write the cleaned name: the game looks morphs up by exact string, so a shape key
+        # with stray whitespace would be written as a name nothing can ever match.
+        key = morph_key_name(name)
+        if key != name:
+            log.warning(f"Morph '{name}' written as '{key}' "
+                        f"(Starfield matches morph names exactly)")
         names, deltas = groups[which]
-        names.append(name)
-        deltas[name] = d
+        names.append(key)
+        deltas[key] = d
     out = {}
     for which, (names, deltas) in groups.items():
         if not names:

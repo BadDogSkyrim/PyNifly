@@ -100,11 +100,20 @@ SF_EXPRESSION_MORPHS = frozenset({
 _DUP_SUFFIX = re.compile(r'\.\d{3}$')
 
 
+def morph_key_name(name):
+    """The name a shape key is known by for Starfield purposes: Blender's '.NNN' duplicate
+    suffix removed and surrounding whitespace stripped.
+
+    The game matches morph names exactly, so stray whitespace is never intentional and is
+    always a defect -- 'jawOpen ' misses the expression list, lands in the chargen file
+    instead of performance, and then can't be found under either name."""
+    return _DUP_SUFFIX.sub('', name).strip()
+
+
 def is_expression_morph(name):
     """True if shape-key `name` is a Starfield performance (expression) morph -> the performance/
-    file; False = a chargen slider -> the chargen/ file. Blender's '.NNN' duplicate suffix is
-    stripped before matching."""
-    return _DUP_SUFFIX.sub('', name) in SF_EXPRESSION_MORPHS
+    file; False = a chargen slider -> the chargen/ file."""
+    return morph_key_name(name) in SF_EXPRESSION_MORPHS
 
 
 # --- morph.dat path handling (store relative-to-'meshes' so morphs re-home with the nif) -------
