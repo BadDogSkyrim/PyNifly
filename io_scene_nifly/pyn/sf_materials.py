@@ -16,6 +16,7 @@ The `.mat` is an object graph: a top-level `Objects` list, each with `Components
 `starfield-materials.md` for the full DOM.
 """
 
+import copy
 import hashlib
 import json
 import logging
@@ -478,14 +479,146 @@ def _id_namespace(fn):
     return int.from_bytes(h[0:4], 'big'), int.from_bytes(h[4:8], 'big')
 
 
-def write_mat(data, filename=None):
+def _renamespace(doc, filename):
+    """Give every object in `doc` a fresh `res:` id in `filename`'s namespace, rewriting the
+    references that point at them. A material copied from a vanilla one must not keep the
+    vanilla ids: they identify the material in the game's database, so a duplicate id collides
+    with the original. References live in component `Data.ID` fields."""
+    ns_hi, ns_lo = _id_namespace(filename)
+    remap = {}
+    for i, o in enumerate(doc.get('Objects', [])):
+        old = o.get('ID')
+        if not isinstance(old, str) or not old:
+            continue
+        w1 = (ns_hi ^ (((i + 1) * 0x9E3779B1) & 0xFFFFFFFF)) & 0xFFFFFFFF
+        remap[old] = f"res:{w1:08X}:{ns_hi:08X}:{ns_lo:08X}"
+    for o in doc.get('Objects', []):
+        if o.get('ID') in remap:
+            o['ID'] = remap[o['ID']]
+        for c in o.get('Components', []):
+            d = c.get('Data')
+            if isinstance(d, dict) and d.get('ID') in remap:
+                d['ID'] = remap[d['ID']]
+    return doc
+
+
+def _rename_ctnames(doc, new_base):
+    """Retarget the template's CTNames onto the new material's base name, so a copy of
+    `male_default` doesn't announce itself as `male_default` (names identify nodes alongside
+    the ids). Suffixes like '_Layer1' are kept."""
+    old_base = None
+    for o in doc.get('Objects', []):
+        for c in o.get('Components', []):
+            if c.get('Type') == _CTNAME:
+                nm = (c.get('Data') or {}).get('Name', '')
+                if old_base is None or len(nm) < len(old_base):
+                    old_base = nm
+    if not old_base:
+        return doc
+    for o in doc.get('Objects', []):
+        for c in o.get('Components', []):
+            if c.get('Type') == _CTNAME:
+                d = c.setdefault('Data', {})
+                nm = d.get('Name', '')
+                if nm == old_base:
+                    d['Name'] = new_base
+                elif nm.startswith(old_base):
+                    d['Name'] = new_base + nm[len(old_base):]
+    return doc
+
+
+def _set_component(obj, ctype, index, data):
+    """Update the first component of `ctype`/`index` on `obj`, appending one if absent."""
+    for c in obj.get('Components', []):
+        if c.get('Type') == ctype and c.get('Index', 0) == index:
+            c['Data'] = data
+            return
+    obj.setdefault('Components', []).append({"Type": ctype, "Index": index, "Data": data})
+
+
+def patch_mat_doc(doc, data, filename=None):
+    """Patch the values PyNifly models into an existing `.mat` document, leaving everything else
+    untouched, then re-namespace it for `filename`.
+
+    Building a `.mat` from scratch drops every component outside the normalised dict --
+    ParamBool, MaterialParamFloat, TextureReplacement and the detail UVStreams that vanilla skin
+    materials rely on. Patching keeps them: the document on disk (or the one the material was
+    imported from) is the base, and only the layers/blenders/settings the shader graph actually
+    describes are overwritten.
+    """
+    doc = copy.deepcopy(doc)
+    objects = doc.get('Objects', [])
+    by_id = {o['ID']: o for o in objects if isinstance(o, dict) and 'ID' in o}
+    root = next((o for o in objects if _components_of(o, _LAYER_ID)), None)
+    if root is None:
+        return None
+
+    for i, ly in enumerate(data.get('layers', [])):
+        lc = next((c for c in _components_of(root, _LAYER_ID) if c.get('Index', 0) == i), None)
+        layer = by_id.get((lc.get('Data') or {}).get('ID')) if lc else None
+        if layer is None:
+            continue
+        mat = by_id.get(_first_ref(layer, _MATERIAL_ID))
+        texset = by_id.get(_first_ref(mat, _TEXTURESET_ID)) if mat else None
+        if texset is not None:
+            for slot, path in (ly.get('textures') or {}).items():
+                if slot in _SF_SLOT_INDEX:
+                    _set_component(texset, _TEXTURE_FILE_TYPE, _SF_SLOT_INDEX[slot],
+                                   {"FileName": _reprefix(path)})
+        if mat is not None and ly.get('override_color'):
+            _set_component(mat, _OVERRIDE_COLOR, 0, {"Value": ly['override_color']})
+        # UV tiling lives on the layer's own UVStream (falling back to its material's), which is
+        # also where the detail-layer streams the template carries live -- patch, never rebuild.
+        uv_host = layer if _first_ref(layer, _UVSTREAM_ID) else (mat or layer)
+        uv = by_id.get(_first_ref(uv_host, _UVSTREAM_ID))
+        if uv is not None:
+            scale = tuple(ly.get('uv_scale', (1.0, 1.0)))
+            offset = tuple(ly.get('uv_offset', (0.0, 0.0)))
+            _set_component(uv, _UV_SCALE, 0, _xmfloat("XMFLOAT2", scale))
+            _set_component(uv, _UV_OFFSET, 0, _xmfloat("XMFLOAT2", offset))
+
+    for i, b in enumerate(data.get('blenders', [])):
+        bc = next((c for c in _components_of(root, _BLENDER_ID) if c.get('Index', 0) == i), None)
+        bl = by_id.get((bc.get('Data') or {}).get('ID')) if bc else None
+        if bl is None:
+            continue
+        if b.get('mode'):
+            _set_component(bl, _BLEND_MODE, 0, {"Value": b['mode']})
+        if b.get('mask'):
+            _set_component(bl, _TEXTURE_FILE_TYPE, 0, {"FileName": _reprefix(b['mask'])})
+        if b.get('channel'):
+            _set_component(bl, _COLOR_CHANNEL, 0, {"Value": b['channel']})
+
+    for c in _settings_components(data.get('settings', {})):
+        _set_component(root, c['Type'], c.get('Index', 0), c['Data'])
+
+    fn = filename or data.get('filename') or doc.get('Filename') or ''
+    if fn:
+        _rename_ctnames(doc, _mat_basename(fn))
+        _renamespace(doc, fn)
+        doc['Filename'] = fn
+    return doc
+
+
+def write_mat(data, filename=None, template=None):
     """Serialize a normalised material dict (as parse_mat returns) to a GAME-VALID loose `.mat`.
+
+    `template` is an already-parsed `.mat` document to patch rather than rebuild -- pass the
+    material being overwritten (or the one it was imported from) so components PyNifly doesn't
+    model survive the round trip. Without one the document is built from scratch, which is
+    correct for a material authored entirely in Blender but loses anything a richer source had.
 
     Each node inherits its base DOM from the shipped Root template for its kind via a `Parent` link,
     carries a `CTName`, and gets a unique `res:` id (per-material namespace + per-node word). Without
     this the game renders the material magenta -- a flat, Parent-less graph is only accepted by the
     lenient NifSkope/PyNifly parsers. parse_mat(write_mat(d)) still round-trips d's
     textures/settings/layers/blenders (the extra scaffolding is inert to the reader)."""
+    if template is not None:
+        patched = patch_mat_doc(template, data, filename)
+        if patched is not None:
+            return json.dumps(patched, indent=2)
+        log.warning("Material template has no layer graph to patch; writing a fresh .mat")
+
     fn = filename or data.get('filename') or ''
     base = _mat_basename(fn)
     ns_hi, ns_lo = _id_namespace(fn)

@@ -314,6 +314,36 @@ def write_sf_materials(exporter):
             continue
         out_path = resolve_material_output_path(exporter.nif.filepath, mat_ref)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        # Patch the material we're about to overwrite rather than rebuilding it. A .mat carries
+        # components PyNifly doesn't model (ParamBool, MaterialParamFloat, TextureReplacement,
+        # the detail-layer UVStreams); rebuilding drops them and breaks the material. Falls back
+        # to the source material the shader names, then to a fresh build.
+        template = _material_template(out_path, mat_ref, exporter.nif.filepath)
         with open(out_path, 'w', encoding='utf-8') as f:
-            f.write(sf_materials.write_mat(data, filename=mat_ref))
-        log.info(f"Wrote loose .mat: {out_path}")
+            f.write(sf_materials.write_mat(data, filename=mat_ref, template=template))
+        log.info(f"Wrote loose .mat: {out_path}"
+                 + ("" if template is None else " (preserved the existing material's structure)"))
+
+
+def _material_template(out_path, mat_ref, nif_filepath):
+    """The .mat document to patch on export: the file being overwritten if there is one, else the
+    material the shader names (so a material derived from a vanilla one keeps its structure).
+    None when neither resolves -- a material authored from scratch has nothing to preserve."""
+    import json
+    candidates = [out_path]
+    src = find_referenced_file(mat_ref, nifpath=nif_filepath, root='materials',
+                               alt_pathlist=mesh_search_paths())
+    if src:
+        candidates.append(src)
+    for p in candidates:
+        if not p or not os.path.exists(p):
+            continue
+        try:
+            with open(p, encoding='utf-8-sig') as f:
+                doc = json.load(f)
+        except (OSError, ValueError) as e:
+            log.warning(f"Could not read material template {p}: {e}")
+            continue
+        if isinstance(doc, dict) and doc.get('Objects'):
+            return doc
+    return None

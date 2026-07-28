@@ -3747,6 +3747,96 @@ def TEST_SF_MATERIALS_FLAG_STICKY_ON_EXPORT():
         "the flag persisted onto the nif root even though only the shape was selected"
 
 
+@TT.category('STARFIELD', 'SHADER')
+@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))
+def TEST_SF_MAT_EXPORT_PRESERVES_EXISTING():
+    """Exporting materials over an existing .mat preserves what PyNifly doesn't model.
+
+    write_sf_materials regenerated the .mat from the shader graph, dropping vanilla skin's
+    ParamBool / MaterialParamFloat / TextureReplacement components and most of its UVStreams.
+    That destroyed Bad Dog's hand-built Lykaios material on a routine re-export and broke the
+    head in the CK. The export now patches the material it's about to overwrite.
+    """
+    import json, shutil
+    testfile = TTB.test_file(r"tests\SF\meshes\malehead.nif")
+    # test_file() deletes what it's given when it's under tests/Out -- so only ever hand it the
+    # FILE, and derive the directory. Passing the directory raises WinError 5 on the second run.
+    outfile = TTB.test_file(
+        r"tests\Out\TEST_SF_MAT_EXPORT_PRESERVES_EXISTING\meshes\malehead.nif", output=True)
+    outdir = os.path.dirname(os.path.dirname(outfile))
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    # Put the rich vanilla material where the export will write, as the user's existing file.
+    src_mat = TTB.test_file(r"tests\SF\materials\Actors\Human\Faces\male_default.mat")
+    dst_mat = os.path.join(outdir, "materials", "Actors", "Human", "Faces", "male_default.mat")
+    os.makedirs(os.path.dirname(dst_mat), exist_ok=True)
+    shutil.copyfile(src_mat, dst_mat)
+
+    def census(path):
+        with open(path, encoding='utf-8') as f:
+            doc = json.load(f)
+        c = {}
+        for o in doc.get('Objects', []):
+            for comp in o.get('Components', []):
+                t = comp.get('Type', '').replace('BSMaterial::', '')
+                c[t] = c.get(t, 0) + 1
+        return c, len(doc.get('Objects', []))
+
+    before, nobj_before = census(dst_mat)
+    assert TT.is_eq(before.get('ParamBool'), 18, "the existing material is the rich vanilla one")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF",
+                                 write_sf_materials=True, intuit_defaults=False)
+
+    assert os.path.exists(dst_mat), "the material was written"
+    after, nobj_after = census(dst_mat)
+    assert TT.is_eq(nobj_after, nobj_before, "object count preserved")
+    for ctype in ('ParamBool', 'MaterialParamFloat', 'TextureReplacement', 'UVStreamID'):
+        assert TT.is_eq(after.get(ctype), before.get(ctype),
+                        f"{ctype} survived the re-export")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_MATERIALS_FLAG_STICKY_NO_ROOT():
+    """Root-level export settings persist even when the scene has NO pynRoot at all.
+
+    Regression: find_settings_root walks the parent chain for a 'pynRoot' marker and returns
+    None if there isn't one, and write_export_settings skips every root-anchored field when the
+    anchor is None -- silently. A head modelled in Blender rather than imported from a nif has
+    no root Empty, so 'export materials' could never become sticky for it no matter how many
+    times the user ticked the box. (Such an export writes a nif whose root is named
+    'Scene Root', the no-root-object fallback -- the tell.)
+    """
+    import os
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_MATERIALS_FLAG_STICKY_NO_ROOT\meshes\cube.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    # A shape authored from scratch: no root Empty, nothing carrying 'pynRoot'.
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.object
+    cube.name = "NoRootCube"
+    assert not any('pynRoot' in o for o in bpy.data.objects), "scene has no nif root"
+
+    assert not cube.pyn_export.is_property_set('write_sf_materials'), "starts unset"
+
+    BD.ObjectSelect([cube], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF",
+                                 write_sf_materials=True, intuit_defaults=False)
+
+    from io_scene_nifly.nif import pyn_props
+    anchor = pyn_props.find_settings_root(cube)
+    assert anchor is not None, "an anchor is resolved even with no pynRoot in the scene"
+    assert TT.is_eq(anchor.name, cube.name, "falls back to the shape's topmost ancestor")
+    assert anchor.pyn_export.write_sf_materials is True, \
+        "the flag persisted with no nif root to anchor it"
+
+    # And it reads back, which is what 'sticky' means to the user.
+    assert pyn_props.read_export_settings(anchor, None).get('write_sf_materials') is True, \
+        "reads back sticky on the next export"
+
+
 @TT.category('STARFIELD')
 def TEST_SF_FACEBONES_EXPORT():
     """Starfield head parts ship as a <name>.nif + <name>_faceBones.nif pair; the facebones
@@ -3776,6 +3866,13 @@ def TEST_SF_FACEBONES_EXPORT():
     head = bpy.context.object
     head.name = "SFHead"
     head.parent = root
+
+    # Give it a material so both nifs of the pair exercise MaterialID generation -- vanilla's
+    # head and head_facebones carry the same id, and a Blender-authored head has no imported
+    # extra-data Empty to supply one.
+    headmat = bpy.data.materials.new("SFHead.Mat")
+    headmat['BSLSP_Shader_Name'] = r"Materials\Test\SFHead.mat"
+    head.data.materials.append(headmat)
 
     fb_bones = ['faceBone_C_Chin', 'faceBone_L_Cheek', 'faceBone_R_Cheek',
                 'faceBone_L_EarMaster', 'faceBone_R_EarMaster', 'faceBone_C_NoseRidge']
@@ -3810,10 +3907,18 @@ def TEST_SF_FACEBONES_EXPORT():
 
     # The two nifs must reference DIFFERENT external .mesh files -- vanilla does, and sharing
     # one means the facebones skin overwrites the base geometry's .mesh on disk.
-    base_mesh = pyn.NifFile(outfile).shapes[0].mesh_paths()[0]
+    base_shape = pyn.NifFile(outfile).shapes[0]
+    base_mesh = base_shape.mesh_paths()[0]
     fb_mesh = fb_shape.mesh_paths()[0]
     assert base_mesh != fb_mesh, \
         f"base and facebones nifs reference distinct .mesh paths (both were {base_mesh})"
+
+    # Both halves of the pair carry MaterialID, generated from the material path. CRC of
+    # 'Materials\Test\SFHead.mat'; vanilla gives its head and head_facebones the same id.
+    for label, s in (("base", base_shape), ("facebones", fb_shape)):
+        ids = [e.integer_data for e in s.extra_data() if e.name == 'MaterialID']
+        assert TT.is_eq(len(ids), 1, f"{label} nif has exactly one MaterialID")
+        assert TT.is_eq(ids[0], 2441678231, f"{label} nif MaterialID value")
 
     geodir = os.path.join(os.path.dirname(os.path.dirname(outfile)), "geometries")
     written = []

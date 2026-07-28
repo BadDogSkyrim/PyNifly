@@ -1161,6 +1161,121 @@ def TEST_SF_MAT_WRITE():
         f"written texture paths carry the Data\\ prefix: {all_paths}"
 
 
+def TEST_SF_MAT_PRESERVES_TEMPLATE():
+    """Writing a .mat over an existing one preserves everything PyNifly doesn't model.
+
+    write_mat built the document from scratch, so every component outside PyNifly's normalised
+    dict was destroyed: vanilla male_default.mat has 18 ParamBool, 4 MaterialParamFloat and 2
+    TextureReplacement, and a regenerated file had none of them. That silently clobbered Bad
+    Dog's hand-built Lykaios material and broke the head in the CK.
+
+    Given a template document, write_mat now PATCHES it -- updating the values it does model and
+    leaving the rest alone -- while still re-namespacing the object ids so a material derived
+    from a vanilla one doesn't collide with it in the material database.
+    """
+    import json
+    from pyn.sf_materials import parse_mat, write_mat
+
+    src = r"tests\SF\materials\Actors\Human\Faces\male_default.mat"
+    with open(src, encoding='utf-8') as f:
+        text = f.read()
+    template = json.loads(text)
+
+    def census(doc):
+        c = {}
+        for o in doc.get('Objects', []):
+            for comp in o.get('Components', []):
+                t = comp.get('Type', '').replace('BSMaterial::', '')
+                c[t] = c.get(t, 0) + 1
+        return c
+
+    before = census(template)
+    assert TT.is_eq(before.get('ParamBool'), 18, "fixture has the ParamBool components")
+    assert TT.is_eq(before.get('MaterialParamFloat'), 4, "fixture has the float params")
+    assert TT.is_eq(before.get('TextureReplacement'), 2, "fixture has the texture replacements")
+
+    data = parse_mat(text)
+    NEW_ALBEDO = r"Textures\FSF\Lykaios\LykaiosMaleHead_col.dds"
+    data['layers'][0]['textures']['Albedo'] = NEW_ALBEDO
+
+    out = write_mat(data, filename=r"Materials\FSF\Lykaios\MaleHead.mat", template=template)
+    doc = json.loads(out)
+    after = census(doc)
+
+    # Nothing PyNifly doesn't model is lost.
+    for ctype in ('ParamBool', 'MaterialParamFloat', 'TextureReplacement', 'UVStreamID',
+                  'MRTextureFile', 'LayerID', 'BlenderID'):
+        assert TT.is_eq(after.get(ctype), before.get(ctype), f"{ctype} count preserved")
+    assert TT.is_eq(len(doc['Objects']), len(template['Objects']), "object count preserved")
+
+    # The edit landed.
+    reparsed = parse_mat(out)
+    assert TT.is_eq(reparsed['layers'][0]['textures']['Albedo'], NEW_ALBEDO,
+                    "the edited albedo was written")
+    assert TT.is_eq(reparsed['filename'], r"Materials\FSF\Lykaios\MaleHead.mat",
+                    "Filename updated to the new material")
+
+    # Ids are re-namespaced (no vanilla id survives) and every reference still resolves.
+    old_ids = {o['ID'] for o in template['Objects'] if 'ID' in o}
+    new_ids = {o['ID'] for o in doc['Objects'] if 'ID' in o}
+    assert TT.is_eq(len(old_ids & new_ids), 0, "no vanilla object id survives into the copy")
+    assert TT.is_eq(len(new_ids), len(old_ids), "same number of distinct ids")
+    for o in doc['Objects']:
+        for comp in o.get('Components', []):
+            ref = (comp.get('Data') or {}).get('ID')
+            if isinstance(ref, str) and ref.startswith('res:'):
+                assert ref in new_ids, f"reference {ref} resolves within the file"
+
+
+def TEST_SF_MORPH_KEY_NAME():
+    """Shape-key names are cleaned before Starfield sees them.
+
+    Starfield matches morph names exactly. A key named 'jawOpen ' (trailing space) missed the
+    expression list, so it was filed as a chargen slider instead of a performance morph -- and
+    written under a name the game could never match either. Real defect from Bad Dog's Lykaios
+    head: its chargen morph.dat held exactly one key, 'jawOpen '.
+    """
+    from pyn.sf_morph import is_expression_morph, morph_key_name
+
+    assert TT.is_eq(morph_key_name('jawOpen '), 'jawOpen', "trailing space stripped")
+    assert TT.is_eq(morph_key_name(' eyeClosedL'), 'eyeClosedL', "leading space stripped")
+    assert TT.is_eq(morph_key_name('jawOpen.001'), 'jawOpen', "Blender dup suffix stripped")
+    assert TT.is_eq(morph_key_name('jawOpen .001'), 'jawOpen', "both stripped")
+
+    assert is_expression_morph('jawOpen '), "'jawOpen ' is a performance morph"
+    assert is_expression_morph('jawOpen'), "'jawOpen' is a performance morph"
+    assert not is_expression_morph('Tiger_Cheeks'), "a species morph is a chargen slider"
+    assert not is_expression_morph('male_af_md1_Chin'), "a phenotype morph is a chargen slider"
+
+
+def TEST_SF_MATERIAL_ID():
+    """Starfield MaterialID is a CRC-32 of the material path.
+
+    Every SF character shape carries NiIntegerExtraData 'MaterialID' on the BSGeometry. It's a
+    reflected CRC-32 (poly 0x04C11DB7) with init=0 and no final XOR, over the material path
+    lowercased with backslashes, INCLUDING the 'Materials\\' prefix and the '.mat' extension.
+    Verified against 367 vanilla + mod nifs; these are the values those files actually carry.
+    """
+    from pyn.sf_materials import material_id
+
+    assert TT.is_eq(material_id(r"Materials\Actors\Human\Faces\male_default.mat"),
+                    1388984028, "vanilla male head")
+    assert TT.is_eq(material_id(r"Materials\Actors\Human\Faces\female_default.mat"),
+                    2434110261, "vanilla female head")
+    assert TT.is_eq(material_id(r"Materials\Actors\Human\Eyelashes\male_eyelash.mat"),
+                    1487108348, "vanilla eyelashes")
+
+    # Above 2**31 -- the range that broke the old IntProperty storage.
+    assert TT.is_eq(material_id(r"Materials\Actors\Felid\Faces\male_Default.mat"),
+                    3297623742, "modded head, high half of the uint32 range")
+
+    # Case and separator are normalized; the prefix and extension are NOT optional.
+    assert TT.is_eq(material_id("materials/actors/human/faces/MALE_DEFAULT.mat"),
+                    1388984028, "case and forward slashes normalize to the same id")
+    assert TT.is_neq(material_id(r"Actors\Human\Faces\male_default.mat"),
+                     1388984028, "the Materials\\ prefix is part of the hashed string")
+
+
 def TEST_SF_MAT_GAME_VALID():
     """Starfield: write_mat must emit a GAME-VALID loose .mat, not just a self-parseable one.
 
