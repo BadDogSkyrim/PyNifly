@@ -2894,6 +2894,11 @@ class ShaderExporter:
         Handles only the texture types we know how to handle in the shader. The rest are
         properties on the material and are picked up from there.
         """
+        # Starfield has no NIF texture set -- textures come from the layered .mat the shader
+        # names. No vanilla SF nif carries a BSShaderTextureSet, so don't write one: walking
+        # the Principled graph here would manufacture a block the game never expects.
+        if self.game == 'SF': return
+
         # Use textures stored in properties as defaults; override them with shader nodes
         set_object_textures(shape, self.material)
 

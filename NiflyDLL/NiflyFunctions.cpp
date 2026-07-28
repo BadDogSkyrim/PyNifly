@@ -435,9 +435,9 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 		}
 
 		if (buf->shaderPropertyID != NO_SHADER_REF) {
-			auto nifTexset = std::make_unique<BSShaderTextureSet>(version);
+			// Starfield textures come from the layered .mat the shader names, not from the
+			// nif -- no vanilla Starfield nif carries a BSShaderTextureSet, so don't make one.
 			auto nifShader = std::make_unique<BSLightingShaderProperty>(version);
-			nifShader->TextureSetRef()->index = nif->GetHeader().AddBlock(std::move(nifTexset));
 			nifShader->SetSkinned(false);
 			int shaderID = nif->GetHeader().AddBlock(std::move(nifShader));
 			bsGeom->ShaderPropertyRef()->index = shaderID;
