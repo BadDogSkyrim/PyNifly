@@ -794,17 +794,26 @@ def _migrate_export_anchor(datablock, attr, fields):
 
 
 def find_settings_root(obj):
-    """The nif-root object that anchors sticky export settings for `obj`.
+    """The object that anchors sticky nif-level export settings for `obj`.
 
-    Walks up the parent chain: the root Empty needn't be selected (the user commonly
-    selects just the shape), but its typed groups are still where the nif-level settings
-    live. Both the read and the write side must resolve the anchor the same way or
-    settings read back sticky yet never persist.
+    Walks up the parent chain for the nif root: the root Empty needn't be selected (the user
+    commonly selects just the shape), but its typed groups are where the nif-level settings
+    live. Both the read and the write side must resolve the anchor the same way or settings
+    read back sticky yet never persist.
+
+    A scene modelled from scratch has no 'pynRoot' anywhere -- only imported nifs get one. Fall
+    back to the topmost ancestor so those objects still get sticky settings; returning None
+    here meant write_export_settings silently dropped every root-level field, so options like
+    'export materials' could never stick for a shape that wasn't imported from a nif.
     """
     o = obj
-    while o is not None and 'pynRoot' not in o:
+    topmost = obj
+    while o is not None:
+        if 'pynRoot' in o:
+            return o
+        topmost = o
         o = o.parent
-    return o
+    return topmost
 
 
 def read_export_settings(root_obj, armature_obj):
@@ -853,7 +862,14 @@ class PYN_PT_export(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return context.object is not None and 'pynRoot' in context.object
+        obj = context.object
+        if obj is None:
+            return False
+        # Normally the nif root. But a scene modelled from scratch has no pynRoot, and
+        # find_settings_root then anchors the settings on the topmost ancestor -- show the
+        # panel there too, or the settings exist but the user can't see or change them.
+        return ('pynRoot' in obj
+                or any(obj.pyn_export.is_property_set(fn) for fn in _EXPORT_ROOT_FIELDS))
 
     def draw(self, context):
         grp = context.object.pyn_export
