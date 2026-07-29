@@ -3561,9 +3561,194 @@ def TEST_SF_MAT_ROUNDTRIP():
 
     # Full write -> parse round-trip of the recovered data.
     back = parse_mat(write_mat(data))
-    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
-    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
-    assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+    # Compared on material CONTENT: a re-parsed material also carries each node's identity (its
+    # res: id, Parent and components), which the hand-built dict above has no reason to have.
+    from pyn.sf_materials import material_content
+    back_c, data_c = material_content(back), material_content(data)
+    assert back_c['layers'] == data_c['layers'], f"layers round-trip: {back_c['layers']}"
+    assert back_c['blenders'] == data_c['blenders'], f"blenders round-trip: {back_c['blenders']}"
+    assert back_c['settings'] == data_c['settings'], f"settings round-trip: {back_c['settings']}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_VERTEX_COLOR_OVERRIDE_NO_COLORS():
+    """A vertex-color albedo multiply is only wired up when the mesh HAS vertex colors.
+
+    MaterialOverrideColorTypeComponent 'Multiply' means the layer's albedo is multiplied by the
+    mesh's vertex color, and PyNifly builds that as a MULTIPLY mix fed by a VERTEX_COLOR Attribute
+    node. But Blender's Attribute node evaluates to ZERO when the named attribute doesn't exist,
+    so on a mesh with no vertex colors the multiply turned the whole surface BLACK.
+
+    Real case: vanilla `naked_m.nif`. Its material's base layer says Multiply, its mesh carries no
+    color attribute, and the body imported black. The game treats an absent vertex color as white,
+    so the faithful rendering is the albedo untouched.
+
+    The component is still recorded on the layer either way -- it is part of the material and has
+    to survive export whether or not this mesh gives us anything to multiply by.
+    """
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material,
+                                              PYN_SF_OVERRIDE_COLOR_TYPE, COLOR_MAP_NAME)
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
+    A = (tex, r'Textures\Skin\color.dds')
+    layers = [{'textures': {'Albedo': A}, 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0),
+               'override_color': 'Multiply'}]
+
+    def build(has_colors):
+        si = ShaderImporter()
+        mat = bpy.data.materials.new(f"SF_VC_{has_colors}")
+        mat.use_nodes = True
+        si.material = mat
+        si._build_sf_nodes({'Albedo': A}, {}, layers, [], has_vertex_colors=has_colors)
+        return mat
+
+    # No vertex colors: nothing multiplies the albedo, and no Attribute node is left dangling.
+    bare = build(False)
+    nodes = bare.node_tree.nodes
+    assert TT.is_eq([n for n in nodes if n.type == 'ATTRIBUTE'
+                     and n.attribute_name == COLOR_MAP_NAME], [],
+                    "no VERTEX_COLOR Attribute node on a mesh without vertex colors")
+    assert TT.is_eq([n.label for n in nodes if n.label == 'Vertex Color x Albedo'], [],
+                    "no albedo multiply on a mesh without vertex colors")
+    # ...but the material still says what it is, so export writes the component back.
+    layer_node = next(n for n in nodes if n.get(PYN_SF_OVERRIDE_COLOR_TYPE) is not None)
+    assert TT.is_eq(layer_node[PYN_SF_OVERRIDE_COLOR_TYPE], 'Multiply',
+                    "the override is still recorded for export")
+    assert TT.is_eq(recover_sf_material(bare)['layers'][0]['override_color'], 'Multiply',
+                    "and it recovers off the graph")
+
+    # With vertex colors, the multiply is built as before.
+    withc = build(True)
+    nodes = withc.node_tree.nodes
+    assert TT.is_true(any(n.type == 'ATTRIBUTE' and n.attribute_name == COLOR_MAP_NAME
+                          for n in nodes), "VERTEX_COLOR Attribute node when the mesh has colors")
+    assert TT.is_true(any(n.label == 'Vertex Color x Albedo' for n in nodes),
+                      "albedo multiply when the mesh has colors")
+    assert TT.is_eq(recover_sf_material(withc)['layers'][0]['override_color'], 'Multiply',
+                    "override recovers either way")
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_COMPONENT_ROUNDTRIP():
+    """Starfield: every component family a human bodypart material uses survives the node tree.
+
+    The shader graph is the source of truth on export, so anything the graph can't hold is lost
+    however well the parser reads it. This drives real vanilla materials through the actual node
+    build and back: parse -> _build_sf_nodes -> recover_sf_material -> patch the original document,
+    then check the result FIELD FOR FIELD against what we started with.
+
+    The six fixtures were picked by set cover over the 36 materials referenced by vanilla
+    `meshes/actors/human` nifs, so between them they exercise all thirteen families that were
+    previously unmodelled -- the shader knobs (ParamBool/MaterialParamFloat), texture
+    replacements, eye/mouth/effect/shader-route/LOD/detail-blender settings, and the layer Color.
+
+    Textures are deliberately left unresolved: this test is about everything else a material
+    carries, and _build_sf_nodes needs real image files to place image nodes. Patching writes only
+    the textures it is given, so leaving them out leaves the document's own texture paths intact
+    and the field-for-field comparison still holds.
+    """
+    import json
+    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from pyn.sf_materials import parse_mat_doc, patch_mat_doc, build_mat_doc
+
+    def flat_fields(data, prefix=''):
+        """A component's Data flattened to {dotted field: value}, through typed wrappers."""
+        if not isinstance(data, dict):
+            return {prefix.rstrip('.'): data}
+        out = {}
+        for k, v in data.items():
+            if k == 'Type':
+                continue
+            if isinstance(v, dict):
+                out.update(flat_fields(v.get('Data', v), prefix + k + '.'))
+            else:
+                out[prefix + k] = v
+        return out
+
+    def fields_of(doc):
+        """{(object position, type, index, dotted field): value} -- position identifies a node
+        across the rewrite, since patching preserves object order but renames CTNames."""
+        flat = flat_fields
+        out = {}
+        for i, o in enumerate(doc.get('Objects', [])):
+            for c in o.get('Components', []):
+                if c.get('Type') == 'BSComponentDB::CTName':
+                    continue
+                for fld, val in flat(c.get('Data')).items():
+                    out[(i, c.get('Type'), c.get('Index', 0), fld)] = val
+        return out
+
+    fixtures = [r"Faces\male_default.mat", r"Faces\bloodshot_left_eye.mat",
+                r"Faces\Jewelry\Generic_FacialJewelry.mat", r"Eyebrows\Male_Eyebrows01.mat",
+                r"Faces\Teeth\Mouth.mat", r"Naked_Body\Male\Naked_M_Body_Swimsuit.mat"]
+    for n, rel in enumerate(fixtures):
+        path = TTB.test_file(os.path.join(r"tests\SF\materials\Actors\Human", rel))
+        with open(path, encoding='utf-8-sig') as f:
+            doc = json.load(f)
+        parsed = parse_mat_doc(doc)
+
+        si = ShaderImporter()
+        mat = bpy.data.materials.new(f"SF_Comp_{n}")
+        mat.use_nodes = True
+        si.material = mat
+        mat['BSLSP_Shader_Name'] = parsed.get('filename') or rel
+        stripped = [dict(ly, textures={}) for ly in parsed['layers']]
+        blends = [dict(b, mask=None) for b in parsed['blenders']]
+        si._build_sf_nodes({}, parsed['settings'], stripped, blends)
+
+        data = recover_sf_material(mat)
+        assert data is not None, f"{rel}: recovered a material dict from the graph"
+        assert TT.is_eq(len(data['layers']), len(parsed['layers']), f"{rel}: layer count")
+        assert TT.is_eq(len(data['blenders']), len(parsed['blenders']), f"{rel}: blender count")
+        for i, (got, want) in enumerate(zip(data['layers'], parsed['layers'])):
+            for key in ('param_bools', 'mat_params', 'tex_replace', 'color',
+                        'mip_bias', 'tex_resolution', 'override_color'):
+                assert TT.is_eq(got.get(key), want.get(key), f"{rel}: layer {i} {key}")
+        for i, (got, want) in enumerate(zip(data['blenders'], parsed['blenders'])):
+            for key in ('param_bools', 'mat_params'):
+                assert TT.is_eq(got.get(key), want.get(key), f"{rel}: blender {i} {key}")
+        for key in ('param_bools', 'lod_materials', 'eye', 'mouth', 'shader_route', 'effect',
+                    'lod_settings', 'detail_blender', 'translucency', 'alpha', 'hair'):
+            assert TT.is_eq(data['settings'].get(key), parsed['settings'].get(key),
+                            f"{rel}: settings {key}")
+
+        # The end-to-end guarantee: writing the recovered material back over its own source must
+        # not disturb a single field.
+        patched = patch_mat_doc(doc, data, r"Materials\Test\Copy.mat")
+        before, after = fields_of(doc), fields_of(patched)
+        assert TT.is_eq(sorted(set(after) - set(before)), [], f"{rel}: no field invented")
+        assert TT.is_eq(sorted(set(before) - set(after)), [], f"{rel}: no field dropped")
+        differing = [k for k in before if k[3] != 'ID' and str(before[k]) != str(after[k])]
+        assert TT.is_eq(differing, [], f"{rel}: no field altered")
+
+        # And the stronger one: build the material from the NODE TREE ALONE, with no source
+        # document at all. This is what export actually does, and it only works if the Blender
+        # nodes carry each .mat object's id, Parent, name and components. Built under the
+        # material's own name, so nodes keep their names and can be matched by them -- object
+        # ORDER is free to differ, content is not.
+        built = build_mat_doc(data, data.get('filename') or rel)
+
+        def by_name(d):
+            res = {}
+            for o in d.get('Objects', []):
+                nm = next((c['Data']['Name'] for c in o.get('Components', [])
+                           if c.get('Type') == 'BSComponentDB::CTName'), '<noname>').lower()
+                res[(nm, '<Parent>', 0, 'Parent')] = o.get('Parent', '')
+                for c in o.get('Components', []):
+                    if c.get('Type') == 'BSComponentDB::CTName':
+                        continue
+                    for fld, val in flat_fields(c.get('Data')).items():
+                        res[(nm, c.get('Type'), c.get('Index', 0), fld)] = val
+            return res
+
+        # The LOD material is a separate material in the game's database; we reference it by id
+        # rather than copying its subtree into our file, so its nodes are expected to be absent.
+        want = {k: v for k, v in by_name(doc).items() if '_verylow' not in k[0]}
+        got = by_name(built)
+        assert TT.is_eq(sorted(set(want) - set(got)), [],
+                        f"{rel}: nothing dropped building from the node tree alone")
+        differing = [k for k in want if k in got and k[3] != 'ID' and str(want[k]) != str(got[k])]
+        assert TT.is_eq(differing, [], f"{rel}: nothing altered building from the node tree alone")
 
 
 @TT.category('STARFIELD', 'SHADER')
@@ -3682,6 +3867,11 @@ def TEST_SF_HEAD_MATERIAL():
     # VERTEX_COLOR Attribute node.
     assert any(n.type == 'ATTRIBUTE' and n.attribute_name == COLOR_MAP_NAME for n in nodes), \
         "a VERTEX_COLOR Attribute node was created"
+    # ...and it names an attribute the mesh really has. The node is only safe because this head
+    # carries vertex colors; on a mesh without them it would evaluate to zero and blacken the
+    # albedo, which is what happened to naked_m.
+    assert TT.is_eq(TTB.dangling_attribute_nodes(head), [],
+                    "the Attribute node names an attribute the mesh has")
     assert data['layers'][0]['override_color'] == 'Multiply', \
         f"base-layer albedo x vertex-color recovered: {data['layers'][0].get('override_color')}"
 
@@ -4417,7 +4607,14 @@ def TEST_SHADER_FO4():
 
     bpy.ops.import_scene.pynifly(filepath=fileFO4, blender_xf=True)
     headFO4 = bpy.context.object
-    
+
+    # Blender evaluates a missing geometry attribute to ZERO, so an Attribute node naming one the
+    # mesh doesn't have silently blackens whatever it feeds (how Starfield's naked_m imported
+    # black). The FO4/Skyrim path names the actual color layer, so it can't dangle -- pinned here
+    # because nothing else would notice if that changed.
+    assert TT.is_eq(TTB.dangling_attribute_nodes(headFO4), [],
+                    "no Attribute node names an attribute the mesh lacks")
+
     nifFO4 = pyn.NifFile(fileFO4)
     shapeorig = nifFO4.shapes[0]
     for t in ['Diffuse_Texture', 'Normal_Texture', 'Specular_Texture']:

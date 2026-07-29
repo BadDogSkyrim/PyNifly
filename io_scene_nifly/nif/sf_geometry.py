@@ -313,16 +313,23 @@ def write_sf_materials(exporter):
         if not data or (not data.get('layers') and not data['settings'].get('shader_model')):
             continue
         out_path = resolve_material_output_path(exporter.nif.filepath, mat_ref)
+        # A material imported from a .mat PyNifly couldn't find has no layers and nothing carried,
+        # so writing it would replace a good file with a stub. Refuse rather than clobber.
+        if os.path.exists(out_path) and not data.get('layers'):
+            exporter.warn(f"Not writing '{mat_ref}': the material in Blender has no layers, and "
+                          f"overwriting the existing file would destroy it. Import the material "
+                          f"first, or delete the file if you meant to replace it.")
+            continue
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        # Patch the material we're about to overwrite rather than rebuilding it. A .mat carries
-        # components PyNifly doesn't model (ParamBool, MaterialParamFloat, TextureReplacement,
-        # the detail-layer UVStreams); rebuilding drops them and breaks the material. Falls back
-        # to the source material the shader names, then to a fresh build.
+        # The material is built from the shader graph. Each node carries the identity, parenting
+        # and components it was imported with, so nothing needs reading off disk -- and a layer
+        # added in Blender is written like any other, which patching the old file could not do.
+        # A template is still passed for a material whose nodes carry nothing (imported before
+        # PyNifly recorded it), where the file being overwritten is the only source of structure.
         template = _material_template(out_path, mat_ref, exporter.nif.filepath)
         with open(out_path, 'w', encoding='utf-8') as f:
             f.write(sf_materials.write_mat(data, filename=mat_ref, template=template))
-        log.info(f"Wrote loose .mat: {out_path}"
-                 + ("" if template is None else " (preserved the existing material's structure)"))
+        log.info(f"Wrote loose .mat: {out_path}")
 
 
 def _material_template(out_path, mat_ref, nif_filepath):

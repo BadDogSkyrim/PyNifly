@@ -2,6 +2,7 @@
 
 # Copyright © 2021, Bad Dog.
 
+import json
 import os
 from pathlib import Path
 import logging
@@ -13,6 +14,7 @@ from .. import __package__ as base_package
 from .. import blender_defs as BD
 from ..pyn.nifdefs import ShaderFlags1, ShaderFlags2, NODEID_NONE
 from ..pyn.niflytools import find_referenced_file, texture_path
+from ..pyn.sf_materials import SF_TEXTURE_SLOTS
 from ..pyn.pynifly import NiShape, NiShader, AlphaPropertyBuf, BSLSPShaderType, PynBufferTypes
 from ..gamefinder import find_game
 
@@ -71,6 +73,12 @@ def _wire_emissive(gin, gout, ng):
 
 def _wire_alpha(gin, gout, ng):
     ng.links.new(gin.outputs["Alpha Test Threshold"], gout.inputs["Alpha Test Threshold Out"])
+
+
+def _wire_none(gin, gout, ng):
+    """A value-holder with nothing to drive. The eye/mouth/effect/LOD components configure engine
+    behaviour PyNifly's preview doesn't reproduce, so their group node carries the values (visible,
+    editable, round-tripped) without pretending to render them."""
 
 
 def _wire_hair(gin, gout, ng):
@@ -132,19 +140,78 @@ _SF_COMPONENTS = {
         'outputs': [("Sheen Weight", 'NodeSocketFloat'), ("Sheen Roughness", 'NodeSocketFloat')],
         'wire': _wire_hair,
     },
+    # The remaining per-material components. Field keys match sf_materials._COMPONENT_SPECS, which
+    # is what parses and writes them; here they get a node so they are visible and editable.
+    'eye': {
+        'group': 'SF EyeSettingsComponent',
+        'fields': [
+            ("Eye Enable",                'NodeSocketBool',  False, 'enabled'),
+            ("Sclera Eye Roughness",      'NodeSocketFloat', 0.0,   'sclera_eye_roughness'),
+            ("Iris Depth Position",       'NodeSocketFloat', 0.0,   'iris_depth_position'),
+            ("Iris Total Depth",          'NodeSocketFloat', 0.0,   'iris_total_depth'),
+            ("Iris Depth Transition",     'NodeSocketFloat', 0.0,   'iris_depth_transition_ratio'),
+            ("Lighting Wrap",             'NodeSocketFloat', 0.0,   'lighting_wrap'),
+            ("Lighting Power",            'NodeSocketFloat', 0.0,   'lighting_power'),
+        ],
+        'outputs': [],
+        'wire': _wire_none,
+    },
+    'mouth': {
+        'group': 'SF MouthSettingsComponent',
+        'fields': [
+            ("Mouth Enable", 'NodeSocketBool', False, 'enabled'),
+            ("Is Teeth",     'NodeSocketBool', False, 'is_teeth'),
+        ],
+        'outputs': [],
+        'wire': _wire_none,
+    },
+    'shader_route': {
+        'group': 'SF ShaderRouteComponent',
+        'fields': [
+            ("Route", None, '', 'route'),   # a name ('Effect', 'Deferred'), so a custom prop
+        ],
+        'outputs': [],
+        'wire': _wire_none,
+    },
+    'effect': {
+        'group': 'SF EffectSettingsComponent',
+        'fields': [
+            ("Receive Directional Shadows",     'NodeSocketBool',  False, 'receive_directional_shadows'),
+            ("Receive Non-Directional Shadows", 'NodeSocketBool',  False, 'receive_non_directional_shadows'),
+            ("Depth MV Fixup",                  'NodeSocketBool',  False, 'depth_mv_fixup'),
+            ("Force Render Before OIT",         'NodeSocketBool',  False, 'force_render_before_oit'),
+            ("No Half Res Optimization",        'NodeSocketBool',  False, 'no_half_res_optimization'),
+            ("Depth Bias In Ulp",               'NodeSocketFloat', 0.0,   'depth_bias_in_ulp'),
+        ],
+        'outputs': [],
+        'wire': _wire_none,
+    },
+    'lod_settings': {
+        'group': 'SF LevelOfDetailSettings',
+        'fields': [
+            ("Num LOD Materials", 'NodeSocketInt', 0, 'num_lod_materials'),
+        ],
+        'outputs': [],
+        'wire': _wire_none,
+    },
+    'detail_blender': {
+        'group': 'SF DetailBlenderSettingsComponent',
+        'fields': [
+            ("Detail Blend Mask Supported", 'NodeSocketBool', False,
+             'is_detail_blend_mask_supported'),
+        ],
+        'outputs': [],
+        'wire': _wire_none,
+    },
 }
 
 
 def ensure_sf_component_group(key):
     """Build (or return the cached) value-holder group for a .mat settings component."""
     spec = _SF_COMPONENTS[key]
-    ng = bpy.data.node_groups.get(spec['group'])
-    if ng is not None:
-        if ng.get('pyn_sf_comp_version') == _SF_COMPONENT_VERSION:
-            return ng
-        bpy.data.node_groups.remove(ng)
-    ng = bpy.data.node_groups.new(spec['group'], 'ShaderNodeTree')
-    ng['pyn_sf_comp_version'] = _SF_COMPONENT_VERSION
+    ng, fresh = _ensure_group(spec['group'], 'pyn_sf_comp_version', _SF_COMPONENT_VERSION)
+    if not fresh:
+        return ng
     iface = ng.interface
     for name, stype, default, _key in spec['fields']:
         if stype is None:
@@ -257,13 +324,10 @@ _SF_NORMAL_BLEND_VERSION = 1
 
 
 def ensure_sf_normal_blend_group():
-    ng = bpy.data.node_groups.get(SF_NORMAL_BLEND_GROUP)
-    if ng is not None:
-        if ng.get('pyn_sf_nblend_version') == _SF_NORMAL_BLEND_VERSION:
-            return ng
-        bpy.data.node_groups.remove(ng)
-    ng = bpy.data.node_groups.new(SF_NORMAL_BLEND_GROUP, 'ShaderNodeTree')
-    ng['pyn_sf_nblend_version'] = _SF_NORMAL_BLEND_VERSION
+    ng, fresh = _ensure_group(SF_NORMAL_BLEND_GROUP, 'pyn_sf_nblend_version',
+                              _SF_NORMAL_BLEND_VERSION)
+    if not fresh:
+        return ng
     iface = ng.interface
     _sf_new_socket(iface, "Base Normal", 'INPUT', 'NodeSocketColor')
     _sf_new_socket(iface, "Detail Normal", 'INPUT', 'NodeSocketColor')
@@ -322,7 +386,7 @@ def ensure_sf_normal_blend_group():
 # image nodes feeding each layer (pyn_sf_path stamps). Recovery walks the connected groups.
 SF_LAYER_GROUP = "SF Layer"
 SF_BLEND_GROUP = "SF Blend"        # prefix; concrete groups are "SF Blend Skin", "SF Blend Lerp", ...
-_SF_GROUP_VERSION = 4
+_SF_GROUP_VERSION = 5   # 5: SF Layer inputs reordered to match the .mat texture-slot numbering
 
 # The PBR bundle: (channel name, socket type). Carried between layers and blends.
 _SF_BUNDLE = [
@@ -337,18 +401,29 @@ _SF_BUNDLE = [
 ]
 _SF_BUNDLE_NAMES = [n for n, _ in _SF_BUNDLE]
 
-# The SF Layer group's raw texture inputs -> which bundle channel they feed. All are Color inputs
-# (image nodes output Color); Color->Float channels auto-convert by luminance. Normal is special.
+# The SF Layer group's raw texture inputs -> which bundle channel they feed, as
+# (.mat slot index, socket name, bundle channel, default).
+#
+# Listed IN SLOT ORDER, which is the order the sockets appear on the node: a layer's inputs then
+# read down the group in the same order its TextureSet lists them in the .mat, so socket 3 is the
+# material's slot 3. The stacked image nodes follow the same order, since _build_sf_layer sorts
+# them by socket position.
+#
+# All are Color inputs (image nodes output Color); Color->Float channels auto-convert by luminance.
 # (Bad Dog: keep them Color -- a scalar map still varies per-texel and should invite a texture.)
+# Normal is the odd one out: it feeds the BC5 reconstruct inside the group rather than passing
+# straight through to its bundle channel. Slots 6 (Height) and 20 (ID) have no input yet.
 _SF_LAYER_TEX_INPUTS = [
-    ("Albedo",           "Base Color",       (1.0, 1.0, 1.0, 1.0)),
-    ("Roughness",        "Roughness",        (0.5, 0.5, 0.5, 1.0)),
-    ("Metallic",         "Metallic",         (0.0, 0.0, 0.0, 1.0)),
-    ("AO",               "AO",               (1.0, 1.0, 1.0, 1.0)),
-    ("Opacity",          "Opacity",          (1.0, 1.0, 1.0, 1.0)),
-    ("Emissive",         "Emissive",         (0.0, 0.0, 0.0, 1.0)),
-    ("SSS Transmissive", "SSS Transmissive", (0.0, 0.0, 0.0, 1.0)),
+    (0, "Albedo",           "Base Color",       (1.0, 1.0, 1.0, 1.0)),
+    (1, "Normal Tex",       "Normal",           (0.5, 0.5, 1.0, 1.0)),
+    (2, "Opacity",          "Opacity",          (1.0, 1.0, 1.0, 1.0)),
+    (3, "Roughness",        "Roughness",        (0.5, 0.5, 0.5, 1.0)),
+    (4, "Metallic",         "Metallic",         (0.0, 0.0, 0.0, 1.0)),
+    (5, "AO",               "AO",               (1.0, 1.0, 1.0, 1.0)),
+    (7, "Emissive",         "Emissive",         (0.0, 0.0, 0.0, 1.0)),
+    (8, "SSS Transmissive", "SSS Transmissive", (0.0, 0.0, 0.0, 1.0)),
 ]
+SF_NORMAL_INPUT = "Normal Tex"
 
 # custom-property keys stamped for export recovery
 PYN_SF_PATH = 'pyn_sf_path'     # verbatim .mat-relative texture path (Data\-stripped)
@@ -356,7 +431,69 @@ PYN_SF_SLOT = 'pyn_sf_slot'     # slot name (Albedo/Normal/Mask/...)
 PYN_SF_LAYER = 'pyn_sf_layer'   # owning layer index (on image + SF Layer node)
 PYN_SF_BLEND = 'pyn_sf_blend'   # blender index (on SF Blend node)
 PYN_SF_MODE = 'pyn_sf_mode'     # blend mode string (also encoded in the group name)
-PYN_SF_OVERRIDE = 'pyn_sf_override'  # albedo vertex-color override on a layer (e.g. Multiply)
+# MaterialOverrideColorTypeComponent, off the layer's MATERIAL -- how the layer's albedo is
+# combined with the mesh's vertex color ('Multiply' is the only value vanilla human bodyparts use).
+# Not a blend mode: that is BlendModeComponent, which rides on an SF Blend node as PYN_SF_MODE.
+PYN_SF_OVERRIDE_COLOR_TYPE = 'pyn_sf_override_color_type'
+
+# Indexed knob families. ParamBool and MaterialParamFloat are the shader model's own switches and
+# scalars -- the .mat gives them an Index and nothing else, so PyNifly carries them by index rather
+# than inventing names for meanings it doesn't know. Each index becomes its own scalar custom
+# property on the node that owns it (a layer's SF Layer node, a blend's SF Blend node, or the
+# material for the root's), which keeps them visible and editable in Blender's property panel.
+PYN_SF_PARAM_BOOL = 'pyn_sf_parambool_'      # + index
+PYN_SF_PARAM_FLOAT = 'pyn_sf_matparam_'      # + index
+PYN_SF_TEX_REPLACE = 'pyn_sf_texreplace_'    # + texture slot index (an 'enabled' flag)
+PYN_SF_LOD_MATERIAL = 'pyn_sf_lodmaterial_'  # + LOD level; a res: id naming a material in the db
+PYN_SF_COLOR = 'pyn_sf_color'                # a layer material's Color (XMFLOAT4)
+PYN_SF_MIP_BIAS = 'pyn_sf_mip_bias'
+PYN_SF_TEX_RESOLUTION = 'pyn_sf_tex_resolution'
+PYN_SF_REPLACE_SLOT = 'pyn_sf_replace_slot'  # on an RGB node: which slot it stands in for
+
+# The .mat objects a Blender node stands for, as JSON: their res: ids, Parent links, CTNames and
+# the components they carried. This is what lets export rebuild the material from the node tree
+# alone instead of patching the file it came from -- the node knows its own identity, its
+# inheritance, and everything about it PyNifly doesn't model. An SF Layer node stands for up to
+# four objects (layer / material / texture set / uv stream) so it holds a dict of them; an SF
+# Blend node and the material each stand for one.
+PYN_SF_NODES = 'pyn_sf_nodes'   # on an SF Layer node: {kind: meta}
+PYN_SF_NODE = 'pyn_sf_node'     # on an SF Blend node and on the material: one meta
+
+
+def _stamp_json(owner, key, value):
+    """Store carried .mat state as JSON. A custom property could hold the dict directly, but it
+    would come back as an IDPropertyGroup with ints for bools and no way to tell an empty list
+    from an absent one -- and this state has to survive the round trip byte-for-byte."""
+    if value:
+        owner[key] = json.dumps(value)
+
+
+def _recover_json(owner, key):
+    raw = owner.get(key)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        log.warning(f"Could not read carried Starfield material state from {key}")
+        return None
+
+
+def _stamp_indexed(node, prefix, mapping):
+    """Write an {index: value} family out as one scalar custom property per index."""
+    for idx, val in (mapping or {}).items():
+        node[prefix + str(idx)] = val
+
+
+def _recover_indexed(node, prefix, cast):
+    """Read an {index: value} family back off a node's custom properties."""
+    out = {}
+    for key in node.keys():
+        if key.startswith(prefix):
+            tail = key[len(prefix):]
+            if tail.isdigit():
+                out[int(tail)] = cast(node[key])
+    return out
 
 # --- SF material graph layout ------------------------------------------------------------------
 # Columns, left -> right: textures | layers | blend row | BSDF. A 6-layer head is wide + tall, so
@@ -380,14 +517,20 @@ SF_COMP_BASE_Y = 400            # bottom-most settings-component Y (sits above t
 SF_COMP_DY = 350                # vertical gap between stacked settings-component nodes
 
 
-def _ensure_group(name):
+def _ensure_group(name, version_key='pyn_sf_group_version', version=None):
+    """The named node group at the current version, rebuilt if a .blend holds an older one.
+
+    A rebuild orphans the nodes that were using the old group (`node_tree` becomes None). That is
+    only a concern across a RELEASE boundary: within development the fix is to re-import, and the
+    group definitions have never shipped at their current versions."""
+    version = _SF_GROUP_VERSION if version is None else version
     ng = bpy.data.node_groups.get(name)
     if ng is not None:
-        if ng.get('pyn_sf_group_version') == _SF_GROUP_VERSION:
+        if ng.get(version_key) == version:
             return ng, False
         bpy.data.node_groups.remove(ng)
     ng = bpy.data.node_groups.new(name, 'ShaderNodeTree')
-    ng['pyn_sf_group_version'] = _SF_GROUP_VERSION
+    ng[version_key] = version
     return ng, True
 
 
@@ -398,13 +541,10 @@ def ensure_sf_layer_group():
     if not fresh:
         return ng
     iface = ng.interface
-    for name, _bundle, default in _SF_LAYER_TEX_INPUTS:
+    for _slot, name, _bundle, default in _SF_LAYER_TEX_INPUTS:
         s = _sf_new_socket(iface, name, 'INPUT', 'NodeSocketColor')
         with suppress(Exception):
             s.default_value = default
-    nt = _sf_new_socket(iface, "Normal Tex", 'INPUT', 'NodeSocketColor')
-    with suppress(Exception):
-        nt.default_value = (0.5, 0.5, 1.0, 1.0)   # flat normal
     # UV tiling lives on a shared Mapping node per layer (not the group -- feeding it back here
     # would cycle group->image->group), so no UV inputs on the group.
     for name, stype in _SF_BUNDLE:
@@ -413,10 +553,12 @@ def ensure_sf_layer_group():
     gin = ng.nodes.new('NodeGroupInput'); gin.location = (-1700, 0)
     gout = ng.nodes.new('NodeGroupOutput'); gout.location = (300, 0)
     L = ng.links
-    for name, bundle, _default in _SF_LAYER_TEX_INPUTS:
-        L.new(gin.outputs[name], gout.inputs[bundle])
-    nrm = _reconstruct_normal_rgb(ng, gin.outputs["Normal Tex"], (-1400, -500))
-    L.new(nrm, gout.inputs["Normal"])
+    for _slot, name, bundle, _default in _SF_LAYER_TEX_INPUTS:
+        if name == SF_NORMAL_INPUT:
+            L.new(_reconstruct_normal_rgb(ng, gin.outputs[name], (-1400, -500)),
+                  gout.inputs[bundle])
+        else:
+            L.new(gin.outputs[name], gout.inputs[bundle])
     return ng
 
 
@@ -483,6 +625,15 @@ def _recover_sf_settings(material):
         node = sf_component_node_of(material, key)
         if node is not None:
             s[key] = recover_sf_component(node, key)
+    bools = _recover_indexed(material, PYN_SF_PARAM_BOOL, bool)
+    if bools:
+        s['param_bools'] = bools
+    lods = _recover_indexed(material, PYN_SF_LOD_MATERIAL, str)
+    if lods:
+        s['lod_materials'] = lods
+    node = _recover_json(material, PYN_SF_NODE)
+    if node:
+        s['node'] = node
     return s
 
 
@@ -501,6 +652,14 @@ def _sf_game_texture_path(node):
     if 'textures' not in lower:
         return None
     return str(Path(*parts[lower.index('textures'):]).with_suffix('.dds'))
+
+
+def _put_if(d, key, value):
+    """Record a recovered family only when it has something in it, matching the parser: a layer
+    with no such component produces a dict with no such key, so an untouched material recovers to
+    exactly what was parsed."""
+    if value:
+        d[key] = value
 
 
 def recover_sf_material(material):
@@ -529,6 +688,14 @@ def recover_sf_material(material):
     layers = []
     layer_markers = {n[PYN_SF_LAYER]: n for n in nodes
                      if _is_group(n, SF_LAYER_GROUP) and PYN_SF_LAYER in n}
+    # A slot filled by a flat colour instead of a texture: the RGB node's colour is the value, so
+    # a user who recolours it is exporting what they see.
+    replace_colors = {}
+    for n in nodes:
+        if getattr(n, 'type', '') == 'RGB' and PYN_SF_REPLACE_SLOT in n and PYN_SF_LAYER in n:
+            replace_colors.setdefault(n[PYN_SF_LAYER], {})[int(n[PYN_SF_REPLACE_SLOT])] = \
+                tuple(n.outputs['Color'].default_value)
+
     for idx in sorted(layer_markers):
         mp = uv_by_layer.get(idx)
         if mp is not None:
@@ -537,9 +704,28 @@ def recover_sf_material(material):
             uv_scale, uv_offset = (sc[0], sc[1]), (of[0], of[1])
         else:
             uv_scale, uv_offset = (1.0, 1.0), (0.0, 0.0)
-        layers.append({'textures': images_by_layer.get(idx, {}),
-                       'uv_scale': uv_scale, 'uv_offset': uv_offset,
-                       'override_color': layer_markers[idx].get(PYN_SF_OVERRIDE, '')})
+        marker = layer_markers[idx]
+        entry = {'textures': images_by_layer.get(idx, {}),
+                 'uv_scale': uv_scale, 'uv_offset': uv_offset,
+                 'override_color': marker.get(PYN_SF_OVERRIDE_COLOR_TYPE, '')}
+        _put_if(entry, 'param_bools', _recover_indexed(marker, PYN_SF_PARAM_BOOL, bool))
+        _put_if(entry, 'mat_params', _recover_indexed(marker, PYN_SF_PARAM_FLOAT, float))
+        if PYN_SF_COLOR in marker:
+            entry['color'] = tuple(marker[PYN_SF_COLOR])
+        if PYN_SF_MIP_BIAS in marker:
+            entry['mip_bias'] = bool(marker[PYN_SF_MIP_BIAS])
+        if PYN_SF_TEX_RESOLUTION in marker:
+            entry['tex_resolution'] = str(marker[PYN_SF_TEX_RESOLUTION])
+        # An 'enabled' flag on the layer node and a colour on an RGB node are two halves of one
+        # TextureReplacement, so they are recombined per slot.
+        replacements = {}
+        for slot_idx, enabled in _recover_indexed(marker, PYN_SF_TEX_REPLACE, bool).items():
+            replacements[slot_idx] = {'enabled': enabled}
+        for slot_idx, color in replace_colors.get(idx, {}).items():
+            replacements.setdefault(slot_idx, {})['color'] = color
+        _put_if(entry, 'tex_replace', replacements)
+        _put_if(entry, 'nodes', _recover_json(marker, PYN_SF_NODES))
+        layers.append(entry)
 
     # Mask texture per blend index (may sit behind a channel separator, so found by its stamp, not
     # by walking the Mask link).
@@ -561,7 +747,11 @@ def recover_sf_material(material):
             sock = m.inputs['Mask'].links[0].from_socket.name
             channel = {SEPARATOR_OUT1: 'Red', SEPARATOR_OUT2: 'Green', SEPARATOR_OUT3: 'Blue',
                        'Alpha': 'Alpha'}.get(sock, '')
-        blenders.append({'mode': m.get(PYN_SF_MODE, ''), 'mask': mask, 'channel': channel})
+        entry = {'mode': m.get(PYN_SF_MODE, ''), 'mask': mask, 'channel': channel}
+        _put_if(entry, 'node', _recover_json(m, PYN_SF_NODE))
+        _put_if(entry, 'param_bools', _recover_indexed(m, PYN_SF_PARAM_BOOL, bool))
+        _put_if(entry, 'mat_params', _recover_indexed(m, PYN_SF_PARAM_FLOAT, float))
+        blenders.append(entry)
 
     textures = {}
     for ly in layers:
@@ -2045,7 +2235,12 @@ class ShaderImporter:
         layers_resolved = self._resolve_sf_layers(layers)
         blenders_resolved = self._resolve_sf_blenders(blenders)
 
-        self._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved)
+        # The mesh is the authority on whether a vertex-color multiply can be built. Colors are
+        # imported before the shader, so asking the object here gives the right answer.
+        has_colors = (getattr(obj.data, 'color_attributes', None) is not None
+                      and COLOR_MAP_NAME in obj.data.color_attributes)
+        self._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved,
+                             has_vertex_colors=has_colors)
         obj.active_material = self.material
 
     def _resolve_sf_texset(self, texdict):
@@ -2059,24 +2254,32 @@ class ShaderImporter:
         return out
 
     def _resolve_sf_layers(self, layers):
-        """Resolve each parsed layer's textures, carrying its non-texture fields (uv tiling +
-        the vertex-color albedo override) through to the node build unchanged."""
-        return [{'textures': self._resolve_sf_texset(ly['textures']),
-                 'uv_scale': ly.get('uv_scale', (1.0, 1.0)),
-                 'uv_offset': ly.get('uv_offset', (0.0, 0.0)),
-                 'override_color': ly.get('override_color', '')}
-                for ly in layers]
+        """Resolve each parsed layer's textures, carrying every non-texture field (uv tiling, the
+        vertex-color albedo override, the shader knobs, texture replacements) through to the node
+        build unchanged. Copying the layer and replacing only `textures` means a family added to
+        the parser reaches the node build without a change here."""
+        out = []
+        for ly in layers:
+            entry = dict(ly)
+            entry['textures'] = self._resolve_sf_texset(ly.get('textures', {}))
+            entry.setdefault('uv_scale', (1.0, 1.0))
+            entry.setdefault('uv_offset', (0.0, 0.0))
+            entry.setdefault('override_color', '')
+            out.append(entry)
+        return out
 
     def _resolve_sf_blenders(self, blenders):
-        """Resolve each parsed blender's texture mask, carrying its mode + vertex-color mask channel
-        through to the node build unchanged."""
+        """Resolve each parsed blender's texture mask, carrying its mode, vertex-color mask channel
+        and shader knobs through to the node build unchanged."""
         out = []
         for b in blenders:
             mp = b.get('mask')
             fp = self._sf_resolve(mp)
-            out.append({'mode': b.get('mode', ''),
-                        'mask': (fp, mp) if fp else None,
-                        'channel': b.get('channel', '')})
+            entry = dict(b)
+            entry['mode'] = b.get('mode', '')
+            entry['mask'] = (fp, mp) if fp else None
+            entry['channel'] = b.get('channel', '')
+            out.append(entry)
         return out
 
     def _sf_resolve(self, path):
@@ -2212,6 +2415,16 @@ class ShaderImporter:
         node.width = 300   # roomy -- lots of channels
         node.label = f"{SF_LAYER_GROUP} {index}"
         node[PYN_SF_LAYER] = index
+        _stamp_json(node, PYN_SF_NODES, layer.get('nodes'))
+        # What this layer's Material and TextureSet carry besides their textures.
+        _stamp_indexed(node, PYN_SF_PARAM_BOOL, layer.get('param_bools'))
+        _stamp_indexed(node, PYN_SF_PARAM_FLOAT, layer.get('mat_params'))
+        if layer.get('color') is not None:
+            node[PYN_SF_COLOR] = list(layer['color'])
+        if layer.get('mip_bias') is not None:
+            node[PYN_SF_MIP_BIAS] = layer['mip_bias']
+        if layer.get('tex_resolution') is not None:
+            node[PYN_SF_TEX_RESOLUTION] = layer['tex_resolution']
 
         # One shared UV Mapping per layer (only when non-identity), stamped with the layer index
         # so export recovers the tiling off it. Feeds all this layer's image nodes.
@@ -2227,37 +2440,71 @@ class ShaderImporter:
             nt.links.new(tc.outputs['UV'], mapping.inputs['Vector'])
             uv_out = mapping.outputs['Vector']
 
-        # Stack this layer's image nodes in group-input-socket order, closely spaced, with the
-        # topmost aligned to the layer node's top (never above it).
-        input_order = [n for n, _b, _d in _SF_LAYER_TEX_INPUTS] + ["Normal Tex"]
+        # Everything feeding this layer's inputs, stacked in group-input-socket order -- which is
+        # .mat slot order -- closely spaced, topmost aligned to the layer node's top (never above
+        # it). Textures and flat-colour replacements share one column, so a layer's inputs read
+        # down the same way its TextureSet lists them.
+        input_order = [n for _s, n, _b, _d in _SF_LAYER_TEX_INPUTS]
+
+        def socket_order(inp):
+            return input_order.index(inp) if inp in input_order else len(input_order)
+
         present = []
         for slot, entry in layer.get('textures', {}).items():
             m = self._SF_SLOT_TO_LAYER_INPUT.get(slot)
-            if not m:
-                continue
-            inp, cs = m
-            order = input_order.index(inp) if inp in input_order else len(input_order)
-            present.append((order, slot, inp, cs, entry))
+            if m:
+                present.append((socket_order(m[0]), 'tex', slot, m[0], m[1], entry))
+
+        # A TextureReplacement stands IN FOR a texture: across the vanilla human materials, no slot
+        # ever carries both (0 of 11). So a replacement with a colour becomes an RGB node feeding
+        # that slot's group input -- the flat colour the game would use, visible and editable.
+        # A replacement with no colour of its own inherits one from the parent template, which we
+        # can't resolve, so it stays a flag rather than a node with an invented colour.
+        for slot_idx, rep in sorted((layer.get('tex_replace') or {}).items()):
+            slot = SF_TEXTURE_SLOTS.get(slot_idx)
+            m = self._SF_SLOT_TO_LAYER_INPUT.get(slot) if slot else None
+            if 'enabled' in rep:
+                node[PYN_SF_TEX_REPLACE + str(slot_idx)] = rep['enabled']
+            if 'color' in rep and m:
+                present.append((socket_order(m[0]), 'rgb', slot, m[0], slot_idx, rep['color']))
+
         present.sort(key=lambda t: t[0])
-        for k, (_order, slot, inp, cs, entry) in enumerate(present):
-            fp, mp = self._sf_split(entry)
-            img = self._sf_teximg_path(fp, cs, (x - SF_LAYER_TEX_DX, y - k * SF_TEX_DY),
-                                       matpath=mp, slot=slot, layer=index)
-            if uv_out is not None:
-                nt.links.new(uv_out, img.inputs['Vector'])
-            nt.links.new(img.outputs['Color'], node.inputs[inp])
+        for k, (_order, kind, slot, inp, aux, value) in enumerate(present):
+            loc = (x - SF_LAYER_TEX_DX, y - k * SF_TEX_DY)
+            if kind == 'tex':
+                fp, mp = self._sf_split(value)
+                img = self._sf_teximg_path(fp, aux, loc, matpath=mp, slot=slot, layer=index)
+                if uv_out is not None:
+                    nt.links.new(uv_out, img.inputs['Vector'])
+                nt.links.new(img.outputs['Color'], node.inputs[inp])
+            else:
+                rgb = nt.nodes.new('ShaderNodeRGB')
+                rgb.location = loc
+                rgb.label = f"{slot} (replaced)"
+                rgb[PYN_SF_REPLACE_SLOT] = aux
+                rgb[PYN_SF_LAYER] = index
+                rgb.outputs['Color'].default_value = tuple(value)
+                nt.links.new(rgb.outputs['Color'], node.inputs[inp])
 
         # MaterialOverrideColor 'Multiply': this layer's albedo is multiplied by the mesh vertex
         # color. Insert the multiply on the layer's Base Color output and register it so downstream
         # bundle reads (blends / the final BSDF wiring) pick up the overridden socket.
-        if layer.get('override_color') == 'Multiply':
+        # Recorded whether or not it can be rendered: it is part of the material and has to
+        # survive export regardless of what this particular mesh carries.
+        if layer.get('override_color'):
+            node[PYN_SF_OVERRIDE_COLOR_TYPE] = layer['override_color']
+        # Only build the multiply when there is actually a vertex color to multiply BY. Blender's
+        # Attribute node evaluates to zero for an attribute the mesh doesn't have, so wiring this
+        # up on a mesh without vertex colors renders the whole surface black -- vanilla naked_m
+        # imported that way. The game takes an absent vertex color as white, so leaving the albedo
+        # alone is the faithful result.
+        if layer.get('override_color') == 'Multiply' and getattr(self, '_sf_has_vertex_colors', True):
             vcol = self._sf_vertex_color_node(nt)
             mix = make_mixnode(nt, node.outputs['Base Color'], vcol.outputs['Color'],
                                factor=1.0, blend_type='MULTIPLY',
                                location=(x + SF_LAYER_NODE_W + 2 * SF_MASK_GAP, y))
             mix.label = 'Vertex Color x Albedo'
             self._sf_base_override[node] = mix.outputs[MIXNODE_OUT]
-            node[PYN_SF_OVERRIDE] = layer['override_color']
 
         # This layer's lowest edge = the lower of the last texture node's bottom and the layer
         # node's bottom -- used to place the next layer just below it.
@@ -2298,6 +2545,9 @@ class ShaderImporter:
         node.label = node.node_tree.name
         node[PYN_SF_BLEND] = index
         node[PYN_SF_MODE] = blender.get('mode', '')
+        _stamp_json(node, PYN_SF_NODE, blender.get('node'))
+        _stamp_indexed(node, PYN_SF_PARAM_BOOL, blender.get('param_bools'))
+        _stamp_indexed(node, PYN_SF_PARAM_FLOAT, blender.get('mat_params'))
         for chan in _SF_BUNDLE_NAMES:
             nt.links.new(self._sf_bundle_out(bundle_a, chan), node.inputs['A ' + chan])
             nt.links.new(self._sf_bundle_out(bundle_b, chan), node.inputs['B ' + chan])
@@ -2336,6 +2586,12 @@ class ShaderImporter:
         settings = settings or {}
         if settings.get('shader_model'):
             self.material[SF_SHADER_MODEL_PROP] = settings['shader_model']
+        # The root's own indexed families live on the material, since the root LayeredMaterial is
+        # what the Blender material stands for. An LOD reference names a separate material in the
+        # game's database, so it is carried as an opaque id.
+        _stamp_indexed(self.material, PYN_SF_PARAM_BOOL, settings.get('param_bools'))
+        _stamp_indexed(self.material, PYN_SF_LOD_MATERIAL, settings.get('lod_materials'))
+        _stamp_json(self.material, PYN_SF_NODE, settings.get('node'))
         comp_nodes = {}
         y = SF_COMP_BASE_Y
         for key in _SF_COMPONENTS:
@@ -2394,15 +2650,20 @@ class ShaderImporter:
             if 'Sheen Roughness' in bsdf.inputs:
                 nt.links.new(hr.outputs['Sheen Roughness'], bsdf.inputs['Sheen Roughness'])
 
-    def _build_sf_nodes(self, resolved, settings=None, layers_resolved=None, blenders_resolved=None):
+    def _build_sf_nodes(self, resolved, settings=None, layers_resolved=None,
+                        blenders_resolved=None, has_vertex_colors=True):
         """Wire the resolved SF PBR textures into a Principled BSDF, plus the SF Parameters node
         (SSS / emissive / alpha settings + shader-model identity), driving Subsurface + Emission.
 
         `resolved` is the flat base-layer-wins PBR (P0). `layers_resolved`/`blenders_resolved`
         carry the full layer graph (P1): a second layer's detail normal is composited over the
-        base normal via the SF Normal Blend group (RNM), masked by its blender."""
+        base normal via the SF Normal Blend group (RNM), masked by its blender.
+
+        `has_vertex_colors` says whether the mesh actually carries the color attribute, which
+        decides whether a layer's vertex-color albedo multiply can be built at all."""
         nt = self.material.node_tree
         self.nodes = nt.nodes
+        self._sf_has_vertex_colors = has_vertex_colors
         # Per-material vertex-color state: the shared Attribute/separator node (lazily created) and
         # the map of layer node -> overridden Base Color socket (MaterialOverrideColor 'Multiply').
         self._sf_vcol = None

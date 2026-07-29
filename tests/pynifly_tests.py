@@ -1144,9 +1144,13 @@ def TEST_SF_MAT_WRITE():
 
     back = parse_mat(write_mat(data))
     assert back is not None, "written .mat is valid JSON that re-parses"
-    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
-    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
-    assert back['settings'] == data['settings'], f"settings round-trip: {back['settings']}"
+    # Compared on material CONTENT: a re-parsed material also carries each node's identity (its
+    # res: id, Parent and components), which the hand-built dict above has no reason to have.
+    from pyn.sf_materials import material_content
+    back_c, data_c = material_content(back), material_content(data)
+    assert back_c['layers'] == data_c['layers'], f"layers round-trip: {back_c['layers']}"
+    assert back_c['blenders'] == data_c['blenders'], f"blenders round-trip: {back_c['blenders']}"
+    assert back_c['settings'] == data_c['settings'], f"settings round-trip: {back_c['settings']}"
     assert back['filename'] == data['filename'], f"filename round-trip: {back['filename']}"
     # The flat base-wins textures collapse is re-derived from the layers.
     assert back['textures']['Albedo'] == r'Textures\Skin\color.dds', "base albedo re-derived"
@@ -1225,6 +1229,204 @@ def TEST_SF_MAT_PRESERVES_TEMPLATE():
             ref = (comp.get('Data') or {}).get('ID')
             if isinstance(ref, str) and ref.startswith('res:'):
                 assert ref in new_ids, f"reference {ref} resolves within the file"
+
+
+def TEST_SF_MAT_COMPONENTS():
+    """Starfield: the component families a human bodypart material is actually made of.
+
+    A census of every material referenced by a vanilla `meshes/actors/human` nif found 31 component
+    types, of which PyNifly modelled 16. This covers the rest (bar the two BSBind animation
+    components, which are preserved but not interpreted), so an imported material can be edited
+    and written back without its shader knobs, texture replacements, eye/mouth/effect settings or
+    LOD reference being invented or lost.
+
+    The fixtures are real vanilla materials, chosen by set cover so five of them exercise all
+    thirteen families. The strong assertion is the last one: patching a material with what parsing
+    it produced must reproduce it FIELD FOR FIELD. That is what catches the whole class of bug
+    this work exists to fix -- patching used to REPLACE a component's Data, so the 13 fields of
+    LayeredEmissivityComponent that PyNifly doesn't model were dropped every time a material was
+    written (969 authored values across the 36 vanilla human materials).
+    """
+    import json
+    from pyn.sf_materials import parse_mat_doc, patch_mat_doc, write_mat, parse_mat
+
+    def load(rel):
+        with open(os.path.join(r"tests\SF\materials\Actors\Human", rel), encoding='utf-8-sig') as f:
+            return json.load(f)
+
+    # -- the root settings components ----------------------------------------------------------
+    eye = parse_mat_doc(load(r"Faces\bloodshot_left_eye.mat"))['settings']
+    assert TT.is_true(eye['eye']['enabled'], "eye settings enabled")
+    assert TT.is_equiv(eye['eye']['sclera_eye_roughness'], 0.58, "sclera roughness")
+    assert TT.is_equiv(eye['eye']['iris_depth_position'], 0.0944, "iris depth position")
+    assert TT.is_eq(eye['param_bools'], {3: False}, "root ParamBool carried by index")
+
+    mouth = parse_mat_doc(load(r"Faces\Teeth\Mouth.mat"))['settings']
+    assert TT.is_true(mouth['mouth']['enabled'], "mouth settings enabled")
+    assert TT.is_true(not mouth['mouth']['is_teeth'], "Mouth.mat is the mouth, not the teeth")
+
+    brow = parse_mat_doc(load(r"Eyebrows\Male_Eyebrows01.mat"))['settings']
+    assert TT.is_eq(brow['shader_route']['route'], 'Effect', "eyebrows take the Effect route")
+    assert TT.is_true(brow['effect']['no_half_res_optimization'], "effect flag decoded")
+    assert TT.is_equiv(brow['effect']['depth_bias_in_ulp'], 6500.0, "effect depth bias")
+
+    jewel = parse_mat_doc(load(r"Faces\Jewelry\Generic_FacialJewelry.mat"))
+    js = jewel['settings']
+    assert TT.is_eq(js['lod_settings']['num_lod_materials'], 1, "one LOD material declared")
+    assert TT.is_true(js['detail_blender']['is_detail_blend_mask_supported'], "detail blender")
+    # An LOD reference names a whole separate material in the game's database, not an object in
+    # this file, so it is carried verbatim (see reference_sf_materialid).
+    # Levels are indexed and the empty ones are kept: declaring levels 0-2 with only 2 populated
+    # says something different from declaring only level 2.
+    assert TT.is_eq(js['lod_materials'], {0: '', 2: 'res:D15C72AE:00065338:A511721A'},
+                    "LOD material reference carried by level")
+    assert TT.is_eq(jewel['layers'][0]['color'], (1.0, 1.0, 1.0, 1.0), "layer material Color")
+    rep = jewel['layers'][0]['tex_replace']
+    assert TT.is_true(rep[0]['enabled'], "texture replacement enabled on the albedo slot")
+    assert TT.is_equiv(rep[1]['color'][2], 1.0, "texture replacement colour (flat normal blue)")
+
+    swim = parse_mat_doc(load(r"Naked_Body\Male\Naked_M_Body_Swimsuit.mat"))
+    assert TT.is_eq(swim['layers'][0]['tex_resolution'], 'Tiling', "texture resolution hint")
+    assert TT.is_true(swim['layers'][1]['mip_bias'], "mip bias hint")
+
+    # -- the indexed shader knobs, on the nodes that carry them ---------------------------------
+    head = parse_mat_doc(load(r"Faces\male_default.mat"))
+    assert TT.is_eq(head['layers'][0]['param_bools'], {0: True}, "layer material ParamBool")
+    assert TT.is_equiv(head['layers'][3]['mat_params'][0], 0.56, "texture set MaterialParamFloat")
+    assert TT.is_eq(head['blenders'][0]['param_bools'], {0: False, 1: False, 2: False},
+                    "blender ParamBool -- the heaviest use of the family")
+    assert TT.is_equiv(head['blenders'][2]['mat_params'][4], 0.77, "blender MaterialParamFloat")
+
+    # Everything modelled survives a from-scratch write (no source document to lean on). Compared
+    # on material content: writing under a new name deliberately re-namespaces and renames the
+    # nodes, so their carried identity is expected to differ.
+    from pyn.sf_materials import material_content
+    back = material_content(parse_mat(write_mat(head, filename=r"Materials\Test\Head.mat")))
+    want = material_content(head)
+    for field in ('layers', 'blenders', 'settings'):
+        assert TT.is_eq(back[field], want[field], f"{field} round-trip through write_mat")
+
+    # -- patching a real material reproduces it field for field ---------------------------------
+    def fields_of(doc):
+        """{(object position, component type, index, dotted field): value} for a whole document."""
+        def flat(data, prefix=''):
+            if not isinstance(data, dict):
+                return {prefix.rstrip('.'): data}
+            out = {}
+            for k, v in data.items():
+                if k == 'Type':
+                    continue
+                if isinstance(v, dict):
+                    out.update(flat(v.get('Data', v), prefix + k + '.'))
+                else:
+                    out[prefix + k] = v
+            return out
+        out = {}
+        for i, o in enumerate(doc.get('Objects', [])):
+            for c in o.get('Components', []):
+                if c.get('Type') == 'BSComponentDB::CTName':
+                    continue     # renamed onto the new material by design
+                for fld, val in flat(c.get('Data')).items():
+                    out[(i, c.get('Type'), c.get('Index', 0), fld)] = val
+        return out
+
+    for rel in (r"Faces\male_default.mat", r"Faces\bloodshot_left_eye.mat",
+                r"Faces\Jewelry\Generic_FacialJewelry.mat", r"Eyebrows\Male_Eyebrows01.mat",
+                r"Faces\Teeth\Mouth.mat", r"Naked_Body\Male\Naked_M_Body_Swimsuit.mat"):
+        doc = load(rel)
+        patched = patch_mat_doc(doc, parse_mat_doc(doc), r"Materials\Test\Copy.mat")
+        before, after = fields_of(doc), fields_of(patched)
+        # Object ids are deliberately re-namespaced, so compare everything else.
+        refs = {k for k in before if k[3] == 'ID'}
+        assert TT.is_eq(sorted(set(after) - set(before)), [], f"{rel}: no field invented")
+        assert TT.is_eq(sorted(set(before) - set(after)), [], f"{rel}: no field dropped")
+        differing = [k for k in before if k not in refs and str(before[k]) != str(after[k])]
+        assert TT.is_eq(differing, [], f"{rel}: no field altered")
+
+
+def TEST_SF_MAT_BUILD_FROM_TREE():
+    """Starfield: a material is written from the node tree, not by patching the file it came from.
+
+    Export used to look each layer up in the source document and skip whatever wasn't there, so a
+    layer ADDED in Blender was silently dropped -- a 6-layer head plus a 7th exported with 6. The
+    document is now built from the material itself: every node carries the `res:` id, `Parent`,
+    `CTName` and components it was imported with, and the modelled values are merged over those.
+
+    That is also what makes it lossless without a template. Verified against all 36 materials a
+    vanilla `meshes/actors/human` nif references: rebuilt from their parsed dicts alone, with no
+    file on disk, every one comes back with no component or field added, dropped or altered.
+    """
+    import json
+    from pyn.sf_materials import parse_mat_doc, build_mat_doc, write_mat, parse_mat
+
+    src = r"tests\SF\materials\Actors\Human\Faces\male_default.mat"
+    with open(src, encoding='utf-8-sig') as f:
+        doc = json.load(f)
+    data = parse_mat_doc(doc)
+    assert TT.is_eq(len(data['layers']), 6, "the vanilla head has six layers")
+
+    # -- a layer added in Blender is written ----------------------------------------------------
+    grown = json.loads(json.dumps(data))          # deep copy; the new layer has no carried state
+    grown['layers'].append({'textures': {'Albedo': r"Textures\New\extra_color.dds"},
+                            'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0),
+                            'override_color': ''})
+    out = parse_mat(write_mat(grown, filename=r"Materials\Test\Grown.mat"))
+    assert TT.is_eq(len(out['layers']), 7, "the layer added in Blender was exported")
+    assert TT.is_eq(out['layers'][6]['textures'].get('Albedo'),
+                    r"Textures\New\extra_color.dds", "its texture came with it")
+    assert TT.is_eq(out['layers'][0]['textures'], data['layers'][0]['textures'],
+                    "the layers that were already there are unchanged")
+
+    # A node with no carried identity gets a fresh id in the new material's namespace, and every
+    # reference in the file still resolves.
+    built = build_mat_doc(grown, r"Materials\Test\Grown.mat")
+    ids = {o['ID'] for o in built['Objects'] if 'ID' in o}
+    for o in built['Objects']:
+        for c in o.get('Components', []):
+            ref = (c.get('Data') or {}).get('ID')
+            if isinstance(ref, str) and ref.startswith('res:'):
+                assert ref in ids, f"reference {ref} resolves within the file"
+
+    # -- rebuilding an untouched material reproduces it, with nothing on disk --------------------
+    rebuilt = build_mat_doc(data, r"Materials\Actors\Human\Faces\male_default.mat")
+
+    def fields_by_node(d):
+        """{(CTName, type, index, field): value} -- object ORDER is free to differ, content isn't."""
+        def flat(data_, prefix=''):
+            if not isinstance(data_, dict):
+                return {prefix.rstrip('.'): data_}
+            out_ = {}
+            for k, v in data_.items():
+                if k == 'Type':
+                    continue
+                if isinstance(v, dict):
+                    out_.update(flat(v.get('Data', v), prefix + k + '.'))
+                else:
+                    out_[prefix + k] = v
+            return out_
+        res = {}
+        for o in d.get('Objects', []):
+            nm = next((c['Data']['Name'] for c in o.get('Components', [])
+                       if c.get('Type') == 'BSComponentDB::CTName'), '<noname>').lower()
+            res[(nm, '<Parent>', 0, 'Parent')] = o.get('Parent', '')
+            for c in o.get('Components', []):
+                if c.get('Type') == 'BSComponentDB::CTName':
+                    continue
+                for fld, val in flat(c.get('Data')).items():
+                    res[(nm, c.get('Type'), c.get('Index', 0), fld)] = val
+        return res
+
+    before, after = fields_by_node(doc), fields_by_node(rebuilt)
+    assert TT.is_eq(sorted(set(after) - set(before)), [], "nothing invented rebuilding from the tree")
+    assert TT.is_eq(sorted(set(before) - set(after)), [], "nothing dropped rebuilding from the tree")
+    differing = [k for k in before if k[3] != 'ID' and str(before[k]) != str(after[k])]
+    assert TT.is_eq(differing, [], "nothing altered rebuilding from the tree")
+
+    # The unmodelled fields are the point: LayeredEmissivityComponent has 17 and PyNifly models 4.
+    emissive = [c for o in rebuilt['Objects'] for c in o.get('Components', [])
+                if c.get('Type') == 'BSMaterial::LayeredEmissivityComponent']
+    assert TT.is_gt(len(emissive[0]['Data']), 10,
+                    "the emissivity component kept the fields PyNifly doesn't model")
 
 
 def TEST_SF_MORPH_KEY_NAME():
@@ -1348,8 +1550,10 @@ def TEST_SF_MAT_GAME_VALID():
 
     # And the normalised round-trip still holds (didn't break parse_mat).
     back = parse_mat(write_mat(data))
-    assert back['layers'] == data['layers'], f"layers round-trip: {back['layers']}"
-    assert back['blenders'] == data['blenders'], f"blenders round-trip: {back['blenders']}"
+    from pyn.sf_materials import material_content
+    back_c, data_c = material_content(back), material_content(data)
+    assert back_c['layers'] == data_c['layers'], f"layers round-trip: {back_c['layers']}"
+    assert back_c['blenders'] == data_c['blenders'], f"blenders round-trip: {back_c['blenders']}"
 
 
 def TEST_RW_HEAD():

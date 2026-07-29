@@ -1,0 +1,738 @@
+{
+  "Version": 1,
+  "Objects": [
+    {
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlenderID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:DC4D87C6:0005E4E3:A0676790"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:D7AF6733:0005E4E3:A0676790"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 1,
+          "Data": {
+            "ID": "res:DC4D8457:0005E4E3:A0676790"
+          }
+        },
+        {
+          "Type": "BSMaterial::LODMaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": ""
+          }
+        },
+        {
+          "Type": "BSMaterial::LODMaterialID",
+          "Index": 2,
+          "Data": {
+            "ID": "res:FCD1FA3E:00060869:A3339150"
+          }
+        },
+        {
+          "Type": "BSMaterial::ShaderModelComponent",
+          "Index": 0,
+          "Data": {
+            "FileName": "Character2Layer"
+          }
+        },
+        {
+          "Type": "BSMaterial::LevelOfDetailSettings",
+          "Index": 0,
+          "Data": {
+            "NumLODMaterials": "1"
+          }
+        },
+        {
+          "Type": "BSBind::DirectoryComponent",
+          "Index": 0,
+          "Data": {
+            "upDir": {
+              "Type": "<ref>",
+              "Data": {
+                "Type": "BSBind::Directory",
+                "Data": {
+                  "Name": "",
+                  "Children": {
+                    "Type": "<collection>",
+                    "ElementType": "StdMapType::Pair",
+                    "Data": []
+                  },
+                  "SourceDirectoryHash": "0"
+                }
+              }
+            }
+          }
+        },
+        {
+          "Type": "BSBind::ControllerComponent",
+          "Index": 0,
+          "Data": {
+            "upControllers": {
+              "Type": "<ref>",
+              "Data": {
+                "Type": "BSBind::Controllers",
+                "Data": {
+                  "MappingsA": {
+                    "Type": "<collection>",
+                    "Data": []
+                  },
+                  "UseRandomOffset": "false"
+                }
+              }
+            }
+          }
+        },
+        {
+          "Type": "BSMaterial::LayeredEmissivityComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "false",
+            "FirstLayerIndex": "MATERIAL_LAYER_0",
+            "FirstLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "FirstLayerMaskIndex": "None",
+            "SecondLayerActive": "false",
+            "SecondLayerIndex": "MATERIAL_LAYER_1",
+            "SecondLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "SecondLayerMaskIndex": "None",
+            "FirstBlenderIndex": "BLEND_LAYER_0",
+            "FirstBlenderMode": "Lerp",
+            "ThirdLayerActive": "false",
+            "ThirdLayerIndex": "MATERIAL_LAYER_2",
+            "ThirdLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "ThirdLayerMaskIndex": "None",
+            "SecondBlenderIndex": "BLEND_LAYER_1",
+            "SecondBlenderMode": "Lerp",
+            "EmissiveClipThreshold": "0.0",
+            "AdaptiveEmittance": "false",
+            "LuminousEmittance": "100.0",
+            "ExposureOffset": "0.0",
+            "EnableAdaptiveLimits": "false",
+            "MaxOffsetEmittance": "1.0",
+            "MinOffsetEmittance": "0.0",
+            "IgnoresFog": "false"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layeredmaterials.mat"
+    },
+    {
+      "ID": "res:DC4D87C6:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_Blender1"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:DC4D87F2:0005E4E3:A0676790"
+          }
+        },
+        {
+          "Type": "BSMaterial::BlendModeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "CharacterCombine"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 1,
+          "Data": {
+            "Value": "false"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\blenders.mat"
+    },
+    {
+      "ID": "res:D7AF6733:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_Layer1"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:D7AF68BE:0005E4E3:A0676790"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:D7AF6844:0005E4E3:A0676790"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:DC4D8457:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_Layer2"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:DC4D85EC:0005E4E3:A0676790"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:DC4D84AE:0005E4E3:A0676790"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:FCD1FA3E:00060869:A3339150",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_VeryLow"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:FCD1FA42:00060869:A3339150"
+          }
+        },
+        {
+          "Type": "BSMaterial::AlphaSettingsComponent",
+          "Index": 0,
+          "Data": {
+            "AlphaTestThreshold": "0.33333298563957214",
+            "Blender": {
+              "Type": "BSMaterial::AlphaBlenderSettings",
+              "Data": {
+                "VertexColorChannel": "Red"
+              }
+            }
+          }
+        },
+        {
+          "Type": "BSMaterial::ShaderModelComponent",
+          "Index": 0,
+          "Data": {
+            "FileName": "1LayerStandard"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayeredEmissivityComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "false",
+            "FirstLayerIndex": "MATERIAL_LAYER_0",
+            "FirstLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "FirstLayerMaskIndex": "None",
+            "SecondLayerActive": "false",
+            "SecondLayerIndex": "MATERIAL_LAYER_1",
+            "SecondLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "SecondLayerMaskIndex": "None",
+            "FirstBlenderIndex": "BLEND_LAYER_0",
+            "FirstBlenderMode": "Lerp",
+            "ThirdLayerActive": "false",
+            "ThirdLayerIndex": "MATERIAL_LAYER_2",
+            "ThirdLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "ThirdLayerMaskIndex": "None",
+            "SecondBlenderIndex": "BLEND_LAYER_1",
+            "SecondBlenderMode": "Lerp",
+            "EmissiveClipThreshold": "0.0",
+            "AdaptiveEmittance": "false",
+            "LuminousEmittance": "100.0",
+            "ExposureOffset": "0.0",
+            "EnableAdaptiveLimits": "false",
+            "MaxOffsetEmittance": "1.0",
+            "MinOffsetEmittance": "0.0",
+            "IgnoresFog": "false"
+          }
+        },
+        {
+          "Type": "BSBind::DirectoryComponent",
+          "Index": 0,
+          "Data": {
+            "upDir": {
+              "Type": "<ref>",
+              "Data": {
+                "Type": "BSBind::Directory",
+                "Data": {
+                  "Name": "",
+                  "Children": {
+                    "Type": "<collection>",
+                    "ElementType": "StdMapType::Pair",
+                    "Data": []
+                  },
+                  "SourceDirectoryHash": "5857343971789713213"
+                }
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layeredmaterials.mat"
+    },
+    {
+      "ID": "res:DC4D87F2:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_UVStreamB"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:D7AF68BE:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_Material1"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:D7AF689D:0005E4E3:A0676790"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialOverrideColorTypeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Multiply"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:D7AF6844:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_UVStreamA"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:DC4D85EC:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "TextilePolyester01_Material2"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:DC4D86D3:0005E4E3:A0676790"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:DC4D84AE:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "TextilePolyester01_UVStreamB"
+          }
+        },
+        {
+          "Type": "BSMaterial::Scale",
+          "Index": 0,
+          "Data": {
+            "Value": {
+              "Type": "XMFLOAT2",
+              "Data": {
+                "x": "40.0",
+                "y": "40.0"
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:FCD1FA42:00060869:A3339150",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_VeryLow_Layer1"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:FCD1FA43:00060869:A3339150"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:FCD1FA46:00060869:A3339150"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:D7AF689D:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_TextureSet1"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureResolutionSetting",
+          "Index": 0,
+          "Data": {
+            "ResolutionHint": "Tiling"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_color.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_normal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 3,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_rough.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 4,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_metal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_ao.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 9,
+          "Data": {
+            "FileName": ""
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    },
+    {
+      "ID": "res:DC4D86D3:0005E4E3:A0676790",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "TextilePolyester01_TextureSet2"
+          }
+        },
+        {
+          "Type": "BSMaterial::MipBiasSetting",
+          "Index": 0,
+          "Data": {
+            "DisableMipBiasHint": "true"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Common\\Textile\\textilepolyester01_color.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Common\\Textile\\textilepolyester01_normal.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 3,
+          "Data": {
+            "FileName": "Data\\Textures\\Common\\Textile\\textilepolyester01_rough.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 9,
+          "Data": {
+            "FileName": ""
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    },
+    {
+      "ID": "res:FCD1FA43:00060869:A3339150",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_Material1"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:FCD1FA45:00060869:A3339150"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialOverrideColorTypeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Multiply"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:FCD1FA46:00060869:A3339150",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_UVStreamA"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:FCD1FA45:00060869:A3339150",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Naked_M_Body_Swimsuit_TextureSet1"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureResolutionSetting",
+          "Index": 0,
+          "Data": {
+            "ResolutionHint": "Tiling"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_color.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_normal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 3,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_rough.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 4,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_metal.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Naked_Body\\Male_BaseMesh_Body_Swimsuit_ao.dds"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 9,
+          "Data": {
+            "FileName": ""
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    }
+  ]
+}

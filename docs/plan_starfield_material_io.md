@@ -1,6 +1,6 @@
 # Plan: Starfield Material I/O
 
-Status: **draft, revision 3.** Nothing here is built except where marked *(done)*.
+Status: **revision 5. Phases 1–3 are built.** Phase 4 (the non-human tail and the docs) is not.
 
 ## Goal
 
@@ -54,23 +54,40 @@ Full data: `census_split.json`, `census_human.json` (session scratch).
 
 ## Current state
 
-**Modelled (16 of the 31):** the layer/blender graph and its IDs, `MRTextureFile`, `UVStreamID` +
-`Scale`, `BlendModeComponent`, `ColorChannelTypeComponent`,
+**Modelled (29 of the 31, after Phase 1):** the layer/blender graph and its IDs, `MRTextureFile`,
+`UVStreamID` + `Scale`, `BlendModeComponent`, `ColorChannelTypeComponent`,
 `MaterialOverrideColorTypeComponent`, `ShaderModelComponent`, `AlphaSettingsComponent`,
-`TranslucencySettingsComponent`, `LayeredEmissivityComponent`, `HairSettingsComponent`, `CTName`.
+`TranslucencySettingsComponent`, `LayeredEmissivityComponent`, `HairSettingsComponent`, `CTName`,
+plus the Phase 1 thirteen: `ParamBool`, `MaterialParamFloat`, `TextureReplacement`, `Color`,
+`EyeSettingsComponent`, `MouthSettingsComponent`, `ShaderRouteComponent`,
+`EffectSettingsComponent`, `DetailBlenderSettingsComponent`, `LevelOfDetailSettings`,
+`LODMaterialID`, `MipBiasSetting`, `TextureResolutionSetting`.
 
-**Three live defects** in code sitting in the working tree. ("Source document" = the original
-`.mat`, either the file being overwritten or the one the shader names.)
+**Not modelled (2):** `BSBind::ControllerComponent` and `BSBind::DirectoryComponent` — material
+animation, preserved but not interpreted (Phase 2 residue).
+
+**Defects.** ("Source document" = the original `.mat`, either the file being overwritten or the
+one the shader names.)
 
 1. **Layers added in Blender are silently dropped on export.** The exporter looks up `LayerID[i]`
    in the source document and skips any layer the source lacks. Verified: 6-layer material + a
-   7th added in Blender exports with 6.
-2. **`LODMaterialID` references are corrupted.** The re-namespacing pass rewrites every
-   `Data.ID`, but an LOD reference points at a *different material in the database* — not at an
-   object in this file. Rewriting it points it at nothing. Rule to apply: **only re-namespace IDs
-   that name an object present in the document.**
+   7th added in Blender exports with 6. *Still open — Phase 3.*
+2. ~~**`LODMaterialID` references are corrupted.**~~ **Misdiagnosed; the mechanism was different.**
+   `_renamespace` builds its remap from the IDs of objects *in the document* and only rewrites a
+   reference it finds there, so it already implemented the rule this plan prescribed. Measured on
+   `Generic_FacialJewelry`: patching re-namespaces the LOD reference *and* the LOD subtree the cdb
+   supplies with it, so the reference still resolves; writing from scratch (where the LOD material
+   is not among our objects) leaves the vanilla ID verbatim, pointing at vanilla's LOD material in
+   the database. Both are correct. The real loss was that `LODMaterialID` **wasn't modelled at
+   all**, so a from-scratch write dropped it. *Fixed in Phase 1.*
 3. **Silent degradation.** With no source document, export rebuilds from what PyNifly models and
-   says nothing about what it dropped.
+   says nothing about what it dropped. *Still open — Phase 3.*
+4. **Patching REPLACED a component's `Data`** instead of merging into it, so every field of a
+   component that PyNifly didn't model was destroyed on write — `LayeredEmissivityComponent` alone
+   has 17 fields to our 4. Found by measurement, not by inspection: **969 authored field values
+   were being dropped across the 36 vanilla human materials**, plus 115 components invented
+   (identity UV `Scale`/`Offset`) and 105 fields added. This was pre-existing and silent.
+   *Fixed in Phase 1; the corpus now round-trips with zero fields added, dropped or altered.*
 
 ## Architecture
 
@@ -123,8 +140,9 @@ Each node also keeps the `res:` ID it was imported with (`pyn_sf_id`). Two uses:
 
 - **Cross-material references.** `LODMaterialID` names a whole separate material living in the
   database, not an object in the file — Felid's shipped loose `.mat`s reference vanilla LOD
-  materials by bare ID with the target absent from the file. Those IDs must be preserved
-  verbatim, never re-namespaced (defect 2).
+  materials by bare ID with the target absent from the file. Those IDs are preserved verbatim
+  because `_renamespace` only rewrites references whose target is an object in the document; see
+  defect 2, which turned out to be already handled.
 - **Identity.** A stable handle for matching a node back to what it was imported as, independent
   of position in the tree.
 
@@ -135,45 +153,111 @@ can't collide with the vanilla one it came from.
 
 Build the representation first, then the export that uses it.
 
-### Phase 1 — import what we can represent (classes A + B)
+### Phase 1 — import what we can represent (classes A + B) — **done**
 
-Model the 13 remaining component families into the shader graph and typed property groups:
+All 13 families are modelled, in `sf_materials._COMPONENT_SPECS` (a declarative table that
+parse/write/patch share, so the 11 Phase-4 families are mostly a matter of describing them) and on
+the Blender side in `shader_io._SF_COMPONENTS` plus per-node properties.
 
-- `TextureReplacement` → class A. A flat colour filling a texture slot; belongs beside the
-  texture nodes. 20 of 36 human materials.
-- `ParamBool`, `MaterialParamFloat` → class B, on the node that owns them (root → material,
-  blender → `SF Blend`, texture set/material → `SF Layer`), keyed by index. The format docs call
-  these "knobs defined by the shader model", so expose indexed values; don't invent names for
-  indices whose meaning we don't know.
-- Face/skin set: finish `Translucency` and `Hair`; add `EyeSettings`, `MouthSettings`,
-  `DetailBlenderSettings`. Bodypart-heavy and directly relevant to the head work.
-- `ShaderRouteComponent`, `EffectSettingsComponent`, `Color` → class B on the owning element.
-- `LevelOfDetailSettings`, `MipBiasSetting`, `TextureResolutionSetting` → class B, panel only.
-  Streaming plumbing, not appearance. *(Agreed: panel.)*
-- `LODMaterialID` → material-level property, preserved verbatim. Whether PyNifly ever
-  imports/exports the LOD material itself is **TBD**.
+Two things measurement changed:
 
-Acceptance: for a vanilla skin material, every component above is visible and editable.
+- **Field lists are the UNION of what vanilla carries, not what we interpret.** The cdb stores only
+  fields that differ from the parent template, so a component appears with varying field sets
+  (`EffectSettingsComponent` ships as 4 fields on four materials and 6 on one). Because patching
+  writes a component's Data, a short field list silently drops the rest — defect 4 above.
+- **Write only what says something.** A field is written when the source already carries it *and
+  the value changed*, or when the source omits it *and the value differs from the field's default*.
+  The first keeps a patched material byte-stable (re-encoding an untouched `6500` as `6500.0` is
+  the same number and a gratuitous diff); the second keeps an edit alive when the user switches on
+  a flag the source never mentioned.
 
-### Phase 2 — capture what we can't (class C)
+Verified against the corpus (`fidelity.py` in the session scratch): all 36 vanilla human materials
+patch back with **0 components and 0 fields added, dropped or altered**. Tests:
+`TEST_SF_MAT_COMPONENTS` (pyn layer) and `TEST_SF_MAT_COMPONENT_ROUNDTRIP` (through the real node
+build and back), over six vanilla fixtures chosen by set cover so they exercise all 13 families.
 
-- On import, store unmodelled components as residue on the Blender node they came from.
-- No panel summary — it would go stale and mislead; anyone who cares can read the JSON.
-- Acceptance: across all 36 human materials, model + residue accounts for **every** component,
-  with nothing unaccounted for.
+What was built:
 
-### Phase 3 — export
+- `TextureReplacement` → class A, an RGB node feeding that slot's `SF Layer` input. Measurement
+  settled the semantics: a replacement never coexists with a texture in the same slot (0 of 11
+  across the fixtures), so it *stands in for* a missing texture rather than tinting one. 5 of the
+  11 carry no colour of their own — the colour comes from the parent template, which we can't
+  resolve, so those stay a flag rather than an RGB node with an invented colour.
+- `ParamBool`, `MaterialParamFloat` → class B, one scalar custom property per index on the node
+  that owns them (root → the material, blender → `SF Blend`, layer material/texture set →
+  `SF Layer`). Indexed, not named: the `.mat` gives them an `Index` and nothing else.
+- Face/skin set: `EyeSettings`, `MouthSettings`, `DetailBlenderSettings` added alongside the
+  existing `Translucency` and `Hair`, each as its own settings group node.
+- `ShaderRouteComponent`, `EffectSettingsComponent` → their own group nodes; `Color` → a property
+  on the owning `SF Layer` node.
+- `LevelOfDetailSettings` → a group node; `MipBiasSetting`, `TextureResolutionSetting` →
+  properties on the `SF Layer` node. Streaming plumbing, not appearance.
+- `LODMaterialID` → a material-level property per LOD level, carried as an opaque `res:` id.
+  Whether PyNifly ever imports/exports the LOD material itself is still **TBD**.
 
-- Build the document from the node tree: emit each node from its modelled values plus its
-  residue, in tree order.
-- A layer with no residue is built from scratch — this is the fix for defect 1, and it falls out
-  of the design rather than being a special case.
-- Re-namespace only IDs naming objects present in the document (defect 2).
-- Warn on degradation (defect 3).
-- Retire the on-disk source-document lookup: it goes stale, and the node tree replaces it.
-- Acceptance: import → export → component census identical across all 36 human materials **with
-  no source file on disk**; plus reorder-a-layer and add-a-layer round trips; plus at least one
-  in-game/CK check.
+The six new settings components are value-holders with no outputs: they configure engine behaviour
+the Blender preview doesn't reproduce, so the node carries the values honestly rather than
+pretending to render them.
+
+### Phase 2 — capture what we can't (class C) — **done**
+
+Each Blender node carries the `.mat` objects it stands for, as JSON: `pyn_sf_nodes` on an `SF
+Layer` node (which stands for up to four — layer, material, texture set, uv stream), `pyn_sf_node`
+on an `SF Blend` node and on the material.
+
+**Wider than "residue" as planned.** A node carries not just the components PyNifly doesn't model,
+but the full `Data` of the ones it does, plus the object's `res:` id, `Parent` and `CTName`. Two
+reasons measurement forced that:
+
+- **Unmodelled FIELDS matter as much as unmodelled components.** `LayeredEmissivityComponent` has
+  17 fields and PyNifly models 4. Residue at component granularity would have kept nothing, because
+  the component itself *is* modelled — and losing its other 13 fields was defect 4.
+- **Carrying `Parent` sidesteps open question 1.** A rebuilt node keeps whatever parenting scheme
+  its source used, so we don't have to decide which of the two observed schemes is correct in
+  order to write a correct file.
+
+The structural references (`LayerID`/`BlenderID`/`MaterialID`/`TextureSetID`/`UVStreamID`) are the
+one thing a node does *not* carry — they define the graph's shape and are regenerated, which is
+what lets layers be added and reordered. An *empty* such reference is kept, though: vanilla
+blenders declare an empty `UVStreamID`, and a declaration pointing at nothing is not a reference.
+
+No panel summary — it would go stale and mislead.
+
+### Phase 3 — export — **done**
+
+`build_mat_doc` builds the document from the material itself, consulting nothing on disk. Each node
+is emitted from its carried components with the modelled values merged over them.
+
+- **Defect 1 fixed.** A layer added in Blender has no carried state, so it gets a fresh id and the
+  Root template for its kind, and is emitted like any other. Nothing is looked up in a source
+  document, so there is nothing to fail to find.
+- **Defect 3 dissolved rather than warned about.** With the state on the nodes there is no
+  degradation to report. The one real hazard left was different: a material imported from a `.mat`
+  PyNifly *couldn't find* has no layers, and exporting it wrote a stub over a good file. Export now
+  refuses that and says why.
+- The on-disk template lookup is kept only for a material whose nodes carry nothing — one imported
+  before PyNifly recorded any of this. It is no longer the mechanism.
+
+Two things measurement changed here too:
+
+- **Blenders can own a UV stream.** `male_default` gives each of its four one. Its tiling has no
+  place in the Blender node tree, so the stream is carried whole and written back untouched rather
+  than modelled or dropped.
+- **`_rename_ctnames` guessed the material's name as the shortest `CTName` in the document.** That
+  is wrong whenever a node keeps a name inherited from its shader-model template:
+  `Eye1Layer_Layer3` is shorter than `bloodshot_left_eye`, so that layer was taken to be the
+  material and renamed on top of it. The root's name is the answer.
+
+Acceptance met: all 36 vanilla human materials rebuilt **from their parsed dicts alone, with no
+file on disk**, come back with **0 fields added, dropped or altered**. The only objects not
+reproduced are the LOD-material subtrees on the 3 materials that have one — deliberate, since we
+reference vanilla's LOD material by id rather than copying it into our file. Add-a-layer is covered
+by `TEST_SF_MAT_BUILD_FROM_TREE`; the same rebuild through the real Blender node tree is covered by
+`TEST_SF_MAT_COMPONENT_ROUNDTRIP`.
+
+**Validated in the CK and in game** (Bad Dog, 2026-07-29): the vanilla male head and body imported
+to Blender and exported back both render correctly. That is the check this plan's first risk says
+a census diff can never substitute for.
 
 ### Phase 4 — the tail and the docs
 

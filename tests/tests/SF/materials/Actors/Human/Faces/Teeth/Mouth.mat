@@ -1,0 +1,242 @@
+{
+  "Version": 1,
+  "Objects": [
+    {
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Mouth"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayerID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:23985A25:0005DF21:A23A50C9"
+          }
+        },
+        {
+          "Type": "BSMaterial::ShaderModelComponent",
+          "Index": 0,
+          "Data": {
+            "FileName": "1LayerMouth"
+          }
+        },
+        {
+          "Type": "BSMaterial::LayeredEmissivityComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "false",
+            "FirstLayerIndex": "MATERIAL_LAYER_0",
+            "FirstLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "FirstLayerMaskIndex": "None",
+            "SecondLayerActive": "false",
+            "SecondLayerIndex": "MATERIAL_LAYER_1",
+            "SecondLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "SecondLayerMaskIndex": "None",
+            "FirstBlenderIndex": "BLEND_LAYER_0",
+            "FirstBlenderMode": "Lerp",
+            "ThirdLayerActive": "false",
+            "ThirdLayerIndex": "MATERIAL_LAYER_2",
+            "ThirdLayerTint": {
+              "Type": "BSMaterial::Color",
+              "Data": {
+                "Value": {
+                  "Type": "XMFLOAT4",
+                  "Data": {
+                    "x": "1.0",
+                    "y": "1.0",
+                    "z": "1.0",
+                    "w": "1.0"
+                  }
+                }
+              }
+            },
+            "ThirdLayerMaskIndex": "None",
+            "SecondBlenderIndex": "BLEND_LAYER_1",
+            "SecondBlenderMode": "Lerp",
+            "EmissiveClipThreshold": "0.0",
+            "AdaptiveEmittance": "false",
+            "LuminousEmittance": "432.0",
+            "ExposureOffset": "0.0",
+            "EnableAdaptiveLimits": "false",
+            "MaxOffsetEmittance": "1.0",
+            "MinOffsetEmittance": "0.0",
+            "IgnoresFog": "false"
+          }
+        },
+        {
+          "Type": "BSMaterial::MouthSettingsComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "true"
+          }
+        },
+        {
+          "Type": "BSMaterial::TranslucencySettingsComponent",
+          "Index": 0,
+          "Data": {
+            "Enabled": "true",
+            "Settings": {
+              "Type": "BSMaterial::TranslucencySettings",
+              "Data": {
+                "UseSSS": "true"
+              }
+            }
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layeredmaterials.mat"
+    },
+    {
+      "ID": "res:23985A25:0005DF21:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Mouth.mat_Layer1"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:23985A3E:0005DF21:A23A50C9"
+          }
+        },
+        {
+          "Type": "BSMaterial::UVStreamID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:23985A93:0005DF21:A23A50C9"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\layers.mat"
+    },
+    {
+      "ID": "res:23985A3E:0005DF21:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Mouth.mat_Material1"
+          }
+        },
+        {
+          "Type": "BSMaterial::TextureSetID",
+          "Index": 0,
+          "Data": {
+            "ID": "res:23985A66:0005DF21:A23A50C9"
+          }
+        },
+        {
+          "Type": "BSMaterial::MaterialOverrideColorTypeComponent",
+          "Index": 0,
+          "Data": {
+            "Value": "Multiply"
+          }
+        },
+        {
+          "Type": "BSMaterial::ParamBool",
+          "Index": 0,
+          "Data": {
+            "Value": "true"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\materials.mat"
+    },
+    {
+      "ID": "res:23985A93:0005DF21:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Mouth.mat_UVStreamA"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\uvstreams.mat"
+    },
+    {
+      "ID": "res:23985A66:0005DF21:A23A50C9",
+      "Components": [
+        {
+          "Type": "BSComponentDB::CTName",
+          "Index": 0,
+          "Data": {
+            "Name": "Mouth.mat_TextureSet1"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 0,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Faces\\Teeth\\NNTeeth_color.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 1,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Faces\\Teeth\\NNTeeth_normal.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 3,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Faces\\Teeth\\NNTeeth_rough.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 4,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Faces\\Teeth\\NNTeeth_metal.DDS"
+          }
+        },
+        {
+          "Type": "BSMaterial::MRTextureFile",
+          "Index": 5,
+          "Data": {
+            "FileName": "Data\\Textures\\Actors\\Human\\Faces\\Teeth\\NNTeeth_ao.DDS"
+          }
+        }
+      ],
+      "Parent": "materials\\layered\\root\\texturesets.mat"
+    }
+  ]
+}

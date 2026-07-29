@@ -216,6 +216,29 @@ def find_shape(name_prefix, collection=None, type='MESH'):
     return None
 
 
+def dangling_attribute_nodes(obj):
+    """Attribute nodes in obj's materials naming a geometry attribute the mesh doesn't have.
+
+    Blender evaluates a missing attribute to ZERO, not to white or to "no connection", so an
+    Attribute node wired to an attribute that isn't there silently blackens whatever it feeds.
+    That is how vanilla Starfield `naked_m` imported black: its material multiplies albedo by
+    VERTEX_COLOR and its mesh has no vertex colors.
+
+    Returns a list of (material name, attribute name, attributes the mesh actually has)."""
+    have = {a.name for a in obj.data.color_attributes}
+    out = []
+    for slot in obj.material_slots:
+        mat = slot.material
+        if not mat or not mat.node_tree:
+            continue
+        for n in mat.node_tree.nodes:
+            if (getattr(n, 'type', '') == 'ATTRIBUTE'
+                    and getattr(n, 'attribute_type', '') == 'GEOMETRY'
+                    and n.attribute_name not in have):
+                out.append((mat.name, n.attribute_name, sorted(have)))
+    return out
+
+
 def world_bounds(ob):
     """Return world-space axis bounds as (xmin, xmax, ymin, ymax, zmin, zmax)."""
     vs = [ob.matrix_world @ v.co for v in ob.data.vertices]
