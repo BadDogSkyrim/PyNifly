@@ -229,8 +229,7 @@ def ensure_sf_component_group(key):
 
 
 def is_sf_component_node(node, key):
-    return (getattr(node, 'type', '') == 'GROUP' and node.node_tree is not None
-            and node.node_tree.name.startswith(_SF_COMPONENTS[key]['group']))
+    return _is_group(node, _SF_COMPONENTS[key]['group'])
 
 
 def sf_component_node_of(material, key):
@@ -517,19 +516,35 @@ SF_COMP_BASE_Y = 400            # bottom-most settings-component Y (sits above t
 SF_COMP_DY = 350                # vertical gap between stacked settings-component nodes
 
 
-def _ensure_group(name, version_key='pyn_sf_group_version', version=None):
-    """The named node group at the current version, rebuilt if a .blend holds an older one.
+def _versioned(name, version):
+    """The datablock name for a version of a group: 'SF Layer' + 5 -> 'SF Layer v5'."""
+    return f"{name} v{version}"
 
-    A rebuild orphans the nodes that were using the old group (`node_tree` becomes None). That is
-    only a concern across a RELEASE boundary: within development the fix is to re-import, and the
-    group definitions have never shipped at their current versions."""
+
+def _group_base(group_name):
+    """A group datablock's name with any ' vN' version suffix removed."""
+    base, _, tail = group_name.rpartition(' v')
+    return base if base and tail.isdigit() else group_name
+
+
+def _ensure_group(name, version_key='pyn_sf_group_version', version=None):
+    """The node group for `name` at the current version, built if this .blend hasn't got it.
+
+    THE VERSION IS PART OF THE NAME, and a group is never removed. A .blend accumulates materials
+    built by different versions of the add-on, and a shared datablock can only be one version at a
+    time -- so the old approach (delete the group, build the new one) orphaned every node still
+    using it: `node_tree` becomes None, and the sockets and links go with it. Bad Dog hit exactly
+    that, importing a vanilla head into a file holding a work-in-progress Lykaios head.
+
+    Keeping old versions costs a few unused datablocks and needs no migration step: materials go on
+    pointing at the group they were built with, which still exists and still works, while new
+    materials get the current one. Materials of the same version still share a definition."""
     version = _SF_GROUP_VERSION if version is None else version
-    ng = bpy.data.node_groups.get(name)
+    full = _versioned(name, version)
+    ng = bpy.data.node_groups.get(full)
     if ng is not None:
-        if ng.get(version_key) == version:
-            return ng, False
-        bpy.data.node_groups.remove(ng)
-    ng = bpy.data.node_groups.new(name, 'ShaderNodeTree')
+        return ng, False
+    ng = bpy.data.node_groups.new(full, 'ShaderNodeTree')
     ng[version_key] = version
     return ng, True
 
@@ -609,8 +624,16 @@ def sf_blend_group_for(mode):
 
 
 def _is_group(node, group_name):
-    return (getattr(node, 'type', '') == 'GROUP' and node.node_tree is not None
-            and node.node_tree.name.startswith(group_name))
+    """Is this node an instance of `group_name` (at any version, and of any variant)?
+
+    Matched on the base name with the ' vN' suffix stripped, either exactly or followed by a
+    space -- so 'SF Blend' finds 'SF Blend Skin v5' and 'SF Blend Unknown v4', while 'SF Layer'
+    finds 'SF Layer v5' but NOT 'SF LayeredEmissivityComponent v1'. A plain startswith matched
+    that last one, which is why layer counts had to be taken from recovery rather than by name."""
+    if getattr(node, 'type', '') != 'GROUP' or node.node_tree is None:
+        return False
+    base = _group_base(node.node_tree.name)
+    return base == group_name or base.startswith(group_name + ' ')
 
 
 def _recover_sf_settings(material):
@@ -2542,7 +2565,7 @@ class ShaderImporter:
         node.node_tree = sf_blend_group_for(blender.get('mode', ''))
         node.location = (x, y)
         node.width = SF_BLEND_WIDTH   # blends are wide (many bundle sockets) -- give them room
-        node.label = node.node_tree.name
+        node.label = _group_base(node.node_tree.name)   # the version is noise in the graph
         node[PYN_SF_BLEND] = index
         node[PYN_SF_MODE] = blender.get('mode', '')
         _stamp_json(node, PYN_SF_NODE, blender.get('node'))

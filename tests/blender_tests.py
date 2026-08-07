@@ -3471,9 +3471,12 @@ def TEST_SF_LAYERED():
     si._build_sf_nodes(resolved, {}, layers_resolved, blenders_resolved)
     nt = mat.node_tree
 
+    # Matched via the production helper: group datablocks carry a version suffix ("SF Layer v5"),
+    # and a plain startswith would also match "SF LayeredEmissivityComponent".
+    from io_scene_nifly.nif.shader_io import _is_group
+
     def groups(prefix):
-        return [n for n in nt.nodes if n.type == 'GROUP' and n.node_tree
-                and n.node_tree.name.startswith(prefix)]
+        return [n for n in nt.nodes if _is_group(n, prefix)]
 
     # Two SF Layer groups (one per layer) each carrying the bundle.
     assert len(groups(SF_LAYER_GROUP)) == 2, f"two SF Layer groups: {len(groups(SF_LAYER_GROUP))}"
@@ -3486,8 +3489,7 @@ def TEST_SF_LAYERED():
         "both layer bundles wired into the blend"
     assert blend.inputs['Mask'].is_linked, "blend mask wired"
     # The RNM math lives inside the SF Blend Skin group now.
-    assert any(inner.type == 'GROUP' and inner.node_tree
-               and inner.node_tree.name.startswith(SF_NORMAL_BLEND_GROUP)
+    assert any(_is_group(inner, SF_NORMAL_BLEND_GROUP)
                for inner in blend.node_tree.nodes), "SF Blend Skin uses the RNM group internally"
 
     # Detail layer's 50x tiling comes through a Mapping node.
@@ -3568,6 +3570,62 @@ def TEST_SF_MAT_ROUNDTRIP():
     assert back_c['layers'] == data_c['layers'], f"layers round-trip: {back_c['layers']}"
     assert back_c['blenders'] == data_c['blenders'], f"blenders round-trip: {back_c['blenders']}"
     assert back_c['settings'] == data_c['settings'], f"settings round-trip: {back_c['settings']}"
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_GROUP_VERSION_KEEPS_OLD_MATERIALS():
+    """Bumping an SF node group's version must not touch the materials already using it.
+
+    The version is part of the group's NAME ('SF Layer v5') and a group is never removed. A .blend
+    accumulates materials built by different versions of the add-on, and a shared datablock can
+    only be one version at a time -- so the old approach, deleting the group and building the new
+    one, orphaned every node still using it: node_tree became None and the sockets and links went
+    with it.
+
+    Real case: Bad Dog imported a vanilla male head into a file holding a work-in-progress Lykaios
+    head. The import rebuilt SF Layer at the new version and cut all six of the Lykaios material's
+    layer nodes loose, along with every link in the material.
+    """
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, ensure_sf_layer_group, _is_group,
+                                              SF_LAYER_GROUP, PYN_SF_LAYER)
+    from io_scene_nifly.nif import shader_io as S
+
+    old_group = ensure_sf_layer_group()
+    mat = bpy.data.materials.new("SF_OldVersion")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    node = nt.nodes.new('ShaderNodeGroup')
+    node.node_tree = old_group
+    node[PYN_SF_LAYER] = 0
+    img = nt.nodes.new('ShaderNodeTexImage')
+    bsdf = nt.nodes['Principled BSDF']
+    nt.links.new(img.outputs['Color'], node.inputs['Albedo'])
+    nt.links.new(node.outputs['Base Color'], bsdf.inputs['Base Color'])
+
+    saved = S._SF_GROUP_VERSION
+    try:
+        S._SF_GROUP_VERSION = saved + 1000      # as a real bump would
+        new_group = ensure_sf_layer_group()
+    finally:
+        S._SF_GROUP_VERSION = saved
+
+    assert TT.is_neq(new_group, old_group, "the bump built a NEW group datablock")
+    assert TT.is_true(old_group.name in bpy.data.node_groups,
+                      "the old group still exists -- nothing was removed")
+    assert TT.is_eq(node.node_tree, old_group, "the old material still points at its own group")
+    assert TT.is_true(node.inputs['Albedo'].is_linked, "its incoming link survived")
+    assert TT.is_true(node.outputs['Base Color'].is_linked, "its outgoing link survived")
+    assert TT.is_true(_is_group(node, SF_LAYER_GROUP),
+                      "and it still reads as an SF Layer group, so export still finds its layers")
+
+    # 'SF Layer' must not match 'SF LayeredEmissivityComponent' -- a plain startswith did, which is
+    # why layer counts could never be taken by name.
+    emissive = nt.nodes.new('ShaderNodeGroup')
+    emissive.node_tree = S.ensure_sf_component_group('emissive')
+    assert TT.is_true(not _is_group(emissive, SF_LAYER_GROUP),
+                      "the emissivity settings group is not mistaken for a layer")
+    assert TT.is_true(S.is_sf_component_node(emissive, 'emissive'),
+                      "but it is still recognised as its own component")
 
 
 @TT.category('STARFIELD', 'SHADER')
