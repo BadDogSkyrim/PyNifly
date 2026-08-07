@@ -9,9 +9,10 @@ document what PyNifly knows about each piece.
 
 Two doc sets, two jobs:
 
-- **Bethesda Library** (`C:\Modding\Bethesda Library`, `docs/game-specific/starfield/`) defines
-  the **formats and semantics** — what a `.mat` is, how the `.mesh` is encoded, what the records
-  mean. It's game documentation and is not about any particular tool.
+- **[Bethesda Modding Library](https://baddogskyrim.github.io/BethesdaLibrary/)**
+  ([Starfield section](https://baddogskyrim.github.io/BethesdaLibrary/game-specific/starfield/overview/))
+  defines the **formats and semantics** — what a `.mat` is, how the `.mesh` is encoded, what the
+  records mean. It's game documentation and is not about any particular tool.
 - **These pages** describe **how PyNifly works**: what it imports, what it writes, how a format
   concept is represented in Blender, and what it does and doesn't preserve. They lean on the
   Bethesda docs for format detail rather than restating it.
