@@ -3572,6 +3572,55 @@ def TEST_SF_MAT_ROUNDTRIP():
     assert back_c['settings'] == data_c['settings'], f"settings round-trip: {back_c['settings']}"
 
 
+@TT.category('STARFIELD')
+def TEST_SF_ANIMATION_FLAG_ROUNDTRIP():
+    """Starfield: AnimationFlagExtra survives import and export.
+
+    NiIntegersExtraData is PLURAL -- an array of uint32, a different block type from
+    NiIntegerExtraData. PyNifly couldn't read it at all: importing a vanilla head logged "Unknown
+    block type" and the block was gone from anything exported. 273 of the 373 vanilla shape nifs
+    surveyed carry one, on the BSGeometry block; the male head's value is 32.
+
+    Found while diffing Bad Dog's invisible Lykaios head against vanilla. It turned out NOT to be
+    the cause -- he pasted the block in by hand and the head stayed invisible -- but a block every
+    vanilla head carries and we silently drop is worth closing regardless.
+    """
+    testfile = TTB.test_file(r"tests\SF\meshes\malehead.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_ANIMATION_FLAG_ROUNDTRIP.nif", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    ed = TTB.find_shape("NiIntegersExtraData:AnimationFlagExtra", type='EMPTY')
+    assert ed is not None, "the plural extra-data block was imported"
+    from io_scene_nifly.nif import pyn_props
+    g = pyn_props.get_group(ed, 'pyn_niintsdata')
+    assert TT.is_eq(g.name, 'AnimationFlagExtra', "name imported")
+    assert TT.is_eq(g.value, '32', "the male head's animation flag is 32")
+    # It hangs off the SHAPE, not the root -- that is where the engine looks for it.
+    assert ed.parent is not None and ed.parent.type == 'MESH', \
+        f"parented to the shape, not the root: {ed.parent.name if ed.parent else None}"
+
+    for o in bpy.data.objects:
+        o.select_set(True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF')
+
+    nifout = pyn.NifFile(outfile)
+    shape = nifout.shapes[0]
+    blocks = {e.name: e for e in shape.extra_data() if e.blockname == 'NiIntegersExtraData'}
+    assert TT.is_eq(sorted(blocks), ['AnimationFlagExtra'], "written back onto the shape")
+    assert TT.is_eq(blocks['AnimationFlagExtra'].values, [32], "with its value intact")
+    # The singular block is a different type and must not be confused with it. It must also appear
+    # exactly ONCE: the derived-MaterialID pass tested for an existing block by NAME, and a block
+    # added during an export reports an empty name until the file is written and read back, so
+    # every imported head came out with two.
+    ints = [e.name for e in shape.extra_data() if e.blockname == 'NiIntegerExtraData']
+    assert TT.is_eq(ints, ['MaterialID'], "the singular block exports once, as itself")
+    # Same shape of bug on the root: creating an SF shape makes the DLL add a default BSXFlags,
+    # and the exporter used to add a second on top of it.
+    bsx = [e.name for e in nifout.rootNode.extra_data() if e.blockname == 'BSXFlags']
+    assert TT.is_eq(bsx, ['BSX'], "exactly one BSXFlags on the root")
+
+
 @TT.category('STARFIELD', 'SHADER')
 def TEST_SF_GROUP_VERSION_KEEPS_OLD_MATERIALS():
     """Bumping an SF node group's version must not touch the materials already using it.

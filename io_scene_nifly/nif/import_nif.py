@@ -684,6 +684,23 @@ class NifImporter():
         BD.link_to_collection(self.collection, ed)
 
 
+    def import_integers(self, node, parent_obj, extblock):
+        """NiIntegersExtraData -- PLURAL, an array of uint32. Starfield's 'AnimationFlagExtra'
+        sits on the BSGeometry shape this way. Values are kept as a comma-separated string for the
+        same reason the singular block's is a string (uint32 range), plus a variable length."""
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "NiIntegersExtraData:" + extblock.name
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_niintsdata', name=extblock.name,
+                            value=','.join(str(v) for v in extblock.values))
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
+
+
     def import_integer(self, node, parent_obj, extblock:P.NiIntegerExtraData):
         bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
         ed = bpy.context.object
@@ -822,6 +839,7 @@ class NifImporter():
         'BSBoneLODExtraData': import_bone_lod,
         'BSXFlags': import_bsx,
         'NiIntegerExtraData': import_integer,
+        'NiIntegersExtraData': import_integers,
         'BSInvMarker': import_inventory_marker,
         'BSFurnitureMarkerNode': import_furniture_markers,
         'NiStringExtraData': import_stringdata,

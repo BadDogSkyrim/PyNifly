@@ -186,6 +186,10 @@ extern "C" NIFLY_API int getBSTreeNodeBones(void* nifref, uint32_t id, int which
 extern "C" NIFLY_API void setBSTreeNodeBones(void* nifref, uint32_t id, int which, uint32_t* ids, int count);
 extern "C" NIFLY_API void setNodeChildren(void* nifref, int nodeID, int* ids, int count);
 extern "C" NIFLY_API void setIntegerExtraData(void* nifref, void* shaperef, char* name, uint32_t value);
+/* NiIntegersExtraData (plural) values -- variable length, so they travel separately from the
+buffer, which only reports the count. */
+extern "C" NIFLY_API int getNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count);
+extern "C" NIFLY_API void setNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count);
 
 // MOPP bytecode read
 extern "C" NIFLY_API int getCollMoppCodeLen(void* nifref, int blockID);

@@ -97,11 +97,12 @@ class PynBufferTypes(IntEnum):
     BSMultiBoundNodeBufType = 74
     BSMultiBoundBufType = 75
     BSMultiBoundOBBBufType = 76
+    NiIntegersExtraDataBufType = 77
     # Starfield BSGeometry. Python-only: the C++ getShape returns a plain NiShapeBuf for a
     # BSGeometry block (reading is name-based); this distinct value just keeps
     # register_subclasses from clobbering NiShapeBuf's buffer_types slot.
-    BSGeometryBufType = 77
-    COUNT = 78
+    BSGeometryBufType = 78
+    COUNT = 79
 
 
 class NiShaderBuf(pynStructure):
@@ -1729,6 +1730,21 @@ class NiIntegerExtraDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiIntegerExtraDataBufType
+
+class NiIntegersExtraDataBuf(pynStructure):
+    """NiIntegersExtraData -- PLURAL, a different block type from NiIntegerExtraData: an ARRAY of
+    uint32 rather than one value. Starfield's 'AnimationFlagExtra' is stored this way (273 of 373
+    vanilla shape nifs carry it). The values are variable-length so they don't live in the buffer;
+    this reports how many there are, and NiIntegersExtraData.values moves them."""
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("integerCount", c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiIntegersExtraDataBufType
 
 class BSBehaviorGraphExtraDataBuf(pynStructure):
     _fields_ = [

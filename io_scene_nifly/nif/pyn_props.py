@@ -597,6 +597,13 @@ _reg_extradata('PynBSXFlagsProps', 'pyn_bsxflags', 'BSXFlags',
 _reg_extradata('PynIntDataProps', 'pyn_niintdata', 'NiIntegerExtraData',
                bpy.props.StringProperty(name='value', default='0'),
                legacy={'name': 'NiIntegerExtraData_Name', 'value': 'NiIntegerExtraData_Value'})
+# NiIntegersExtraData (PLURAL) holds an ARRAY of uint32 -- Starfield's AnimationFlagExtra. Same
+# uint32-range problem as the singular block, plus a variable length, so the values are kept as a
+# comma-separated decimal string ('32', or '1,2,3,255').
+_reg_extradata('PynIntsDataProps', 'pyn_niintsdata', 'NiIntegersExtraData',
+               bpy.props.StringProperty(name='value', default='',
+                                        description='Comma-separated integers'),
+               legacy={})   # new in 28.0.0 -- no custom-property form to migrate from
 _reg_extradata('PynStrDataProps', 'pyn_nistrdata', 'NiStringExtraData',
                bpy.props.StringProperty(name='value', default=''),
                legacy={'name': 'NiStringExtraData_Name', 'value': 'NiStringExtraData_Value'})

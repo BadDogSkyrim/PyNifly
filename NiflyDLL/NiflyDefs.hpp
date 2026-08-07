@@ -102,6 +102,7 @@ enum BUFFER_TYPES : uint16_t {
 	BSMultiBoundNodeBufType,
 	BSMultiBoundBufType,
 	BSMultiBoundOBBBufType,
+	NiIntegersExtraDataBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -517,6 +518,18 @@ struct NiIntegerExtraDataBuf {
 	uint32_t nameID = nifly::NIF_NPOS;
 	uint32_t integerData = 0; 
 }; 
+
+/* NiIntegersExtraData -- PLURAL, a different block type from NiIntegerExtraData: it holds an
+array of uint32 rather than one. Starfield uses it for 'AnimationFlagExtra', which 273 of 373
+vanilla shape nifs carry. The values are variable-length, so they travel through the
+getNiIntegersExtraDataValues/setNiIntegersExtraDataValues pair rather than in this buffer; the
+buffer reports how many there are. */
+struct NiIntegersExtraDataBuf {
+	uint16_t bufSize = sizeof(NiIntegersExtraDataBuf);
+	uint16_t bufType = BUFFER_TYPES::NiIntegersExtraDataBufType;
+	uint32_t nameID = nifly::NIF_NPOS;
+	uint32_t integerCount = 0;
+};
 
 struct BSBehaviorGraphExtraDataBuf {
 	uint16_t bufSize = sizeof(BSBehaviorGraphExtraDataBuf);

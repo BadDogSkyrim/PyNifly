@@ -388,6 +388,12 @@ nifly.setController.argtypes = [c_void_p, c_int, c_int]
 nifly.setController.restype = c_int
 nifly.setIntegerExtraData.argtypes = [c_void_p, c_void_p, c_char_p, c_uint32]
 nifly.setIntegerExtraData.restype = None
+# NiIntegersExtraData (plural) holds a variable-length uint32 array, so the values move through
+# their own calls; the block buffer only carries the count.
+nifly.getNiIntegersExtraDataValues.argtypes = [c_void_p, c_uint32, POINTER(c_uint32), c_int]
+nifly.getNiIntegersExtraDataValues.restype = c_int
+nifly.setNiIntegersExtraDataValues.argtypes = [c_void_p, c_uint32, POINTER(c_uint32), c_int]
+nifly.setNiIntegersExtraDataValues.restype = None
 nifly.setNodeFlags.argtypes = [c_void_p, c_int]
 nifly.setNodeFlags.restype = None
 nifly.setPartitions.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int]

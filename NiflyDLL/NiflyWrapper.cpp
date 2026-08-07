@@ -3004,6 +3004,76 @@ int addNiIntegerExtraData(void* nifref, const char* name, void* b, uint32_t pare
     return newid;
 }
 
+/* NiIntegersExtraData (PLURAL) -- an array of uint32 rather than the single value
+NiIntegerExtraData carries. Starfield stores 'AnimationFlagExtra' this way. The count comes back in
+the buffer; the values themselves go through the Len/Data pair below, as the other variable-length
+blocks do. */
+int getNiIntegersExtraData(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiIntegersExtraData* ied = hdr->GetBlock<NiIntegersExtraData>(blockID);
+    NiIntegersExtraDataBuf* buf = static_cast<NiIntegersExtraDataBuf*>(inbuf);
+
+    if (!ied) {
+        niflydll::LogWrite("getNiIntegersExtraData not passed a NiIntegersExtraData node");
+        return 1;
+    }
+
+    CheckBuf(buf, BUFFER_TYPES::NiIntegersExtraDataBufType, NiIntegersExtraDataBuf);
+
+    buf->nameID = ied->name.GetIndex();
+    buf->integerCount = uint32_t(ied->integersData.size());
+
+    return 0;
+}
+
+/* Fill `values` with up to `count` of the block's integers; returns how many were written. */
+int getNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiIntegersExtraData* ied = hdr->GetBlock<NiIntegersExtraData>(blockID);
+    if (!ied) {
+        niflydll::LogWrite("getNiIntegersExtraDataValues not passed a NiIntegersExtraData node");
+        return 0;
+    }
+    int n = std::min(count, int(ied->integersData.size()));
+    for (int i = 0; i < n; i++) values[i] = ied->integersData[i];
+    return n;
+}
+
+/* Replace the block's integers with `count` values. */
+void setNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiIntegersExtraData* ied = hdr->GetBlock<NiIntegersExtraData>(blockID);
+    if (!ied) {
+        niflydll::LogWrite("setNiIntegersExtraDataValues not passed a NiIntegersExtraData node");
+        return;
+    }
+    ied->integersData.resize(count);
+    for (int i = 0; i < count; i++) ied->integersData[i] = values[i];
+}
+
+int addNiIntegersExtraData(void* nifref, const char* name, void* b, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiIntegersExtraDataBuf* buf = static_cast<NiIntegersExtraDataBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::NiIntegersExtraDataBufType, NiIntegersExtraDataBuf);
+
+    auto intData = std::make_unique<NiIntegersExtraData>();
+    if (name) intData->name.get() = name;
+    // The values are written afterwards by setNiIntegersExtraDataValues; size the array now so
+    // the caller can fill it without a second allocation step.
+    intData->integersData.resize(buf->integerCount);
+
+    if (parent != NIF_NPOS) {
+        NiAVObject* p = hdr->GetBlock<NiAVObject>(parent);
+        if (p) return nif->AssignExtraData(p, std::move(intData));
+    }
+    return hdr->AddBlock(std::move(intData));
+}
+
 int getInvMarker(void* nifref, uint32_t id, void* inbuf)
 /* 
 * Returns the InvMarker node data, if any. Assumes there is only one.
@@ -6750,6 +6820,7 @@ BlockGetterFunction getterFunctions[] = {
     getBSMultiBoundNode, //BSMultiBoundNodeBufType
     getBSMultiBound, //BSMultiBoundBufType
     getBSMultiBoundOBB, //BSMultiBoundOBBBufType
+    getNiIntegersExtraData, //NiIntegersExtraDataBufType
     nullptr //END
 };
 
@@ -6849,6 +6920,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSMultiBoundNodeBufType (created via addBSMultiBoundNode)
     nullptr, //BSMultiBoundBufType (created via addBSMultiBound)
     nullptr, //BSMultiBoundOBBBufType (created via addBSMultiBoundOBB)
+    nullptr, //NiIntegersExtraDataBufType (values set via setNiIntegersExtraDataValues)
     nullptr //END
 };
 
@@ -6947,6 +7019,7 @@ BlockCreatorFunction creatorFunctions[] = {
     addBSMultiBoundNode, //BSMultiBoundNodeBufType
     addBSMultiBound, //BSMultiBoundBufType
     addBSMultiBoundOBB, //BSMultiBoundOBBBufType
+    addNiIntegersExtraData, //NiIntegersExtraDataBufType
     nullptr //end
 };
 

@@ -420,6 +420,8 @@ class NifExporter:
         self.bg_data = set()
         self.str_data = set()
         self.int_data = set()
+        self.ints_data = set()   # NiIntegersExtraData (plural -- an array of uint32)
+        self._matid_written = set()   # nif block ids that already got a MaterialID this export
         self.cloth_data = set()
         self.decal_data = set()
         self.grouping_nodes = set()
@@ -833,6 +835,9 @@ class NifExporter:
             elif obj.name.startswith("BSDecalPlacementVectorExtraData"):
                 self.decal_data.add(obj)
 
+            elif obj.name.startswith("NiIntegersExtraData"):
+                self.ints_data.add(obj)
+
             elif obj.name.startswith("NiIntegerExtraData"):
                 self.int_data.add(obj)
 
@@ -1039,14 +1044,27 @@ class NifExporter:
 
 
     def export_bsx_flag(self):
-        if self.bsx_flag:
-            from . import pyn_props
-            g = pyn_props.get_group(self.bsx_flag, 'pyn_bsxflags')
-            bsx = pynifly.BSXFlags.New(self.nif,
-                name=g.name,
-                flags=BSXFlagsValues.parse(g.value),
-                parent=self.nif.rootNode)
-            self.objs_written.add(ReprObject(self.bsx_flag, bsx))
+        """Write the BSX flags onto the root, updating the block if one is already there.
+
+        Creating a Starfield shape makes the DLL give the root a default BSXFlags if it hasn't got
+        one (a multi-part body skins several shapes but needs a single BSX). Adding ours on top of
+        that left every imported-and-re-exported SF nif with TWO BSXFlags blocks. Matched on the
+        block type rather than the name, because a block added this session reports an empty name
+        until the file is written and read back."""
+        if not self.bsx_flag:
+            return
+        from . import pyn_props
+        g = pyn_props.get_group(self.bsx_flag, 'pyn_bsxflags')
+        flags = BSXFlagsValues.parse(g.value)
+        existing = next((ed for ed in self.nif.rootNode.extra_data()
+                         if ed.blockname == 'BSXFlags'), None)
+        if existing is not None:
+            existing.flags = flags
+            bsx = existing
+        else:
+            bsx = pynifly.BSXFlags.New(self.nif, name=g.name, flags=flags,
+                                       parent=self.nif.rootNode)
+        self.objs_written.add(ReprObject(self.bsx_flag, bsx))
 
 
     def export_integer_data(self):
@@ -1074,6 +1092,38 @@ class NifExporter:
                 name=g.name,
                 integer_value=value,
                 parent=parent)
+            self.objs_written.add_pair(intdat, ed)
+            # Remember what we put where: export_sf_material_ids can't tell by reading names
+            # back, because a block added this session reports an empty one.
+            if g.name == 'MaterialID' and parent is not None:
+                self._matid_written.add(parent.id)
+
+
+    def export_integers_data(self):
+        """NiIntegersExtraData -- PLURAL, an ARRAY of uint32, attached like the singular block to
+        whatever its Empty is parented to. Starfield's 'AnimationFlagExtra' rides on the BSGeometry
+        shape; 273 of the 373 vanilla shape nifs surveyed carry one. Authored data, not derived
+        like MaterialID, so it is written back verbatim."""
+        from . import pyn_props
+        for intdat in self.ints_data:
+            g = pyn_props.get_group(intdat, 'pyn_niintsdata')
+            values = []
+            for piece in (g.value or '').split(','):
+                piece = piece.strip()
+                if not piece:
+                    continue
+                try:
+                    values.append(int(piece) & 0xFFFFFFFF)
+                except ValueError:
+                    log.warning(f"NiIntegersExtraData '{g.name}' on {intdat.name} has a "
+                                f"non-numeric value '{piece}'; skipping it")
+            parent = self.nif.rootNode
+            if intdat.parent:
+                parent_repr = self.objs_written.find_blend(intdat.parent)
+                if parent_repr and parent_repr.nifnode:
+                    parent = parent_repr.nifnode
+            ed = pynifly.NiIntegersExtraData.New(self.nif, name=g.name, values=values,
+                                                 parent=parent)
             self.objs_written.add_pair(intdat, ed)
 
 
@@ -1167,6 +1217,7 @@ class NifExporter:
         self.export_inv_marker()
         self.export_furniture_markers()
         self.export_integer_data()
+        self.export_integers_data()
         self.export_sf_material_ids()
 
 
@@ -1178,12 +1229,17 @@ class NifExporter:
         it's derived data: a shape authored in Blender has no imported extra-data Empty to
         write, and hand-maintaining a hash isn't reasonable. Runs after export_integer_data so
         an Empty that DID come in from an import wins and we never write the block twice.
+
+        The "already has one" test reads what THIS export wrote, not the block's name: a block
+        added during the session reports an empty name until the file has been written and read
+        back, so a name comparison silently never matches and every imported head got two
+        MaterialID blocks.
         """
         if self.nif.game != 'SF':
             return
         from ..pyn.sf_materials import material_id
         for shape in self.nif.shapes:
-            if any(ed.name == 'MaterialID' for ed in shape.extra_data()):
+            if shape.id in self._matid_written:
                 continue
             matpath = shape.shader.name if shape.shader else ''
             if not matpath:

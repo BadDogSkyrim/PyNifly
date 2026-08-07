@@ -2936,6 +2936,50 @@ class NiIntegerExtraData(NiExtraData):
         return file.add_block(name, p, parent)
 
 
+class NiIntegersExtraData(NiExtraData):
+    """PLURAL -- a different block type from NiIntegerExtraData, holding an ARRAY of uint32.
+
+    Starfield stores 'AnimationFlagExtra' this way: 273 of 373 vanilla shape nifs carry one, on the
+    BSGeometry block. Values seen are hair/beards 31, eyes/teeth/tongue/eyebrows/eyelashes/tears
+    255, male head 32, and a cluster at 47. It is authored data, not derived, so it round-trips
+    verbatim rather than being recomputed on export."""
+    buffer_type = PynBufferTypes.NiIntegersExtraDataBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return NiIntegersExtraDataBuf(values)
+
+    @property
+    def values(self):
+        """The block's integers, as a list."""
+        n = self.properties.integerCount
+        if not n:
+            return []
+        buf = (c_uint32 * n)()
+        got = nifly.getNiIntegersExtraDataValues(self.file._handle, self.id, buf, n)
+        return list(buf[:got])
+
+    @values.setter
+    def values(self, v):
+        v = list(v)
+        buf = (c_uint32 * len(v))(*v)
+        nifly.setNiIntegersExtraDataValues(self.file._handle, self.id, buf, len(v))
+        self.properties.integerCount = len(v)
+
+    @classmethod
+    def New(cls, file, name='', values=None, parent=None):
+        values = list(values or [])
+        p = NiIntegersExtraDataBuf()
+        p.integerCount = len(values)
+        block = file.add_block(name, p, parent)
+        if values:
+            block.values = values
+        return block
+
+
 class BSBehaviorGraphExtraData(NiExtraData):
     buffer_type = PynBufferTypes.BSBehaviorGraphExtraDataBufType
 

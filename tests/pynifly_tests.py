@@ -1231,6 +1231,47 @@ def TEST_SF_MAT_PRESERVES_TEMPLATE():
                 assert ref in new_ids, f"reference {ref} resolves within the file"
 
 
+def TEST_SF_ANIMATION_FLAG_EXTRA():
+    """Starfield: NiIntegersExtraData (PLURAL) reads and writes.
+
+    A different block type from NiIntegerExtraData -- it holds an ARRAY of uint32 rather than one
+    value -- and PyNifly could not read it at all: loading a vanilla head printed "Unknown block
+    type: NiIntegersExtraData" and the block vanished on export. 273 of the 373 vanilla shape nifs
+    surveyed carry one, named 'AnimationFlagExtra', on the BSGeometry block. The male head's value
+    is 32; hair and beards use 31, eyes/teeth/tongue/eyebrows/eyelashes/tears 255.
+
+    It is authored data, not derived like MaterialID, so it has to round-trip verbatim.
+    """
+    from pyn.pynifly import NifFile, NiIntegersExtraData
+
+    nif = NifFile(r"tests\SF\meshes\malehead.nif")
+    shape = nif.shapes[0]
+    found = {ed.name: ed for ed in shape.extra_data()
+             if ed.blockname == 'NiIntegersExtraData'}
+    assert TT.is_eq(sorted(found), ['AnimationFlagExtra'], "the vanilla head carries one")
+    assert TT.is_eq(found['AnimationFlagExtra'].values, [32], "male head's animation flag is 32")
+    # The singular block is still read as itself -- the two types coexist on the same shape.
+    ints = [ed for ed in shape.extra_data() if ed.blockname == 'NiIntegerExtraData']
+    assert TT.is_eq([e.name for e in ints], ['MaterialID'], "the singular block still reads")
+
+    # -- write it back out ----------------------------------------------------------------------
+    out = r"tests\Out\TEST_SF_ANIMATION_FLAG_EXTRA.nif"
+    nifout = NifFile()
+    nifout.initialize('SF', out)
+    NiIntegersExtraData.New(nifout, name='AnimationFlagExtra', values=[32],
+                            parent=nifout.rootNode)
+    NiIntegersExtraData.New(nifout, name='ManyValues', values=[1, 2, 3, 255],
+                            parent=nifout.rootNode)
+    nifout.save()
+
+    back = NifFile(out)
+    got = {ed.name: ed.values for ed in back.rootNode.extra_data()
+           if ed.blockname == 'NiIntegersExtraData'}
+    assert TT.is_eq(got.get('AnimationFlagExtra'), [32], "single value round-trips")
+    assert TT.is_eq(got.get('ManyValues'), [1, 2, 3, 255],
+                    "a multi-value array round-trips -- the point of the plural block")
+
+
 def TEST_SF_MAT_COMPONENTS():
     """Starfield: the component families a human bodypart material is actually made of.
 
