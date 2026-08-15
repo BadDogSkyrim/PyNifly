@@ -5094,6 +5094,207 @@ def _shape_world_verts(shape):
              r[2][0]*v[0]+r[2][1]*v[1]+r[2][2]*v[2]+p[2]) for v in shape.verts]
 
 
+def _cm_section_counts(packfile_bytes):
+    """Return a list with the section count of each hknpCompressedMeshShapeData
+    in a Havok packfile.  Vanilla meshes are split into sections of at most 255
+    verts/quads because quad vertex indices are single bytes relative to the
+    section's vertex block."""
+    from pyn.bhk_autounpack import (parse_section_headers, parse_virtual_fixups,
+                                    hkarray_size)
+    hdrs = parse_section_headers(packfile_bytes)
+    data_hdr = hdrs["__data__"]
+    objects = parse_virtual_fixups(packfile_bytes, data_hdr,
+                                   hdrs["__classnames__"].abs_start)
+    return [hkarray_size(packfile_bytes, data_hdr.abs_start + rel, 0x50)
+            for rel, cls in objects if "hknpCompressedMeshShapeData" in cls]
+
+
+def _cm_tree_problems(packfile_bytes):
+    """Check the BVH inside a compressed-mesh packfile; return a list of faults.
+
+    The engine walks this tree at load time (hkcdStaticMeshTree). Writing it
+    empty or malformed is a CTD, not a slow query, so every export must pass.
+    Node format: 4 bytes, byte[3] even -> leaf (primitive = data >> 1),
+    odd -> internal (left = i+1, right = i + (data & 0xFE)).
+    """
+    import struct as _struct
+    from pyn.bhk_autounpack import (parse_section_headers, parse_local_fixups,
+                                    parse_virtual_fixups, hkarray_abs,
+                                    hkarray_size, SECTION_STRIDE)
+    data = packfile_bytes
+    hdrs = parse_section_headers(data)
+    dh = hdrs["__data__"]
+    ds = dh.abs_start
+    fixups = parse_local_fixups(data, dh)
+    objs = parse_virtual_fixups(data, dh, hdrs["__classnames__"].abs_start)
+
+    problems = []
+
+    # Any hkArray with a non-zero count MUST have its data pointer fixed up.
+    # A count with a null pointer is what the engine dereferences on load, and
+    # it is invisible to our own reader (which only follows arrays it needs).
+    for rel, cls in objs:
+        obj_end = min([r for r, _ in objs if r > rel] + [len(data) - ds])
+        for off in range(0, obj_end - rel - 16, 16):
+            cnt, cap = _struct.unpack_from("<II", data, ds + rel + off + 8)
+            ptr_is_null = _struct.unpack_from("<Q", data, ds + rel + off)[0] == 0
+            looks_like_array = (cap & 0x80000000) and cnt == (cap & 0x7FFFFFFF)
+            if looks_like_array and cnt > 0 and ptr_is_null \
+                    and (rel + off) not in fixups:
+                problems.append(
+                    f"{cls} +0x{off:02X}: hkArray count={cnt} but pointer is null")
+
+    # hknpCompressedMeshShape header constants.  Each body writes its shape
+    # immediately before its data, so the i-th of each pairs up.
+    shape_rels = [r for r, c in objs if c.endswith("hknpCompressedMeshShape")]
+    data_rels = [r for r, c in objs if "hknpCompressedMeshShapeData" in c]
+    for shp, sdr in zip(shape_rels, data_rels):
+        want_bits = _struct.unpack_from("<i", data, ds + sdr + 0x44)[0]
+        # numShapeKeyBits must match the data's bitsPerKey or the engine decodes
+        # a key this shape never wrote and reads off the end of it.
+        if data[ds + shp + 0x12] != want_bits:
+            problems.append(f"numShapeKeyBits is {data[ds + shp + 0x12]}, "
+                            f"expected bitsPerKey {want_bits}")
+        # edgeWeldingMap's two hkArray<u16> are empty but must still carry
+        # DONT_DEALLOCATE, and shapeTagCodecInfo is the "no codec" sentinel.
+        for off in (0x44, 0x54):
+            got = _struct.unpack_from("<I", data, ds + shp + off)[0]
+            if got != 0x80000000:
+                problems.append(f"shape +0x{off:02X} is {got:#010x}, "
+                                f"expected 0x80000000")
+        tag = _struct.unpack_from("<I", data, ds + shp + 0x58)[0]
+        if tag != 0xFFFFFFFF:
+            problems.append(f"shapeTagCodecInfo is {tag:#010x}, expected 0xffffffff")
+
+    for rel, cls in objs:
+        if "hknpCompressedMeshShapeData" not in cls:
+            continue
+        oa = ds + rel
+        nsec = hkarray_size(data, oa, 0x50)
+        secs_abs = hkarray_abs(fixups, ds, rel, 0x50)
+        if hkarray_abs(fixups, ds, rel, 0x10) is None:
+            problems.append("top-level tree pointer not set")
+        if hkarray_size(data, oa, 0x10) != 2 * nsec - 1:
+            problems.append("top-level tree is not 2N-1 nodes")
+        if hkarray_size(data, oa, 0xA0) != nsec:
+            problems.append("primitiveDataRuns count != section count")
+
+        # Primitive keys pack as (sectionIndex << 8) | (localQuad << 1) | tri,
+        # so maxKeyValue comes from the LAST section, and bitsPerKey must cover
+        # it.  Too few bits and the engine decodes a bogus section index.
+        n_keys, bits, max_key = _struct.unpack_from("<iiI", data, oa + 0x40)
+        last = secs_abs + (nsec - 1) * SECTION_STRIDE
+        last_nq = _struct.unpack_from("<I", data, last + 0x50)[0] & 0xFF
+        want_max = ((nsec - 1) << 8) | ((last_nq - 1) << 1)
+        if max_key != want_max:
+            problems.append(f"maxKeyValue is {max_key}, expected {want_max}")
+        if bits != (max_key + 1).bit_length():
+            problems.append(f"bitsPerKey is {bits}, expected "
+                            f"{(max_key + 1).bit_length()}")
+
+        # simdTree: hkcdSimdTreeNode is 112 bytes and the engine ray-casts
+        # through the whole array, so the payload must be fully backed.
+        n_simd = _struct.unpack_from("<I", data, oa + 0xC0)[0]
+        simd_at = fixups.get(rel + 0xB8)
+        if n_simd == 0 or simd_at is None:
+            problems.append("simdTree array is empty or unpatched")
+        elif simd_at + 112 * n_simd > dh.local_fix:
+            problems.append(
+                f"simdTree claims {n_simd} nodes ({112 * n_simd} bytes) but only "
+                f"{dh.local_fix - simd_at} bytes remain")
+        for si in range(nsec):
+            so = secs_abs + si * SECTION_STRIDE
+            n = _struct.unpack_from("<I", data, so + 0x08)[0]
+            tn = fixups.get(so - ds + 0x00)
+            if tn is None or n == 0:
+                problems.append(f"section {si} has no tree")
+                continue
+            if data[so + 0x58] == 0:
+                problems.append(f"section {si} numPackedVertices is 0")
+            if (_struct.unpack_from("<I", data, so + 0x4C)[0] & 0xFF) != data[so + 0x58]:
+                problems.append(f"section {si} vertex count at +0x4C disagrees with +0x58")
+            if data[so + 0x5D] != 0:
+                problems.append(f"section {si} flags should be 0, as vanilla writes")
+            nq = _struct.unpack_from("<I", data, so + 0x50)[0] & 0xFF
+            nodes = [data[ds + tn + i * 4: ds + tn + i * 4 + 4] for i in range(n)]
+            seen, leaves = set(), []
+            stack = [0]
+            while stack:
+                i = stack.pop()
+                if i in seen or i >= n:
+                    problems.append(f"section {si} tree index {i} invalid")
+                    break
+                seen.add(i)
+                d = nodes[i][3]
+                if d & 1:
+                    stack.append(i + (d & 0xFE))
+                    stack.append(i + 1)
+                else:
+                    leaves.append(d >> 1)
+            if len(seen) != n:
+                problems.append(f"section {si} visits {len(seen)} of {n} nodes")
+            if sorted(leaves) != list(range(nq)):
+                problems.append(
+                    f"section {si} tree covers {len(leaves)} of {nq} quads")
+    return problems
+
+
+def _compare_collision_geometry(src, chk):
+    """Compare two collision shapes geometrically.
+
+    Splitting a mesh into sections duplicates and reorders its vertices, so
+    triangles can't be compared by index.  Nor can they be matched by position:
+    11-11-10 quantization displaces a vertex by up to half a quantization step,
+    and vanilla collision meshes have distinct verts closer together than that,
+    so nearest-vertex matching is genuinely ambiguous.  Compare invariants that
+    don't depend on vertex identity instead.
+
+    Returns (max_offset, area_ratio, centroid_shift):
+      max_offset    — furthest any round-tripped vertex sits from the nearest
+                      source vertex, i.e. did anything move appreciably
+      area_ratio    — total triangle area, round-tripped / source
+      centroid_shift— distance between the two area-weighted centroids
+    """
+    def dist2(a, b):
+        return sum((a[i] - b[i]) ** 2 for i in range(3))
+
+    max_offset = max(math.sqrt(min(dist2(v, s) for s in src.verts))
+                     for v in chk.verts)
+
+    def area_and_centroid(shape):
+        total, weighted = 0.0, [0.0, 0.0, 0.0]
+        for f in shape.faces:
+            a, b, c = (shape.verts[i] for i in f[:3])
+            u = [b[i] - a[i] for i in range(3)]
+            w = [c[i] - a[i] for i in range(3)]
+            cross = (u[1]*w[2] - u[2]*w[1],
+                     u[2]*w[0] - u[0]*w[2],
+                     u[0]*w[1] - u[1]*w[0])
+            area = 0.5 * math.sqrt(sum(x * x for x in cross))
+            total += area
+            for i in range(3):
+                weighted[i] += area * (a[i] + b[i] + c[i]) / 3.0
+        if total == 0:
+            return 0.0, (0.0, 0.0, 0.0)
+        return total, tuple(w / total for w in weighted)
+
+    src_area, src_c = area_and_centroid(src)
+    chk_area, chk_c = area_and_centroid(chk)
+    return (max_offset,
+            chk_area / src_area if src_area else 0.0,
+            math.sqrt(dist2(src_c, chk_c)))
+
+
+def _quantization_step(shape):
+    """Worst-case 11-11-10 quantization step for a shape's bounding box.
+
+    Z gets only 10 bits, so its step is the coarsest; a round-tripped vertex
+    should never move further than one step.
+    """
+    return max(max(v[i] for v in shape.verts) - min(v[i] for v in shape.verts)
+               for i in range(3)) / 1023.0
+
+
 @test_category("FO4", "PHYSICS")
 def TEST_FO4_PHYSICS_SYSTEM():
     """bhkPhysicsSystem binary data can be read and decoded into collision geometry."""
@@ -5277,6 +5478,129 @@ def TEST_FO4_CAPSULE_PHYSICS():
     assert TT.is_eq(len(check_shapes), 2, "Round-trip has exactly two shapes")
     assert TT.is_eq(check_types, {"compressed_mesh", "polytope"},
                     "Round-trip preserves one compressed_mesh and one polytope")
+
+    # Negative control for multi-section packing (TEST_FO4_CM_MULTISECTION):
+    # this CM is 44 verts / 64 tris, well inside the 255-per-section caps, so it
+    # must still be written as exactly ONE section.  Splitting meshes that don't
+    # need splitting would rewrite every small vanilla collision.
+    assert TT.is_eq(_cm_section_counts(nif.root.collision_object.physics_system.data),
+                    [1], "Source CM is a single section")
+    assert TT.is_eq(_cm_section_counts(check_ps.data), [1],
+                    "Small CM is still written as a single section")
+
+    # Even a one-section mesh needs its BVH — the engine crashes without it.
+    assert TT.is_eq(_cm_tree_problems(check_ps.data), [],
+                    "Written CM has a valid BVH")
+
+
+@test_category("FO4", "PHYSICS")
+@TT.parameterize(
+    ("testfile", "n_sections", "n_verts", "n_tris"), [
+     (r"tests/FO4/Meshes/SetDressing/Vehicles/Crane03_simplified.nif", 6, 447, 614),
+     (r"tests/FO4/Meshes/Landscape/Plants/FarmPlot01Short.nif", 3, 279, 454),
+     # Under the vertex cap but over the quad cap -- checks that the
+     # split is driven by both limits, not just vertex count.
+     (r"tests/FO4/Meshes/Props/CrateDeathclaw01.nif", 2, 166, 312)
+     ])
+def TEST_FO4_CM_MULTISECTION(testfile, n_sections, n_verts, n_tris):
+    """Compressed meshes too big for one section round-trip through the packer.
+
+    A section holds at most 255 verts and 255 quads because quad vertex indices
+    are single bytes relative to the section's vertex block, so vanilla splits
+    larger collisions across sections.  Import merges the sections into one
+    shape, and export has to split it up again.  These are stock FO4 meshes;
+    before the fix each one died in pack_compressed_mesh with
+    'max 255 verts per section'.
+    """
+    from pyn.bhk_autopack import pack_shapes
+
+    nif = NifFile(testfile)
+    ps = nif.root.collision_object.physics_system
+    assert ps is not None, "Collision object has a bhkPhysicsSystem"
+    assert TT.is_eq(_cm_section_counts(ps.data), [n_sections],
+                    "Vanilla CM is split across sections")
+
+    shapes = ps.geometry
+    assert TT.is_eq(len(shapes), 1, "One collision shape")
+    src = shapes[0]
+    assert TT.is_eq(src.shape_type, "compressed_mesh", "Shape is a compressed mesh")
+    assert TT.is_eq(len(src.verts), n_verts, "Merged vertex count")
+    assert TT.is_eq(len(src.faces), n_tris, "Merged triangle count")
+    assert TT.is_gt(max(len(src.verts), len(src.faces)), 255,
+                    "Shape exceeds the single-section cap")
+
+    packed = pack_shapes(shapes)
+    assert TT.is_gt(len(packed), 0, "pack_shapes produced non-empty bytes")
+
+    assert TT.is_eq(_cm_tree_problems(packed), [], "Packed CM has a valid BVH")
+
+    counts = _cm_section_counts(packed)
+    assert TT.is_eq(len(counts), 1, "Packed data has one CM shape")
+    assert TT.is_gt(counts[0], 1, "Packed CM is split across sections")
+    for n in (len(src.verts), len(src.faces)):
+        assert TT.is_gt(counts[0], (n - 1) // 255,
+                        "Enough sections to hold the geometry")
+
+    # Geometry survives: same triangles, in the same places.
+    from pyn.bhk_autounpack import parse_bytes
+    out = parse_bytes(packed)
+    assert TT.is_eq(len(out), 1, "Re-parsed packfile has one shape")
+    assert TT.is_eq(out[0].shape_type, "compressed_mesh", "Re-parsed shape is a compressed mesh")
+    assert TT.is_eq(len(out[0].faces), n_tris, "Round-trip preserves triangle count")
+    max_offset, area_ratio, centroid_shift = _compare_collision_geometry(src, out[0])
+    step = _quantization_step(src)
+    assert TT.is_lt(max_offset, step, "Round-trip moves no vertex past one quantization step")
+    assert TT.is_equiv(area_ratio, 1.0, "Round-trip preserves total triangle area", e=0.01)
+    assert TT.is_lt(centroid_shift, step, "Round-trip preserves the centroid")
+
+    for i in range(3):
+        src_lo = min(v[i] for v in src.verts)
+        src_hi = max(v[i] for v in src.verts)
+        out_lo = min(v[i] for v in out[0].verts)
+        out_hi = max(v[i] for v in out[0].verts)
+        assert TT.is_equiv(out_lo, src_lo, "Round-trip preserves min bound", e=0.01)
+        assert TT.is_equiv(out_hi, src_hi, "Round-trip preserves max bound", e=0.01)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_MULTI_CM_BODIES():
+    """A physics system with two compressed-mesh bodies round-trips.
+
+    HitExtAWindowCDmg01 is a stock FO4 damaged window whose bhkPhysicsSystem
+    carries two separate hknpCompressedMeshShapes (the first also split across
+    sections).  pack_shapes used to raise NotImplementedError for any shape
+    combination other than one CM, all-polytope, or CM+polytope.
+    """
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import parse_bytes
+
+    nif = NifFile(r"tests/FO4/Meshes/Architecture/Buildings/Hightech/Damage/HitExtAWindowCDmg01.nif")
+    ps = nif.root.collision_object.physics_system
+    assert ps is not None, "Collision object has a bhkPhysicsSystem"
+    assert TT.is_eq(_cm_section_counts(ps.data), [2, 1],
+                    "Vanilla has two CM shapes, the first split across sections")
+
+    shapes = ps.geometry
+    assert TT.is_eq([s.shape_type for s in shapes],
+                    ["compressed_mesh", "compressed_mesh"], "Two compressed-mesh bodies")
+    assert TT.is_eq([len(s.verts) for s in shapes], [327, 82], "Merged vertex counts")
+    assert TT.is_eq([len(s.faces) for s in shapes], [386, 118], "Merged triangle counts")
+
+    packed = pack_shapes(shapes)
+    assert TT.is_gt(len(packed), 0, "pack_shapes produced non-empty bytes")
+    assert TT.is_eq(_cm_tree_problems(packed), [], "Both CM bodies have valid BVHs")
+
+    out = parse_bytes(packed)
+    assert TT.is_eq([s.shape_type for s in out],
+                    ["compressed_mesh", "compressed_mesh"], "Round-trip keeps two CM bodies")
+    assert TT.is_eq([len(s.faces) for s in out], [386, 118],
+                    "Round-trip preserves triangle counts")
+    for src, chk in zip(shapes, out):
+        max_offset, area_ratio, centroid_shift = _compare_collision_geometry(src, chk)
+        step = _quantization_step(src)
+        assert TT.is_lt(max_offset, step, "Round-trip moves no vertex past one quantization step")
+        assert TT.is_equiv(area_ratio, 1.0, "Round-trip preserves total triangle area", e=0.01)
+        assert TT.is_lt(centroid_shift, step, "Round-trip preserves the centroid")
 
 
 @test_category("FO4", "PHYSICS")

@@ -557,29 +557,48 @@ _CONVEX_HDR = bytes([
 assert len(_CONVEX_HDR) == 0x30
 
 # hknpCompressedMeshShape header (0xC0 bytes).
+#
+# Class layout (hk2014 SDK, via Grimrukh/soulstruct-havok):
+#   hknpShape          +0x10 flags u16, +0x12 numShapeKeyBits u8,
+#                      +0x13 dispatchType u8, +0x14 convexRadius f32,
+#                      +0x18 userData u64, +0x20 properties ptr
+#   hknpCompositeShape +0x30 edgeWeldingMap (hknpSparseCompactMap, 0x28 bytes:
+#                        +0x30 secondaryKeyMask u32, +0x34 secondaryKeyBits u32,
+#                        +0x38 primaryKeyToIndex hkArray<u16>,
+#                        +0x48 valueAndSecondaryKeys hkArray<u16>)
+#                      +0x58 shapeTagCodecInfo u32
+#   hknpCompressedMeshShape
+#                      +0x60 data ptr, +0x68 quadIsFlat hkBitField,
+#                      +0x80 triangleIsInterior hkBitField
+#
 # Global fixups at +0x20 (→ hkRefCountedProperties) and +0x60 (→ ShapeData)
 # patch those pointer fields at load time; they are left as zeros here.
+# numShapeKeyBits (+0x12) is per-shape and is patched by _write_cm_shape.
 _CM_SHAPE_HDR = bytes([
     # +0x00: vtable ptr (null, runtime-patched)
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
     # +0x08: parent class ptr (null)
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    # +0x10: type flags
-    0x04,0x02,0x07,0x02, 0x00,0x00,0x00,0x00,
-    # +0x18: version hash
+    # +0x10: flags 0x0204, numShapeKeyBits (patched), dispatchType 0x02
+    0x04,0x02,0x00,0x02, 0x00,0x00,0x00,0x00,
+    # +0x18: userData
     0x15,0x7d,0x06,0x26, 0x00,0x00,0x00,0x00,
     # +0x20: hkRefCountedProperties ptr (null, global fixup)
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
     # +0x28: zeros
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    # +0x30: sentinel 0xFFFFFFFF + 12 zeros
+    # +0x30: edgeWeldingMap — secondaryKeyMask 0xFFFFFFFF, secondaryKeyBits 0,
+    #        then primaryKeyToIndex (ptr/size at +0x38/+0x40, cap at +0x44)
     0xff,0xff,0xff,0xff, 0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    # +0x40..+0x5F: zeros
+    # +0x40: primaryKeyToIndex size 0, capacityAndFlags = DONT_DEALLOCATE
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x80,
+    # +0x48: valueAndSecondaryKeys ptr (null)
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x50: valueAndSecondaryKeys size 0, capacityAndFlags = DONT_DEALLOCATE
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x80,
+    # +0x58: shapeTagCodecInfo = 0xFFFFFFFF ("none"), 4 pad bytes
+    0xff,0xff,0xff,0xff, 0x00,0x00,0x00,0x00,
     # +0x60: ShapeData ptr (null, global fixup)
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
     # +0x68..+0x8F: zeros (5 rows × 8 bytes = 40 bytes)
@@ -588,8 +607,8 @@ _CM_SHAPE_HDR = bytes([
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    # +0x90: 0x44 byte + 15 zeros
-    0x44,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    # +0x90: triangleIsInterior numBits (patched) + padding
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
     # +0xA0..+0xBF: zeros
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
@@ -895,27 +914,302 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
     return bytes(data), fx
 
 
-# ── Compressed-mesh data section builder ─────────────────────────────────────
+# ── Compressed-mesh section splitting ────────────────────────────────────────
 
-def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
-                            name_offs: Dict[str, int],
-                            physics=None) -> Tuple[bytes, '_FixupBuilder']:
-    """Build the full __data__ section for a single-section compressed mesh packfile.
+# Per-section limits.  Vertices are indexed by single bytes in the quads and
+# counted by a u8 (numPackedVertices), so 255 is the ceiling.  Quads are limited
+# harder: a tree leaf stores its primitive as `index * 2` in a u8, so the
+# highest addressable quad index is 127.  Vanilla agrees — the most quads seen
+# in any vanilla section is 126.
+_CM_MAX_SECTION_VERTS = 255
+_CM_MAX_SECTION_QUADS = 127
 
-    Vertices are quantized with 11-11-10 bits (qx, qy: 0..2047; qz: 0..1023)
-    using the bounding box of the input vertex set as the quantization range.
-    Each triangle (a,b,c) is stored as a degenerate quad [a,b,c,c].
+# ── hkcdStaticTree node codecs ───────────────────────────────────────────────
+#
+# Both tree levels quantize a node's AABB against its PARENT's decoded AABB,
+# 4 bits per bound per axis, with a square-law curve:
+#
+#     min = (hi_nibble^2 / 226) * parent_span + parent_min
+#     max = parent_max - (lo_nibble^2 / 226) * parent_span
+#
+# Compression floors the nibbles, so a decoded box always CONTAINS the true box
+# — conservative, which is what a collision BVH needs.
+_CODEC_CURVE = 226.0
 
-    Constraints: nv ≤ 255, nt ≤ 255 (single-section limitation).
+
+# Two empty hkcdSimdTreeNodes (112 bytes each): an hkcdFourAabb whose six
+# 4-wide vectors alternate +FLT_MAX (the lo bounds) and -FLT_MAX (the hi
+# bounds), so all four boxes are empty, followed by four zero link words.
+_SIMD_TREE_NODE_SIZE = 112
+_SIMD_TREE_NODE_COUNT = 2
+_SIMD_TREE_EMPTY_NODES = (
+    (struct.pack('<4I', *([0x7F7FFFEE] * 4)) +
+     struct.pack('<4I', *([0xFF7FFFEE] * 4))) * 3 +
+    struct.pack('<4I', 0, 0, 0, 0)
+) * _SIMD_TREE_NODE_COUNT
+
+
+# hknpCompressedMeshShape carries two hkBitFields the engine reads while
+# querying the shape.  Leaving them empty crashes getLeafShapes; both must be
+# sized against the key space even when every bit is clear:
+#
+#   +0x68 quadIsFlat          bit per quad slot ((section << 7) | localQuad),
+#                             count = ceil(u78/32), u78 at +0x78 = (maxKey+2)//2
+#   +0x80 triangleIsInterior  bit per primitive key,
+#                             count = ceil(u90/32), u90 at +0x90 = maxKey+1
+#
+# quadIsFlat marks a quad the engine can test as one flat primitive.  Every
+# quad we write is degenerate (a triangle padded to [a,b,c,c]), and vanilla
+# clears the bit for all 16448/16448 degenerate quads it ships, so clear is the
+# correct value for us.  triangleIsInterior marks a triangle whose edges the
+# engine can skip when welding; vanilla leaves it clear ~87% of the time and the
+# true rule needs silhouette/dihedral tests we don't attempt, so clear — "treat
+# every edge as a boundary" — is both correct-conservative and what vanilla
+# writes for an isolated triangle.
+#
+# These were both filled with ones for a while, which masked a real bug: the
+# shape declared numShapeKeyBits = 7 regardless of its actual key width, so the
+# engine decoded a bogus quad index and dereferenced a null hkArray<u16> inside
+# getLeafShapes.  All-ones hid it because a set bit skips the lookup.  See
+# _write_cm_shape.
+_QUAD_IS_FLAT_FILL = 0x00000000
+_TRI_IS_INTERIOR_FILL = 0x00000000
+
+
+def _align4(n: int) -> int:
+    return (n + 3) & ~3
+
+
+def _align16(n: int) -> int:
+    return (n + 15) & ~15
+
+
+def _codec_compress_axis(mn: float, mx: float, pmn: float, pmz: float) -> int:
+    """Quantize one axis of a child AABB against the parent's extent."""
+    span = pmz - pmn
+    if span <= 0.0:
+        return 0
+    snorm = _CODEC_CURVE / span
+    lo = math.floor(math.sqrt(max((mn - pmn) * snorm, 0.0)))
+    hi = math.floor(math.sqrt(max((mx - pmz) * -snorm, 0.0)))
+    return (min(0xF, int(lo)) << 4) | min(0xF, int(hi))
+
+
+def _codec_decompress_axis(byte: int, pmn: float, pmz: float):
+    """Inverse of _codec_compress_axis — the box the engine will actually see."""
+    span = pmz - pmn
+    lo, hi = byte >> 4, byte & 0xF
+    return (lo * lo / _CODEC_CURVE) * span + pmn, pmz - (hi * hi / _CODEC_CURVE) * span
+
+
+class _BVNode:
+    """A node in the temporary (uncompressed) BVH."""
+    __slots__ = ('mn', 'mx', 'prim', 'left', 'right')
+
+    def __init__(self, mn, mx, prim=None, left=None, right=None):
+        self.mn, self.mx = mn, mx
+        self.prim = prim           # leaf: primitive index; internal: None
+        self.left, self.right = left, right
+
+    @property
+    def is_leaf(self) -> bool:
+        return self.prim is not None
+
+
+def _build_bvh(boxes) -> '_BVNode':
+    """Build a binary BVH by median-splitting the longest axis.
+
+    boxes: list of (prim_index, aabb_min, aabb_max).  Every primitive becomes
+    exactly one leaf, so a set of N primitives yields 2N-1 nodes.
     """
-    nv = len(verts)
-    nt = len(tris)
-    assert nv > 0 and nt > 0
-    assert nv <= 255, f"pack_compressed_mesh: max 255 verts per section (got {nv})"
-    assert nt <= 255, f"pack_compressed_mesh: max 255 quads per section (got {nt})"
+    def bounds(items):
+        mn = tuple(min(b[1][a] for b in items) for a in range(3))
+        mx = tuple(max(b[2][a] for b in items) for a in range(3))
+        return mn, mx
 
-    fx = _FixupBuilder()
-    data = bytearray()
+    def rec(items) -> '_BVNode':
+        mn, mx = bounds(items)
+        if len(items) == 1:
+            return _BVNode(mn, mx, prim=items[0][0])
+        axis = max(range(3), key=lambda a: mx[a] - mn[a])
+        items.sort(key=lambda b: b[1][axis] + b[2][axis])
+        half = len(items) // 2
+        return _BVNode(mn, mx, left=rec(items[:half]), right=rec(items[half:]))
+
+    return rec(list(boxes))
+
+
+def _emit_axis4_tree(root: '_BVNode', dmn, dmx) -> List[bytes]:
+    """Compress a BVH into hkcdStaticTree::Codec3Axis4 nodes (4 bytes each).
+
+    data byte: even → leaf, primitive = data >> 1
+               odd  → internal, left = i + 1, right = i + (data & 0xFE)
+    """
+    out: List[List[int]] = []
+
+    def rec(node, pmn, pmz):
+        idx = len(out)
+        xyz = [_codec_compress_axis(node.mn[a], node.mx[a], pmn[a], pmz[a])
+               for a in range(3)]
+        out.append([xyz[0], xyz[1], xyz[2], 0])
+        # Children quantize against THIS node's decoded box, not its true box.
+        dec = [_codec_decompress_axis(xyz[a], pmn[a], pmz[a]) for a in range(3)]
+        cmn = tuple(d[0] for d in dec)
+        cmx = tuple(d[1] for d in dec)
+        if node.is_leaf:
+            out[idx][3] = (node.prim * 2) & 0xFF
+        else:
+            rec(node.left, cmn, cmx)
+            offset = len(out) - idx        # always even: left subtree is odd-sized
+            assert offset <= 0xFE, f"Codec3Axis4 right-child offset {offset} > 254"
+            out[idx][3] = offset | 1
+            rec(node.right, cmn, cmx)
+
+    rec(root, dmn, dmx)
+    return [bytes(n) for n in out]
+
+
+def _emit_axis5_tree(root: '_BVNode', dmn, dmx) -> List[bytes]:
+    """Compress a BVH into hkcdStaticTree::Codec3Axis5 nodes (5 bytes each).
+
+    hiData bit 7 set → internal, and (hiData<<8|loData) & 0x7FFF is HALF the
+    offset to the right child.  Leaves store the primitive index outright.
+    The root's bounds are written as zeros (it spans the whole domain).
+    """
+    out: List[List[int]] = []
+
+    def rec(node, pmn, pmz, is_root=False):
+        idx = len(out)
+        xyz = [_codec_compress_axis(node.mn[a], node.mx[a], pmn[a], pmz[a])
+               for a in range(3)]
+        out.append([xyz[0], xyz[1], xyz[2], 0, 0])
+        dec = [_codec_decompress_axis(xyz[a], pmn[a], pmz[a]) for a in range(3)]
+        cmn = tuple(d[0] for d in dec)
+        cmx = tuple(d[1] for d in dec)
+        if node.is_leaf:
+            data = node.prim
+            out[idx][3] = (data >> 8) & 0x7F
+            out[idx][4] = data & 0xFF
+        else:
+            rec(node.left, cmn, cmx)
+            data = (len(out) - idx) // 2
+            out[idx][3] = ((data >> 8) & 0x7F) | 0x80
+            out[idx][4] = data & 0xFF
+            rec(node.right, cmn, cmx)
+        if is_root:
+            out[idx][0] = out[idx][1] = out[idx][2] = 0
+
+    rec(root, dmn, dmx, is_root=True)
+    return [bytes(n) for n in out]
+
+
+def _split_cm_sections(verts: List[Vert3],
+                       tris: List[Face]) -> List[Tuple[List[Vert3], List[Face]]]:
+    """Partition a triangle mesh into sections that fit the per-section limits.
+
+    Returns a list of (section_verts, section_tris) where every section has at
+    most 255 verts and 255 triangles, and section_tris index section_verts.
+    Vertices shared between sections are duplicated into each — cheaper than
+    the shared-vertex (shidx) indirection vanilla uses, and the decoder treats
+    both the same way.
+
+    Triangles are grouped by recursive spatial bisection (split the longest
+    axis of the centroid bounds at the median) so each section stays compact,
+    which keeps its quantization fine.
+
+    A mesh that already fits in one section is returned unchanged, vertex order
+    and triangle order intact, so small collisions pack exactly as before.
+    That fast path also keeps vertices no triangle references; the split path
+    drops them, since sections are built up from the triangles.  Vanilla pads
+    its vertex arrays with unused slots (often at the origin), so dropping them
+    tightens the shape's bounds onto its actual geometry.
+    """
+    if len(verts) <= _CM_MAX_SECTION_VERTS and len(tris) <= _CM_MAX_SECTION_QUADS:
+        return [(list(verts), [tuple(int(i) for i in t[:3]) for t in tris])]
+
+    tri_idx = [[int(i) for i in t[:3]] for t in tris]
+    centroids = [tuple(sum(verts[i][a] for i in t) / 3.0 for a in range(3))
+                 for t in tri_idx]
+
+    groups: List[List[int]] = []
+
+    def bisect(group: List[int]) -> None:
+        if (len(group) <= _CM_MAX_SECTION_QUADS
+                and len({i for ti in group for i in tri_idx[ti]})
+                    <= _CM_MAX_SECTION_VERTS):
+            groups.append(group)
+            return
+
+        # Split the longest axis of the centroid bounds at the median.
+        spans = [(max(centroids[t][a] for t in group)
+                  - min(centroids[t][a] for t in group), a) for a in range(3)]
+        _, axis = max(spans)
+        # A median split always leaves both halves non-empty (a group this big
+        # has at least two triangles), so the recursion always terminates —
+        # even when every centroid is identical and the sort is a no-op.
+        ordered = sorted(group, key=lambda t: centroids[t][axis])
+        half = len(ordered) // 2
+        bisect(ordered[:half])
+        bisect(ordered[half:])
+
+    bisect(list(range(len(tri_idx))))
+
+    sections: List[Tuple[List[Vert3], List[Face]]] = []
+    for group in groups:
+        assert len(group) <= _CM_MAX_SECTION_QUADS
+        sec_verts: List[Vert3] = []
+        sec_tris: List[Face] = []
+        vmap: Dict[int, int] = {}       # global vert index → index within section
+        for ti in group:
+            local = []
+            for g in tri_idx[ti]:
+                if g not in vmap:
+                    vmap[g] = len(sec_verts)
+                    sec_verts.append(verts[g])
+                local.append(vmap[g])
+            sec_tris.append(tuple(local))
+        assert len(sec_verts) <= _CM_MAX_SECTION_VERTS
+        sections.append((sec_verts, sec_tris))
+    return sections
+
+
+def _quantize_section(verts: List[Vert3]):
+    """Return (aabb_min, aabb_max, scale, packed) for one section's vertices.
+
+    Vertices are quantized to 11-11-10 bits (qx, qy: 0..2047; qz: 0..1023)
+    against the section's own bounding box, so splitting a mesh into sections
+    also tightens its quantization.
+    """
+    mn = tuple(min(v[i] for v in verts) for i in range(3))
+    mx = tuple(max(v[i] for v in verts) for i in range(3))
+    max_q = (2047, 2047, 1023)
+    scale = tuple((mx[i] - mn[i]) / max_q[i] if mx[i] > mn[i] else 1.0
+                  for i in range(3))
+
+    packed: List[int] = []
+    for v in verts:
+        q = [0, 0, 0]
+        for i in range(3):
+            if mx[i] > mn[i]:
+                q[i] = min(max_q[i], max(0, round((v[i] - mn[i]) / scale[i])))
+        packed.append(q[0] | (q[1] << 11) | (q[2] << 22))
+    return mn, mx, scale, packed
+
+
+# ── Compressed-mesh shape writer ─────────────────────────────────────────────
+
+def _write_cm_shape(data: bytearray, fx: '_FixupBuilder',
+                    name_offs: Dict[str, int],
+                    verts: List[Vert3], tris: List[Face],
+                    body_cinfo_rel: int, shape_entry_rel: int) -> None:
+    """Append one hknpCompressedMeshShape body to a __data__ section.
+
+    Writes the shape header, its hkRefCountedProperties/hknpBSMaterialProperties,
+    and an hknpCompressedMeshShapeData split into as many sections as the
+    geometry needs.  body_cinfo_rel/shape_entry_rel are THIS body's entries in
+    the PSD prefix.
+    """
+    assert len(verts) > 0 and len(tris) > 0
 
     def rel() -> int:
         return len(data)
@@ -924,10 +1218,6 @@ def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
         off = rel()
         data.extend(b)
         return off
-
-    # ── PSD prefix
-    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
-        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
 
     # ── hknpCompressedMeshShape (0xC0 bytes) ───────────────────────────────
     shape_rel = rel()
@@ -954,90 +1244,264 @@ def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
     write(_BS_MAT_PROPS)
     fx.add_global(refprop_rel + 0x10, 2, bs_mat_rel)
     fx.add_virtual(bs_mat_rel, 0, name_offs['hknpBSMaterialProperties'])
+    # The hkArray at +0x10 has a non-zero count and its entries live inside the
+    # object at +0x20.  Without this fixup the pointer stays null and the engine
+    # dereferences it while loading the packfile.
+    fx.add_local(bs_mat_rel + 0x10, bs_mat_rel + 0x20)
     while rel() % 16:
         data.append(0)
 
-    # ── Vertex AABB and quantization scales ────────────────────────────────
-    xs = [v[0] for v in verts]
-    ys = [v[1] for v in verts]
-    zs = [v[2] for v in verts]
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
-    min_z, max_z = min(zs), max(zs)
+    # ── Split into sections and encode each one ────────────────────────────
+    sections = _split_cm_sections(verts, tris)
+    encoded = [(s_tris,) + _quantize_section(s_verts) for s_verts, s_tris in sections]
 
-    def _safe_scale(mn: float, mx: float, max_q: int) -> float:
-        return (mx - mn) / max_q if mx > mn else 1.0
+    total_quads = sum(len(t) for t, _, _, _, _ in encoded)
+    total_verts = sum(len(p) for _, _, _, _, p in encoded)
+    n_sec = len(encoded)
 
-    sx = _safe_scale(min_x, max_x, 2047)
-    sy = _safe_scale(min_y, max_y, 2047)
-    sz = _safe_scale(min_z, max_z, 1023)
+    # Whole-shape AABB spans every section.
+    dmn = tuple(min(mn[a] for _, mn, _, _, _ in encoded) for a in range(3))
+    dmx = tuple(max(mx[a] for _, _, mx, _, _ in encoded) for a in range(3))
 
-    # ── Encode vertices as 11-11-10 packed u32 ─────────────────────────────
-    packed_verts: List[int] = []
-    for x, y, z in verts:
-        qx = min(2047, max(0, round((x - min_x) / sx))) if sx != 1.0 or min_x != max_x else 0
-        qy = min(2047, max(0, round((y - min_y) / sy))) if sy != 1.0 or min_y != max_y else 0
-        qz = min(1023, max(0, round((z - min_z) / sz))) if sz != 1.0 or min_z != max_z else 0
-        packed_verts.append(qx | (qy << 11) | (qz << 22))
+    # ── Per-section BVHs (Codec3Axis4) ─────────────────────────────────────
+    # The engine walks these at load; leaving them empty is a null-pointer
+    # crash inside hkcdStaticMeshTree, not merely a slow query.
+    sec_trees: List[List[bytes]] = []
+    for s_tris, mn, mx, scale, packed in encoded:
+        # Build against the DEQUANTIZED positions — what the engine actually
+        # sees.  Using the pre-quantization positions yields node boxes that are
+        # a fraction too tight, so a decoded vertex can sit outside its own leaf.
+        s_verts = [(mn[0] + (p & 0x7FF) * scale[0],
+                    mn[1] + ((p >> 11) & 0x7FF) * scale[1],
+                    mn[2] + ((p >> 22) & 0x3FF) * scale[2]) for p in packed]
+        boxes = []
+        for qi, tri in enumerate(s_tris):
+            pts = [s_verts[i] for i in tri]
+            boxes.append((qi,
+                          tuple(min(p[a] for p in pts) for a in range(3)),
+                          tuple(max(p[a] for p in pts) for a in range(3))))
+        sec_trees.append(_emit_axis4_tree(_build_bvh(boxes), mn, mx))
 
-    # ── Encode triangles as degenerate quads [a,b,c,c] ────────────────────
-    quad_bytes = b''
-    for face in tris:
-        a, b, c = int(face[0]), int(face[1]), int(face[2])
-        quad_bytes += bytes([a, b, c, c])
+    # ── Top-level BVH over the sections (Codec3Axis5) ──────────────────────
+    top_tree = _emit_axis5_tree(
+        _build_bvh([(i, mn, mx) for i, (_, mn, mx, _, _) in enumerate(encoded)]),
+        dmn, dmx)
+    # Which top-level node is each section's leaf?  Leaves carry the section
+    # index in their data field; internal nodes have bit 15 set.
+    leaf_index = {}
+    for i, nd in enumerate(top_tree):
+        if not (nd[3] & 0x80):
+            leaf_index[((nd[3] & 0x7F) << 8) | nd[4]] = i
 
-    # ── Compute array positions for local fixups ───────────────────────────
-    sd_rel           = rel()          # start of ShapeData header
-    sections_data_rel = sd_rel + 0xA0           # immediately after 0xA0 header
-    quads_data_rel    = sections_data_rel + 0x60  # after 1 section struct
-    verts_data_rel    = quads_data_rel + len(quad_bytes)
+    # One data run per section covering all its quads, all one material.
+    # Run = {u16 value, u8 index, u8 count}.
+    n_runs = n_sec
 
-    # ── hknpCompressedMeshShapeData header (0xA0 bytes) ───────────────────
+    # A primitive key is (sectionIndex << 8) | (localQuadIndex << 1) | triInQuad
+    # — the section index sits ABOVE an 8-bit local field, which is the other
+    # reason a section cannot hold more than 127 quads.  The highest key
+    # therefore comes from the LAST section's last quad, not from a global quad
+    # count; getting this wrong truncates bitsPerKey and the engine then decodes
+    # a bogus section index (verified against 2998/3000 vanilla shapes).
+    n_keys = total_quads
+    last_nq = len(encoded[-1][0]) if encoded else 0
+    max_key = (((n_sec - 1) << 8) | ((last_nq - 1) << 1)) if last_nq else 0
+    bits_per_key = (max_key + 1).bit_length()
+
+    # ── Lay out the variable-length blocks after the 0xD0 header ───────────
+    sd_rel        = rel()
+    top_rel       = sd_rel + 0xD0
+    sections_rel  = _align16(top_rel + 5 * len(top_tree))
+    sectree_rel   = sections_rel + 0x60 * n_sec
+    sectree_offs  = []
+    off = sectree_rel
+    for t in sec_trees:
+        sectree_offs.append(off)
+        off += 4 * len(t)
+    quads_rel     = _align4(off)
+    runs_rel      = quads_rel + 4 * total_quads
+    verts_rel     = runs_rel + 4 * n_runs
+    simd_rel      = _align16(verts_rel + 4 * total_verts)
+    # Shape-level bitmaps, sized against OUR key space (not the source mesh's —
+    # we section differently, so the key space differs).
+    n_quad_slots  = (max_key + 2) // 2
+    n_key_slots   = max_key + 1
+    words_a       = (n_quad_slots + 31) // 32
+    words_b       = (n_key_slots + 31) // 32
+    tbl_a_rel     = _align16(simd_rel + _SIMD_TREE_NODE_SIZE * _SIMD_TREE_NODE_COUNT)
+    tbl_b_rel     = _align4(tbl_a_rel + 4 * words_a)
+
+    # ── hknpCompressedMeshShapeData / meshTree header (0xD0 bytes) ─────────
     fx.add_virtual(sd_rel, 0, name_offs['hknpCompressedMeshShapeData'])
     fx.add_global(shape_data_ptr_rel, 2, sd_rel)
 
-    sd_hdr = bytearray(0xA0)
-    struct.pack_into('<QII', sd_hdr, 0x00, 0, 0, 0x80000000)  # empty hkArray
-    struct.pack_into('<QII', sd_hdr, 0x10, 0, 0, 0x80000000)  # hkArray<Section*> (empty)
-    struct.pack_into('<ffff', sd_hdr, 0x20, min_x, min_y, min_z, 0.0)  # aabb_min
-    struct.pack_into('<ffff', sd_hdr, 0x30, max_x, max_y, max_z, 0.0)  # aabb_max
-    struct.pack_into('<QII', sd_hdr, 0x40, 0, 0, 0x80000000)  # unknown (zeros)
-    struct.pack_into('<QII', sd_hdr, 0x50, 0, 1, 1 | 0x80000000)       # sections (count=1)
-    struct.pack_into('<QII', sd_hdr, 0x60, 0, nt, nt | 0x80000000)     # quads (count=nt)
-    struct.pack_into('<QII', sd_hdr, 0x70, 0, 0, 0x80000000)           # shidx (empty)
-    struct.pack_into('<QII', sd_hdr, 0x80, 0, nv, nv | 0x80000000)     # verts (count=nv)
-    struct.pack_into('<QII', sd_hdr, 0x90, 0, 0, 0x80000000)           # sharedVerts (empty)
-    write(bytes(sd_hdr))
-    assert rel() == sd_rel + 0xA0
+    sd = bytearray(0xD0)
+    struct.pack_into('<QII', sd, 0x00, 0, 0, 0x80000000)   # hkReferencedObject
+    struct.pack_into('<QII', sd, 0x10, 0, len(top_tree),
+                     len(top_tree) | 0x80000000)           # meshTree nodes (Axis5)
+    struct.pack_into('<ffff', sd, 0x20, dmn[0], dmn[1], dmn[2], 0.0)   # domain min
+    struct.pack_into('<ffff', sd, 0x30, dmx[0], dmx[1], dmx[2], 0.0)   # domain max
+    struct.pack_into('<iiI', sd, 0x40, n_keys, bits_per_key, max_key)
+    struct.pack_into('<QII', sd, 0x50, 0, n_sec, n_sec | 0x80000000)   # sections
+    struct.pack_into('<QII', sd, 0x60, 0, total_quads,
+                     total_quads | 0x80000000)                         # primitives
+    struct.pack_into('<QII', sd, 0x70, 0, 0, 0x80000000)               # shidx
+    struct.pack_into('<QII', sd, 0x80, 0, total_verts,
+                     total_verts | 0x80000000)                         # packedVertices
+    struct.pack_into('<QII', sd, 0x90, 0, 0, 0x80000000)               # sharedVertices
+    struct.pack_into('<QII', sd, 0xA0, 0, n_runs, n_runs | 0x80000000)  # dataRuns
+    # simdTree (+0xB0): an hkArray at +0xB8 holding two empty-AABB nodes.  The
+    # count must be matched by real data — vanilla points it at 32 bytes of
+    # +/-FLT_MAX sentinels — or the engine dereferences a null pointer.
+    struct.pack_into('<II', sd, 0xC0, _SIMD_TREE_NODE_COUNT,
+                     _SIMD_TREE_NODE_COUNT | 0x80000000)
+    write(bytes(sd))
+    assert rel() == sd_rel + 0xD0
 
-    # Local fixups: ptr fields of the three populated hkArrays
-    fx.add_local(sd_rel + 0x50, sections_data_rel)
-    fx.add_local(sd_rel + 0x60, quads_data_rel)
-    fx.add_local(sd_rel + 0x80, verts_data_rel)
+    fx.add_local(sd_rel + 0x10, top_rel)
+    fx.add_local(sd_rel + 0x50, sections_rel)
+    fx.add_local(sd_rel + 0x60, quads_rel)
+    fx.add_local(sd_rel + 0x80, verts_rel)
+    fx.add_local(sd_rel + 0xA0, runs_rel)
+    fx.add_local(sd_rel + 0xB8, simd_rel)
 
-    # ── Section struct (0x60 bytes) ────────────────────────────────────────
-    sec = bytearray(0x60)
-    struct.pack_into('<QII', sec, 0x00, 0, 0, 0x80000000)       # treeNodes (empty)
-    struct.pack_into('<ffff', sec, 0x10, min_x, min_y, min_z, 0.0)  # aabb_min
-    struct.pack_into('<ffff', sec, 0x20, max_x, max_y, max_z, 0.0)  # aabb_max
-    struct.pack_into('<fff',  sec, 0x30, min_x, min_y, min_z)       # base
-    struct.pack_into('<fff',  sec, 0x3C, sx, sy, sz)                # scale X/Y/Z
-    struct.pack_into('<I',    sec, 0x48, 0)                         # firstPackedVertex
-    struct.pack_into('<I',    sec, 0x4C, nv)   # (0 << 8) | nv — firstShidx=0, numPacked=nv
-    struct.pack_into('<I',    sec, 0x50, nt)   # (0 << 8) | nt — firstQuad=0, numQuads=nt
-    write(bytes(sec))
-    assert rel() == sections_data_rel + 0x60
+    # ── Top-level tree nodes ───────────────────────────────────────────────
+    for nd in top_tree:
+        data.extend(nd)
+    while rel() < sections_rel:
+        data.append(0)
 
-    # ── Quad data ──────────────────────────────────────────────────────────
-    write(quad_bytes)
-    assert rel() == verts_data_rel
+    # ── Section structs (0x60 bytes each) ──────────────────────────────────
+    first_vert = 0
+    first_quad = 0
+    for i, (s_tris, mn, mx, scale, packed) in enumerate(encoded):
+        nv, nt = len(packed), len(s_tris)
+        assert nv <= _CM_MAX_SECTION_VERTS and nt <= _CM_MAX_SECTION_QUADS
+
+        sec = bytearray(0x60)
+        struct.pack_into('<QII', sec, 0x00, 0, len(sec_trees[i]),
+                         len(sec_trees[i]) | 0x80000000)          # treeNodes
+        fx.add_local(sections_rel + i * 0x60, sectree_offs[i])
+        struct.pack_into('<ffff', sec, 0x10, mn[0], mn[1], mn[2], 0.0)  # domain min
+        struct.pack_into('<ffff', sec, 0x20, mx[0], mx[1], mx[2], 0.0)  # domain max
+        struct.pack_into('<fff',  sec, 0x30, mn[0], mn[1], mn[2])       # codecParms base
+        struct.pack_into('<fff',  sec, 0x3C, *scale)                    # codecParms scale
+        struct.pack_into('<I',    sec, 0x48, first_vert)                # firstPackedVertex
+        # +0x4C packs (firstSharedVertexIndex << 8) | numPackedVertices; with no
+        # shared vertices the index is 0, so this is just the count.  Vanilla
+        # stores the count here AND at +0x58 — write both.
+        struct.pack_into('<I',    sec, 0x4C, nv)                        # sharedVertices
+        struct.pack_into('<I',    sec, 0x50, (first_quad << 8) | nt)    # primitives
+        struct.pack_into('<I',    sec, 0x54, (i << 8) | 1)              # dataRuns
+        sec[0x58] = nv                                                  # numPackedVertices
+        sec[0x59] = 0                                                   # numSharedIndices
+        struct.pack_into('<H', sec, 0x5A, leaf_index.get(i, 0))         # leafIndex
+        sec[0x5C] = 0                                                   # page
+        sec[0x5D] = 0                                                   # flags (vanilla: 0)
+        write(bytes(sec))
+
+        first_vert += nv
+        first_quad += nt
+    assert rel() == sectree_rel
+
+    # ── Per-section tree nodes ─────────────────────────────────────────────
+    for t in sec_trees:
+        for nd in t:
+            data.extend(nd)
+    while rel() < quads_rel:
+        data.append(0)
+
+    # ── Quad data: each triangle (a,b,c) is a degenerate quad [a,b,c,c] ────
+    for s_tris, _, _, _, _ in encoded:
+        for a, b, c in s_tris:
+            data.extend(bytes([a, b, c, c]))
+    assert rel() == runs_rel
+
+    # ── Primitive data runs: one per section, covering all of its quads ────
+    for s_tris, _, _, _, _ in encoded:
+        data.extend(struct.pack('<HBB', 0, 0, len(s_tris)))
+    assert rel() == verts_rel
 
     # ── Packed vertex data ─────────────────────────────────────────────────
-    for pv in packed_verts:
-        data.extend(struct.pack('<I', pv))
+    for _, _, _, _, packed in encoded:
+        for pv in packed:
+            data.extend(struct.pack('<I', pv))
+    while rel() < simd_rel:
+        data.append(0)
+
+    # ── simdTree nodes ─────────────────────────────────────────────────────
+    # Every vanilla compressed mesh — from a single-quad floor to the 123-section
+    # Diamond City ground — carries exactly two hkcdSimdTreeNodes, both empty.
+    # A node is 112 bytes: an hkcdFourAabb (lx,hx,ly,hy,lz,hz as 4-wide vectors)
+    # plus 4 link words.  Empty means min = +FLT_MAX, max = -FLT_MAX, links 0.
+    # The count must be backed by the full 224 bytes; short-changing it sends
+    # hkcdSimdTree::rayCast off the end of the buffer.
+    assert rel() == simd_rel
+    data.extend(_SIMD_TREE_EMPTY_NODES)
+
+    # ── quadIsFlat / triangleIsInterior bitfields ──────────────────────────
+    # Both are sized against the key space; leaving them empty makes
+    # getLeafShapes read through a null pointer once the engine queries us.
+    while rel() < tbl_a_rel:
+        data.append(0)
+    for _ in range(words_a):
+        data.extend(struct.pack('<I', _QUAD_IS_FLAT_FILL))
+    while rel() < tbl_b_rel:
+        data.append(0)
+    for _ in range(words_b):
+        data.extend(struct.pack('<I', _TRI_IS_INTERIOR_FILL))
+
+    struct.pack_into('<II', data, shape_rel + 0x70, words_a,
+                     words_a | 0x80000000)
+    struct.pack_into('<I',  data, shape_rel + 0x78, n_quad_slots)
+    struct.pack_into('<II', data, shape_rel + 0x88, words_b,
+                     words_b | 0x80000000)
+    struct.pack_into('<I',  data, shape_rel + 0x90, n_key_slots)
+    fx.add_local(shape_rel + 0x68, tbl_a_rel)
+    fx.add_local(shape_rel + 0x80, tbl_b_rel)
+
+    # hknpShape::numShapeKeyBits tells the engine how much of a shape key belongs
+    # to this shape.  It must equal the data's bitsPerKey (700/700 vanilla shapes)
+    # — a fixed value truncates or over-reads the key, the engine resolves a quad
+    # that isn't there, and getLeafShapes walks off the end of the shape.
+    assert bits_per_key <= 0xFF, f"numShapeKeyBits {bits_per_key} exceeds a byte"
+    data[shape_rel + 0x12] = bits_per_key
 
     while rel() % 16:
         data.append(0)
+
+
+# ── Compressed-mesh data section builder ─────────────────────────────────────
+
+def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
+                            name_offs: Dict[str, int],
+                            physics=None) -> Tuple[bytes, '_FixupBuilder']:
+    """Build the full __data__ section for a one-body compressed mesh packfile."""
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
+
+    _write_cm_shape(data, fx, name_offs, verts, tris,
+                    body_cinfo_rel, shape_entry_rel)
+
+    return bytes(data), fx
+
+
+def _build_multi_cm_data_section(cm_shapes, name_offs: Dict[str, int],
+                                 physics=None) -> Tuple[bytes, '_FixupBuilder']:
+    """Build the __data__ section for a packfile of N compressed-mesh bodies."""
+    fx = _FixupBuilder()
+    data = bytearray()
+
+    body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
+        data, fx, name_offs['hknpPhysicsSystemData'],
+        physics=physics, num_bodies=len(cm_shapes))
+
+    for i, s in enumerate(cm_shapes):
+        _write_cm_shape(data, fx, name_offs, s.verts, s.faces,
+                        body_cinfo_rel + i * 0x60, shape_entry_rel + i * 0x10)
 
     return bytes(data), fx
 
@@ -1050,12 +1514,6 @@ def _build_mixed_data_section(
         name_offs: Dict[str, int],
         physics=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build __data__ section for a two-body packfile: CM body + polytope body."""
-    nv_cm = len(cm_verts)
-    nt_cm = len(cm_tris)
-    assert nv_cm > 0 and nt_cm > 0
-    assert nv_cm <= 255, f"pack_mixed CM: max 255 verts per section (got {nv_cm})"
-    assert nt_cm <= 255, f"pack_mixed CM: max 255 quads per section (got {nt_cm})"
-
     fx = _FixupBuilder()
     data = bytearray()
 
@@ -1072,101 +1530,9 @@ def _build_mixed_data_section(
         data, fx, name_offs['hknpPhysicsSystemData'],
         physics=physics, num_bodies=2)
 
-    # ── hknpCompressedMeshShape (0xC0 bytes) ─────────────────────────────────
-    cm_shape_rel = rel()
-    write(_CM_SHAPE_HDR)
-    assert rel() == cm_shape_rel + 0xC0
-
-    fx.add_virtual(cm_shape_rel, 0, name_offs['hknpCompressedMeshShape'])
-    fx.add_global(body_cinfo_rel + 0x00, 2, cm_shape_rel)          # BodyCInfo[0] shape ptr
-    fx.add_global(shape_entry_rel + 0x00, 2, cm_shape_rel)         # ShapeEntry[0] ptr
-    cm_refprop_ptr_rel  = cm_shape_rel + 0x20
-    cm_shapedata_ptr_rel = cm_shape_rel + 0x60
-
-    # ── hkRefCountedProperties for CM (0x20 bytes) ───────────────────────────
-    cm_refprop_rel = rel()
-    write(_REF_COUNTED_PROPS)
-    fx.add_virtual(cm_refprop_rel, 0, name_offs['hkRefCountedProperties'])
-    fx.add_local(cm_refprop_rel + 0x00, cm_refprop_rel + 0x10)
-    fx.add_global(cm_refprop_ptr_rel, 2, cm_refprop_rel)
-    while rel() % 16:
-        data.append(0)
-
-    # ── hknpBSMaterialProperties (0x50 bytes) ────────────────────────────────
-    bs_mat_rel = rel()
-    write(_BS_MAT_PROPS)
-    fx.add_global(cm_refprop_rel + 0x10, 2, bs_mat_rel)
-    fx.add_virtual(bs_mat_rel, 0, name_offs['hknpBSMaterialProperties'])
-    while rel() % 16:
-        data.append(0)
-
-    # ── CM ShapeData: quantise and encode ─────────────────────────────────────
-    xs = [v[0] for v in cm_verts]
-    ys = [v[1] for v in cm_verts]
-    zs = [v[2] for v in cm_verts]
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
-    min_z, max_z = min(zs), max(zs)
-    sx = (max_x - min_x) / 2047 if max_x > min_x else 1.0
-    sy = (max_y - min_y) / 2047 if max_y > min_y else 1.0
-    sz = (max_z - min_z) / 1023 if max_z > min_z else 1.0
-
-    packed_verts_cm: List[int] = []
-    for x, y, z in cm_verts:
-        qx = min(2047, max(0, round((x - min_x) / sx))) if sx != 1.0 or min_x != max_x else 0
-        qy = min(2047, max(0, round((y - min_y) / sy))) if sy != 1.0 or min_y != max_y else 0
-        qz = min(1023, max(0, round((z - min_z) / sz))) if sz != 1.0 or min_z != max_z else 0
-        packed_verts_cm.append(qx | (qy << 11) | (qz << 22))
-
-    quad_bytes = b''
-    for face in cm_tris:
-        a, b, c = int(face[0]), int(face[1]), int(face[2])
-        quad_bytes += bytes([a, b, c, c])
-
-    sd_rel            = rel()
-    sections_data_rel = sd_rel + 0xA0
-    quads_data_rel    = sections_data_rel + 0x60
-    verts_data_rel    = quads_data_rel + len(quad_bytes)
-
-    fx.add_virtual(sd_rel, 0, name_offs['hknpCompressedMeshShapeData'])
-    fx.add_global(cm_shapedata_ptr_rel, 2, sd_rel)
-
-    sd_hdr = bytearray(0xA0)
-    struct.pack_into('<QII', sd_hdr, 0x00, 0, 0, 0x80000000)
-    struct.pack_into('<QII', sd_hdr, 0x10, 0, 0, 0x80000000)
-    struct.pack_into('<ffff', sd_hdr, 0x20, min_x, min_y, min_z, 0.0)
-    struct.pack_into('<ffff', sd_hdr, 0x30, max_x, max_y, max_z, 0.0)
-    struct.pack_into('<QII', sd_hdr, 0x40, 0, 0, 0x80000000)
-    struct.pack_into('<QII', sd_hdr, 0x50, 0, 1, 1 | 0x80000000)
-    struct.pack_into('<QII', sd_hdr, 0x60, 0, nt_cm, nt_cm | 0x80000000)
-    struct.pack_into('<QII', sd_hdr, 0x70, 0, 0, 0x80000000)
-    struct.pack_into('<QII', sd_hdr, 0x80, 0, nv_cm, nv_cm | 0x80000000)
-    struct.pack_into('<QII', sd_hdr, 0x90, 0, 0, 0x80000000)
-    write(bytes(sd_hdr))
-    assert rel() == sd_rel + 0xA0
-
-    fx.add_local(sd_rel + 0x50, sections_data_rel)
-    fx.add_local(sd_rel + 0x60, quads_data_rel)
-    fx.add_local(sd_rel + 0x80, verts_data_rel)
-
-    sec = bytearray(0x60)
-    struct.pack_into('<QII', sec, 0x00, 0, 0, 0x80000000)
-    struct.pack_into('<ffff', sec, 0x10, min_x, min_y, min_z, 0.0)
-    struct.pack_into('<ffff', sec, 0x20, max_x, max_y, max_z, 0.0)
-    struct.pack_into('<fff',  sec, 0x30, min_x, min_y, min_z)
-    struct.pack_into('<fff',  sec, 0x3C, sx, sy, sz)
-    struct.pack_into('<I',    sec, 0x48, 0)
-    struct.pack_into('<I',    sec, 0x4C, nv_cm)
-    struct.pack_into('<I',    sec, 0x50, nt_cm)
-    write(bytes(sec))
-
-    write(quad_bytes)
-    assert rel() == verts_data_rel
-
-    for pv in packed_verts_cm:
-        data.extend(struct.pack('<I', pv))
-    while rel() % 16:
-        data.append(0)
+    # ── Body 0: hknpCompressedMeshShape and its shape data ───────────────────
+    _write_cm_shape(data, fx, name_offs, cm_verts, cm_tris,
+                    body_cinfo_rel + 0x00, shape_entry_rel + 0x00)
 
     # ── hknpConvexPolytopeShape (variable) ───────────────────────────────────
     poly_shape_rel = rel()
@@ -1320,12 +1686,14 @@ def pack_compressed_mesh(verts: List[Vert3], tris: List[Face],
                          physics=None) -> bytes:
     """Build Havok packfile bytes from a triangle mesh using hknpCompressedMeshShape.
 
-    Vertices are quantized with 11-11-10 bits relative to the mesh bounding box.
-    Each triangle (a, b, c) is stored as a degenerate quad [a, b, c, c].
+    Each triangle (a, b, c) is stored as a degenerate quad [a, b, c, c].  A
+    section holds at most 255 verts and 255 quads, so larger meshes are split
+    across sections, each quantized to 11-11-10 bits against its own bounding
+    box.
 
     Args:
-        verts: List of (x, y, z) tuples in Havok space.  Maximum 255.
-        tris:  List of (a, b, c) triangle index tuples.  Maximum 255.
+        verts: List of (x, y, z) tuples in Havok space.
+        tris:  List of (a, b, c) triangle index tuples.
         physics: Optional PhysicsProps for mass/inertia/material.
 
     Returns:
@@ -1337,6 +1705,61 @@ def pack_compressed_mesh(verts: List[Vert3], tris: List[Face],
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
     obj_data, fx = _build_cm_data_section(verts, tris, name_offs, physics=physics)
+
+    local_tbl  = fx.build_local_table()
+    global_tbl = fx.build_global_table()
+    virt_tbl   = fx.build_virtual_table()
+
+    data_section = obj_data + local_tbl + global_tbl + virt_tbl
+
+    cn_start   = 0x100
+    cn_end     = cn_start + len(cn_data)
+    data_start = cn_end
+
+    local_fix_abs  = data_start + len(obj_data)
+    global_fix_abs = local_fix_abs  + len(local_tbl)
+    virt_fix_abs   = global_fix_abs + len(global_tbl)
+    data_end       = virt_fix_abs   + len(virt_tbl)
+
+    hdr = _file_header(cn_name_off)
+
+    shdr0 = _section_header(
+        '__classnames__', cn_start,
+        local_fix=cn_start + len(cn_data),
+        global_fix=cn_start + len(cn_data),
+        virt_fix=cn_start + len(cn_data),
+        exports=cn_start + len(cn_data),
+    )
+    shdr1 = _section_header(
+        '__types__', cn_end,
+        local_fix=cn_end, global_fix=cn_end,
+        virt_fix=cn_end,  exports=cn_end,
+    )
+    shdr2 = _section_header(
+        '__data__', data_start,
+        local_fix=local_fix_abs,
+        global_fix=global_fix_abs,
+        virt_fix=virt_fix_abs,
+        exports=data_end,
+    )
+
+    return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
+
+
+def pack_multi_cm(cm_shapes, physics=None) -> bytes:
+    """Build Havok packfile bytes for N bodies, each an hknpCompressedMeshShape.
+
+    Vanilla uses this for things like damaged architecture, where one physics
+    system carries several separate mesh bodies.
+
+    Args:
+        cm_shapes: List of CollisionShape objects, all shape_type=="compressed_mesh".
+        physics:   Optional PhysicsProps for mass/inertia/material.
+    """
+    cn_data, name_offs = _build_classnames_cm()
+    cn_name_off = name_offs['hknpPhysicsSystemData']
+
+    obj_data, fx = _build_multi_cm_data_section(cm_shapes, name_offs, physics=physics)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -1534,6 +1957,11 @@ def _build_compound_data_section(
     fx.add_global(shape_entry_rel + 0x00, 2, comp_rel)  # ShapeEntry.shape → compound
     struct.pack_into('<I', data, comp_rel + 0x68, N)                 # instance count
     struct.pack_into('<I', data, comp_rel + 0x6C, 0x80000000 | N)    # capacity flags
+    # hknpShape::numShapeKeyBits — the same rule as the compressed mesh: enough
+    # bits to cover the largest key this shape can hand out, whose maximum is
+    # N-1, so N.bit_length().  Verified against 1200/1200 vanilla compounds.
+    # A fixed value here lets the engine decode an instance that isn't there.
+    data[comp_rel + 0x12] = N.bit_length()
     align16()
 
     # ── Instance array (N × 0x80) ──
@@ -1740,6 +2168,7 @@ def pack_shapes(shapes) -> bytes:
 
     Supported shape compositions (matching what the decoder can produce):
       [compressed_mesh]             → pack_compressed_mesh (11-11-10 quantised)
+      [compressed_mesh, ...]        → pack_multi_cm (N-body all-CM)
       [polytope]                    → pack_convex_polytope (single body)
       [polytope, ...]               → pack_multi_polytope (N-body all-polytope)
       [compressed_mesh, polytope]   → pack_mixed (two-body)
@@ -1773,6 +2202,9 @@ def pack_shapes(shapes) -> bytes:
 
     if len(cm_list) == 0 and len(poly_list) == len(shapes):
         return pack_multi_polytope(poly_list, physics=physics)
+
+    if len(cm_list) == len(shapes):
+        return pack_multi_cm(cm_list, physics=physics)
 
     if len(cm_list) == 1 and len(poly_list) == 1 and len(shapes) == 2:
         return pack_mixed(cm_list[0], poly_list[0], physics=physics)
