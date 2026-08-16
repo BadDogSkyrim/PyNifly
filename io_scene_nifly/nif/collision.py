@@ -560,7 +560,7 @@ class CollisionHandler():
 
         Returns the collision anchor object, or None if data is unavailable.
         """
-        from ..pyn.bhk_autounpack import parse_bytes
+        from ..pyn.bhk_autounpack import parse_bytes, constraint_count
 
         ps = c.physics_system
         if ps is None:
@@ -577,6 +577,16 @@ class CollisionHandler():
                 self.warn(f"bhkPhysicsSystem decode failed: {e}")
                 return None
             self._physics_system_cache[ps.id] = parsed
+            # A constraint joins two bodies by their index within one system.
+            # Export gives each collision object a system of its own, so there
+            # is nowhere to put one even if we read it -- say so rather than
+            # quietly turning a hinged gib into loose parts.
+            nc = constraint_count(raw)
+            if nc:
+                self.warn(f"Collision has {nc} physics constraint"
+                          f"{'s' if nc > 1 else ''} (joints between bodies); "
+                          "PyNifly does not preserve them and they will be lost "
+                          "on export.")
 
         all_shapes = self._physics_system_cache[ps.id]
         body_id = c.body_id

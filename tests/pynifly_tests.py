@@ -5508,6 +5508,20 @@ def TEST_FO4_PHYSICS_SYSTEM():
         assert TT.is_eq(_psd_shape_pointer_problems(packed), [],
                         f"Every body reaches its shape in {os.path.basename(f)}")
 
+    # ---- constraints are visible, so losing them can be reported ----
+    # A constraint joins two bodies BY INDEX WITHIN ONE SYSTEM, which is the
+    # only thing a shared system carries that survives nowhere else: export
+    # gives each collision object its own system, so a joint between bodies
+    # could not be expressed even if we wrote it.  We don't, so the import has
+    # to say so rather than drop a hinge silently.
+    from pyn.bhk_autounpack import constraint_count
+    gib = _first_physics_system(
+        NifFile(r"tests/FO4/Meshes/Actors/FeralGhoul/CharacterAssets/GibAttachRThigh.nif"))
+    assert TT.is_eq(constraint_count(gib.data), 1,
+                    "the ghoul thigh gib's hinge constraint is counted")
+    assert TT.is_eq(constraint_count(_first_physics_system(nif).data), 0,
+                    "a system with no constraints counts none")
+
 
 @test_category("FO4", "PHYSICS")
 def TEST_FO4_CAPSULE_PHYSICS():

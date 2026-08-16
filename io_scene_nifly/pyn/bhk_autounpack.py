@@ -330,6 +330,35 @@ class CollisionShape:
     body_index: Optional[int] = None        # index into PSD body array
 
 
+def constraint_count(data: bytes) -> int:
+    """How many constraints a physics system's packfile declares.
+
+    hknpPhysicsSystemData +0x50 is `constraintCinfos`, an hkArray of 16-byte
+    entries: a constraintData pointer then bodyA and bodyB, each an index into
+    THIS system's body array (0x7FFFFFFF = the world).  PyNifly reads none of
+    it, and export gives every collision object its own system, so a joint
+    between two bodies has nowhere to live.  Callers use this to say so instead
+    of dropping a hinge without a word.
+
+    Returns 0 for anything that isn't a readable packfile.
+    """
+    try:
+        hk = data if data.startswith(HAVOK_MAGIC) else data[4:]
+        if not hk.startswith(HAVOK_MAGIC):
+            return 0
+        headers = parse_section_headers(hk)
+        dh = headers["__data__"]
+        objects = list(parse_virtual_fixups(
+            hk, dh, headers["__classnames__"].abs_start))
+        total = 0
+        for rel, cls in objects:
+            if "hknpPhysicsSystemData" in cls:
+                total += u32(hk, dh.abs_start + rel + 0x50 + 8) & 0x3FFFFFFF
+        return total
+    except Exception:
+        return 0
+
+
 def parse_body_transforms(
         data: bytes, data_start: int,
         fixups: Dict[int, int],
