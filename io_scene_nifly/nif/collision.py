@@ -490,15 +490,27 @@ class CollisionHandler():
 
         scaled_verts = [[x*sf, y*sf, z*sf] for x, y, z in xverts]
 
-        # Havok packfile quad data can contain duplicate faces;
-        # deduplicate to avoid Blender mesh validation errors.
+        # A collision surface is made solid from both sides by carrying the same
+        # triangle twice, wound opposite ways -- (0,1,2) and (2,1,0).  Blender
+        # cannot hold two faces on one set of vertex indices whatever their
+        # winding (mesh.validate() deletes the second regardless), so a repeat
+        # gets its own copy of the vertices instead of being dropped.  Dropping
+        # it turned a two-sided wall one-sided, silently.
+        #
+        # This costs vertices: the repeats no longer share the originals.  Havok
+        # shares them as an optimization, and we could rebuild that on export,
+        # but there is no reason to until something needs it.
         seen = set()
         faces = []
         for f in s.faces:
-            key = tuple(sorted(f))
-            if key not in seen:
-                seen.add(key)
-                faces.append(f)
+            key = frozenset(f)
+            if key in seen:
+                base = len(scaled_verts)
+                scaled_verts.extend(list(scaled_verts[i]) for i in f)
+                f = tuple(range(base, base + len(f)))
+                key = frozenset(f)
+            seen.add(key)
+            faces.append(f)
         m = bpy.data.meshes.new(name)
         m.from_pydata(scaled_verts, [], faces)
         m.update()
@@ -1500,9 +1512,17 @@ class CollisionHandler():
                 if ch.get('pynCollisionShapeType') in _SHAPE_TYPES:
                     shape_objs.append(ch)
 
+            # bodyID indexes the physics system's body array, and defaults to a
+            # sentinel that makes the engine index the array with 0xFFFFFFFF and
+            # write through whatever it lands on, inside
+            # bhkNPCollisionObject::CreateInstance while loading the cell.
+            # We write one system per collision object, so its bodies start at 0
+            # -- an id carried over from the source would be wrong here, because
+            # a node that named body 3 of a shared system now owns a private one.
             coll_node = targnode.add_collision(
                 None, flags=flags or 0,
-                collision_type=PynBufferTypes.bhkNPCollisionObjectBufType)
+                collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
+                body_id=0)
 
             if shape_objs:
                 # Build physics properties from the first shape object's

@@ -8766,8 +8766,22 @@ def TEST_COLLISION_FO4_POOLBALL():
     assert TT.is_equiv(chk_dim, orig_dim,
                         "Sphere size preserved after round-trip")
 
+    # bodyID indexes the physics system's body array. It defaults to a sentinel,
+    # and every FO4 collision we exported was keeping that default -- the engine
+    # then indexes the body array with 0xFFFFFFFF and writes through whatever it
+    # lands on, in bhkNPCollisionObject::CreateInstance, while loading the cell.
+    out_nif = pyn.NifFile(outfile)
+    for name, node in out_nif.nodes.items():
+        co = node.collision_object
+        if co is None or co.blockname != 'bhkNPCollisionObject':
+            continue
+        assert TT.is_neq(co.body_id, 0xFFFFFFFF,
+                         f"exported collision on {name} names a real body")
+
 
 @TT.category('FO4', 'PHYSICS')
+# DiamondBulkhead01 references a cubemap the test texture tree doesn't carry.
+@TT.expect_errors( ("Could not find texture", ) )
 def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     """FO4 bhkNPCollisionObject: import, export from mesh geometry, reimport and verify"""
     testfile = TTB.test_file(r"tests\FO4\InsFloorMat01.nif")
@@ -8821,6 +8835,33 @@ def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     chk_zs = [(chk.matrix_world @ v.co).z for v in chk.data.vertices]
     assert TT.is_equiv(min(chk_xs), min(orig_xs), "X min preserved", e=0.1)
     assert TT.is_equiv(max(chk_xs), max(orig_xs), "X max preserved", e=0.1)
+
+    # ---- back faces survive the round trip ----
+    # A collision surface is made solid from both sides by carrying the same
+    # triangle twice, wound opposite ways.  Blender cannot hold two faces on one
+    # set of vertex indices whatever the winding, and import used to drop the
+    # second -- turning a two-sided wall one-sided, silently.  Import now gives
+    # the repeat its own copy of the vertices, so the count comes back whole.
+    # DiamondBulkhead01: 16 collision triangles, 8 of them the reverse of another.
+    TTB.clear_all()
+    bkfile = TTB.test_file(
+        r"tests\FO4\Meshes\Architecture\DiamondCity\Stadium_Ext\DiamondBulkhead01.nif")
+    bkout = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_BACKFACES.nif")
+
+    src_tris = len(pyn.NifFile(bkfile).nodes['DiamondBulkhead01']
+                   .collision_object.physics_system.geometry[0].faces)
+    assert TT.is_eq(src_tris, 16, "vanilla collision has 16 triangles")
+
+    bpy.ops.import_scene.pynifly(filepath=bkfile)
+    bk = [o for o in bpy.data.objects if o.name.startswith('bhkPhysicsSystem')][0]
+    assert TT.is_eq(len(bk.data.polygons), 16,
+                    "every collision triangle survives import, back faces included")
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=bkout, target_game='FO4')
+    out_tris = len(pyn.NifFile(bkout).nodes['DiamondBulkhead01']
+                   .collision_object.physics_system.geometry[0].faces)
+    assert TT.is_eq(out_tris, 16, "and they are all exported again")
     assert TT.is_equiv(min(chk_ys), min(orig_ys), "Y min preserved", e=0.1)
     assert TT.is_equiv(max(chk_ys), max(orig_ys), "Y max preserved", e=0.1)
     assert TT.is_equiv(min(chk_zs), min(orig_zs), "Z min preserved", e=0.1)
