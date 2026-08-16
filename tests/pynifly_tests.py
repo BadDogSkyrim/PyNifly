@@ -5109,6 +5109,96 @@ def _cm_section_counts(packfile_bytes):
             for rel, cls in objects if "hknpCompressedMeshShapeData" in cls]
 
 
+def _first_physics_system(nif):
+    """The nif's bhkPhysicsSystem, wherever its collision object hangs.
+
+    Collision is not always on the root -- DiamondPipeSm01 carries it on a child
+    node -- and several nodes can share one physics system, one body each.
+    """
+    if nif.root.collision_object is not None:
+        return nif.root.collision_object.physics_system
+    for nd in nif.nodes.values():
+        c = nd.collision_object
+        if c is not None and getattr(c, "physics_system", None) is not None:
+            return c.physics_system
+    return None
+
+
+def _psd_body_summary(packfile_bytes):
+    """Summarize a packfile's hknpPhysicsSystemData: how many bodies it declares
+    and how each one is set up.
+
+    Returns (n_materials, n_motion_properties, n_motion_cinfos, bodies) where
+    bodies is a tuple of (motionId, materialId, collisionFilterInfo, qualityId).
+    motionId 0x7FFFFFFF means "static"; anything else indexes motionCinfos, so a
+    body that says it is dynamic while motionCinfos is empty sends the engine
+    through a null pointer in bhkNPCollisionObject::CreateInstance.
+    """
+    import struct as _struct
+    from pyn.bhk_autounpack import (parse_section_headers, parse_local_fixups,
+                                    parse_virtual_fixups)
+    data = packfile_bytes
+    hdrs = parse_section_headers(data)
+    dh = hdrs["__data__"]
+    ds = dh.abs_start
+    fixups = parse_local_fixups(data, dh)
+    objs = parse_virtual_fixups(data, dh, hdrs["__classnames__"].abs_start)
+    psd = next(r for r, c in objs if c.endswith("hknpPhysicsSystemData"))
+
+    def count(off):
+        return _struct.unpack_from("<I", data, ds + psd + off + 8)[0]
+
+    n_bodies = count(0x40)
+    base = fixups.get(psd + 0x40)
+    bodies = []
+    for i in range(n_bodies):
+        o = ds + base + i * 0x60
+        bodies.append((_struct.unpack_from("<I", data, o + 0x0C)[0],   # motionId
+                       _struct.unpack_from("<H", data, o + 0x12)[0],   # materialId
+                       _struct.unpack_from("<I", data, o + 0x14)[0],   # filter
+                       data[o + 0x10]))                                # qualityId
+    return count(0x10), count(0x20), count(0x30), tuple(bodies)
+
+
+def _psd_shape_pointer_problems(packfile_bytes):
+    """Every body must reach a shape, through bodyCinfos AND referencedObjects.
+
+    referencedObjects is hkArray<Ptr<hkReferencedObject>>, so its stride is 8 --
+    a pointer -- not the 16 most hkArray elements take.  Writing 16 leaves every
+    entry after the first null, and the engine stores through it in
+    bhkNPCollisionObject::CreateInstance while loading the cell.  Body 0 lands at
+    offset 0 either way, so only multi-body collisions show it.
+    """
+    import struct as _struct
+    from pyn.bhk_autounpack import (parse_section_headers, parse_local_fixups,
+                                    parse_global_fixups, parse_virtual_fixups)
+    data = packfile_bytes
+    hdrs = parse_section_headers(data)
+    dh = hdrs["__data__"]
+    ds = dh.abs_start
+    fixups = parse_local_fixups(data, dh)
+    globals_ = parse_global_fixups(data, dh)
+    objs = parse_virtual_fixups(data, dh, hdrs["__classnames__"].abs_start)
+    psd = next(r for r, c in objs if c.endswith("hknpPhysicsSystemData"))
+    n_bodies = _struct.unpack_from("<I", data, ds + psd + 0x48)[0]
+    bc = fixups.get(psd + 0x40)
+    ro = fixups.get(psd + 0x60)
+
+    problems = []
+    for i in range(n_bodies):
+        if bc is None or (bc + i * 0x60) not in globals_:
+            problems.append(f"body {i} has no shape pointer")
+        if ro is None or (ro + i * 0x08) not in globals_:
+            problems.append(f"referencedObjects[{i}] is null")
+    # ...and the two must agree, or a body renders one shape and collides another
+    for i in range(n_bodies):
+        a = globals_.get((bc or 0) + i * 0x60)
+        b = globals_.get((ro or 0) + i * 0x08)
+        if a and b and a != b:
+            problems.append(f"body {i} shape and referencedObjects[{i}] differ")
+    return problems
+
+
 def _cm_tree_problems(packfile_bytes):
     """Check the BVH inside a compressed-mesh packfile; return a list of faults.
 
@@ -5382,6 +5472,33 @@ def TEST_FO4_PHYSICS_SYSTEM():
                   for v, d in zip(verts, check_verts))
     # Compressed-mesh uses 11-11-10 quantisation; allow up to ~1% of AABB range.
     assert TT.is_lt(max_err, 1e-2, f"Round-trip max vertex error {max_err:.2e}")
+
+    # ---- per-body setup survives the round trip ----
+    # A physics system says, per body, whether it moves (motionId), which
+    # material it uses, and what it collides with (collisionFilterInfo).  These
+    # were being written as a static clone of body 0 for every body, so a
+    # dynamic body came back static with no motionCinfo -- the nif still
+    # declares a dynamic bhkNPCollisionObject, so the game gets a null body back
+    # from CreateInstance and writes through it while loading the cell.
+    from pyn.bhk_autopack import pack_shapes
+    for f in (r"tests/FO4/InsFloorMat01.nif",
+              # one dynamic body (motionId 0, its own collision filter)
+              r"tests/FO4/Meshes/Architecture/DiamondCity/ShackRV_Ext/DiamondPipeSm01.nif",
+              # two bodies, only the second dynamic, each with its own material
+              r"tests/FO4/Meshes/Architecture/DiamondCity/Stadium_Ext/DiamondCrossbeams01.nif",
+              # five bodies -- the referencedObjects stride is only visible past
+              # body 0, and every body after the first was reading a null shape
+              r"tests/FO4/Meshes/Architecture/DiamondCity/Stadium_Ext/DiamondRichBase01.nif",
+              # two bodies of DIFFERENT types (mesh + polytope), so it also
+              # covers the mixed builder binding each one to the right slot
+              r"tests/FO4/Meshes/Architecture/DiamondCity/ShackRV_Ext/DiamondShack04.nif"):
+        src_ps = _first_physics_system(NifFile(f))
+        packed = pack_shapes(src_ps.geometry)
+        want = _psd_body_summary(src_ps.data)
+        got = _psd_body_summary(packed)
+        assert TT.is_eq(got, want, f"Body setup round-trips for {os.path.basename(f)}")
+        assert TT.is_eq(_psd_shape_pointer_problems(packed), [],
+                        f"Every body reaches its shape in {os.path.basename(f)}")
 
 
 @test_category("FO4", "PHYSICS")

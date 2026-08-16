@@ -366,7 +366,15 @@ _BODY_CINFO = bytes([
 ])
 assert len(_BODY_CINFO) == 0x60
 
-# dyn_motion (0x40 bytes) — per-body motion properties for dynamic bodies.
+# hknpPhysicsSystemData array strides (hk2014 SDK byte sizes) and the motionId
+# a static body carries.
+_MATERIAL_SIZE = 0x50
+_MOTION_PROPS_SIZE = 0x40
+_MOTION_CINFO_SIZE = 0x70
+_REF_OBJ_SIZE = 0x08          # hkArray<Ptr<...>> — one pointer per entry
+_MOTION_ID_STATIC = 0x7FFFFFFF
+
+# hknpMotionProperties (0x40 bytes) — a shared preset the motionCinfos index.
 # Fields at known offsets:
 #   +0x08: gravityFactor (float32), +0x0C: 1.0 (constant)
 #   +0x10: maxLinearVelocity (truncated float16 in upper 2 bytes)
@@ -386,7 +394,12 @@ _DYN_MOTION = bytes([
 ])
 assert len(_DYN_MOTION) == 0x40
 
-# dyn_inertia template (0x40 bytes) — fields that vary are patched at write time.
+# hknpMotionCinfo template — one per DYNAMIC body, 0x70 bytes.  The struct is
+# 112 bytes, not 64: past the fields below sit orientation (+0x40),
+# linearVelocity (+0x50) and angularVelocity (+0x60).  We used to write only
+# 0x40, so the engine read the next body's record as this one's velocities.
+# A re-pack hands back the source bytes instead (see _build_motion_cinfo);
+# this template is only for collision authored from scratch.
 _DYN_INERTIA_TEMPLATE = bytes([
     0x00,0x00,0x01,0x00,                        # +0x00: flags (0x0000, 0x0100)
     0x00,0x00,0x80,0x3F,                        # +0x04: inv_mass (1.0 = placeholder)
@@ -399,10 +412,18 @@ _DYN_INERTIA_TEMPLATE = bytes([
     0x00,0x00,0x80,0x3F,                        # +0x24: Iyy (1.0 = placeholder)
     0x00,0x00,0x80,0x3F,                        # +0x28: Izz (1.0 = placeholder)
     0x00,0x00,0x80,0x3F,                        # +0x2C: 1.0 (scale)
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x30: position (0,0,0)
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x38: pad
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x30: centerOfMassWorld
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x38:  (w, pad)
+    # +0x40: orientation — identity quaternion (0,0,0,1)
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x80,0x3F,
+    # +0x50: linearVelocity, +0x60: angularVelocity — at rest
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
 ])
-assert len(_DYN_INERTIA_TEMPLATE) == 0x40
+assert len(_DYN_INERTIA_TEMPLATE) == _MOTION_CINFO_SIZE
 
 
 def _build_body_props(physics) -> bytes:
@@ -448,14 +469,78 @@ def _build_dyn_inertia(physics) -> bytes:
     return bytes(buf)
 
 
+def _body_physics_list(physics, num_bodies: int) -> List:
+    """Normalize the `physics` argument into one entry per body.
+
+    Callers pass either a single PhysicsProps (all bodies alike, which is what
+    a Blender-authored collision gives us), a list of them (one per body, from a
+    re-pack), or None.
+    """
+    from .bhk_autounpack import PhysicsProps
+    if physics is None:
+        return [None] * num_bodies
+    if isinstance(physics, PhysicsProps):
+        return [physics] * num_bodies
+    out = list(physics)
+    if len(out) < num_bodies:                     # pad rather than lose bodies
+        out += [out[-1] if out else None] * (num_bodies - len(out))
+    return out[:num_bodies]
+
+
+def _build_motion_cinfo(physics) -> bytes:
+    """One hknpMotionCinfo (0x70 bytes) for a dynamic body.
+
+    Prefer the bytes we read off the source: this record carries orientation,
+    centre of mass and both velocities, and inventing them changes how the body
+    behaves.  Only fall back to the template when authoring from scratch.
+    """
+    raw = getattr(physics, 'motion_cinfo_raw', b'') if physics is not None else b''
+    if len(raw) == _MOTION_CINFO_SIZE:
+        return raw
+    return _build_dyn_inertia(physics)
+
+
 def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
                       physics=None, num_bodies: int = 1):
-    """Write PSD + body_props + [dyn_motion + dyn_inertia] + BodyCInfo + ShapeEntry.
+    """Write PSD + materials + [motionProperties + motionCinfos] + bodyCinfos
+    + referencedObjects.
 
     Returns (body_cinfo_rel, shape_entry_rel) so the caller can add global fixups.
-    For multi-body, writes `num_bodies` copies of body_props/BodyCInfo/ShapeEntry.
+
+    Every body gets its OWN material, motionId, collision filter and quality:
+    a system can mix a static body with a dynamic one, and writing all of them
+    as copies of body 0 turns a dynamic body static.  The nif still declares a
+    dynamic bhkNPCollisionObject, so the game gets a null body back from
+    bhkNPCollisionObject::CreateInstance and writes through it while loading.
+
+    Vanilla invariants this reproduces (measured over 1500 systems):
+      materials == numBodies, and body i uses material i
+      motionCinfos == the number of dynamic bodies
+      dynamic bodies' motionIds are 0..n-1 in body order
     """
-    is_dyn = physics is not None and physics.is_dynamic
+    bodies = _body_physics_list(physics, num_bodies)
+    dyn_idx = [i for i, p in enumerate(bodies) if p is not None and p.is_dynamic]
+    n_dyn = len(dyn_idx)
+    # motionProperties is a system-level list that each motionCinfo indexes with
+    # its motionPropertiesId (+0x00).  Vanilla often carries NONE even with
+    # dynamic bodies, and those cinfos hold 0xFFFF -- "no motion properties",
+    # measured 131/131 -- leaving the engine to apply its own defaults.  So hand
+    # back whatever the source had and only synthesize when we are also
+    # synthesizing the motionCinfo, i.e. authoring a dynamic body from scratch;
+    # inventing an array here would leave every cinfo's 0xFFFF pointing nowhere
+    # while claiming the system has properties to use.
+    mp_raw = b''
+    for p in bodies:
+        raw = getattr(p, 'motion_props_raw', b'') if p is not None else b''
+        if raw:
+            mp_raw = raw
+            break
+    have_source_cinfo = any(
+        len(getattr(bodies[i], 'motion_cinfo_raw', b'') or b'') == _MOTION_CINFO_SIZE
+        for i in dyn_idx)
+    if n_dyn and not mp_raw and not have_source_cinfo:
+        mp_raw = _build_dyn_motion(bodies[dyn_idx[0]])
+    n_mp = len(mp_raw) // _MOTION_PROPS_SIZE
 
     def rel():
         return len(data)
@@ -469,43 +554,63 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
     fx.add_virtual(psd_rel, 0, psd_name_off)
 
     write(_hkarray(0))                          # +0x00: unused
-    arr10_off = write(_hkarray(num_bodies))     # +0x10: body_props
-    arr20_off = write(_hkarray(1 if is_dyn else 0))  # +0x20: dyn_motion
-    arr30_off = write(_hkarray(1 if is_dyn else 0))  # +0x30: dyn_inertia
-    arr40_off = write(_hkarray(num_bodies))     # +0x40: BodyCInfo
-    write(_hkarray(0))                          # +0x50: unused
-    arr60_off = write(_hkarray(num_bodies))     # +0x60: ShapeEntry
-    write(bytes(16))                            # +0x70: pad
+    arr10_off = write(_hkarray(num_bodies))     # +0x10: materials (one per body)
+    arr20_off = write(_hkarray(n_mp))           # +0x20: motionProperties
+    arr30_off = write(_hkarray(n_dyn))          # +0x30: motionCinfos
+    arr40_off = write(_hkarray(num_bodies))     # +0x40: bodyCinfos
+    write(_hkarray(0))                          # +0x50: constraintCinfos
+    arr60_off = write(_hkarray(num_bodies))     # +0x60: referencedObjects
+    write(bytes(16))                            # +0x70: name
     assert rel() == psd_rel + 0x80
 
-    # ── body_props (0x50 × num_bodies) ──
+    # ── materials (0x50 × num_bodies) ──
     body_props_rel = rel()
-    for _ in range(num_bodies):
-        write(_build_body_props(physics))
+    for p in bodies:
+        write(_build_body_props(p))
     fx.add_local(arr10_off, body_props_rel)
 
-    # ── dyn_motion (0x40, dynamic only) ──
-    if is_dyn:
-        dyn_motion_rel = rel()
-        write(_build_dyn_motion(physics))
-        fx.add_local(arr20_off, dyn_motion_rel)
+    # ── motionProperties (0x40 each) ──
+    if n_mp:
+        motion_props_rel = write(mp_raw)
+        fx.add_local(arr20_off, motion_props_rel)
 
-    # ── dyn_inertia (0x40, dynamic only) ──
-    if is_dyn:
-        dyn_inertia_rel = rel()
-        write(_build_dyn_inertia(physics))
-        fx.add_local(arr30_off, dyn_inertia_rel)
+    # ── motionCinfos (0x70 each, one per dynamic body) ──
+    if n_dyn:
+        motion_cinfo_rel = rel()
+        for i in dyn_idx:
+            entry = _build_motion_cinfo(bodies[i])
+            assert len(entry) == _MOTION_CINFO_SIZE, \
+                f"motionCinfo must be {_MOTION_CINFO_SIZE} bytes, got {len(entry)}"
+            write(entry)
+        fx.add_local(arr30_off, motion_cinfo_rel)
 
-    # ── BodyCInfo (0x60 × num_bodies) ──
+    # ── bodyCinfos (0x60 × num_bodies) ──
+    # motionId must be this body's slot in the motionCinfos array we just wrote,
+    # not whatever the source called it -- we only keep the dynamic ones, so the
+    # indices renumber.
+    motion_slot = {b: k for k, b in enumerate(dyn_idx)}
     body_cinfo_rel = rel()
-    for _ in range(num_bodies):
-        write(_BODY_CINFO)
+    for i, p in enumerate(bodies):
+        cinfo = bytearray(_BODY_CINFO)
+        struct.pack_into('<I', cinfo, 0x0C,
+                         motion_slot.get(i, _MOTION_ID_STATIC))
+        cinfo[0x10] = p.quality_id if p is not None else 0xFF
+        struct.pack_into('<H', cinfo, 0x12, i)            # materialId == index
+        struct.pack_into('<I', cinfo, 0x14,
+                         p.collision_filter_info if p is not None else 1)
+        write(bytes(cinfo))
     fx.add_local(arr40_off, body_cinfo_rel)
 
-    # ── ShapeEntry (0x10 × num_bodies) ──
+    # ── referencedObjects (0x08 × num_bodies) ──
+    # hkArray<Ptr<hkReferencedObject>> — a POINTER each, so the stride is 8, not
+    # the 16 an hkArray element usually is.  Writing 16 put every entry after the
+    # first at twice its offset, leaving the engine to read a null shape for
+    # bodies 1..n-1 and store through it in bhkNPCollisionObject::CreateInstance.
+    # Body 0 sits at offset 0 either way, which is why single-body collisions
+    # never showed it.
     shape_entry_rel = rel()
     for _ in range(num_bodies):
-        write(bytes(16))
+        write(bytes(_REF_OBJ_SIZE))
     fx.add_local(arr60_off, shape_entry_rel)
 
     return body_cinfo_rel, shape_entry_rel
@@ -1501,7 +1606,8 @@ def _build_multi_cm_data_section(cm_shapes, name_offs: Dict[str, int],
 
     for i, s in enumerate(cm_shapes):
         _write_cm_shape(data, fx, name_offs, s.verts, s.faces,
-                        body_cinfo_rel + i * 0x60, shape_entry_rel + i * 0x10)
+                        body_cinfo_rel + i * 0x60,
+                        shape_entry_rel + i * _REF_OBJ_SIZE)
 
     return bytes(data), fx
 
@@ -1512,8 +1618,15 @@ def _build_mixed_data_section(
         cm_verts: List[Vert3], cm_tris: List[Face],
         poly_verts: List[Vert3], poly_faces: List[Face],
         name_offs: Dict[str, int],
-        physics=None) -> Tuple[bytes, '_FixupBuilder']:
-    """Build __data__ section for a two-body packfile: CM body + polytope body."""
+        physics=None, cm_body: int = 0) -> Tuple[bytes, '_FixupBuilder']:
+    """Build __data__ section for a two-body packfile: CM body + polytope body.
+
+    cm_body picks which BODY SLOT the compressed mesh occupies.  A body's slot
+    is how a bhkNPCollisionObject names it, so a source that listed the polytope
+    first has to come back that way or the nodes swap shapes.  The shapes are
+    still written to the data section in the same order either way -- only the
+    bodyCinfo/referencedObject entries they bind to change.
+    """
     fx = _FixupBuilder()
     data = bytearray()
 
@@ -1530,9 +1643,12 @@ def _build_mixed_data_section(
         data, fx, name_offs['hknpPhysicsSystemData'],
         physics=physics, num_bodies=2)
 
-    # ── Body 0: hknpCompressedMeshShape and its shape data ───────────────────
+    poly_body = 1 - cm_body
+
+    # ── hknpCompressedMeshShape and its shape data ───────────────────────────
     _write_cm_shape(data, fx, name_offs, cm_verts, cm_tris,
-                    body_cinfo_rel + 0x00, shape_entry_rel + 0x00)
+                    body_cinfo_rel + cm_body * 0x60,
+                    shape_entry_rel + cm_body * _REF_OBJ_SIZE)
 
     # ── hknpConvexPolytopeShape (variable) ───────────────────────────────────
     poly_shape_rel = rel()
@@ -1541,8 +1657,8 @@ def _build_mixed_data_section(
         data.append(0)
 
     fx.add_virtual(poly_shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
-    fx.add_global(body_cinfo_rel + 0x60, 2, poly_shape_rel)         # BodyCInfo[1] shape ptr
-    fx.add_global(shape_entry_rel + 0x10, 2, poly_shape_rel)        # ShapeEntry[1] ptr
+    fx.add_global(body_cinfo_rel + poly_body * 0x60, 2, poly_shape_rel)
+    fx.add_global(shape_entry_rel + poly_body * _REF_OBJ_SIZE, 2, poly_shape_rel)
     poly_refprop_ptr_rel = poly_shape_rel + 0x20
 
     # ── hkRefCountedProperties for polytope (0x20 bytes) ─────────────────────
@@ -1801,13 +1917,14 @@ def pack_multi_cm(cm_shapes, physics=None) -> bytes:
     return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
 
 
-def pack_mixed(cm_shape, poly_shape, physics=None) -> bytes:
+def pack_mixed(cm_shape, poly_shape, physics=None, cm_body: int = 0) -> bytes:
     """Build Havok packfile bytes for two bodies: one CM + one convex polytope.
 
     Args:
         cm_shape:   CollisionShape with shape_type=="compressed_mesh".
         poly_shape: CollisionShape with shape_type=="polytope".
-        physics:    Optional PhysicsProps for material/dynamics.
+        physics:    PhysicsProps, or one per body in BODY-SLOT order.
+        cm_body:    which body slot the compressed mesh takes (0 or 1).
 
     Returns:
         Raw bytes of a valid hk_2014.1.0 packfile with hknpPhysicsSystemData
@@ -1819,7 +1936,7 @@ def pack_mixed(cm_shape, poly_shape, physics=None) -> bytes:
     obj_data, fx = _build_mixed_data_section(
         cm_shape.verts, cm_shape.faces,
         poly_shape.verts, poly_shape.faces,
-        name_offs, physics=physics)
+        name_offs, physics=physics, cm_body=cm_body)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -2071,7 +2188,7 @@ def _build_multi_poly_data_section(
 
     # Compute per-body offsets from the base returned by _build_psd_prefix
     body_cinfo_rels = [body_cinfo_rel + i * 0x60 for i in range(N)]
-    shape_entry_rels = [shape_entry_rel + i * 0x10 for i in range(N)]
+    shape_entry_rels = [shape_entry_rel + i * _REF_OBJ_SIZE for i in range(N)]
 
     # ── Per-body polytope chains ──────────────────────────────────────────────
     for i, (verts, faces) in enumerate(poly_pairs):
@@ -2200,14 +2317,23 @@ def pack_shapes(shapes) -> bytes:
     cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
     poly_list = [s for s in shapes if s.shape_type == "polytope"]
 
+    # Each body keeps its OWN physics entry, and the bodies come out in the
+    # order the packer writes them -- which is not always the input order, so
+    # take the list from the same sequence that is handed to the packer.
     if len(cm_list) == 0 and len(poly_list) == len(shapes):
-        return pack_multi_polytope(poly_list, physics=physics)
+        return pack_multi_polytope(poly_list,
+                                   physics=[s.physics for s in poly_list])
 
     if len(cm_list) == len(shapes):
-        return pack_multi_cm(cm_list, physics=physics)
+        return pack_multi_cm(cm_list, physics=[s.physics for s in cm_list])
 
     if len(cm_list) == 1 and len(poly_list) == 1 and len(shapes) == 2:
-        return pack_mixed(cm_list[0], poly_list[0], physics=physics)
+        # Keep the bodies in the order they came in: a bhkNPCollisionObject
+        # names its body by slot, so swapping them hands each node the other
+        # one's shape.
+        return pack_mixed(cm_list[0], poly_list[0],
+                          physics=[s.physics for s in shapes],
+                          cm_body=shapes.index(cm_list[0]))
 
     types = [s.shape_type for s in shapes]
     raise NotImplementedError(

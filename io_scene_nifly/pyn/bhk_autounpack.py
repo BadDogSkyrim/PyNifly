@@ -251,25 +251,49 @@ class BodyTransform:
     rotation: Mat3  # from quaternion
 
 
+# hknpBodyCinfo.motionId when a body does not move.  Anything else indexes the
+# system's motionCinfos array.
+MOTION_ID_STATIC = 0x7FFFFFFF
+
+# Array strides inside hknpPhysicsSystemData (hk2014 SDK byte sizes).
+HKNP_MATERIAL_SIZE = 0x50
+HKNP_MOTION_PROPERTIES_SIZE = 0x40
+HKNP_MOTION_CINFO_SIZE = 0x70
+HKNP_BODY_CINFO_SIZE = 0x60
+
+
 @dataclass
 class PhysicsProps:
-    """Per-body physics properties from dyn_inertia / body_props arrays.
+    """One body's entry in an hknpPhysicsSystemData.
 
-    Present only for dynamic bodies (is_dynamic=True).
-    Static bodies have is_dynamic=False and all other fields at defaults.
+    A physics system holds parallel arrays -- materials, motionProperties,
+    motionCinfos, bodyCinfos -- and each body picks entries out of them by
+    index.  This is per BODY, not per system: a system can mix a static body
+    with a dynamic one, as DiamondCrossbeams01 does.
+
+    is_dynamic is derived from motion_id: a body is dynamic exactly when it
+    references a motionCinfo.  Writing is_dynamic without also writing the
+    motionCinfo produces a body the engine cannot instantiate.
     """
     is_dynamic: bool = False
-    mass: float = 0.0                       # from dyn_inertia +0x04 (stored as 1/mass)
-    density: float = 0.0                    # from dyn_inertia +0x08 (mass / collision_volume)
-    inertia: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # (Ixx, Iyy, Izz) from +0x20..+0x28
-    body_props_raw: bytes = b""             # 16 bytes of body_props +0x10..+0x1F
-    friction: float = 0.5                   # body_props +0x00 (truncated float16)
-    restitution: float = 0.4               # body_props +0x04 (truncated float16)
-    gravity_factor: float = 1.0            # body_props +0x48
-    max_linear_velocity: float = 104.4     # body_props +0x50 (truncated float16)
-    max_angular_velocity: float = 31.57    # body_props +0x54 (truncated float16)
-    linear_damping: float = 0.1            # body_props +0x58 (truncated float16)
-    angular_damping: float = 0.05          # body_props +0x5c (truncated float16)
+    motion_id: int = MOTION_ID_STATIC       # BodyCInfo +0x0C, index into motionCinfos
+    material_id: int = 0                    # BodyCInfo +0x12, index into materials
+    collision_filter_info: int = 1          # BodyCInfo +0x14, what this body collides with
+    quality_id: int = 0xFF                  # BodyCInfo +0x10
+    mass: float = 0.0                       # motionCinfo +0x04 (stored as 1/mass)
+    density: float = 0.0                    # motionCinfo +0x08 (massFactor)
+    inertia: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # inverseInertiaLocal +0x20
+    body_props_raw: bytes = b""             # 16 bytes of this body's material +0x10
+    material_raw: bytes = b""               # this body's whole hknpMaterial (0x50)
+    motion_cinfo_raw: bytes = b""           # this body's hknpMotionCinfo (0x70)
+    motion_props_raw: bytes = b""           # the system's motionProperties array
+    friction: float = 0.5                   # material +0x12 (hkHalf16)
+    restitution: float = 0.4                # material +0x16 (hkHalf16)
+    gravity_factor: float = 1.0             # motionProperties +0x08
+    max_linear_velocity: float = 104.4      # motionProperties +0x10
+    max_angular_velocity: float = 31.57     # motionProperties +0x14
+    linear_damping: float = 0.1             # motionProperties +0x18
+    angular_damping: float = 0.05           # motionProperties +0x1c
 
 
 @dataclass
@@ -414,97 +438,107 @@ def parse_physics_props(
         data: bytes, data_start: int,
         fixups: Dict[int, int],
         objects: List[Tuple[int, str]],
-) -> Optional[PhysicsProps]:
-    """Parse physics properties (mass, inertia, density, material) from PSD arrays.
+) -> List[PhysicsProps]:
+    """Parse one PhysicsProps per body from the first hknpPhysicsSystemData.
 
-    Returns a single PhysicsProps for the first hknpPhysicsSystemData found,
-    or None if no PSD exists.
+    Returns [] if there is no PSD.  Every body gets its own entry: bodies pick
+    their material and motionCinfo out of the system's arrays by index, and a
+    system can mix static and dynamic bodies, so reading one set of properties
+    and applying it to all of them loses whichever bodies differ.
     """
     psd_list = [(rel, cls) for rel, cls in objects if "hknpPhysicsSystemData" in cls]
     if not psd_list:
-        return None
+        return []
 
     psd_rel = psd_list[0][0]
     psd_abs = data_start + psd_rel
 
-    # body_props at PSD+0x10
-    bp_dst = fixups.get(psd_rel + 0x10)
-    body_props_raw = b"\x00" * 16
-    # Base offset for BodyCInfo fields (bp_abs + 0x10 is where the 16-byte
-    # body_props_raw starts; all decoded field offsets are relative to this).
-    bp_base = 0
-    if bp_dst is not None:
-        bp_abs = data_start + bp_dst
-        bp_base = bp_abs + 0x10
-        body_props_raw = bytes(data[bp_base : bp_base + 0x10])
+    def array(off, stride):
+        """(abs offset, count) of one of the PSD's parallel arrays."""
+        dst = fixups.get(psd_rel + off)
+        count = u32(data, psd_abs + off + 8)
+        if dst is None or count == 0:
+            return None, 0
+        return data_start + dst, count
 
-    # Decode physics fields from BodyCInfo region
-    friction = 0.5
-    restitution = 0.4
-    gravity_factor = 1.0
-    max_linear_velocity = 104.4
-    max_angular_velocity = 31.57
-    linear_damping = 0.1
-    angular_damping = 0.05
-    if bp_base and bp_base + 0x60 <= len(data):
-        friction = trunc_f16_decode(data, bp_base + 0x02)
-        restitution = trunc_f16_decode(data, bp_base + 0x06)
-        # Fields at +0x48 onward are in the dyn_motion array (next structure
-        # after body_props). Offsets from bp_base account for body_props size.
-        gravity_factor = f32(data, bp_base + 0x48)
-        max_linear_velocity = f32(data, bp_base + 0x50)
-        max_angular_velocity = f32(data, bp_base + 0x54)
-        linear_damping = f32(data, bp_base + 0x58)
-        angular_damping = f32(data, bp_base + 0x5c)
+    mats_abs, n_mats = array(0x10, HKNP_MATERIAL_SIZE)
+    mp_abs, n_mp = array(0x20, HKNP_MOTION_PROPERTIES_SIZE)
+    mc_abs, n_mc = array(0x30, HKNP_MOTION_CINFO_SIZE)
+    bodies_abs, n_bodies = array(0x40, HKNP_BODY_CINFO_SIZE)
+    if bodies_abs is None:
+        return []
 
-    # Check for dynamic arrays (dyn_motion at +0x20, dyn_inertia at +0x30)
-    has_dyn = fixups.get(psd_rel + 0x20) is not None
-    if not has_dyn:
-        return PhysicsProps(
-            is_dynamic=False,
+    # motionProperties is a system-level list each motionCinfo indexes with its
+    # motionPropertiesId (+0x00); 0xFFFF means "none, use engine defaults", which
+    # is what every vanilla cinfo holds when the array is absent.  Keep the array
+    # whole so a re-pack hands back exactly what it was given -- the ids are
+    # positions in it.  The decoded fields below come from entry 0, which is what
+    # a Blender-authored body gets.
+    motion_props_raw = (bytes(data[mp_abs:mp_abs + HKNP_MOTION_PROPERTIES_SIZE * n_mp])
+                        if mp_abs is not None else b"")
+    gravity_factor, max_lin, max_ang = 1.0, 104.4, 31.57
+    lin_damp, ang_damp = 0.1, 0.05
+    if mp_abs is not None and mp_abs + HKNP_MOTION_PROPERTIES_SIZE <= len(data):
+        gravity_factor = f32(data, mp_abs + 0x08)
+        max_lin = f32(data, mp_abs + 0x10)
+        max_ang = f32(data, mp_abs + 0x14)
+        lin_damp = f32(data, mp_abs + 0x18)
+        ang_damp = f32(data, mp_abs + 0x1C)
+
+    out: List[PhysicsProps] = []
+    for i in range(n_bodies):
+        b = bodies_abs + i * HKNP_BODY_CINFO_SIZE
+        motion_id = u32(data, b + 0x0C)
+        material_id = u16(data, b + 0x12)
+
+        material_raw = b""
+        body_props_raw = b"\x00" * 16
+        friction, restitution = 0.5, 0.4
+        if mats_abs is not None and material_id < n_mats:
+            m = mats_abs + material_id * HKNP_MATERIAL_SIZE
+            if m + HKNP_MATERIAL_SIZE <= len(data):
+                material_raw = bytes(data[m:m + HKNP_MATERIAL_SIZE])
+                body_props_raw = bytes(data[m + 0x10:m + 0x20])
+                friction = trunc_f16_decode(data, m + 0x12)     # dynamicFriction
+                restitution = trunc_f16_decode(data, m + 0x16)  # restitution
+
+        # A body is dynamic exactly when it points at a motionCinfo.
+        is_dynamic = motion_id != MOTION_ID_STATIC and motion_id < n_mc
+        motion_cinfo_raw = b""
+        mass = density = 0.0
+        inertia = (0.0, 0.0, 0.0)
+        if is_dynamic:
+            mc = mc_abs + motion_id * HKNP_MOTION_CINFO_SIZE
+            if mc + HKNP_MOTION_CINFO_SIZE <= len(data):
+                motion_cinfo_raw = bytes(data[mc:mc + HKNP_MOTION_CINFO_SIZE])
+                inv_mass = f32(data, mc + 0x04)
+                mass = 1.0 / inv_mass if inv_mass != 0 else 0.0
+                density = f32(data, mc + 0x08)
+                inertia = (f32(data, mc + 0x20), f32(data, mc + 0x24),
+                           f32(data, mc + 0x28))
+
+        out.append(PhysicsProps(
+            is_dynamic=is_dynamic,
+            motion_id=motion_id if is_dynamic else MOTION_ID_STATIC,
+            material_id=material_id,
+            collision_filter_info=u32(data, b + 0x14),
+            quality_id=data[b + 0x10],
+            mass=mass,
+            density=density,
+            inertia=inertia,
             body_props_raw=body_props_raw,
+            material_raw=material_raw,
+            motion_cinfo_raw=motion_cinfo_raw,
+            motion_props_raw=motion_props_raw,
             friction=friction,
             restitution=restitution,
             gravity_factor=gravity_factor,
-            max_linear_velocity=max_linear_velocity,
-            max_angular_velocity=max_angular_velocity,
-            linear_damping=linear_damping,
-            angular_damping=angular_damping,
-        )
-
-    # dyn_inertia at PSD+0x30
-    di_dst = fixups.get(psd_rel + 0x30)
-    if di_dst is None:
-        return PhysicsProps(is_dynamic=True, body_props_raw=body_props_raw,
-                            friction=friction, restitution=restitution,
-                            gravity_factor=gravity_factor,
-                            max_linear_velocity=max_linear_velocity,
-                            max_angular_velocity=max_angular_velocity,
-                            linear_damping=linear_damping,
-                            angular_damping=angular_damping)
-
-    di_abs = data_start + di_dst
-    inv_mass = f32(data, di_abs + 0x04)
-    mass = 1.0 / inv_mass if inv_mass != 0 else 0.0
-    density = f32(data, di_abs + 0x08)
-    ixx = f32(data, di_abs + 0x20)
-    iyy = f32(data, di_abs + 0x24)
-    izz = f32(data, di_abs + 0x28)
-
-    return PhysicsProps(
-        is_dynamic=True,
-        mass=mass,
-        density=density,
-        inertia=(ixx, iyy, izz),
-        body_props_raw=body_props_raw,
-        friction=friction,
-        restitution=restitution,
-        gravity_factor=gravity_factor,
-        max_linear_velocity=max_linear_velocity,
-        max_angular_velocity=max_angular_velocity,
-        linear_damping=linear_damping,
-        angular_damping=angular_damping,
-    )
+            max_linear_velocity=max_lin,
+            max_angular_velocity=max_ang,
+            linear_damping=lin_damp,
+            angular_damping=ang_damp,
+        ))
+    return out
 
 
 # ── hkArray read helpers ─────────────────────────────────────────────────────
@@ -1183,10 +1217,16 @@ def extract_bhk_physics_system(
     # Shapes without a body_index (shouldn't normally happen) go to the end.
     all_shapes.sort(key=lambda s: s.body_index if s.body_index is not None else 999999)
 
-    # Attach physics properties to all top-level shapes
-    if physics_props is not None:
-        for s in all_shapes:
-            s.physics = physics_props
+    # Attach each body's own physics properties.  Shapes are sorted by
+    # body_index just above, so the i-th shape is the i-th body -- except where
+    # one body owns several shapes (a compound), and there the shapes share
+    # their body's entry.
+    for i, s in enumerate(all_shapes):
+        bi = s.body_index if s.body_index is not None else i
+        if bi < len(physics_props):
+            s.physics = physics_props[bi]
+        elif physics_props:
+            s.physics = physics_props[-1]
 
     if out_path is not None:
         write_obj(out_path, all_shapes)
