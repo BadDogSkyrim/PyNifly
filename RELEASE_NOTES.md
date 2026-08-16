@@ -1,3 +1,122 @@
+# PyNifly 28.1.0 Release Notes
+
+Fixes to **Fallout 4 collisions** and **Starfield materials**. If you have
+exported FO4 meshes with collision from an earlier PyNifly, re-export them.
+
+## Fallout 4 collisions
+
+- **Exported collision now names a real body.** `bhkNPCollisionObject` has a `bodyID`
+  that indexes the physics system's body array, and PyNifly left it at its "unset"
+  sentinel on every collision object it wrote, so no FO4 collision exported from Blender actually loaded. This affects every FO4 asset
+  with collision.
+
+- **Compressed-mesh collisions load, at any size.** Exported compressed meshes used to
+  crash the game: the shape declared a fixed shape-key width and carried no
+  bounding-volume tree. Both are now built properly. Meshes needing more than one section
+  also export — the old limit surfaced as `AssertionError: max 255 verts per section`.
+
+- **Collision with more than one body works.** The array of shape references was written
+  incorrectly, so every body after the first got a null shape and the game
+  crashed loading the cell. Body 0 lands in the right place either way, which is why
+  single-body collision always appeared to work.
+
+- **Collision stays where you put it.** A body's shape lives in its NIF node's space, but
+  export wrote the vertices in world space, so the node transformed them a second time.
+  Collision on any node that isn't at the origin ended up displaced by that node's
+  translation. Geometry and the body transform are now both taken from the Blender object,
+  so **moving a collision object in Blender moves the collision in game.**
+
+- **Two-sided collision survives a round trip.** A surface is made solid from both sides
+  by carrying the same triangle twice, wound opposite ways. Import compared triangles by
+  their sorted vertex indices, decided the back face was a duplicate and dropped it —
+  quietly turning a two-sided wall one-sided. Repeats now get their own copy of the
+  vertices, so the triangle count comes back whole. This may increase the number of verts you see in Blender vs. the original nif.
+
+- **Each body keeps its collision layer.** `collisionFilterInfo` decides what a body
+  blocks, and nothing in Blender held it, so every exported body came out on the static
+  layer. It now round-trips through the FO4 Physics property panel.
+
+- **Each body keeps its own physics setup.** A dynamic body stays dynamic, and every body
+  keeps its own material, quality and transform instead of being written as a copy of
+  body 0.
+
+- **A compound of compressed meshes is recognised as a compound** instead of being
+  flattened into separate bodies on export.
+
+- **Constraints are reported instead of vanishing.** A physics system can hold joints
+  between its bodies. PyNifly reads none of them, and gives each collision object its own
+  system, so a joint has nowhere to live — import now tells you how many are being lost
+  rather than turning a hinged object into loose parts without a word. In vanilla these
+  are robot armour, gore and exploded pieces; no architecture has any.
+
+## Starfield materials
+
+- **The `.mat` file is built from the Blender node tree.** Export no longer patches the
+  file it read on import — the node tree is what you edited, so the node tree is what gets
+  written. Layers can be added and reordered and the output follows.
+
+- **Everything a material carries is preserved**, including the parts PyNifly doesn't
+  model. Each node keeps the material objects it stands for, so fields and whole
+  components we don't interpret survive a round trip instead of being dropped. All 36
+  vanilla human materials rebuild with no field added, dropped or altered.
+
+- **Node group names now carry a version** (`SF Layer v5`), and a group is never deleted.
+  Previously a version mismatch rebuilt the group and orphaned every node still using it,
+  which could damage materials in a `.blend` you were working in. Old unversioned groups
+  from existing files keep working.
+
+- **Export refuses to overwrite an existing `.mat` with a layerless material** — the case
+  where PyNifly couldn't find the source material on import, which could destroy a
+  hand-built one.
+
+- **`MaterialID` and `AnimationFlagExtra` are read and written correctly**, and are no
+  longer written twice.
+
+- **No more `BSShaderTextureSet`** on Starfield shapes; textures come from the material.
+
+- **A shape with internal geometry needs no external `.mesh`**, and is exported that way.
+
+## Starfield head parts and morphs
+
+- **Head parts export their `_faceBones` companion.** A Starfield head part is a pair of
+  files — the head skinned to body bones, and a companion skinned to the `faceBone_*` rig
+  — found by naming convention. PyNifly only knew how to do this for Fallout 4, and only
+  recognised Fallout 4's bone prefix. The two nifs get **distinct** external `.mesh`
+  files, which they must, since they hold different skin data.
+
+- **Morphs are built from the split morph data**, so they match the `.mesh` they belong
+  to, and shape-key names are normalised before they're classified and written.
+
+## General
+
+- **Export settings stick.** Root-level options are remembered when only the shape is
+  selected, and for a scene with no PyNifly root at all.
+
+- **`scripts/sf_racecheck.py`**, an auditor for Starfield custom races. There are a lot of
+  special and non-obvious rules that can prevent a headpart from showing. Run this tool
+  when custom-race headparts misbehave.
+
+- Starfield material documentation rewritten for the build-from-node-tree design, with
+  links to the online Bethesda Library.
+
+## Upgrading
+
+Nothing to migrate. The FO4 collision work adds one property to the FO4 Physics panel,
+which defaults sensibly for objects that don't have it. Re-export FO4 meshes with
+collision to pick up the fixes.
+
+## Known limitations
+
+- Some combinations of collision shapes in one physics system still aren't supported, and
+  export will say so rather than write a bad file: a compressed mesh with several convex
+  shapes, and most combinations involving a compound.
+- Compound collision is preserved as-is, not regenerated — editing it in Blender has no
+  effect, because the bounding-volume tree it needs isn't built yet.
+- Capsule collision bodies aren't decoded and are dropped on import.
+- Physics constraints aren't supported for any game.
+- Fallout 4 meshes animated by a controller targeting skeleton bones (Diamond City's
+  tarps and awnings, for example) lose the animation on export.
+
 # PyNifly 28.0.0 Release Notes
 
 Major new release! We added support for **Blender 5.2**, fixed **FO4 compound
