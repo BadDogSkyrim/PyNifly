@@ -8562,6 +8562,34 @@ def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
     assert b'DynamicCompoundShapeData' in eco.physics_system.data, \
         "exported packfile keeps the compound bounding-volume tree"
 
+    # ---- a compound of COMPRESSED MESHES, not polytopes ----
+    # DExtStands1x1Top01 is one body whose compound holds two compressed meshes.
+    # The decoder only recognised polytope children, so this came through as two
+    # loose meshes: nothing was tagged as a compound, the packfile was never
+    # stashed, and export wrote two bodies where vanilla has one -- silently,
+    # because every individual step looked reasonable.
+    TTB.clear_all()
+    cmfile = TTB.test_file(
+        r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExtStands1x1Top01.nif")
+    cmout = TTB.test_file(r"tests\Out\TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP_CM.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=cmfile, import_animations=False)
+    cm_compound = bpy.data.objects['bhkCompound']
+    assert cm_compound.get('pynCollisionCompound'), \
+        "a compound of compressed meshes is tagged as a compound body"
+    cm_kids = [o for o in bpy.data.objects if o.parent == cm_compound]
+    assert TT.is_eq(len(cm_kids), 2, "compound groups its two compressed meshes")
+
+    BD.ObjectSelect([o for o in bpy.data.objects if 'pynRoot' in o], active=True)
+    bpy.ops.export_scene.pynifly(filepath=cmout, target_game='FO4')
+
+    cm_src = pyn.NifFile(cmfile)
+    cm_dst = pyn.NifFile(cmout)
+    src_ps = cm_src.nodes['DExtStands1x1Top01'].collision_object.physics_system
+    dst_ps = cm_dst.nodes['DExtStands1x1Top01'].collision_object.physics_system
+    assert TT.is_eq(dst_ps.data, src_ps.data,
+                    "compound-of-mesh packfile is preserved byte for byte")
+
 
 @TT.category('FO4', 'PHYSICS')
 @TT.expect_errors( ("Target of controller not found", ) ) # We don't yet handle particle systems

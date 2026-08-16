@@ -5691,34 +5691,42 @@ def TEST_FO4_CM_MULTISECTION(testfile, n_sections, n_verts, n_tris):
 def TEST_FO4_MULTI_CM_BODIES():
     """A physics system with two compressed-mesh bodies round-trips.
 
-    HitExtAWindowCDmg01 is a stock FO4 damaged window whose bhkPhysicsSystem
-    carries two separate hknpCompressedMeshShapes (the first also split across
-    sections).  pack_shapes used to raise NotImplementedError for any shape
-    combination other than one CM, all-polytope, or CM+polytope.
+    DiamondCrossbeams01 is a stock FO4 mesh whose bhkPhysicsSystem declares TWO
+    bodies, each with its own hknpCompressedMeshShape, shared by two nodes that
+    name their body by index.  pack_shapes used to raise NotImplementedError for
+    any shape combination other than one CM, all-polytope, or CM+polytope.
+
+    The fixture used to be HitExtAWindowCDmg01, which was the wrong file: it is
+    ONE body whose shape is a compound of two meshes.  Back when the decoder
+    flattened a compound into its children it looked like two bodies, so this
+    test was asserting the bug.  Compound coverage lives in
+    TEST_FO4_COMPOUND_ROUNDTRIP.
     """
     from pyn.bhk_autopack import pack_shapes
     from pyn.bhk_autounpack import parse_bytes
 
-    nif = NifFile(r"tests/FO4/Meshes/Architecture/Buildings/Hightech/Damage/HitExtAWindowCDmg01.nif")
-    ps = nif.root.collision_object.physics_system
+    nif = NifFile(r"tests/FO4/Meshes/Architecture/DiamondCity/Stadium_Ext/DiamondCrossbeams01.nif")
+    ps = _first_physics_system(nif)
     assert ps is not None, "Collision object has a bhkPhysicsSystem"
-    assert TT.is_eq(_cm_section_counts(ps.data), [2, 1],
-                    "Vanilla has two CM shapes, the first split across sections")
+    assert TT.is_eq(len(_psd_body_summary(ps.data)[3]), 2,
+                    "Vanilla declares two separate bodies")
 
     shapes = ps.geometry
     assert TT.is_eq([s.shape_type for s in shapes],
                     ["compressed_mesh", "compressed_mesh"], "Two compressed-mesh bodies")
-    assert TT.is_eq([len(s.verts) for s in shapes], [327, 82], "Merged vertex counts")
-    assert TT.is_eq([len(s.faces) for s in shapes], [386, 118], "Merged triangle counts")
+    assert TT.is_eq([len(s.verts) for s in shapes], [72, 16], "Merged vertex counts")
+    assert TT.is_eq([len(s.faces) for s in shapes], [84, 20], "Merged triangle counts")
 
     packed = pack_shapes(shapes)
     assert TT.is_gt(len(packed), 0, "pack_shapes produced non-empty bytes")
     assert TT.is_eq(_cm_tree_problems(packed), [], "Both CM bodies have valid BVHs")
+    assert TT.is_eq(_psd_shape_pointer_problems(packed), [],
+                    "Both bodies reach their own shape")
 
     out = parse_bytes(packed)
     assert TT.is_eq([s.shape_type for s in out],
                     ["compressed_mesh", "compressed_mesh"], "Round-trip keeps two CM bodies")
-    assert TT.is_eq([len(s.faces) for s in out], [386, 118],
+    assert TT.is_eq([len(s.faces) for s in out], [84, 20],
                     "Round-trip preserves triangle counts")
     for src, chk in zip(shapes, out):
         max_offset, area_ratio, centroid_shift = _compare_collision_geometry(src, chk)
@@ -5872,6 +5880,28 @@ def TEST_FO4_COMPOUND_ROUNDTRIP():
         if a.transform and b.transform:
             for ra, rb in zip(a.transform.rotation, b.transform.rotation):
                 assert TT.is_equiv(list(ra), list(rb), "instance rotation preserved", e=0.001)
+
+    # ---- a compound can hold compressed meshes, not just polytopes ----
+    # DExtStands1x1Top01 is ONE body whose shape is a compound of two
+    # compressed meshes.  Decoding its children as top-level shapes loses the
+    # fact that they share a body: export then writes two bodies where vanilla
+    # has one, and because nothing is tagged as a compound the importer never
+    # stashes the packfile bytes that make the round trip exact.
+    cm_nif = NifFile(
+        r"tests/FO4/Meshes/Architecture/DiamondCity/DExt/DExtStands1x1Top01.nif")
+    cm_shapes = parse_bytes(_first_physics_system(cm_nif).data)
+    assert TT.is_eq([s.shape_type for s in cm_shapes], ["compound"],
+                    "compound of compressed meshes decodes as one compound body")
+    kids = cm_shapes[0].children
+    assert TT.is_eq([k.shape_type for k in kids],
+                    ["compressed_mesh", "compressed_mesh"],
+                    "its children are the two compressed meshes")
+    for k in kids:
+        assert TT.is_gt(len(k.verts), 0, "compound child has geometry")
+        assert k.transform is not None, "compound child carries its instance transform"
+    # The children must not ALSO appear as bodies in their own right.
+    assert TT.is_eq(_psd_body_summary(_first_physics_system(cm_nif).data)[3].__len__(),
+                    1, "vanilla declares a single body")
 
 
 def TEST_TRIANGULATE():

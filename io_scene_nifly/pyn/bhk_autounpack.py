@@ -835,6 +835,56 @@ def parse_convex_polytope(data: bytes, shape_abs: int) -> Optional[Tuple[List[Ve
 
 
 
+COMPOUND_INSTANCE_STRIDE = 0x80
+
+
+def compound_instance_map(
+        data: bytes, data_start: int,
+        fixups: Dict[int, int],
+        gfixups: Dict[int, Tuple[int, int]],
+        objects: List[Tuple[int, str]],
+) -> Dict[int, List[Tuple[int, int, BodyTransform]]]:
+    """child shape rel -> [(compound rel, instance index, instance transform)].
+
+    A list, because several instances can point at the SAME child shape --
+    Havok's way of placing one mesh in many spots.  Keying one-to-one would
+    silently drop every instance but the last.
+
+    Covers EVERY instance of every hknpDynamicCompoundShape, whatever the child
+    shape's type.  Both extractors consult this so a shape owned by a compound
+    is never also emitted as a body in its own right -- which is what used to
+    turn one compound body into N separate bodies on export.
+    """
+    out: Dict[int, List[Tuple[int, int, BodyTransform]]] = {}
+    compounds = [rel for rel, cls in objects
+                 if "DynamicCompoundShape" in cls and "Data" not in cls]
+    for comp_rel in compounds:
+        comp_abs = data_start + comp_rel
+        inst_arr_ptr = fixups.get(comp_rel + 0x60)
+        inst_count = u32(data, comp_abs + 0x60 + 8) & 0x3FFFFFFF
+        if inst_arr_ptr is None or inst_count == 0:
+            continue
+        for i in range(inst_count):
+            inst_rel = inst_arr_ptr + i * COMPOUND_INSTANCE_STRIDE
+            inst_abs = data_start + inst_rel
+            gf = gfixups.get(inst_rel + 0x50)
+            if gf is None:
+                continue
+            r0 = vec4(data, inst_abs + 0x00)
+            r1 = vec4(data, inst_abs + 0x10)
+            r2 = vec4(data, inst_abs + 0x20)
+            # Havok stores the rotation as three column vectors; transpose to
+            # row-major so a standard M*v multiply works.
+            rot: Mat3 = ((r0[0], r1[0], r2[0]),
+                         (r0[1], r1[1], r2[1]),
+                         (r0[2], r1[2], r2[2]))
+            t = vec4(data, inst_abs + 0x30)
+            out.setdefault(gf[1], []).append(
+                (comp_rel, i,
+                 BodyTransform(position=(t[0], t[1], t[2]), rotation=rot)))
+    return out
+
+
 def extract_compound_polytopes(
         data: bytes, data_start: int,
         fixups: Dict[int, int],
@@ -842,8 +892,14 @@ def extract_compound_polytopes(
         objects: List[Tuple[int, str]],
         body_transforms: Dict[int, BodyTransform],
         body_order: Optional[Dict[int, int]] = None,
+        extra_children: Optional[Dict[int, List[Tuple[int, 'CollisionShape']]]] = None,
 ) -> List[CollisionShape]:
     """Extract convex polytope shapes from hknpDynamicCompoundShape instances.
+
+    extra_children maps a compound's rel offset to (instance index, shape) pairs
+    another extractor already built -- compressed meshes, which this function
+    cannot parse.  They are merged in and the children sorted back into instance
+    order, so a compound of mixed child types comes out whole.
 
     Returns a list of CollisionShape objects.  Each hknpDynamicCompoundShape
     becomes a "compound" CollisionShape (no geometry) whose children are
@@ -923,6 +979,11 @@ def extract_compound_polytopes(
                 convex_radius=convex_radius,
                 children=[],
             ))
+
+        merged = [(n, c) for n, c in enumerate(compound_shape.children)]
+        merged += (extra_children or {}).get(comp_rel, [])
+        merged.sort(key=lambda pair: pair[0])
+        compound_shape.children = [c for _, c in merged]
 
         if compound_shape.children:
             result.append(compound_shape)
@@ -1085,6 +1146,22 @@ def extract_bhk_physics_system(
     mesh_shapes = [(rel, cls) for rel, cls in objects
                    if "hknpCompressedMeshShapeData" in cls]
 
+    # A compressed mesh can be a compound's child rather than a body of its own.
+    # The instance points at the hknpCompressedMeshShape; walk its data pointer
+    # so we can recognize the ShapeData objects this loop iterates over.
+    inst_map = compound_instance_map(data, data_start, fixups, gfixups, objects)
+    cm_owner: Dict[int, List[Tuple[int, int, BodyTransform]]] = {}
+    for shape_rel, cls in objects:
+        if not cls.endswith("hknpCompressedMeshShape"):
+            continue
+        owners = inst_map.get(shape_rel)
+        if not owners:
+            continue
+        gf = gfixups.get(shape_rel + 0x60)          # hknpCompressedMeshShape.data
+        if gf is not None:
+            cm_owner.setdefault(gf[1], []).extend(owners)
+    compound_kids: Dict[int, List[Tuple[int, CollisionShape]]] = {}
+
     for shape_idx, (obj_rel, _) in enumerate(mesh_shapes):
         obj_abs = data_start + obj_rel
         extract_bhk_physics_system._large_cache = {}
@@ -1181,8 +1258,9 @@ def extract_bhk_physics_system(
                                for a, b, c in tris)
 
         if shape_verts and shape_faces:
+            owners = cm_owner.get(obj_rel)
             mesh_name = "CompressedMesh" if len(mesh_shapes) == 1 else f"CompressedMesh_{shape_idx}"
-            all_shapes.append(CollisionShape(
+            shape = CollisionShape(
                 shape_type="compressed_mesh",
                 name=mesh_name,
                 transform=mesh_body,
@@ -1191,11 +1269,31 @@ def extract_bhk_physics_system(
                 convex_radius=0.0,
                 children=[],
                 body_index=body_order.get(obj_rel),
-            ))
+            )
+            if not owners:
+                all_shapes.append(shape)
+            for comp_rel, inst_i, inst_xf in owners or []:
+                # Owned by a compound: hand it over as that instance's child
+                # rather than emitting it as a body.  Its transform is the
+                # instance placement, like a compound's polytope children.  One
+                # shape placed by several instances becomes several children
+                # sharing the geometry.
+                child = CollisionShape(
+                    shape_type="compressed_mesh",
+                    name=f"CompressedMesh_{inst_i}",
+                    transform=inst_xf,
+                    verts=shape.verts,
+                    faces=shape.faces,
+                    convex_radius=0.0,
+                    children=[],
+                    body_index=None,
+                )
+                compound_kids.setdefault(comp_rel, []).append((inst_i, child))
 
     # ── extract convex polytope shapes ──
     all_shapes.extend(extract_compound_polytopes(
-        data, data_start, fixups, gfixups, objects, body_transforms, body_order))
+        data, data_start, fixups, gfixups, objects, body_transforms, body_order,
+        extra_children=compound_kids))
 
     # ── extract sphere shapes ──
     sphere_objects = [(rel, cls) for rel, cls in objects
