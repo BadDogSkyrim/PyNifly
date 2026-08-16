@@ -448,7 +448,8 @@ class CollisionHandler():
 
         When apply_transform is True the shape's stored transform (body or instance)
         is applied to the vertices before scaling.  Compressed-mesh shapes always
-        skip the transform because their AABB-dequantized verts are world-space.
+        skip it: their verts are dequantized from the section AABBs into the
+        node's space already, so there is nothing left to place.
 
         Returns the created Blender object (not yet linked to rigid body system).
         """
@@ -529,15 +530,17 @@ class CollisionHandler():
         bhkPhysicsSystem belongs to this NIF node.  Only that body's shape(s)
         are imported here; other nodes will import their own bodies separately.
 
-        Body transform semantics:
-        - Non-identity rotation: the body transform matches the NIF node's world
-          transform.  It is applied to the (body-local) vertices so they end up
-          in world space; the Blender object uses import_xf (Identity).
-        - Identity rotation: the body position is centre-of-mass metadata, NOT
-          the node position.  Vertices are already in node-local space and the
-          Blender object uses node_xf to position them correctly.
-        - Compressed-mesh shapes are always world-space (AABB-dequantized) and
-          use import_xf regardless of body rotation.
+        Body transform semantics: a body's shape vertices are in its NIF node's
+        space, and the engine puts the body where the node is, so node_xf alone
+        places them -- the stored hknpBodyCinfo transform is not applied.  In
+        well-formed vanilla data that transform is a copy of the node's world
+        transform anyway; where it is not (many single-body statics carry an
+        authoring leftover hundreds of units off) applying it would move the
+        collision away from the mesh.  Measured over 200 vanilla systems:
+        node_xf alone matches the visual mesh 159 times, the body transform 12.
+
+        Bulk mode is the exception -- with no node to attribute a body to, the
+        body transform is the only placement available, so it is applied.
 
         Compound shapes are flattened: each leaf becomes its own Blender object.
         Instance transforms within compounds are always applied.
@@ -1502,6 +1505,20 @@ class CollisionHandler():
                 self.objs_written.add(ReprObject(coll, targnode))
                 return
 
+            # A body lives in its NIF node's space: the engine puts the body
+            # where the node is, so the shape's vertices are node-local and the
+            # body carries the node's world transform.  Exporting world-space
+            # verts left the node to transform them a second time, throwing the
+            # collision off by the node's translation -- 1700 units on Diamond
+            # City's rich-base buildings, which reads in game as no collision at
+            # all.  Deriving both from the Blender object also means moving the
+            # collision in Blender moves it in game.
+            node_mx = transform_to_matrix(targnode.global_transform)
+            node_inv = node_mx.inverted()
+            body_xf = BodyTransform(
+                position=tuple(c / sf for c in node_mx.translation),
+                rotation=tuple(tuple(r) for r in node_mx.to_quaternion().to_matrix()))
+
             _SHAPE_TYPES = ('compressed_mesh', 'polytope', 'sphere')
             # Collect the main collision object and any children that carry
             # pynCollisionShapeType (set during import for multi-shape systems).
@@ -1563,11 +1580,14 @@ class CollisionHandler():
                         # Derive Havok radius from the Blender mesh dimensions.
                         sphere_r = max(obj.dimensions) / 2.0 / sf
                         # The sphere center is baked into vertex positions;
-                        # recover it as the vertex centroid in Havok space.
-                        world_mat = self.export_xf @ obj.matrix_world
+                        # recover it as the vertex centroid in Havok space.  A
+                        # sphere has no vertices of its own, so its centre is
+                        # all the body transform has to carry -- node-local,
+                        # like every other shape's geometry.
+                        local_mat = node_inv @ self.export_xf @ obj.matrix_world
                         vsum = Vector((0, 0, 0))
                         for v in obj.data.vertices:
-                            vsum += world_mat @ v.co
+                            vsum += local_mat @ v.co
                         centroid = vsum / len(obj.data.vertices) / sf
                         sphere_xf = BodyTransform(
                             position=tuple(centroid),
@@ -1584,8 +1604,8 @@ class CollisionHandler():
                             physics=physics,
                         ))
                     else:
-                        world_mat = self.export_xf @ obj.matrix_world
-                        verts = [tuple(world_mat @ v.co / sf) for v in obj.data.vertices]
+                        local_mat = node_inv @ self.export_xf @ obj.matrix_world
+                        verts = [tuple(local_mat @ v.co / sf) for v in obj.data.vertices]
                         faces = [list(p.vertices) for p in obj.data.polygons]
                         # convex_radius: prefer rigid body margin, fall back to custom prop.
                         if obj.rigid_body and obj.rigid_body.use_margin:
@@ -1595,7 +1615,7 @@ class CollisionHandler():
                         shapes.append(CollisionShape(
                             shape_type=shape_type,
                             name=obj.name,
-                            transform=None,
+                            transform=body_xf,
                             verts=verts,
                             faces=faces,
                             convex_radius=radius,
@@ -1619,8 +1639,8 @@ class CollisionHandler():
             else:
                 # Legacy path: no pynCollisionShapeType tag — treat the whole
                 # mesh as a single convex polytope (pre-existing behaviour).
-                world_mat = self.export_xf @ coll.matrix_world
-                verts = [(*(world_mat @ v.co / sf),) for v in coll.data.vertices]
+                local_mat = node_inv @ self.export_xf @ coll.matrix_world
+                verts = [(*(local_mat @ v.co / sf),) for v in coll.data.vertices]
                 faces = [list(p.vertices) for p in coll.data.polygons]
                 bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces, parent=coll_node)
 

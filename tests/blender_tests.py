@@ -8779,6 +8779,44 @@ def TEST_COLLISION_FO4_POOLBALL():
                          f"exported collision on {name} names a real body")
 
 
+def _np_body_world_bounds(nif):
+    """World-space AABB of every native-physics body, keyed by node name.
+
+    The engine puts a body where its NIF node is, so a body's world extent is
+    the node's global transform applied to the body's shape vertices.  Havok
+    units; the node translation is in nif units, so scale the verts to match.
+    """
+    out = {}
+    cache = {}
+    for name, node in nif.nodes.items():
+        co = node.collision_object
+        if co is None or co.blockname != 'bhkNPCollisionObject':
+            continue
+        ps = co.physics_system
+        if ps is None:
+            continue
+        if ps.id not in cache:
+            cache[ps.id] = ps.geometry
+        shapes = cache[ps.id]
+        if co.body_id is None or co.body_id >= len(shapes):
+            continue
+        pts = []
+        def collect(s):
+            if s.shape_type == 'compound':
+                for c in s.children:
+                    collect(c)
+            else:
+                pts.extend(s.verts)
+        collect(shapes[co.body_id])
+        if not pts:
+            continue
+        mx = BD.transform_to_matrix(node.global_transform)
+        world = [mx @ (Vector(v) * HAVOC_SCALE_FACTOR) for v in pts]
+        out[name] = (Vector([min(w[i] for w in world) for i in range(3)]),
+                     Vector([max(w[i] for w in world) for i in range(3)]))
+    return out
+
+
 @TT.category('FO4', 'PHYSICS')
 # DiamondBulkhead01 references a cubemap the test texture tree doesn't carry.
 @TT.expect_errors( ("Could not find texture", ) )
@@ -8835,6 +8873,39 @@ def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     chk_zs = [(chk.matrix_world @ v.co).z for v in chk.data.vertices]
     assert TT.is_equiv(min(chk_xs), min(orig_xs), "X min preserved", e=0.1)
     assert TT.is_equiv(max(chk_xs), max(orig_xs), "X max preserved", e=0.1)
+    assert TT.is_equiv(min(chk_ys), min(orig_ys), "Y min preserved", e=0.1)
+    assert TT.is_equiv(max(chk_ys), max(orig_ys), "Y max preserved", e=0.1)
+    assert TT.is_equiv(min(chk_zs), min(orig_zs), "Z min preserved", e=0.1)
+    assert TT.is_equiv(max(chk_zs), max(orig_zs), "Z max preserved", e=0.1)
+
+    # ---- a body stays where its node puts it ----
+    # A body's shape verts are in its node's space, so a node with a non-zero
+    # transform places them.  Exporting verts in world space instead left the
+    # node to transform them a second time, throwing the collision off by the
+    # node's translation -- up to 1700 units on DiamondRichBase01's buildings,
+    # far enough that the collision was simply somewhere else.
+    TTB.clear_all()
+    rbfile = TTB.test_file(
+        r"tests\FO4\Meshes\Architecture\DiamondCity\Stadium_Ext\DiamondRichBase01.nif")
+    rbout = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_PLACEMENT.nif")
+
+    srcnif = pyn.NifFile(rbfile)
+    src_bounds = _np_body_world_bounds(srcnif)
+    offset_nodes = [n for n in src_bounds
+                    if max(abs(x) for x in srcnif.nodes[n].global_transform.translation) > 1.0]
+    assert TT.is_gt(len(offset_nodes), 0, "fixture has collision on offset nodes")
+
+    bpy.ops.import_scene.pynifly(filepath=rbfile)
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=rbout, target_game='FO4')
+
+    out_bounds = _np_body_world_bounds(pyn.NifFile(rbout))
+    assert TT.is_eq(sorted(out_bounds), sorted(src_bounds),
+                    "every collision body comes back")
+    for n, (lo, hi) in src_bounds.items():
+        olo, ohi = out_bounds[n]
+        assert TT.is_lt((olo - lo).length, 2.0, f"{n} collision keeps its position")
+        assert TT.is_lt((ohi - hi).length, 2.0, f"{n} collision keeps its extent")
 
     # ---- back faces survive the round trip ----
     # A collision surface is made solid from both sides by carrying the same
@@ -8862,10 +8933,6 @@ def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     out_tris = len(pyn.NifFile(bkout).nodes['DiamondBulkhead01']
                    .collision_object.physics_system.geometry[0].faces)
     assert TT.is_eq(out_tris, 16, "and they are all exported again")
-    assert TT.is_equiv(min(chk_ys), min(orig_ys), "Y min preserved", e=0.1)
-    assert TT.is_equiv(max(chk_ys), max(orig_ys), "Y max preserved", e=0.1)
-    assert TT.is_equiv(min(chk_zs), min(orig_zs), "Z min preserved", e=0.1)
-    assert TT.is_equiv(max(chk_zs), max(orig_zs), "Z max preserved", e=0.1)
 
 
 @TT.category('FO4', 'PHYSICS')
