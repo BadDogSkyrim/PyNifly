@@ -249,6 +249,12 @@ def parse_global_fixups(data: bytes, hdr: SectionHdr) -> Dict[int, Tuple[int, in
 class BodyTransform:
     position: Vert3
     rotation: Mat3  # from quaternion
+    # The quaternion the file actually stored.  A rotation matrix cannot say
+    # whether it came from q or -q -- both describe the same rotation -- so
+    # rebuilding one from the matrix round-trips the ROTATION but not the bytes.
+    # Keep the original so a re-pack reproduces the source exactly; shapes built
+    # in Blender have no quaternion and fall back to converting the matrix.
+    quaternion: Optional[Tuple[float, float, float, float]] = None
 
 
 # hknpBodyCinfo.motionId when a body does not move.  Anything else indexes the
@@ -374,7 +380,8 @@ def parse_body_transforms(
                    f32(data, body_abs + BODY_POS_OFF + 8))
             q = vec4(data, body_abs + BODY_QUAT_OFF)
             rot = quat_to_matrix(q[0], q[1], q[2], q[3])
-            bt = BodyTransform(position=pos, rotation=rot)
+            bt = BodyTransform(position=pos, rotation=rot,
+                               quaternion=(q[0], q[1], q[2], q[3]))
             result[shape_rel] = bt
 
             # Also map sub-objects (e.g. CompressedMeshShape -> ShapeData)

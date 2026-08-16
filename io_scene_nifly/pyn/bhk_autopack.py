@@ -500,8 +500,44 @@ def _build_motion_cinfo(physics) -> bytes:
     return _build_dyn_inertia(physics)
 
 
+def _matrix_to_quat(m) -> Tuple[float, float, float, float]:
+    """3x3 rotation matrix → (x, y, z, w), the inverse of quat_to_matrix.
+
+    Uses the largest diagonal term as the pivot so the division is never by a
+    near-zero, which is what makes the naive trace formula lose precision on
+    180-degree rotations.
+    """
+    t = m[0][0] + m[1][1] + m[2][2]
+    if t > 0.0:
+        s = math.sqrt(t + 1.0) * 2.0
+        return ((m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s,
+                (m[1][0] - m[0][1]) / s, 0.25 * s)
+    if m[0][0] > m[1][1] and m[0][0] > m[2][2]:
+        s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0
+        return (0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s,
+                (m[2][1] - m[1][2]) / s)
+    if m[1][1] > m[2][2]:
+        s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0
+        return ((m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s,
+                (m[0][2] - m[2][0]) / s)
+    s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0
+    return ((m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s,
+            (m[1][0] - m[0][1]) / s)
+
+
+def _body_transform_list(transforms, num_bodies: int) -> List:
+    """Normalize the body-transform argument into one entry per body."""
+    if transforms is None:
+        return [None] * num_bodies
+    if not isinstance(transforms, (list, tuple)):
+        return [transforms] * num_bodies
+    out = list(transforms)
+    out += [None] * max(0, num_bodies - len(out))
+    return out[:num_bodies]
+
+
 def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
-                      physics=None, num_bodies: int = 1):
+                      physics=None, num_bodies: int = 1, body_transforms=None):
     """Write PSD + materials + [motionProperties + motionCinfos] + bodyCinfos
     + referencedObjects.
 
@@ -519,6 +555,7 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
       dynamic bodies' motionIds are 0..n-1 in body order
     """
     bodies = _body_physics_list(physics, num_bodies)
+    xforms = _body_transform_list(body_transforms, num_bodies)
     dyn_idx = [i for i, p in enumerate(bodies) if p is not None and p.is_dynamic]
     n_dyn = len(dyn_idx)
     # motionProperties is a system-level list that each motionCinfo indexes with
@@ -598,6 +635,16 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
         struct.pack_into('<H', cinfo, 0x12, i)            # materialId == index
         struct.pack_into('<I', cinfo, 0x14,
                          p.collision_filter_info if p is not None else 1)
+        # position (+0x30) / orientation (+0x40) PLACE the body.  Several bodies
+        # commonly share one local mesh sitting at the origin and are spread out
+        # by this alone -- DiamondRichBase01 is five such bodies -- so leaving it
+        # at the origin stacks them all in the same spot.  Shapes whose vertices
+        # are already in world space carry no transform and stay at the origin.
+        xf = xforms[i]
+        if xf is not None:
+            struct.pack_into('<3f', cinfo, 0x30, *xf.position)
+            quat = getattr(xf, 'quaternion', None) or _matrix_to_quat(xf.rotation)
+            struct.pack_into('<4f', cinfo, 0x40, *quat)
         write(bytes(cinfo))
     fx.add_local(arr40_off, body_cinfo_rel)
 
@@ -955,7 +1002,8 @@ class _FixupBuilder:
 
 def _build_data_section(verts: List[Vert3], faces: List[Face],
                          name_offs: Dict[str, int],
-                         physics=None) -> Tuple[bytes, '_FixupBuilder']:
+                         physics=None,
+                         transform=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section (object data only, without fixup tables).
 
     Returns (section_bytes, fixup_builder).
@@ -976,7 +1024,8 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
 
     # ── PSD prefix: PSD + body_props + [dyn_motion + dyn_inertia] + BodyCInfo + ShapeEntry
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
-        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics,
+        body_transforms=[transform])
 
     # ── hknpConvexPolytopeShape  (variable rel) ─────────────────────────────
     shape_rel = rel()
@@ -1580,13 +1629,15 @@ def _write_cm_shape(data: bytearray, fx: '_FixupBuilder',
 
 def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
                             name_offs: Dict[str, int],
-                            physics=None) -> Tuple[bytes, '_FixupBuilder']:
+                            physics=None,
+                            transform=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section for a one-body compressed mesh packfile."""
     fx = _FixupBuilder()
     data = bytearray()
 
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
-        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics,
+        body_transforms=[transform])
 
     _write_cm_shape(data, fx, name_offs, verts, tris,
                     body_cinfo_rel, shape_entry_rel)
@@ -1602,7 +1653,8 @@ def _build_multi_cm_data_section(cm_shapes, name_offs: Dict[str, int],
 
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'],
-        physics=physics, num_bodies=len(cm_shapes))
+        physics=physics, num_bodies=len(cm_shapes),
+        body_transforms=[s.transform for s in cm_shapes])
 
     for i, s in enumerate(cm_shapes):
         _write_cm_shape(data, fx, name_offs, s.verts, s.faces,
@@ -1618,7 +1670,8 @@ def _build_mixed_data_section(
         cm_verts: List[Vert3], cm_tris: List[Face],
         poly_verts: List[Vert3], poly_faces: List[Face],
         name_offs: Dict[str, int],
-        physics=None, cm_body: int = 0) -> Tuple[bytes, '_FixupBuilder']:
+        physics=None, cm_body: int = 0,
+        body_transforms=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build __data__ section for a two-body packfile: CM body + polytope body.
 
     cm_body picks which BODY SLOT the compressed mesh occupies.  A body's slot
@@ -1641,7 +1694,7 @@ def _build_mixed_data_section(
     # ── PSD prefix: PSD + body_props×2 + [dyn arrays] + BodyCInfo×2 + ShapeEntry×2
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'],
-        physics=physics, num_bodies=2)
+        physics=physics, num_bodies=2, body_transforms=body_transforms)
 
     poly_body = 1 - cm_body
 
@@ -1799,7 +1852,7 @@ def _file_header(cn_name_off: int) -> bytes:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def pack_compressed_mesh(verts: List[Vert3], tris: List[Face],
-                         physics=None) -> bytes:
+                         physics=None, transform=None) -> bytes:
     """Build Havok packfile bytes from a triangle mesh using hknpCompressedMeshShape.
 
     Each triangle (a, b, c) is stored as a degenerate quad [a, b, c, c].  A
@@ -1820,7 +1873,8 @@ def pack_compressed_mesh(verts: List[Vert3], tris: List[Face],
     cn_data, name_offs = _build_classnames_cm()
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
-    obj_data, fx = _build_cm_data_section(verts, tris, name_offs, physics=physics)
+    obj_data, fx = _build_cm_data_section(verts, tris, name_offs, physics=physics,
+                                          transform=transform)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -1917,7 +1971,8 @@ def pack_multi_cm(cm_shapes, physics=None) -> bytes:
     return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
 
 
-def pack_mixed(cm_shape, poly_shape, physics=None, cm_body: int = 0) -> bytes:
+def pack_mixed(cm_shape, poly_shape, physics=None, cm_body: int = 0,
+               body_transforms=None) -> bytes:
     """Build Havok packfile bytes for two bodies: one CM + one convex polytope.
 
     Args:
@@ -1936,7 +1991,8 @@ def pack_mixed(cm_shape, poly_shape, physics=None, cm_body: int = 0) -> bytes:
     obj_data, fx = _build_mixed_data_section(
         cm_shape.verts, cm_shape.faces,
         poly_shape.verts, poly_shape.faces,
-        name_offs, physics=physics, cm_body=cm_body)
+        name_offs, physics=physics, cm_body=cm_body,
+        body_transforms=body_transforms)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -2162,7 +2218,8 @@ def pack_compound(children, physics=None) -> bytes:
 def _build_multi_poly_data_section(
         poly_pairs: List[Tuple[List[Vert3], List[Face]]],
         name_offs: Dict[str, int],
-        physics=None) -> Tuple[bytes, '_FixupBuilder']:
+        physics=None,
+        body_transforms=None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section for an N-body all-polytope packfile.
 
     Each element of poly_pairs is a (verts, faces) tuple for one body.
@@ -2184,7 +2241,7 @@ def _build_multi_poly_data_section(
     # ── PSD prefix: PSD + body_props×N + [dyn arrays] + BodyCInfo×N + ShapeEntry×N
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'],
-        physics=physics, num_bodies=N)
+        physics=physics, num_bodies=N, body_transforms=body_transforms)
 
     # Compute per-body offsets from the base returned by _build_psd_prefix
     body_cinfo_rels = [body_cinfo_rel + i * 0x60 for i in range(N)]
@@ -2238,8 +2295,9 @@ def pack_multi_polytope(poly_shapes, physics=None) -> bytes:
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
     poly_pairs = [(s.verts, s.faces) for s in poly_shapes]
-    obj_data, fx = _build_multi_poly_data_section(poly_pairs, name_offs,
-                                                   physics=physics)
+    obj_data, fx = _build_multi_poly_data_section(
+        poly_pairs, name_offs, physics=physics,
+        body_transforms=[s.transform for s in poly_shapes])
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -2306,13 +2364,16 @@ def pack_shapes(shapes) -> bytes:
     if len(shapes) == 1:
         s = shapes[0]
         if s.shape_type == "compressed_mesh":
-            return pack_compressed_mesh(s.verts, s.faces, physics=physics)
+            return pack_compressed_mesh(s.verts, s.faces, physics=physics,
+                                        transform=s.transform)
         if s.shape_type == "polytope":
-            return pack_convex_polytope(s.verts, s.faces, physics=physics)
+            return pack_convex_polytope(s.verts, s.faces, physics=physics,
+                                        transform=s.transform)
         if s.shape_type == "sphere":
             xf = s.transform
             position = xf.position if xf is not None else (0, 0, 0)
-            return pack_sphere(s.sphere_radius, position=position, physics=physics)
+            return pack_sphere(s.sphere_radius, position=position,
+                               physics=physics, transform=s.transform)
 
     cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
     poly_list = [s for s in shapes if s.shape_type == "polytope"]
@@ -2333,7 +2394,8 @@ def pack_shapes(shapes) -> bytes:
         # one's shape.
         return pack_mixed(cm_list[0], poly_list[0],
                           physics=[s.physics for s in shapes],
-                          cm_body=shapes.index(cm_list[0]))
+                          cm_body=shapes.index(cm_list[0]),
+                          body_transforms=[s.transform for s in shapes])
 
     types = [s.shape_type for s in shapes]
     raise NotImplementedError(
@@ -2342,7 +2404,8 @@ def pack_shapes(shapes) -> bytes:
     )
 
 
-def pack_sphere(radius: float, position=(0, 0, 0), physics=None) -> bytes:
+def pack_sphere(radius: float, position=(0, 0, 0), physics=None,
+                transform=None) -> bytes:
     """Build Havok packfile bytes for a single hknpSphereShape.
 
     The sphere packfile is simpler than polytope — it has no
@@ -2374,10 +2437,13 @@ def pack_sphere(radius: float, position=(0, 0, 0), physics=None) -> bytes:
 
     # ── PSD prefix: PSD + body_props + [dyn arrays] + BodyCInfo + ShapeEntry
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
-        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics)
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics,
+        body_transforms=[transform])
 
-    # Patch BodyCInfo position (+0x30) with sphere center.
-    if position != (0, 0, 0):
+    # A sphere carries its centre in the body position rather than in vertex
+    # data.  _build_psd_prefix already wrote the body transform when there is
+    # one; this covers callers that pass only a centre.
+    if transform is None and position != (0, 0, 0):
         struct.pack_into('<fff', data, body_cinfo_rel + 0x30,
                          position[0], position[1], position[2])
 
@@ -2443,7 +2509,7 @@ def pack_sphere(radius: float, position=(0, 0, 0), physics=None) -> bytes:
 
 
 def pack_convex_polytope(verts: List[Vert3], faces: List[Face],
-                         physics=None) -> bytes:
+                         physics=None, transform=None) -> bytes:
     """Build Havok packfile bytes from a convex polytope mesh.
 
     Args:
@@ -2463,7 +2529,8 @@ def pack_convex_polytope(verts: List[Vert3], faces: List[Face],
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
     # ── Data section (object bytes only) ──
-    obj_data, fx = _build_data_section(verts, faces, name_offs, physics=physics)
+    obj_data, fx = _build_data_section(verts, faces, name_offs, physics=physics,
+                                       transform=transform)
 
     # ── Fixup tables ──
     local_tbl  = fx.build_local_table()

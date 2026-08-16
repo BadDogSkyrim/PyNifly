@@ -5153,10 +5153,18 @@ def _psd_body_summary(packfile_bytes):
     bodies = []
     for i in range(n_bodies):
         o = ds + base + i * 0x60
+        # position (+0x30) places the body: several bodies can share one local
+        # mesh sitting at the origin and be spread out by this alone, so losing
+        # it stacks them all in the same spot.
+        pos = tuple(round(v, 3)
+                    for v in _struct.unpack_from("<3f", data, o + 0x30))
+        quat = tuple(round(v, 3)
+                     for v in _struct.unpack_from("<4f", data, o + 0x40))
         bodies.append((_struct.unpack_from("<I", data, o + 0x0C)[0],   # motionId
                        _struct.unpack_from("<H", data, o + 0x12)[0],   # materialId
                        _struct.unpack_from("<I", data, o + 0x14)[0],   # filter
-                       data[o + 0x10]))                                # qualityId
+                       data[o + 0x10],                                 # qualityId
+                       pos, quat))
     return count(0x10), count(0x20), count(0x30), tuple(bodies)
 
 
