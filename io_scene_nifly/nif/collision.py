@@ -112,6 +112,19 @@ collision_active_layers = [
     SkyrimCollisionLayer.DEBRIS_LARGE, SkyrimCollisionLayer.DEBRIS_SMALL]
     
 
+def _filter_info(gp):
+    """A body's collisionFilterInfo from its FO4 physics properties.
+
+    Kept as hex because the field is a uint32 and Blender's IntProperty is
+    signed.  Anything unreadable falls back to 1 (static), the value 590 of 817
+    vanilla bodies carry, rather than failing the export over one word.
+    """
+    try:
+        return int(gp.filter_hex, 16) if gp.filter_hex else 1
+    except ValueError:
+        return 1
+
+
 def RigidBodyXF(cb: bhkWorldObject):
     """
     Return a matrix representing the transform applied by a collision body.
@@ -705,7 +718,8 @@ class CollisionHandler():
                                     material_hex=s.physics.body_props_raw.hex(),
                                     gravity_factor=s.physics.gravity_factor,
                                     max_lin_vel=s.physics.max_linear_velocity,
-                                    max_ang_vel=s.physics.max_angular_velocity)
+                                    max_ang_vel=s.physics.max_angular_velocity,
+                                    filter_hex=f"{s.physics.collision_filter_info:x}")
 
             if s.convex_radius > 0.0:
                 radius_bl = s.convex_radius * sf
@@ -1429,6 +1443,7 @@ class CollisionHandler():
             gravity_factor=gp.gravity_factor,
             max_linear_velocity=gp.max_lin_vel,
             max_angular_velocity=gp.max_ang_vel,
+            collision_filter_info=_filter_info(gp),
         )
         if is_dyn:
             physics = PhysicsProps(is_dynamic=True, mass=rb.mass,
@@ -1557,6 +1572,7 @@ class CollisionHandler():
                     gravity_factor=gp.gravity_factor,
                     max_linear_velocity=gp.max_lin_vel,
                     max_angular_velocity=gp.max_ang_vel,
+                    collision_filter_info=_filter_info(gp),
                 )
                 if is_dyn:
                     physics = PhysicsProps(

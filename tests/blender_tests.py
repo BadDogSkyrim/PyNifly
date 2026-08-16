@@ -8779,13 +8779,8 @@ def TEST_COLLISION_FO4_POOLBALL():
                          f"exported collision on {name} names a real body")
 
 
-def _np_body_world_bounds(nif):
-    """World-space AABB of every native-physics body, keyed by node name.
-
-    The engine puts a body where its NIF node is, so a body's world extent is
-    the node's global transform applied to the body's shape vertices.  Havok
-    units; the node translation is in nif units, so scale the verts to match.
-    """
+def _np_bodies(nif):
+    """The native-physics body each NIF node names, keyed by node name."""
     out = {}
     cache = {}
     for name, node in nif.nodes.items():
@@ -8800,6 +8795,19 @@ def _np_body_world_bounds(nif):
         shapes = cache[ps.id]
         if co.body_id is None or co.body_id >= len(shapes):
             continue
+        out[name] = shapes[co.body_id]
+    return out
+
+
+def _np_body_world_bounds(nif):
+    """World-space AABB of every native-physics body, keyed by node name.
+
+    The engine puts a body where its NIF node is, so a body's world extent is
+    the node's global transform applied to the body's shape vertices.  Havok
+    units; the node translation is in nif units, so scale the verts to match.
+    """
+    out = {}
+    for name, body in _np_bodies(nif).items():
         pts = []
         def collect(s):
             if s.shape_type == 'compound':
@@ -8807,14 +8815,20 @@ def _np_body_world_bounds(nif):
                     collect(c)
             else:
                 pts.extend(s.verts)
-        collect(shapes[co.body_id])
+        collect(body)
         if not pts:
             continue
-        mx = BD.transform_to_matrix(node.global_transform)
+        mx = BD.transform_to_matrix(nif.nodes[name].global_transform)
         world = [mx @ (Vector(v) * HAVOC_SCALE_FACTOR) for v in pts]
         out[name] = (Vector([min(w[i] for w in world) for i in range(3)]),
                      Vector([max(w[i] for w in world) for i in range(3)]))
     return out
+
+
+def _np_body_filters(nif):
+    """collisionFilterInfo of every native-physics body, keyed by node name."""
+    return {name: body.physics.collision_filter_info
+            for name, body in _np_bodies(nif).items() if body.physics}
 
 
 @TT.category('FO4', 'PHYSICS')
@@ -8906,6 +8920,26 @@ def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
         olo, ohi = out_bounds[n]
         assert TT.is_lt((olo - lo).length, 2.0, f"{n} collision keeps its position")
         assert TT.is_lt((ohi - hi).length, 2.0, f"{n} collision keeps its extent")
+
+    # ---- a body keeps what it collides with ----
+    # collisionFilterInfo picks the body's collision layer.  Nothing in Blender
+    # held it, so export wrote 1 (static) on every body: DiamondShack04's
+    # entrance stairs came back on the wrong layer.
+    TTB.clear_all()
+    fifile = TTB.test_file(
+        r"tests\FO4\Meshes\Architecture\DiamondCity\ShackRV_Ext\DiamondShack04.nif")
+    fiout = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_FILTER.nif")
+
+    src_filters = _np_body_filters(pyn.NifFile(fifile))
+    assert TT.is_eq(sorted(src_filters.values()), [1, 31],
+                    "fixture has a body on a non-default collision layer")
+
+    bpy.ops.import_scene.pynifly(filepath=fifile)
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=fiout, target_game='FO4')
+
+    assert TT.is_eq(_np_body_filters(pyn.NifFile(fiout)), src_filters,
+                    "every body keeps its collision filter")
 
     # ---- back faces survive the round trip ----
     # A collision surface is made solid from both sides by carrying the same

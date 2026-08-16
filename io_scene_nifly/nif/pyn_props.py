@@ -646,7 +646,13 @@ _register_handwired_group('PynFO4PhysicsProps', 'pyn_fo4phys',
      'gravity_factor': bpy.props.FloatProperty(name='gravity_factor', default=1.0),
      'max_lin_vel': bpy.props.FloatProperty(name='max_lin_vel', default=104.4),
      'max_ang_vel': bpy.props.FloatProperty(name='max_ang_vel', default=31.57),
-     'collision_radius': bpy.props.FloatProperty(name='collision_radius', default=0.0)},
+     'collision_radius': bpy.props.FloatProperty(name='collision_radius', default=0.0),
+     # hknpBodyCinfo.collisionFilterInfo -- the body's collision layer, so it
+     # decides what the body blocks. A uint32, kept as hex for the same reason
+     # NiIntegerExtraData keeps its value as a string: Blender's IntProperty is
+     # signed 32-bit. Empty means "not recorded"; export then writes 1 (static),
+     # which is what 590 of 817 vanilla bodies carry.
+     'filter_hex': bpy.props.StringProperty(name='filter_hex', default='')},
     'FO4 Physics',
     legacy={'inertia': 'pynPhysInertia', 'material_hex': 'pynPhysMaterial',
             'gravity_factor': 'pynPhysGravityFactor', 'max_lin_vel': 'pynPhysMaxLinVel',
