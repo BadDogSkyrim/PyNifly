@@ -11,6 +11,7 @@ from . import import_hkx
 from . import export_hkx
 from . import skeleton_hkx
 from . import anim_fo4
+from . import annotations_ui
 
 if _needs_reload:
     import importlib
@@ -18,6 +19,7 @@ if _needs_reload:
     import_hkx = importlib.reload(import_hkx)
     export_hkx = importlib.reload(export_hkx)
     skeleton_hkx = importlib.reload(skeleton_hkx)
+    annotations_ui = importlib.reload(annotations_ui)
 
 
 def nifly_menu_import_hkx(self, context):
@@ -37,6 +39,7 @@ def nifly_menu_export_skel(self, context):
 
 
 def unregister():
+    annotations_ui.unregister()
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_hkx)
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_skel)
     bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_hkx)
@@ -67,6 +70,7 @@ def register():
     bpy.utils.register_class(export_hkx.ExportHKX)
     bpy.utils.register_class(export_hkx.ExportSkelHKX)
     bpy.utils.register_class(skeleton_hkx.ExportSkel)
+    annotations_ui.register()
 
     # Register properties to remember last import paths
     bpy.types.WindowManager.pynifly_last_import_path_hkx = bpy.props.StringProperty(

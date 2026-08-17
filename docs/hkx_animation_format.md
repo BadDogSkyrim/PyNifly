@@ -289,21 +289,33 @@ Custom properties stored on Blender armatures:
 | `PYN_HKX_PTR_SIZE` | 4 (LE) or 8 (SE/FO4) |
 | `PYN_HKX_ADDITIVE` | True if additive animation |
 
-## Annotations (Timeline Markers)
+Custom properties stored on Blender Actions:
 
-HKX annotations map to Blender timeline markers:
+| Property | Description |
+|----------|-------------|
+| `PYN_HKX_ANNOTATIONS` | JSON list of `{frame, text}` annotation events |
+
+## Annotations
+
+HKX annotations are Action-owned and mirrored to Blender timeline markers:
 
 ```
 HKX:     {time: 0.5, text: "SoundPlay.footstep"}
 Blender: marker at frame 15 (at 30 fps) named "SoundPlay.footstep"
+Action:  [{"frame":15,"text":"SoundPlay.footstep"}]
 ```
+
+The native FO4 writer serializes events into the `hkaAnnotationTrack` named
+`Root`. Several events can share the same frame/time. If an Action does not
+have `PYN_HKX_ANNOTATIONS`, export falls back to timeline markers within that
+Action's frame range for compatibility with existing `.blend` files.
 
 ## Limitations
 
 - No root motion export (reference frame samples always zero)
 - No float tracks (morph target animations)
 - B-spline degree limited to 0 (constant) and 1 (linear), not cubic
-- All annotation events stored on track 0
+- FO4 annotation events are stored on the `Root` track (track 0 for legacy files with blank track names)
 
 ## Architecture
 

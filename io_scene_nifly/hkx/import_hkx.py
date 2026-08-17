@@ -4,6 +4,7 @@ HKX ANIMATION IMPORT
 
 """
 import os
+import json
 import subprocess
 import logging
 from pathlib import Path
@@ -31,6 +32,7 @@ PYN_HKX_LOCK_TRANSLATION_PROP = 'PYN_HKX_LOCK_TRANSLATION'
 PYN_HKX_FLOAT_SLOTS_PROP = 'PYN_HKX_FLOAT_SLOTS'
 PYN_HKX_REFERENCE_FLOATS_PROP = 'PYN_HKX_REFERENCE_FLOATS'
 PYN_HKX_ADDITIVE_PROP = 'PYN_HKX_ADDITIVE'
+PYN_HKX_ANNOTATIONS_PROP = 'PYN_HKX_ANNOTATIONS'
 
 
 hkxcmd_path = None
@@ -41,6 +43,47 @@ else:
     hkxcmd_path = os.path.join(pynifly_addon_path, "hkxcmd.exe")
 
 log = logging.getLogger("pynifly")
+
+
+def _annotation_entries_from_action(action):
+    """Return canonical action-owned annotations, or None when not present."""
+    if action is None or PYN_HKX_ANNOTATIONS_PROP not in action:
+        return None
+    try:
+        raw = json.loads(str(action[PYN_HKX_ANNOTATIONS_PROP]))
+        if not isinstance(raw, list):
+            raise ValueError("annotation JSON must be a list")
+        entries = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get('text', '')).strip()
+            if text:
+                entries.append({
+                    'frame': float(item.get('frame', 0.0)),
+                    'text': text,
+                })
+        return entries
+    except (TypeError, ValueError, json.JSONDecodeError) as exc:
+        log.warning("Ignoring malformed %s on action %s: %s",
+                    PYN_HKX_ANNOTATIONS_PROP, action.name, exc)
+        return None
+
+
+def _store_action_annotations(action, annotations, fps, frame_start=1):
+    """Store imported HKX annotations on the Action and return JSON entries."""
+    entries = [
+        {
+            'frame': int(round(frame_start + annotation.time * fps)),
+            'text': annotation.text,
+        }
+        for annotation in annotations
+        if annotation.text
+    ]
+    action[PYN_HKX_ANNOTATIONS_PROP] = json.dumps(
+        entries, ensure_ascii=False, separators=(',', ':')
+    )
+    return entries
 
 
 ################################################################################
@@ -506,11 +549,16 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
         context.scene.frame_set(1)
 
-        # ── Import annotation events as timeline markers ──
-        for ann in anim_data.annotations:
-            if ann.text:
-                context.scene.timeline_markers.new(
-                    ann.text, frame=int(ann.time * self.fps) + 1)
+        # ── Import annotation events ──
+        # The Action property is canonical and supports multiple events at the
+        # same frame. Timeline markers remain a visible mirror.
+        action = armature.animation_data.action
+        entries = _store_action_annotations(
+            action, anim_data.annotations, self.fps, frame_start=1
+        )
+        for entry in entries:
+            context.scene.timeline_markers.new(
+                entry['text'], frame=int(entry['frame']))
 
         bdefs.highlight_objects([armature], context)
         log.info(f"Import of FO4 HKX animation completed: {anim_name}")
@@ -1167,4 +1215,22 @@ def extract_fo4_animation(armature, fps=None):
         original_skeleton_name="Root",
         blend_hint=1 if additive else 0,
     )
+
+    # Prefer action-owned annotation JSON. Unlike scene timeline markers it is
+    # scoped to the exported animation and can unambiguously hold several
+    # events on one frame. Fall back to in-range markers for older .blend files.
+    annotation_entries = _annotation_entries_from_action(action)
+    if annotation_entries is None:
+        annotation_entries = [
+            {'frame': marker.frame, 'text': marker.name}
+            for marker in bpy.context.scene.timeline_markers
+            if frame_start <= marker.frame <= frame_end and marker.name
+        ]
+    for entry in sorted(annotation_entries, key=lambda item: item['frame']):
+        frame = float(entry['frame'])
+        if frame_start <= frame <= frame_end:
+            anim_out.annotations.append(anim_fo4.Annotation(
+                time=(frame - frame_start) / blender_fps,
+                text=entry['text'],
+            ))
     return anim_out
