@@ -182,7 +182,7 @@ def Check_noblechest01(nif:NifFile):
     TT.assert_equiv(nif.root.controller.sequences['Open'].controlled_blocks[0].interpolator.data.xrotations[1].value, -0.1222, "Open sequence controlled_blocks[0] controller interpolator data xRotations[1] value")
 
 
-def CheckNif_voidshade(nif:NifFile):
+def Check_voidshade(nif:NifFile):
     TT.assert_property(nif, ['head', 'BSLightingShaderProperty', 'Emissive_Mult'], 1.7)
     TT.assert_property(nif, ['head', 'BSLightingShaderProperty', 'Emissive_Color'], [0.8128, 0.9898, 0.5601, 0.0])
     TT.assert_property(nif, ['head', 'BSLightingShaderProperty', 'Shader_Flags_2', 'ShaderFlags2.VERTEX_COLORS'], 1)
@@ -395,11 +395,6 @@ def Check_childhead(nif:NifFile):
     assert TT.is_patheq(head.shader.textures['Normal'], r"textures\actors\character\malechild\HeadHuman_n.dds", "Normal texture")
 
 
-def Check_kalaar(nif:NifFile):
-    """Unqiue thing about this nif is the alpha property controller."""
-    TT.assert_ne(nif.shapes[0].alpha_property.properties.controllerID, NODEID_NONE, f"Have alpha property controller")
-
-
 def Check_ScaffoldFrame(nif:NifFile):
     frame = nif.shape_dict['L1_ScaffFrame1x2Str01:5 - L2_ScaffFrame1x2Str01:5']
     mat_path = Path(r"materials\Architecture\Quarry\QryCatwalksBluePaint.BGSM")
@@ -462,36 +457,3 @@ def Check_HighTechLight(nif:NifFile):
                           "object palette contents")
 
 
-test_files = {
-    ("FO4", "DExBrickColumn01.nif"): Check_brickcolumn,
-    ("FO4", "Helmet.nif"): Check_fo4Helmet,
-    ("FO4", "VanillaMaleBody.nif"): Check_fo4MaleBody,
-    ("FO4", "ScaffFrame1x2Str01.nif"): Check_ScaffoldFrame,
-    ("FO4", "Workshop_HighTechLightFloor05_On.nif"): Check_HighTechLight,
-    ("Skyrim", "blackbriarchalet_test.nif"): Check_blackbriarchalet,
-    ("Skyrim", "malehead.nif"): Check_malehead,
-    ("Skyrim", "noblechest01.nif"): Check_noblechest01,
-    ("SkyrimSE", "voidshade_1.nif"): CheckNif_voidshade,
-    ("SkyrimSE","daedriccuirass_1.nif"): Check_daedriccuirass,
-    ("SkyrimSE","dwarvenboots_envscale.nif"): Check_dwarvenboots,
-    ("SkyrimSE", "eyesmale.nif"): Check_eye,
-    ("SkyrimSE","maleheadkhajiit.nif"): Check_khajiithead,
-    ("SkyrimSE","childhead.nif"): Check_childhead,
-    ("SkyrimSE","CRSTSkinKalaar.nif"): Check_kalaar,
-}
-
-def CheckNif(nif, source=None):
-    if source:
-        p = Path(source)
-    else:
-        p = Path(nif.filepath)
-
-    parts = p.parts
-    i = len(parts) - 1 - parts[::-1].index('tests')
-    g = parts[i+1]
-    k = (g, p.name,)
-    if k in test_files:
-        print(f"Checking nif file {nif.filepath}")
-        test_files[k](nif)
-    else:
-        raise ValueError(f"No test defined for {p.name}")

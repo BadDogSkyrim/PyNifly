@@ -239,7 +239,7 @@ def TEST_SKYRIM_XFORM():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
     nifcheck = pyn.NifFile(outfile)
-    CHK.CheckNif(nifcheck, source=testfile)
+    CHK.Check_malehead(nifcheck)
 
 
 @TT.category('FO4', 'BODYPART', 'XFORM')
@@ -456,11 +456,6 @@ def TEST_FO4_SKINNED_UNDER_NODE():
 
 
 @TT.category('FO4', 'ANIMATION')
-@TT.expect_errors(("Keyframes do not align",
-                   # Only the armature and its shapes are selected, so the action's
-                   # slots for the (unselected) emitters and shaders have no export
-                   # target. Not what this test is about.
-                   "Target of fcurve not found in armature",))
 def TEST_FO4_LINEAR_ROTATION_KEYS():
     """Rotation channels using LINEAR keys can be exported.
 
@@ -541,10 +536,6 @@ def TEST_FO4_LINEAR_ROTATION_KEYS():
 
 
 @TT.category('FO4', 'ANIMATION')
-@TT.expect_errors(("Keyframes do not align",
-                   "Target of fcurve not found in armature",
-                   "Some vertices are not weighted to the armature",
-                   "Could not find materials file",))
 def TEST_FO4_EULER_CURVES_UNALIGNED():
     """Euler rotation channels with different key times can be exported.
 
@@ -597,9 +588,6 @@ def TEST_FO4_EULER_CURVES_UNALIGNED():
 
 
 @TT.category('FO4', 'ANIMATION')
-@TT.expect_errors(("Keyframes do not align",
-                   "Some vertices are not weighted to the armature",
-                   "Could not find materials file",))
 def TEST_FO4_ROOT_ANIMATION():
     """A nif root node's own animation round-trips.
 
@@ -641,8 +629,6 @@ def TEST_FO4_ROOT_ANIMATION():
 
 
 @TT.category('FO4', 'XFORM')
-@TT.expect_errors(("Keyframes do not align",
-                   "Could not find materials file",))
 def TEST_FO4_UNSKINNED_SHAPES_STAY_UNSKINNED():
     """Static shapes sharing a nif with a skinned shape don't get a skin instance.
 
@@ -736,10 +722,11 @@ def TEST_SKIN_BONE_XFORM():
 
 
 @TT.category('FO4', 'BODYPART', 'XFORM')
-@TT.expect_errors(("bhkPhysicsSystem decode failed",
-                   "Unknown block type: bhkRagdollSystem",
-                   "Could not find materials file",
-                   "will not dismember in game",))
+@TT.expect_errors((
+    'bhkPhysicsSystem decode failed',
+    'Unknown block type: bhkRagdollSystem',
+    'will not dismember in game',
+    ))
 @TT.parameterize(("create_bones",   "estimate_offset",  "use_pose",),
                  [(False,           True,               True),])
 def TEST_BODYPART_ALIGNMENT_FO4_1(create_bones, estimate_offset, use_pose):
@@ -943,7 +930,7 @@ def TEST_CHILDHEAD():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
 
     nifout = pyn.NifFile(outfile)
-    CHK.CheckNif(nifout, source=testfile)
+    CHK.Check_childhead(nifout)
 
 
 @TT.category('FO4', 'BODYPART')
@@ -976,9 +963,7 @@ def TEST_IMP_EXP_FO4():
 
 
 @TT.category('FO4', 'BODYPART')
-@TT.expect_errors(("Some faces have been assigned to more than one partition",
-                   "in multiple partitions",
-                   "could not find segment file",))
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_IMP_EXP_FO4_2():
     """Can read the body armor with 2 parts"""
 
@@ -1015,8 +1000,7 @@ def TEST_IMP_EXP_FO4_2():
 
 
 @TT.category('FO4', 'BODYPART')
-@TT.expect_errors(("could not find segment file",
-                   "not found in SSF",))
+@TT.expect_errors(('not found in SSF',))
 def TEST_IMP_EXP_FO4_3():
     """Can read clothes + body and they come in sensibly"""
 
@@ -2514,7 +2498,7 @@ def TEST_SEGMENTS():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="FO4")
     
     nif2 = pyn.NifFile(outfile)
-    CHK.CheckNif(nif2, testfile)
+    CHK.Check_fo4MaleBody(nif2)
     
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
@@ -2562,7 +2546,6 @@ def TEST_FO4_CUT_OFFSETS_ROUNDTRIP():
 
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
-@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FO4_CUT_DISKS_IMPORTED():
     """Cut-offset visualization disks are created on FO4 import, linked into a
     `<obj>_Cutpoints` collection and bone-parented to the dismember bone the
@@ -2630,8 +2613,6 @@ def TEST_FO4_CUT_DISKS_IMPORTED():
 
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
-@TT.expect_errors(('Some faces have been assigned to more than one partition',
-                   'in multiple partitions',))
 def TEST_FO4_CUT_DISKS_BASE_BONE():
     """A cut subseg covered by the SSF's BaseBoneName (not a DeltaBone) still
     gets its disk.
@@ -2668,12 +2649,13 @@ def TEST_FO4_CUT_DISKS_BASE_BONE():
 
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
-@TT.expect_errors(('Some faces have been assigned to more than one partition',
-                   'Could not find materials file',
-                   'Could not find texture',
-                   'Could not load diffuse texture',
-                   'Could not load normal texture',
-                   'Target of controller not found'))
+@TT.expect_errors((
+    'Could not find materials file',
+    'Could not find texture',
+    'Could not load diffuse texture',
+    'Could not load normal texture',
+    'Target of controller not found',
+    ))
 def TEST_FO4_CUT_DISKS_GHOUL():
     """Cut visualization generalizes beyond humans. The Feral Ghoul is a
     creature with its own skeleton and its own dismember bone names
@@ -2839,7 +2821,6 @@ def TEST_FO4_CUT_DISKS_EXPORT_DUP_COLLECTION():
 
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
-@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FO4_CUT_DISKS_IMPORT_OPTION():
     """import_cutpoints=False suppresses the cut-disk visualization, but the cut
     data is still preserved on the mesh (so it round-trips on export)."""
@@ -2856,9 +2837,7 @@ def TEST_FO4_CUT_DISKS_IMPORT_OPTION():
 
 
 @TT.category('FO4', 'BODYPART', 'PARTITIONS')
-@TT.expect_errors(('Some faces have been assigned to more than one partition',
-                   'in multiple partitions',
-                   'will not dismember in game',))
+@TT.expect_errors(('will not dismember in game',))
 def TEST_FO4_MISSING_CUTS_WARN():
     """A body/outfit with limb dismember segments but no cut offsets is flagged
     on import with a warning (it won't dismember in game), instead of being
@@ -3078,7 +3057,7 @@ def TEST_PARTITIONS():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
     
     nif2 = pyn.NifFile(outfile)
-    CHK.CheckNif(nif2, testfile)
+    CHK.Check_malehead(nif2)
 
 
 @TT.category('SKYRIM', 'PARTITIONS')
@@ -3211,7 +3190,6 @@ def TEST_SF_INTERNAL_GEOMETRY():
 
 
 @TT.category('STARFIELD', 'GEOMETRY', 'SHADER')
-@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))  # AnimationFlagExtra, not implemented
 def TEST_SF_EXTRA_DATA_ROUNDTRIP():
     """Starfield MaterialID round-trips onto the shape, and no texture set is invented.
 
@@ -3255,7 +3233,6 @@ def TEST_SF_EXTRA_DATA_ROUNDTRIP():
 
 
 @TT.category('STARFIELD', 'GEOMETRY', 'SHADER')
-@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))  # AnimationFlagExtra, not implemented
 def TEST_SF_MATERIAL_ID_GENERATED():
     """A Starfield shape with no imported MaterialID gets one generated from its material path.
 
@@ -3936,7 +3913,6 @@ def TEST_SF_MAT_IMAGE_SWAP():
 
 
 @TT.category('STARFIELD', 'SHADER')
-@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))
 def TEST_SF_HEAD_MATERIAL():
     """Starfield functional: import the vanilla male head (male_default.mat, 6 layers / 5 blends)
     and confirm the whole material path lands on the real graph. Checks: head mesh in place; 6 SF
@@ -4060,7 +4036,6 @@ def TEST_SF_MATERIALS_FLAG_STICKY_ON_EXPORT():
 
 
 @TT.category('STARFIELD', 'SHADER')
-@TT.expect_errors(("Unknown block type: NiIntegersExtraData",))
 def TEST_SF_MAT_EXPORT_PRESERVES_EXISTING():
     """Exporting materials over an existing .mat preserves what PyNifly doesn't model.
 
@@ -4243,7 +4218,7 @@ def TEST_SF_FACEBONES_EXPORT():
 
 
 @TT.category('STARFIELD')
-@TT.expect_errors(("Could not find material", "Could not find SF texture"))
+@TT.expect_errors(('Could not find SF texture',))
 def TEST_SF_EXPORT():
     """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),
     re-import the result and confirm geometry, bones, and weights survive.
@@ -4324,7 +4299,6 @@ def TEST_SF_EXPORT():
 
 
 @TT.category('STARFIELD')
-@TT.expect_errors(("Could not find material", "Could not find SF texture"))
 def TEST_SF_MESH_NAME_SANITIZE():
     """Starfield export: a shape with no recorded meshName (freshly authored, not round-tripped
     from an SF nif) autogenerates its external .mesh path. Starfield block names carry a ':'
@@ -4710,7 +4684,7 @@ def TEST_SHADER_SE():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE')
 
     nifcheckSE = pyn.NifFile(outfile)
-    CHK.CheckNif(nifcheckSE, fileSE)
+    CHK.Check_dwarvenboots(nifcheckSE)
     bootcheck = nifcheckSE.shapes[0]
     
     TT.assert_samemembers(bootcheck.textures.keys(), nifboots.textures.keys(), "Same textures")
@@ -4869,7 +4843,7 @@ def TEST_SHADER_EYE():
     bpy.ops.export_scene.pynifly(filepath=outfile2)
 
     n = pyn.NifFile(outfile2)
-    CHK.CheckNif(n, source=testfile2)
+    CHK.Check_eye(n)
 
 
 @TT.category('FO4', 'SHADER', 'ANIMATION')
@@ -4952,7 +4926,7 @@ def TEST_ANIM_SHADER_GLOW():
 
     # n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
-    CHK.CheckNif(nout, source=testfile)
+    CHK.Check_daedriccuirass(nout)
 
 
 @TT.category('ANIMATION', 'FO4', 'PHYSICS')
@@ -5009,7 +4983,7 @@ def TEST_HIGHTECH_FLOORLIGHT():
     ### CHECK ###
 
     nif = pyn.NifFile(outfile)
-    CHK.CheckNif(nif, testfile)
+    CHK.Check_HighTechLight(nif)
 
 
 @TT.category('SKYRIM', 'SHADER', 'ANIMATION')
@@ -5090,7 +5064,7 @@ def TEST_ANIM_SHADER_BSLSP():
 
     # n = pyn.NifFile(testfile)
     nout = pyn.NifFile(outfile)
-    CHK.CheckNif(nout, source=testfile)
+    CHK.Check_voidshade(nout)
 
 
 def Spriggan_LeavesLandedLoop_Check(lllaction):
@@ -5403,7 +5377,7 @@ def TEST_SHADER_EFFECT():
 
     # nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
-    CHK.CheckNif(nifcheck, source=testfile)
+    CHK.Check_blackbriarchalet(nifcheck)
     # glow = nif.shape_dict["L2_WindowGlow"]
     # glowcheck = nifcheck.shape_dict["L2_WindowGlow"]
 
@@ -5731,7 +5705,7 @@ def TEST_MUTANT():
 
 
 @TT.category('FO4')    
-@TT.expect_errors( ("references invalid group"))
+@TT.expect_errors(("references invalid group",))
 def TEST_EXPORT_HANDS():
     """Test that hand mesh doesn't throw an error"""
     # When there are problems with the mesh we don't want to crash and burn.
@@ -6398,7 +6372,7 @@ def TEST_VERTEX_ALPHA_IO():
     # nif = pyn.NifFile(testfile)
     # head1 = nif.shapes[0]
     nif2 = pyn.NifFile(outfile)
-    CHK.CheckNif(nif2, testfile)
+    CHK.Check_khajiithead(nif2)
     # head2 = nif2.shapes[0]
 
     # assert head2.has_alpha_property, f"Error: Did not write alpha property"
@@ -7027,8 +7001,6 @@ def TEST_TREE_SKINNED_BONES():
 
 
 @TT.category('FO4', 'LOD', 'SHADER')
-@TT.expect_errors(("Unable to find a suitable DXT compression",
-                   "Falling back to uncompressed",))
 def TEST_TRASH_EDGE():
     """FO4 LOD edge cases and vertex alpha without VERTEX_ALPHA shader flag."""
     # TrashEdge01.nif exercises two FO4 issues:
@@ -8529,9 +8501,6 @@ def TEST_COLLISION_FO4_GEARDOOR():
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors(("Keyframes do not align",
-                   "Some vertices are not weighted to the armature",
-                   "Could not find materials file",))
 def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
     """A single-body compound collision round-trips and stays loadable in game.
 
@@ -8610,7 +8579,6 @@ def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors( ("Target of controller not found", ) ) # We don't yet handle particle systems
 def TEST_COLLISION_FO4_VAULT_SHELF():
     """FO4 bhkPhysicsSystem: single compressed_mesh whose bounds match the visual mesh.
 
@@ -9680,7 +9648,7 @@ def TEST_ROTSTATIC2():
 
 
 @TT.category('FO4', 'FACEBONES')
-@TT.expect_errors('Unknown block type: NiBinaryExtraData')
+@TT.expect_errors(("Unknown block type: NiBinaryExtraData",))
 def TEST_FACEBONES():
     """Can read and write facebones correctly"""
     # A few of the facebones have transforms that don't match the rest. The skin-to-bone
@@ -9751,7 +9719,7 @@ Transforms for output and input node {nm} match:
 """
 
 @TT.category('FO4', 'FACEBONES')
-@TT.expect_errors('Unknown block type: NiBinaryExtraData')
+@TT.expect_errors(("Unknown block type: NiBinaryExtraData",))
 def TEST_FACEBONES_RENAME():
     """Facebones are renamed from Blender to the game's names"""
 
@@ -10659,7 +10627,7 @@ def TEST_NOBLECHEST():
     nifcheck = pyn.NifFile(outfile)
     
     # Controller Manager
-    CHK.CheckNif(nifcheck, testfile)
+    CHK.Check_noblechest01(nifcheck)
     
     # Check that NiControllerSequence "Open" has controlled block targeting "Lid01" with blank Property Type
     open_sequence = None
@@ -11232,7 +11200,6 @@ def TEST_KF_RENAME():
 
 
 @TT.category('SKYRIM', 'HKX')
-@TT.expect_errors(("Controller target not found",))
 def TEST_HKX_2():
     """Can import and export a non-human HKX animation."""
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton_troll.hkx")
@@ -11720,9 +11687,7 @@ def TEST_FACEGEN():
 
 
 @TT.category('SKYRIMSE', 'FACEGEN')
-@TT.expect_errors(('Some faces have been assigned to more than one partition',
-                   'Could not find texture',
-                   'Could not load'))
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FACEGEN_SE():
     """Skyrim SE facegen file round-trips correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\facegen.nif")
@@ -12918,8 +12883,7 @@ def TEST_VANILLA_TREEASPEN_ROUNDTRIP():
 
 
 @TT.category('FO4', 'ARMATURE')
-@TT.expect_errors(("Some faces have been assigned to more than one partition",
-                   "in multiple partitions",))
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FO4_MANY_CHILDREN_EXPORT():
     """Export a nif whose root has >128 children (issue #406).
 

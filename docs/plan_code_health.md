@@ -1,6 +1,6 @@
 # Plan: code health burn-down
 
-Status: **Phases 1-2 complete** (2026-08-20). Phases 3-6 not started. Audit run against `main` @ `2064a5c`.
+Status: **Phases 1-2 complete, Phase 3 partial** (2026-08-20). CH-3.3 awaiting a split proposal; phases 4-6 not started. Audit run against `main` @ `2064a5c`.
 
 Actions are coded `CH-<phase>.<n>` and referred to by code. `CH-S*` are standing habits (never
 ticked off); `CH-X*` are things deliberately excluded, listed so they don't get re-litigated.
@@ -301,16 +301,58 @@ HKX categories already required 4.4, plus the three newly gated). 5.1 and 5.2 st
 
 Three drifts, small individually, all away from rules we set deliberately.
 
-- [ ] **CH-3.1** — **Retire the 12 remaining `CHK.CheckNif` call sites** — `blender_tests.py` lines 235, 939,
+- [x] **CH-3.1** — **Retire the 12 remaining `CHK.CheckNif` call sites** — `blender_tests.py` lines 235, 939,
       2502, 3066, 4695 and 7 more. `CheckNif` was retired as an experiment that didn't work out;
       replace each with explicit assertions as those tests get touched. Opportunistic, not a
       sitting.
-- [ ] **CH-3.2** — **Bring `@TT.expect_errors` back down.** It now guards **72 of 282** Blender tests (26%).
+- [x] **CH-3.2** — **Bring `@TT.expect_errors` back down.** It now guards **72 of 282** Blender tests (26%).
       Most of them exist because post-export re-import can't find textures or materials — which is
       what the `NifFile` fallback search-path work is for. That plan is the fix; this is the
       metric that says it's worth doing.
 - [ ] **CH-3.3** — **Split `blender_tests.py`.** 13,708 lines / 656 KB / 282 tests in one file. Not urgent and
       not risky, but only worth starting when nothing else is in flight.
+
+### Phase 3 results so far (2026-08-20)
+
+4.2 235 passed / 5.1 and 5.2 282 passed / pyn 146 / anim 18.
+
+**CH-3.1 — `CheckNif` retired. It was 35 call sites, not 12**: my audit only counted
+`blender_tests.py`, but `pynifly_tests.py` had 23 more. Built an exact call map by instrumenting
+the dispatcher and running both suites, so every rewrite is evidence-based rather than inferred.
+
+Removed the `test_files` registry and the `CheckNif` dispatcher -- the "per-file setup" that was
+the actual objection -- and pointed each site at the specific checker it was already resolving to
+(`CHK.Check_malehead(nif)` etc.). `Check_kalaar` was registered but never invoked; deleted.
+`CheckNif_voidshade` renamed `Check_voidshade` for consistency.
+
+*Not* done: inlining each checker's assertions into its test. `Check_malehead` alone is 86 lines
+and is called from 4 sites; full inlining would add well over a thousand lines to the two files
+CH-3.3 exists to shrink. The residual "too rigid" complaint is that e.g. `TEST_SKYRIM_XFORM`
+(transforms) and `TEST_PARTITIONS` (partitions) both run all 86 malehead assertions. The fix is to
+split the big checkers into focused pieces (`Check_malehead_transforms` / `_partitions` /
+`_shader`) so each test opts into what it is about -- worth doing, but it belongs with CH-3.3.
+
+**CH-3.2 — `expect_errors` 72 -> 56 tests, 122 -> 83 whitelist strings.** Rather than guess which
+were band-aids, instrumented the log handler to record which whitelist entries actually match a
+message, ran the full suite on **4.2, 5.1 and 5.2**, and took the union. 42 of 122 entries never
+matched anything on any version -- stale suppressions left behind after the underlying warnings
+were fixed. Removed those; 19 decorators went away entirely.
+
+The measurement also found a bug it was not looking for. **Three decorators passed a bare string
+instead of a tuple** -- `@TT.expect_errors('Unknown block type: NiBinaryExtraData')` and
+`@TT.expect_errors( ("references invalid group"))` (parens, no comma). `expect_errors` stored it
+verbatim and the handler did `any(e in msg for e in self.expected_errors)`, which iterates a
+string **character by character** -- so any message containing `r`, `e`, `f`... was suppressed.
+**`TEST_EXPORT_HANDS`, `TEST_FACEBONES` and `TEST_FACEBONES_RENAME` had all error checking
+silently disabled** and would have passed no matter what the addon logged. `expect_errors` now
+coerces a bare string to a one-tuple so it cannot recur, and all three tests pass with only their
+stated message suppressed -- the character matching had not been hiding anything else.
+
+The remaining 83 entries look legitimate: warnings the test deliberately provokes (19x "assigned
+to more than one partition", "will not dismember in game"), and unsupported-feature notices
+("Unknown block type: ...", "bhkPhysicsSystem decode failed"). The **materials/texture** band-aid
+class is smaller than the audit assumed, so `project_niffile_fallback_paths` is worth doing on its
+own merits but is not what is holding this number up.
 
 ---
 

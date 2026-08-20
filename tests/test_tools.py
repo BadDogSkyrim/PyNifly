@@ -56,9 +56,16 @@ def error_level(errlevel):
 def expect_errors(errlist):
     """
     Decorator to set expected errors. errlist is a list of expected error messages.
+
+    A bare string is wrapped in a tuple. Passing one used to sail through and then get
+    iterated CHARACTER BY CHARACTER, so any message containing any of its letters was
+    suppressed -- which disabled error checking for the test entirely. Three tests were
+    in that state (TEST_EXPORT_HANDS, TEST_FACEBONES, TEST_FACEBONES_RENAME).
     """
+    if isinstance(errlist, str):
+        errlist = (errlist,)
     def wrap(fn):
-        fn.__dict__["expected_errors"] = errlist
+        fn.__dict__["expected_errors"] = tuple(errlist)
         return fn
     return wrap
 

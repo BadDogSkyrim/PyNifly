@@ -36,7 +36,7 @@ from pyn.niflytools import *
 from pyn.nifdefs import *
 from pyn.pynifly import *
 from . import test_tools as TT
-from .test_nifchecker import CheckNif
+from . import test_nifchecker as CHK
 
 
 """Quick and dirty test harness."""
@@ -403,10 +403,10 @@ def TEST_READ():
     testfile = r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif"
     outfile = 'tests/out/TEST_KHAJIIT_RW.nif'
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_khajiithead(nif)
 
     testfile = r"tests\SkyrimSE\eyesmale.nif"
-    CheckNif(nif)
+    CHK.Check_khajiithead(nif)
 
 
 def TEST_SF_MESH_READ():
@@ -1603,7 +1603,7 @@ def TEST_RW_HEAD():
     outfile = r"tests/Out/TEST_RW_HEAD.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_malehead(nif)
 
     nifout = NifFile()
     nifout.initialize('SKYRIM', outfile)
@@ -1613,7 +1613,7 @@ def TEST_RW_HEAD():
     nifout.save()
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, testfile)
+    CHK.Check_malehead(nifcheck)
 
 
 
@@ -2143,7 +2143,7 @@ def TEST_PARTITIONS():
 
     testfile = r"tests/Skyrim/malehead.nif"
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_malehead(nif)
 
     """Can write partitions back out"""
     nif2 = NifFile()
@@ -2156,7 +2156,7 @@ def TEST_PARTITIONS():
     nif2.save()
 
     nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
-    CheckNif(nif3, testfile)
+    CHK.Check_malehead(nif3)
 
 
 def TEST_PARTITIONS_BY_ID():
@@ -2209,7 +2209,7 @@ def TEST_SEGMENTS():
     outfile  = r"tests/Out/TEST_SEGMENTS.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_fo4MaleBody(nif)
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -2224,7 +2224,7 @@ def TEST_SEGMENTS():
     nif2.save()
 
     nif3 = NifFile(outfile)
-    CheckNif(nif3, testfile)
+    CHK.Check_fo4MaleBody(nif3)
 
 
 @test_category('FO4', 'PARTITION', 'SHADER')
@@ -2234,7 +2234,7 @@ def TEST_BP_SEGMENTS():
     outfile = r"tests/Out/TEST_BP_SEGMENTS.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_fo4Helmet(nif)
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -2265,7 +2265,7 @@ def TEST_BP_SEGMENTS():
     nif2.save()
 
     nif3 = NifFile(outfile)
-    CheckNif(nif3, testfile)
+    CHK.Check_fo4Helmet(nif3)
 
 
 @test_category('FO4', 'PARTITION')
@@ -2693,7 +2693,7 @@ def TEST_LOD():
     outfile = r"Tests/Out/TEST_LOD.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_blackbriarchalet(nif)
 
     nifout = NifFile()
     nifout.initialize("SKYRIM", outfile)
@@ -2702,7 +2702,7 @@ def TEST_LOD():
     nifout.save()
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, testfile)
+    CHK.Check_blackbriarchalet(nifcheck)
 
 
 def TEST_UNSKINNED():
@@ -3147,21 +3147,21 @@ def TEST_SHADER_TYPE_OVERRIDE():
 def TEST_SHADER_SCAFFOLD():
     testfile = r"tests\FO4\ScaffFrame1x2Str01.nif"
     nif = NifFile(testfile, materialsRoot=r"C:\Modding\FalloutAssets\00 FO4 Assets")
-    CheckNif(nif)
+    CHK.Check_ScaffoldFrame(nif)
 
 
 @test_category('SHADER')
 def TEST_SHADER_WALL():
     testfile = r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif"
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_brickcolumn(nif)
 
 
 @test_category('CONTROLLER')
 def TEST_HIGHTECHLIGHT():
     testfile = r"tests\FO4\Workshop_HighTechLightFloor05_On.nif"
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_HighTechLight(nif)
 
     ### EXPORT ###
 
@@ -3173,7 +3173,7 @@ def TEST_HIGHTECHLIGHT():
     nifOut.save()
 
     nifTest = NifFile(r"tests\out\TEST_HIGHTECHLIGHT.nif")
-    CheckNif(nifTest, testfile)
+    CHK.Check_HighTechLight(nifTest)
 
 
 def TEST_ALPHA():
@@ -3533,7 +3533,7 @@ def TEST_EFFECT_SHADER_SKY():
 
     print("---Read---")
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_daedriccuirass(nif)
 
     """Can read and write shader"""
     print("---Write---")
@@ -3545,7 +3545,7 @@ def TEST_EFFECT_SHADER_SKY():
 
     print("---Check---")
     nifTest = NifFile(outfile, materialsRoot='tests/FO4')
-    CheckNif(nifTest, testfile)
+    CHK.Check_daedriccuirass(nifTest)
 
 
 # TODO: Setting up to test the alpha threshold controller when there are multiple 
@@ -4229,7 +4229,7 @@ def TEST_ANIMATION_NOBLECHEST():
     # CHECK
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.Check_noblechest01(nifcheck)
 
 
 def TEST_ANIMATION_ALDUIN():
@@ -4262,7 +4262,7 @@ def TEST_ANIMATION_SHADER():
     outfile = r"tests\out\TEST_ANIMATION_SHADER.nif"
     nif = NifFile(testfile)
 
-    CheckNif(nif)
+    CHK.Check_daedriccuirass(nif)
 
     nifout = NifFile()
     nifout.initialize('SKYRIM', outfile)
@@ -4272,7 +4272,7 @@ def TEST_ANIMATION_SHADER():
     assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.Check_daedriccuirass(nifcheck)
 
 
 def TEST_ANIMATION_SHADER_BSLSP():
@@ -4281,7 +4281,7 @@ def TEST_ANIMATION_SHADER_BSLSP():
     outfile = r"tests\out\TEST_ANIMATION_SHADER_BSLSP.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_voidshade(nif)
 
     nifout = NifFile()
     nifout.initialize('SKYRIMSE', outfile)
@@ -4290,7 +4290,7 @@ def TEST_ANIMATION_SHADER_BSLSP():
     assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.Check_voidshade(nifcheck)
 
 
 def TEST_ANIMATION_SHADER_SPRIGGAN():
