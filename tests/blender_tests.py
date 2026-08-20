@@ -141,7 +141,7 @@ def TEST_BODYPART_SKY():
     """Basic test that a Skyrim bodypart is imported correctly. """
     # Verts are organized around the origin, but skin transform is put on the shape 
     # and that lifts them to the head position.  
-    testfile = TTB.test_file("tests\Skyrim\malehead.nif")
+    testfile = TTB.test_file(r"tests\Skyrim\malehead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     # Importer leaves any imported shapes as the selected object.
@@ -171,7 +171,7 @@ def TEST_BODYPART_FO4():
     """Basic test that a FO4 bodypart imports correctly. """
     # Verts are organized around the origin but the skin-to-bone transforms are 
     # all consistent, so they are put on the shape.
-    testfile = TTB.test_file("tests\FO4\BaseMaleHead.nif")
+    testfile = TTB.test_file(r"tests\FO4\BaseMaleHead.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
     male_head = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH'][0]
     assert int(male_head.location.z) == 120, f"ERROR: Object {male_head.name} at {male_head.location.z}, not elevated to position"
@@ -2399,7 +2399,7 @@ def TEST_SK_MULT():
 @TT.category('SETTINGS')
 def TEST_NOSETTINGS():
     """Can import with all settings off (regression)."""
-    testfile = TTB.test_file("tests\SkyrimSE\Meshes\circlet_celebrimbor.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\Meshes\circlet_celebrimbor.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_NOSETTINGS.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
@@ -2418,7 +2418,7 @@ def TEST_NOSETTINGS():
 @TT.category('SKYRIMSE')
 def TEST_CIRCLET():
     """This high-precision circlet imports correctly and can be exported as a ground object."""
-    testfile = TTB.test_file("tests\SkyrimSE\Meshes\circlet_celebrimbor.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\Meshes\circlet_celebrimbor.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_CIRCLET.nif")
 
     bpy.ops.import_scene.pynifly(filepath=testfile,
@@ -4745,9 +4745,9 @@ def TEST_SHADER_FO4():
     assert TT.is_samemembers(shapecheck.textures.keys(), 
         ('Wrinkles', 'RootMaterialPath', 'EnvMap', 'Specular', 'Normal', 'Diffuse',), 
         f"texture slots")
-    assert TT.is_patheq(shapecheck.textures['Diffuse'], f"Actors\Character\BaseHumanMale\BaseMaleHead_d.dds", f"diffuse")
-    assert TT.is_patheq(shapecheck.textures['Normal'], f"Actors\Character\BaseHumanMale\BaseMaleHead_n.dds", f"normal")
-    assert TT.is_patheq(shapecheck.textures['Specular'], f"Actors\Character\BaseHumanMale\BaseMaleHead_s.dds", f"specular")
+    assert TT.is_patheq(shapecheck.textures['Diffuse'], r"Actors\Character\BaseHumanMale\BaseMaleHead_d.dds", f"diffuse")
+    assert TT.is_patheq(shapecheck.textures['Normal'], r"Actors\Character\BaseHumanMale\BaseMaleHead_n.dds", f"normal")
+    assert TT.is_patheq(shapecheck.textures['Specular'], r"Actors\Character\BaseHumanMale\BaseMaleHead_s.dds", f"specular")
 
     assert not shapecheck.properties.compare(shapeorig.properties), \
         f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
@@ -5495,7 +5495,7 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
 
 
 @TT.category('SKYRIM', 'SHADER')
-@TT.parameterize("txtdir", ["tests\SkyrimSE", "xyzzy"])
+@TT.parameterize("txtdir", [r"tests\SkyrimSE", "xyzzy"])
 def TEST_TEXTURE_PATHS(txtdir):
     """
     Texture paths are correctly resolved. Checks a texture file can be found using
@@ -5782,7 +5782,7 @@ def TEST_SHEATH():
     names = [x.name for x in nifCheck.root.extra_data(blockname="BSBehaviorGraphExtraData")]
     assert TT.is_contains("BGED", names, "BGED exists")
     bgedCheck = nifCheck.root.get_extra_data(name="BGED")
-    assert TT.is_eq(bgedCheck.behavior_graph_file, "AuxBones\SOS\SOSMale.hkx", 
+    assert TT.is_eq(bgedCheck.behavior_graph_file, r"AuxBones\SOS\SOSMale.hkx", 
                     f"Extra data value")
     assert TT.is_eq(bgedCheck.controls_base_skeleton, True, f"controls base skeleton")
 
@@ -7391,7 +7391,7 @@ def TEST_COLLISION_BOW():
 
     # Check extra data
     bged = TTB.find_shape("BSBehaviorGraphExtraData", type='EMPTY')
-    TT.assert_eq(bged.pyn_bsbehavior.value, "Weapons\Bow\BowProject.hkx", "BGED node value")
+    TT.assert_eq(bged.pyn_bsbehavior.value, r"Weapons\Bow\BowProject.hkx", "BGED node value")
 
     strd = TTB.find_shape("NiStringExtraData", type='EMPTY')
     TT.assert_eq(strd.pyn_nistrdata.value, "WeaponBow", f"string extra data value")
@@ -13694,10 +13694,10 @@ if __name__ == "__main__":
         # All tests with collisions
         # do_tests([t for t in alltests if 'COLL' in t.__name__])
 
-        test_categories = set()
+        seen_categories = set()
         for t in [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]:
-            test_categories.update(t.__dict__.get("category", set()))
-        print(f"Test categories: {sorted(test_categories)}")
+            seen_categories.update(t.__dict__.get("category", set()))
+        print(f"Test categories: {sorted(seen_categories)}")
 
         do_tests(
             # target_tests=[ TEST_COLLISION_FO4_GEARDOOR, TEST_COLLISION_FO4_VAULT_SHELF, TEST_COLLISION_FO4_PHYSICS_SYSTEM ], stop_on_fail=True,

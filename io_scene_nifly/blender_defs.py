@@ -40,7 +40,7 @@ COLOR_MAP_NAME = "VERTEX_COLOR"
 GLOSS_SCALE = 100
 
 
-name_pat = re.compile('(.+)\.\d\d\d')
+name_pat = re.compile(r'(.+)\.\d\d\d')
 
 def nonunique_name(obj):
     """

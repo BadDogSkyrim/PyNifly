@@ -21,7 +21,7 @@ _pynifly_test_path = Path(_pynifly_dev_root, "pynifly", "tests")
 log = logging.getLogger("pynifly")
 
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
+PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSE\00 Vanilla Assets"
 PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
 
 

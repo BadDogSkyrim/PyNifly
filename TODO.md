@@ -1,86 +1,11 @@
 # PyNifly TODO
 
-## FO4 single-body COMPOUND physics crashes the game on export
-
-**Status:** open, characterized 2026-07-16 (not yet fixed). Pre-existing; unrelated to
-the skinning/animation work of 2026-07-15/16. Was masked by the zero-bone-skin crash
-(fixed) — the game now gets past `BSSkin::Instance::UpdateModelBound` and dies later.
-
-**Symptom:** exporting the vanilla FO4 armor workbench
-(`WorkstationArmorB01.nif`) and loading it in game crashes with
-`EXCEPTION_ACCESS_VIOLATION` in `bhkNPCollisionObject::CreateInstance(bhkWorld&)`
-(write to `[rax+0x88]`, rax from a bad body lookup). Crash log
-`crash-2026-07-16-08-43-16.log`.
-
-**Immediate cause:** the exported `bhkNPCollisionObject.body_id = 0xFFFFFFFF`
-(4294967295). The engine uses body_id to index the physics system's body array;
-0xFFFFFFFF is out of bounds → garbage pointer → fault. Export **never sets body_id**:
-`collision.py::export_collisions` (~1345) calls `add_collision(None, ...,
-bhkNPCollisionObjectBufType)` with no body_id, so it defaults to 0xFFFFFFFF. (Only the
-*import* path reads body_id; grep `body_id` in collision.py = 3 hits, all import.)
-NOTE: this means the legit N-body case — e.g. VltGearDoor01 24-body — likely also
-exports body_id=0xFFFFFFFF; either its test doesn't verify in game, or something else
-sets it. Check before fixing.
-
-**Deeper structural cause — compound flattening:** vanilla is **1 rigid body whose
-shape is a `compound`** (hknp compound / list) containing **36 convex polytope
-children**, referenced by body_id=0. PyNifly collapses this into the same Blender
-representation it uses for genuine *N-body* systems, and re-exports it as N bodies:
-- **Import** (`import_bhkNPCollisionObject`, `_collect` ~587): recurses into the
-  compound and flattens all 36 children into flat sibling meshes
-  (`bhkPhysicsSystem_poly.000..035`) under one `bhkPhysicsSystem` empty. The fact that
-  they were ONE body's compound is **recorded nowhere** — indistinguishable afterward
-  from 36 separate bodies.
-- **Export** (`pack_shapes` → `pack_multi_polytope`, bhk_autopack.py): 36 polytopes →
-  **36 independent rigid bodies**. There is **no packer** that emits "1 body, 1
-  compound/list shape, N polytope children" (packers are: compressed_mesh, mixed,
-  multi_polytope=N-body, sphere, convex_polytope). So even the structure is wrong, not
-  just body_id.
-
-**What vanilla expects:** 1 `bhkNPCollisionObject` (body_id=0) → 1 rigid body → 1
-compound shape → 36 convex polytope children.
-
-**To fix (three pieces):**
-1. Import must record body grouping — whether shapes belong to one compound body vs N
-   separate bodies (e.g. a `pynCompound`/body-index marker per shape object).
-2. A `pack_compound` packer: one body, a compound/list shape, N polytope children.
-3. Export must set the collision object's body_id (0 for the single-compound case; the
-   correct per-node index for multi-body — apparently unset there too).
-
-**Repro (headless, no game needed):**
-`scratchpad/repro_coll.py` — import vanilla `tests/FO4/WorkstationArmorB01.nif`,
-export, read back: `co.body_id == 0xFFFFFFFF`, `physics_system.geometry` = 36 polytope
-shapes instead of 1 compound. Vanilla via `NifFile`: body_id=0, geometry=1 compound
-(36 children), packfile has `hknpConvexPolytopeShape`=1 + `hknpPhysicsSystemData`=1.
-
-## Euler rotation import: misaligned X/Y/Z keyframe times — DONE
-
-**Status:** RESOLVED 2026-07-16 (both export and import).
-
-**Export** (`_export_euler_curves`): resamples misaligned channels onto the union of
-their key times (`_resample_euler_curves`) before the quaternion conversion, so export
-no longer raises "NYI: keyframes at different times" and no longer depends on the
-`rotate_bones_pretty` display option. Test `TEST_FO4_EULER_CURVES_UNALIGNED`.
-
-**Import** (`_import_transform_data`): restructured. The three Euler channels are
-independent unless a base (parent) or pretty-bone rotation must be applied — that
-combines them through a quaternion, which needs all three at the same instant.
-- `not need_conversion`: import each channel on its own key times (with tangents).
-  Correct for any per-channel count/alignment — Blender evaluates the fcurves
-  independently. This replaced the old zip-by-index equal-count branch.
-- `need_conversion`: resample all three onto the union of their key times, then combine
-  and convert (mirrors export). Per-channel key type (BEZIER/LINEAR) preserved.
-The old "Keyframes do not align" warning is **removed** — obsolete now that both paths
-handle misalignment. Also fixes the pre-existing `zip()`-truncation bug on genuinely
-different per-channel counts (e.g. SuperSpraySmoke 5/5/4) and the mis-combine of
-misaligned channels under a parent/pretty rotation.
-
-**Still latent (minor):** the `-447392.4375` junk key times (vanilla garbage on lone
-constant keys, confirmed real not a misread) still produce keyframes at frame ~-10.7M
-and now, post-resample, one such key per channel. Harmless (value 0, constant), but see
-the next item for the planned cleanup.
-
 ## FO4 compound collision: regenerate the BVH tree (currently preserved)
+
+*(The single-body compound **crash** is fixed and shipped in 28.0.0 — import groups the
+polytopes under `bhkPhysicsSystem` → `bhkCompound`, export writes the original packfile
+back verbatim and sets `body_id`. Covered by `TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP`.
+Regenerating the tree, below, is what remains.)*
 
 **Status:** open (2026-07-17). Compound export currently PRESERVES the original
 packfile (byte-identical) rather than regenerating it — see below. This item is to
@@ -152,57 +77,6 @@ are available at import; a lone key could simply be placed at the start.
 out of the controller's declared range, and be sure a legitimately short animation isn't
 mistaken for garbage. Add a test with the workbench asserting no imported key lands
 before frame 0 (or the animation start).
-
-## Export should surface (create) the PyNifly property panels — all games
-
-**Status:** RESOLVED (2026-07-22). The SF-morph write-site was the real gap: `write_sf_morphs`
-now records the resolved chargen/performance paths back onto `pyn_sf_morph` (relative-to-meshes)
-and sets the `_migrated` flag via `set_group`, idempotently (never stomps an explicit path).
-The other typed groups already self-surface: any export that *reads* a group goes through
-`ensure_*_migrated`, which sets the flag as a side effect — verified by
-`TEST_COLLISION_PANEL_SURFACES`. Bug covered by `TEST_SF_MORPH_PANEL_SURFACES`.
-
-Original writeup below, for reference.
-
-**Status (original):** open (Bad Dog, 2026-07-17).
-
-**Problem:** an author-created object never shows its PyNifly property panels, so the
-only way a modder can see or set the values PyNifly writes (Starfield morph paths, and
-the equivalent for every other typed group) is via the Python console
-(`obj.pyn_sf_morph.chargen_path = ...` + setting the `pyn_sf_morph_migrated` custom
-prop). That is not an acceptable UI. Concretely: Bad Dog exported a Lykaios head, the
-chargen/performance `morph.dat` files were written (paths auto-derived from the nif
-anchor), but **no PyNifly property panels appeared** on the object, so there was nothing
-to inspect or edit. This is **not Starfield-specific** — we now have typed property
-panels for the other games too and they have the same problem.
-
-**Why they don't show:** the typed groups (block groups + hand-wired groups like
-`pyn_sf_morph`) are registered type-wide on `bpy.types.Object`, so every object *has* the
-group — but the `PYN_PT_block` panel `poll`/`draw` gate on a per-group `<attr>_migrated`
-custom prop (`_migkey`), which is only set when the value came in through an *import*. An
-author-created object never gets it, so the panel stays hidden even after export writes
-real files/data for it.
-
-**Idea:** on export (any game), **materialize the relevant property groups** for each
-exported object — set the fields to the values the exporter actually resolved/derived
-(e.g. the chargen/performance paths from `resolve_morph_paths`, and likewise for other
-groups the export path fills in) and set the `_migrated` key so `PYN_PT_block` renders
-them. After exporting, the modder should see panels showing what PyNifly wrote and be
-able to change them and re-export. Use the existing helpers (`pyn_props.set_group` for
-hand-wired groups — sets fields + the migrated flag; the block-group equivalent for
-buffer-derived groups).
-
-**Scope / care:**
-- Cover the typed groups relevant to whatever was exported, across all games — not just
-  `pyn_sf_morph`. An author-made shape should end up with the same editable panels an
-  imported one has.
-- Only surface a group when it's actually meaningful for that object/export (don't
-  create empty/irrelevant panels on every object — e.g. don't add SF-morph fields to an
-  object with no shape keys). Gate on relevance, not on game.
-- Write back the **resolved** values in the same representation import uses (e.g. morph
-  paths relative-to-`meshes`, so they stay re-homeable).
-- Idempotent: re-export shouldn't stomp a value the user has since edited — only fill
-  when empty, or reflect what was actually written without overwriting an explicit value.
 
 ## Starfield `.mat` writer must be diff-only (don't clobber inherited fields)
 

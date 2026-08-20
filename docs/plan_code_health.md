@@ -1,0 +1,300 @@
+# Plan: code health burn-down
+
+Status: **Phase 1 complete** (2026-08-20). Phases 2-6 not started. Audit run against `main` @ `2064a5c`.
+
+Actions are coded `CH-<phase>.<n>` and referred to by code. `CH-S*` are standing habits (never
+ticked off); `CH-X*` are things deliberately excluded, listed so they don't get re-litigated.
+
+## Problem
+
+Five months of heavy feature work (V25.13 → 28.1.0) added 30% to the addon. The question was
+whether the codebase is spiralling. It isn't — the structural indicators that predict
+unmaintainability are all healthy:
+
+| indicator | measure |
+|---|---|
+| import cycles across 66 modules | **0** |
+| `bpy` imports inside `pyn/` | **0** — the format layer stays Blender-free |
+| source growth V25.13 → HEAD | 36,252 → 47,188 lines (+30%) |
+| test growth over the same span | 16,520 → 23,340 lines (**+41%**) |
+| `NifExporter` attributes declared in `__init__` | 45 of 50 |
+| `NifImporter` attributes declared in `__init__` | 34 of 35 |
+| tracked build artifacts | none |
+
+What did change is pace and concentration. The last two releases added **8,596 lines against
+3,523 in the six before them** — a 2.4× acceleration, almost entirely in Starfield materials
+(`sf_materials` 1,216, `sf_cdb` 727, `sf_morph` 373, `shader_io` +1,355) and FO4 collision
+(`bhk_autopack` +1,369, `collision` +461).
+
+So this is a burn-down list, not a refactor project. Nothing here is architectural. The items
+are ordered by payoff-per-hour, and each one is independently shippable.
+
+## The failure mode to actually worry about
+
+**Duplication that diverges quietly.** `tri/export_tri.py` is the proof case: a complete,
+unreferenced copy of `trifile.py` + `tripfile.py` that has already fallen one bugfix behind the
+original and ships in every release zip. If a fix ever lands in the fork instead of the real
+file, that's an afternoon gone.
+
+The same shape is starting in `hkx/`, where `anim_fo4.py` and `anim_skyrim.py` share 61
+duplicated 12-line blocks and 18 identically-named helpers. That one is defensible — the two
+Havok packfile versions genuinely differ — but the shared byte-level primitives (`align`,
+`_hkarray`, `write_string`, the `_u`/`_f` readers) are the part that shouldn't drift, because a
+fix to one will not reach the other.
+
+---
+
+## Phase 1 — dead code and one-liners
+
+Under two hours total. No design decisions in any of it.
+
+- [x] **CH-1.1** — **Delete `io_scene_nifly/tri/export_tri.py`** (780 lines). Unreferenced — the only grep
+      hit is `NifExporter.export_tris`, an unrelated method name. Redefines `TRIHeader`,
+      `TriFile` and `TripFile` in full; 307 duplicated 12-line windows against `trifile.py`, 76
+      against `tripfile.py`. Already behind: `trifile.py` took the logging fix in `2513435`, the
+      fork didn't.
+- [x] **CH-1.2** — **`tests/blender_tests.py:13696`** — rename the local `test_categories` to
+      `seen_categories`. It currently rebinds the module-level dict to a `set` before calling
+      `do_tests`, and `execute_test:11886` calls `.get()` on that global. All 282 tests carry a
+      category, so running the file as `__main__` (i.e. from Blender's text editor) raises
+      `AttributeError` on the first test. Invisible via `test_runner.py`, which imports rather
+      than executes.
+- [x] **CH-1.3** — **`anim_test_runner.py`** — `testlist=[TEST_FO4_ANIM_ROUNDTRIP]` runs 1 of 18 anim tests.
+      Point it at the full list, then fix whatever rotted; `anim_tests.py` hasn't been touched
+      since 2026-04-06.
+- [x] **CH-1.4** — **13 invalid escape sequences** (`SyntaxWarning` today, `SyntaxError` in a future Python).
+      Shipping: `blender_defs.py:43`, `skeleton_hkx.py:26`, `skeleton_hkx.py:27`. Tests:
+      `blender_tests.py` lines 144, 174, 2402, 2421, 4748, 4749, 4750, 5498, 5785, 7394.
+- [x] **CH-1.5** — **Prune `TODO.md`.** Two of seven items are marked RESOLVED and were never removed. The
+      headline item is worse than stale — it asserts export "never sets `body_id`" and that all
+      three `body_id` hits in `collision.py` are import-side. Both are false: export sets it at
+      `collision.py:1431`, `:1488` and `:1567`, and RELEASE_NOTES 28.1.0 announces the fix as a
+      headline feature. The compound-physics crash may still be open, but it needs re-diagnosing
+      against current code.
+
+### Phase 1 results (2026-08-20)
+
+Six items done (CH-1.6 was added mid-phase, below). **All 446 tests pass**: 282 Blender,
+146 pyn, 18 anim.
+
+- **CH-1.3 found the actual rot, and it wasn't the tests.** `anim_test_runner.py` set
+  `PYNIFLY_DEV_ROOT` to the repo root, but `niflydll.py:22` and `test_runner.py:8` both treat it
+  as the **parent** of the checkout (they append `PyNifly\...`). The DLL path resolved to
+  `...\PyNifly\PyNifly\NiflyDLL.dll`, so the runner died at import — it has been unable to run
+  *anything*, including the one test it was pointed at. With the root fixed, **all 18 pass**;
+  nothing had rotted.
+- **CH-1.5 went further than planned.** The headline TODO item wasn't merely stale — it is fully
+  resolved. All three of its "to fix" pieces are in the code (`pynCollisionCompound` +
+  `pynCollisionBodyID` at `collision.py:678`, `pack_compound` at `bhk_autopack.py:2172`, `body_id`
+  set at `collision.py:1431/1488/1567`), it is covered by `TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP`,
+  and it is announced in RELEASE_NOTES 28.0.0. Removed; the residual BVH-regeneration work is
+  noted on the item that owns it. TODO.md went 276 → 150 lines, 7 items → 4, all genuinely open.
+- **CH-1.4** removed all 13 invalid escapes; a full-repo rescan reports **0** warnings and 0
+  compile failures. Every edited literal keeps its exact value (raw-string conversion only).
+
+### Two pre-existing failures found and fixed (CH-1.6)
+
+`TEST_BODYPART_SKY` and `TEST_COLLISION_BOW` were failing on unmodified `HEAD` before Phase 1
+started (confirmed by re-running both against a clean checkout). Neither was an assertion in the
+test body — both died in `test_loghandler.finish()` on un-whitelisted `WARNING`s:
+
+```
+Could not find texture Diffuse: 'textures\actors\character\male\MaleHead.dds'
+Could not find texture EnvMap:  'textures\cubemaps\Ore_Gold_e.dds'
+```
+
+The cause was environmental, not code: `PYNIFLY_TEXTURES_SKYRIM` in `tests/test_tools_bpy.py:24`
+pointed at `C:\Modding\SkyrimSEAssets\00 Vanilla Assets`, which does not exist. The FO4
+equivalent, `C:\Modding\FalloutAssets\00 FO4 Assets`, *was* correct — which is why FO4 tests in
+the same run passed while Skyrim ones failed.
+
+- [x] **CH-1.6** — Repoint `PYNIFLY_TEXTURES_SKYRIM` to `C:\Modding\SkyrimSE\00 Vanilla Assets`
+      (Bad Dog, 2026-08-20). Verified the directory and all three missing textures exist there
+      before changing it.
+
+**Full Blender suite after the fix: 282 / 282 pass, 0 failed, 0 skipped** (147s, Blender 5.1).
+So the stale constant was the only thing broken — nothing else was hiding behind it.
+
+Combined with the pyn (146) and anim (18) suites, **all 446 tests now pass.**
+
+---
+
+## Phase 2 — exception hygiene in `shader_io.py`
+
+108 bare `except:` clauses across the addon; 32 are in `shader_io.py`, 39 addon-wide swallow
+silently (`except: pass`). `shader_io.py` is the pilot — fix the pattern here, then apply it to
+`import_nif.py` (16), `controller.py` (13) and `blender_defs.py` (9).
+
+### The principle
+
+**Feature detection, not version detection.** `bpy.app.version` encodes outside knowledge that
+goes stale and that Blender can invalidate by backporting. The addon has only two such checks
+today and shouldn't gain more.
+
+But probing *by failing* is not the only form of feature detection, and it's the form that
+can't tell "this Blender lacks the API" apart from "my code has a bug". Where the capability can
+be asked about directly, ask:
+
+```python
+# probe by failing — a bug in any of the 16 statements runs the 4.0 fallback on a false premise
+try:
+    grp.inputs.new('NodeSocketColor', 'Diffuse')
+    ...15 more...
+except:
+    grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
+
+# probe by asking — same feature detection, no version knowledge, nothing swallowed
+if hasattr(grp, 'inputs'):
+    ...
+else:
+    ...
+```
+
+Three rules, in priority order:
+
+1. **`hasattr` where the capability is nameable** — `hasattr(grp, 'inputs')`,
+   `hasattr(bpy.types, 'ShaderNodeSeparateColor')`. Exact, version-agnostic, cannot hide a bug.
+2. **Where a probe genuinely must run the call, name the exception** — `except RuntimeError` for
+   an unknown node idname, `except AttributeError` for a missing API.
+3. **The try block wraps only the statement that can raise.** This matters more than the except
+   clause. Current worst offenders: `shader_io.py:2013` (**37 statements**), `:1317` (**23**),
+   `:1066` (**16**), `:3155` (**9**).
+
+### What the 32 sites actually are
+
+Only 15 are Blender compat. The rest are unrelated things written as exception control flow, and
+they carry no compat argument at all.
+
+| category | n | lines | fix |
+|---|---|---|---|
+| Blender version compat | 15 | 940, 950, 986, 994, 1083, 1203, 1277, 1340, 1426, 1461, 1542, 1569, 1575, 1615, 1626 | `hasattr` probe, resolved once |
+| "is this arg a socket or a raw value?" | 7 | 1001, 1634, 1643, 1671, 1677, 1683, 1689 | `isinstance(x, bpy.types.NodeSocket)` |
+| dict lookup with a default | 2 | 1838, 3003 | `.get(key, default)` |
+| our *own* old node-group socket names | 1 | 2965 | `Wrap U` vs legacy `Clamp S` — see note below |
+| oversized block swallowing real failures | 3 | 1447, 2050, 3164 | shrink the try; keep the log at 2050 |
+| misc `except: pass` | 4 | 1918, 2169, 2861, 3104 | narrow or delete |
+
+- [ ] **CH-2.1** — **The 9 non-compat sites** (socket-vs-value ×7, dict lookup ×2). Mechanical, covered by the
+      existing shader tests, and settle nothing about the compat question — do these first
+      regardless of where the rest lands.
+- [ ] **CH-2.2** — **The 3 latched globals.** `shader_io.py:940` (`SEPARATOR_*`), `:986` (`COMBINER_*`),
+      `:1615` (`MIXNODE_*`) each mutate a module-level global inside a bare handler, so the first
+      failure of any kind latches the whole session onto the Blender 3.x node names. Replace with
+      a `hasattr(bpy.types, ...)` probe resolved once at import.
+- [ ] **CH-2.3** — **The node-group interface sites** (1083, 1277, 1340, 1426, 1461, 1542) — `grp.inputs` /
+      `grp.outputs` (3.x) vs `grp.interface.new_socket` (4.0+). One `hasattr(grp, 'inputs')`
+      branch. This also fixes the 16- and 23-statement try blocks.
+- [ ] **CH-2.4** — **Shrink `:2013`** (FO4 greyscale-to-palette, 37 statements) and **`:3164`** (alpha
+      property, 9 statements) to wrap only what can raise. `:2013` at least logs a traceback
+      today; keep that.
+- [ ] **CH-2.5** — **Check whether `:1569`/`:1575` are dead.** They fall back from `mesh.color_attributes` to
+      `mesh.vertex_colors`, which mattered before Blender 3.2. `bl_info` declares 4.0 minimum.
+- [ ] **CH-2.6** — **Decide the real minimum Blender version and make the docstrings agree.** `bl_info` says
+      `(4, 0, 0)`; `make_separator` and `make_combiner` claim "Safe for all Blender 3.x and 4.0";
+      `test_categories` lists minimums of `(3,0)`. Three sources, three answers.
+- [ ] **CH-2.7** — **Then apply the same pass** to `import_nif.py` (16), `controller.py` (13),
+      `blender_defs.py` (9).
+
+**Note on `:2965`.** `Wrap U` vs legacy `Clamp S` is compat with *our own* previously-shipped
+`UV_Converter` node group, not with Blender. That's the same class of problem the SF layer groups
+solved by putting the version in the group name (`SF Layer v5`) so old and new coexist at no cost.
+Worth considering the same treatment rather than a fallback branch — but it's a separate decision,
+not part of this phase.
+
+---
+
+## Phase 3 — test infrastructure drift
+
+Three drifts, small individually, all away from rules we set deliberately.
+
+- [ ] **CH-3.1** — **Retire the 12 remaining `CHK.CheckNif` call sites** — `blender_tests.py` lines 235, 939,
+      2502, 3066, 4695 and 7 more. `CheckNif` was retired as an experiment that didn't work out;
+      replace each with explicit assertions as those tests get touched. Opportunistic, not a
+      sitting.
+- [ ] **CH-3.2** — **Bring `@TT.expect_errors` back down.** It now guards **72 of 282** Blender tests (26%).
+      Most of them exist because post-export re-import can't find textures or materials — which is
+      what the `NifFile` fallback search-path work is for. That plan is the fix; this is the
+      metric that says it's worth doing.
+- [ ] **CH-3.3** — **Split `blender_tests.py`.** 13,708 lines / 656 KB / 282 tests in one file. Not urgent and
+      not risky, but only worth starting when nothing else is in flight.
+
+---
+
+## Phase 4 — docs that contradict the code
+
+- [ ] **CH-4.1** — **`README.md`** — last commit 2026-03-18, before Starfield material I/O, FO4 collision
+      export, SF morphs and the HKX skeleton writers all shipped. It's the file users read.
+- [ ] **CH-4.2** — **`DEVELOPERS.md`** (2026-03-12) and **`PROJECT_PLAN.md`** (2026-03-31) — same vintage.
+      Decide whether `PROJECT_PLAN.md` still has a job now that `docs/plan_*.md` carries the real
+      planning.
+
+---
+
+## Phase 5 — guardrails
+
+There is no `.github/`, no ruff or flake8 config, and no pre-commit. Nothing catches the class of
+defect that costs nothing to fix and everything to find later — Phase 1's escape sequences are
+exactly that class.
+
+- [ ] **CH-5.1** — **Add a ruff config with a deliberately narrow rule set.** `W605` (invalid escapes), `F401`
+      (unused imports), `E722` (bare except) as a warning only, so it reports without blocking
+      while Phase 2 runs. Resist enabling more; a linter that shouts is a linter that gets muted.
+- [ ] **CH-5.2** — **A push-triggered GitHub action that runs ruff.** The test suite needs Blender so CI can't
+      run it, but lint costs nothing.
+- [ ] **CH-5.3** — **43 stray `print()` calls in shipping modules** — `sf_cdb` 9, `anim_skyrim` 9,
+      `cloth_autounpack` 7, `bgsmaterial` 7, `bhk_autounpack` 3, and 8 more. The rule is
+      `log.debug`, not `print`. Excludes `io_scene_nifly/scripts/`, which is standalone tooling.
+
+---
+
+## Phase 6 — test the untested new code
+
+- [ ] **CH-6.1** — **`pyn/sf_cdb.py` — 727 lines, zero test references** in any of the three test files. It's
+      the only module from the recent push without tests, and it's pure `pyn/` code with no
+      Blender dependency, so it's the easy kind to cover. One functional test in
+      `pynifly_tests.py` against a real `materialsbeta.cdb` slice — open it, pull a known
+      material, assert its fields — covers the parser's spine.
+
+---
+
+## Standing habits, not scheduled work
+
+These don't get ticked off; they change what happens the next time a file is opened.
+
+**CH-S1 — Split before you extend.** Five functions are past the size where a reader holds the whole
+thing in their head. Don't refactor them speculatively — they work and they're tested. But the
+next time one of them is opened to change behaviour, split the part being touched out first.
+
+| lines | cc | location |
+|---|---|---|
+| 310 | 64 | `bhk_autounpack.py:1059` `extract_bhk_physics_system` |
+| 269 | 62 | `export_nif.py:1907` `export_shape` |
+| 271 | 50 | `bhk_autopack.py:1355` `_write_cm_shape` |
+| 196 | 54 | `anim_fo4.py:426` `_decompress_spline` |
+| 206 | 50 | `pynifly.py:805` `Create` |
+
+`extract_bhk_physics_system` is the one worth doing deliberately rather than opportunistically,
+since FO4 collision is still active work.
+
+**CH-S2 — Watch the `hkx/` byte-level helpers.** `anim_fo4.py` and `anim_skyrim.py` maintain their own
+copies of `align`, `_hkarray`, `write_string`, `_u`, `_f`, `_i`, `_w_u`, `_read_hkarray_u`,
+`rel` and `_parse_*`. The format divergence justifies two files; it doesn't justify two copies of
+the primitives. If one of these needs a fix, fix both — or lift that set into a shared module.
+
+## Deliberately not doing
+
+- **CH-X1 — Chasing the 44% docstring coverage number.** The worst file is `nifdefs.py` at 2%, which is
+  mostly ctypes struct declarations that don't want prose. Coverage as a target would make it
+  worse.
+- **CH-X2 — Breaking up `NifExporter` (1,982 lines / 54 methods) or `NifImporter` (2,093 / 52).** They're
+  large but not chaotic — late-bound state is what makes big classes unworkable and it's
+  essentially absent (45 of 50 and 34 of 35 attributes declared up front). The cost of splitting
+  them exceeds the benefit right now.
+- **CH-X3 — Merging `anim_fo4.py` and `anim_skyrim.py`.** The packfile versions genuinely differ. See the
+  standing habit above instead.
+
+---
+
+*Audit method: AST analysis for size/complexity/attribute discipline, a 12-line-window hash scan
+for duplication, and an import-graph walk for cycles and layering. Structural only — this was not
+a bug hunt.*
