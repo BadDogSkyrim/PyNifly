@@ -254,10 +254,36 @@ export, and `test_loghandler.finish()` fails every test that exports.
       `ActionSlot` is absent, detected by capability rather than version to match how the
       exporter gates it. **Blender 4.2: 156 failures -> 4.**
 
-The 4 that remain on 4.2 -- `TEST_BRIARHEART_ROOT_EXPORT`,
-`TEST_EXPORT_BONE_ROTATION_RESPECTS_SETTING`, `TEST_SF_FACEBONES_EXPORT`,
-`TEST_WORKSHOP_DOOR_CONNECT_POINTS` -- were all in the pre-Phase-2 baseline. Genuine 4.2-specific
-issues, not yet diagnosed. Worth a Phase 3 item.
+#### CH-2.9: the last 4 Blender 4.2 failures, diagnosed and cleared
+
+All four were in the pre-Phase-2 baseline. Three distinct causes:
+
+- **`TEST_BRIARHEART_ROOT_EXPORT` + `TEST_EXPORT_BONE_ROTATION_RESPECTS_SETTING`** (spotted by
+  Bad Dog): `Briarheart.blend` was saved by **Blender 5.1** (`bpy.data.version` = 5.1.29) and
+  .blend files are not forward-compatible -- 4.2 answers *"not a blend file"*. It is also the only
+  **zstd**-compressed fixture of the 43, which is the tell: 5.x defaults to zstd on save while the
+  rest were written by 2.9x-4.x. Gated both tests with `@TT.min_version(5, 1, 0)` rather than lose
+  fixture content by re-saving from an older Blender.
+- **`TEST_WORKSHOP_DOOR_CONNECT_POINTS`**: asserts `len(bpy.data.actions) > 0`, but animation
+  import is gated on `ActionSlot` (4.4+), so 4.2 imports none. Tagged `('FO4','CONNECTPOINT')`
+  but genuinely depends on animation; added `'ANIMATION'`, which already carries a `(4,4)`
+  minimum in `test_categories`, so the existing skip machinery handles it.
+- **`TEST_SF_FACEBONES_EXPORT`**: a **real user-facing bug on Blender 4.x**, not a test artifact.
+  `ShaderExporter.__init__` guarded `if blender_obj.active_material:` but then did
+  `self.material.node_tree.nodes` unconditionally. Blender 5.x removed non-node materials so
+  `node_tree` is always present there; on 4.x `bpy.data.materials.new()` yields
+  `use_nodes = False` and `node_tree = None`. **Any 4.x user exporting a mesh whose material never
+  had "Use Nodes" switched on got "Export of nif failed" and nothing more.** Now warns and exports
+  without shader properties. The test also sets `use_nodes = True` so it exercises the same path
+  on every version.
+
+**`TT.min_version` had never worked.** It wrote `fn.__dict__["min_version"]` while
+`execute_test` reads `min_blender_version`, and stored a `set` rather than a tuple (so the
+comparison against `bpy.app.version` would have raised even with a matching key). Its one existing
+use was a no-op. Fixed as part of gating Briarheart.
+
+**Result: Blender 4.2 goes 156 failures -> 4 -> 0.** 235 passed, 47 skipped (the ANIMATION and
+HKX categories already required 4.4, plus the three newly gated). 5.1 and 5.2 stay 282/282.
 
 #### Notes for later
 

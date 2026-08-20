@@ -20,9 +20,13 @@ PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
 
 
 def min_version(*args):
-    """Decorator to specify a minimum version supported by the test feature."""
+    """Decorator to specify a minimum Blender version supported by the test.
+
+    The key must be "min_blender_version" -- that is what blender_tests.execute_test
+    reads -- and it must be a tuple, since it is compared against bpy.app.version.
+    """
     def wrap(fn):
-        fn.__dict__["min_version"] = set(args)
+        fn.__dict__["min_blender_version"] = tuple(args)
         return fn
     return wrap
 

@@ -2784,8 +2784,18 @@ class ShaderExporter:
         self.shader_node = None
         if blender_obj.active_material:
             self.material = blender_obj.active_material
-            nodelist = self.material.node_tree.nodes
-            if not "Material Output" in nodelist:
+            # A material with "Use Nodes" off has no node tree at all. Blender 5.x dropped
+            # the non-node path so node_tree is always present there, but on 4.x it is None
+            # and is an ordinary state for a hand-authored material -- don't crash the export.
+            if self.material.node_tree is None:
+                log.warning(f"Material {self.material.name} has no shader nodes "
+                            f"(Use Nodes is off); exporting {blender_obj.name} without shader")
+                nodelist = None
+            else:
+                nodelist = self.material.node_tree.nodes
+            if nodelist is None:
+                pass
+            elif not "Material Output" in nodelist:
                 log.warning(f"Have material but no Material Output for {self.material.name}")
             else:
                 self.material_output = nodelist["Material Output"]
@@ -2801,7 +2811,7 @@ class ShaderExporter:
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
 
     def warn(self, msg):
-        self.logger.warn(msg)
+        self.logger.warning(msg)
 
 
     def _export_shader_attrs(self, shape):

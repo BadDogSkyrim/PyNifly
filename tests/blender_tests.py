@@ -1602,6 +1602,10 @@ def TEST_EXPORT_WEIGHTS():
     assert len(bnif.shapes) == 1, f"Wrote one shape: {bnif.shape_dict.keys()}"
 
 
+# Briarheart.blend was saved by Blender 5.1 (bpy.data.version 5.1.29) and .blend files
+# are not forward-compatible -- 4.x reports "not a blend file". Gate both tests that
+# load it rather than lose the fixture's content by re-saving from an older Blender.
+@TT.min_version(5, 1, 0)
 @TT.category('SKYRIMSE', 'BODYPART', 'ARMATURE')
 def TEST_BRIARHEART_ROOT_EXPORT():
     """Exporting a root with mixed armature sources picks the mesh-modifier armature."""
@@ -1639,6 +1643,10 @@ def TEST_BRIARHEART_ROOT_EXPORT():
         f"BriarheartFlesh missing arm bones (used={sorted(used)}, missing={sorted(missing)})"
 
 
+# Briarheart.blend was saved by Blender 5.1 (bpy.data.version 5.1.29) and .blend files
+# are not forward-compatible -- 4.x reports "not a blend file". Gate both tests that
+# load it rather than lose the fixture's content by re-saving from an older Blender.
+@TT.min_version(5, 1, 0)
 @TT.category('SKYRIMSE', 'ARMATURE')
 def TEST_EXPORT_BONE_ROTATION_RESPECTS_SETTING():
     """Export must apply its own rotate_bones_pretty setting, not whatever stale
@@ -4175,6 +4183,9 @@ def TEST_SF_FACEBONES_EXPORT():
     # head and head_facebones carry the same id, and a Blender-authored head has no imported
     # extra-data Empty to supply one.
     headmat = bpy.data.materials.new("SFHead.Mat")
+    # Blender 4.x creates materials with Use Nodes off (node_tree is None); 5.x always
+    # has a node tree. Set it explicitly so the test exercises the same path everywhere.
+    headmat.use_nodes = True
     headmat['BSLSP_Shader_Name'] = r"Materials\Test\SFHead.mat"
     head.data.materials.append(headmat)
 
@@ -9353,7 +9364,9 @@ def TEST_CONNECT_WORKSHOP2():
                     0, "Origin location")
     
 
-@TT.category('FO4', 'CONNECTPOINT')
+# ANIMATION: asserts an imported action exists, and animation import is gated on
+# bpy.types.ActionSlot (Blender 4.4+), so there are no actions below that.
+@TT.category('FO4', 'CONNECTPOINT', 'ANIMATION')
 def TEST_WORKSHOP_DOOR_CONNECT_POINTS():
     """Workshop door connect points positioned correctly on export."""
     
