@@ -1,6 +1,6 @@
 # Plan: code health burn-down
 
-Status: **Phases 1-2 complete, Phase 3 partial** (2026-08-20). CH-3.3 awaiting a split proposal; phases 4-6 not started. Audit run against `main` @ `2064a5c`.
+Status: **Phases 1-3 complete** (2026-08-20). Phases 4-6 not started. Audit run against `main` @ `2064a5c`.
 
 Actions are coded `CH-<phase>.<n>` and referred to by code. `CH-S*` are standing habits (never
 ticked off); `CH-X*` are things deliberately excluded, listed so they don't get re-litigated.
@@ -309,7 +309,7 @@ Three drifts, small individually, all away from rules we set deliberately.
       Most of them exist because post-export re-import can't find textures or materials — which is
       what the `NifFile` fallback search-path work is for. That plan is the fix; this is the
       metric that says it's worth doing.
-- [ ] **CH-3.3** — **Split `blender_tests.py`.** 13,708 lines / 656 KB / 282 tests in one file. Not urgent and
+- [x] **CH-3.3** — **Split `blender_tests.py`.** 13,708 lines / 656 KB / 282 tests in one file. Not urgent and
       not risky, but only worth starting when nothing else is in flight.
 
 ### Phase 3 results so far (2026-08-20)
@@ -353,6 +353,47 @@ to more than one partition", "will not dismember in game"), and unsupported-feat
 ("Unknown block type: ...", "bhkPhysicsSystem decode failed"). The **materials/texture** band-aid
 class is smaller than the audit assumed, so `project_niffile_fallback_paths` is worth doing on its
 own merits but is not what is holding this number up.
+
+#### CH-3.3 — `blender_tests.py` split into `tests/blender/`
+
+13,708 lines in one file became a package of nine domain modules plus a 218-line aggregator:
+
+| module | lines | module | lines |
+|---|---|---|---|
+| `test_animation.py` | 2,835 | `test_shaders.py` | 1,206 |
+| `test_collision.py` | 2,230 | `test_skyrim.py` | 649 |
+| `test_bodyparts.py` | 1,982 | `test_tri.py` | 574 |
+| `test_starfield.py` | 1,539 | `test_geometry.py` | 573 |
+| `test_fo4.py` | 1,450 | `common.py` | 485 |
+
+**File assignment came from the `@TT.category` decorators, not from judgement.** Every one of the
+282 tests carries one, so a priority list (STARFIELD > HKX/ANIMATION > PHYSICS/COLLISION/MOPP >
+SHADER > TRI > PARTITIONS/CONNECTPOINT > BODYPART/ARMATURE > XFORM/TREE > FO4 > SKYRIM) decides
+the file. The tie-break is feature-file-wins unless the test is about game-specific behaviour.
+
+**Nothing was retyped.** The file was carved into 339 ordered top-level blocks covering every
+line, each block moved verbatim, and the leftovers (imports, the reload preamble, `log`,
+`ALWAYS_EXPECTED`, `TestLogHandler`, `test_loghandler`, and the 9 shared helpers) collected into
+`common.py`. `TEST_NOBLECHEST.category = {'ANIMATION'}` -- a bare attribute assignment sitting
+between two functions -- was detected and kept with its test.
+
+`common.py` ends with an explicit `__all__` built from `globals()`: a bare `import *` skips
+leading-underscore names, which would have dropped `_np_bodies`, `_uparm_r_cuts` and friends.
+
+**Verification was set equality, not a pass count.** The passing-test set was captured on 4.2,
+5.1 and 5.2 before the split and compared after: **identical on all three** (235 / 282 / 282),
+zero lost, zero gained. Since discovery order changed (dict insertion order across nine star
+imports rather than one file's source order), that also demonstrates no test depended on the old
+ordering. pyn 146 and anim 18 unchanged.
+
+`test_runner.py` now reloads `tests.blender.*` before the aggregator -- reloading
+`blender_tests` alone re-runs its star imports against modules already in `sys.modules`, so an
+edit to a test file would have been silently ignored.
+
+**Still open from CH-3.1:** the oversized checkers. `Check_malehead` is 86 lines across 4 call
+sites, so `TEST_SKYRIM_XFORM` (transforms) and `TEST_PARTITIONS` (partitions) each run all of it.
+Splitting them into `Check_malehead_transforms` / `_partitions` / `_shader` so tests opt into
+what they are about is the remaining piece of the "too rigid" complaint.
 
 ---
 
