@@ -390,10 +390,11 @@ ordering. pyn 146 and anim 18 unchanged.
 `blender_tests` alone re-runs its star imports against modules already in `sys.modules`, so an
 edit to a test file would have been silently ignored.
 
-**Still open from CH-3.1:** the oversized checkers. `Check_malehead` is 86 lines across 4 call
-sites, so `TEST_SKYRIM_XFORM` (transforms) and `TEST_PARTITIONS` (partitions) each run all of it.
-Splitting them into `Check_malehead_transforms` / `_partitions` / `_shader` so tests opt into
-what they are about is the remaining piece of the "too rigid" complaint.
+**CH-3.1's residual is closed, not deferred.** Splitting the big checkers so each test opts into
+only the relevant assertions was offered and declined -- Bad Dog, 2026-08-20: *"I'm happy for the
+one test to check everything. It's not wrong."* A fixture checker asserting everything about that
+fixture is fine; what was wrong with `CheckNif` was the registry and the magic dispatch, both of
+which are gone. See CH-X4.
 
 ---
 
@@ -467,6 +468,10 @@ the primitives. If one of these needs a fix, fix both — or lift that set into 
   large but not chaotic — late-bound state is what makes big classes unworkable and it's
   essentially absent (45 of 50 and 34 of 35 attributes declared up front). The cost of splitting
   them exceeds the benefit right now.
+- **CH-X4 — Splitting the fixture checkers in `test_nifchecker.py` by topic.** `Check_malehead`
+  asserts transforms, block types, partitions, shader properties and textures, and four tests call
+  it. Declined 2026-08-20: a checker that asserts everything about a fixture is not wrong, and the
+  breadth was never the problem -- the `CheckNif` registry and dispatch were, and those are gone.
 - **CH-X3 — Merging `anim_fo4.py` and `anim_skyrim.py`.** The packfile versions genuinely differ. See the
   standing habit above instead.
 
