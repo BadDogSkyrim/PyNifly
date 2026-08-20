@@ -443,7 +443,7 @@ class ControllerHandler():
         try:
             nifnode = self.nif.nodes[nifname]
             return self.objects_created.find_nifnode(nifnode).blender_obj
-        except:
+        except (KeyError, AttributeError):
             return None
 
 
@@ -596,7 +596,7 @@ class ControllerHandler():
         try:
             if self.action_target and self.action_target.type == 'ARMATURE' and not self.bone_target:
                 self.bone_target = self._find_target(self.action_target.name)
-        except:
+        except AttributeError:
             self.action_target = None
         if not self.action_target: return
 
@@ -706,7 +706,7 @@ class ControllerHandler():
                 self.action_target = targ.blender_obj
             if self.action_target:
                 return True
-        except:
+        except (AttributeError, KeyError):
             pass
 
         self.warn(f"Target of controller not found: {target_name}")
@@ -1094,7 +1094,7 @@ class ControllerHandler():
                         or self.controller_manager.next_controller.id != new_controller.id:
                     mytarget.controller = interps_created[-1][0]
                 
-        except:
+        except Exception:
             log.exception(f"Error exporting fcurves to class {ctlclass} for {anim.name}")
         
         return interps_created
@@ -1137,9 +1137,7 @@ class ControllerHandler():
         anim:ReprObjectCollection = None
         for anim in all_named_animations(self.export_objs):
             # Named animations depend on Action Slots. Bail if it's an older Blender.
-            try:
-                t = bpy.types.ActionSlot
-            except:
+            if not hasattr(bpy.types, 'ActionSlot'):
                 log.warning("Action Slots not supported in this version of Blender. Cannot export named animations.")
                 return
             
@@ -1178,7 +1176,7 @@ class ControllerHandler():
             interps = []
             try:
                 interps = self._export_activated_obj(anim)
-            except:
+            except Exception:
                 log.exception(f"Could not export animation {anim.name} on object {anim.target_obj.blender_obj.name}")
             
             for ctlr, intp in interps:
@@ -1573,7 +1571,7 @@ def _import_transform_data(td:NiTransformData,
             curveY = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_quaternion", index=2)
             curveZ = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_quaternion", index=3)
             _add_actionslot(importer.action_target, curveW)
-        except:
+        except Exception:
             curveW = importer.action.fcurve_ensure_for_datablock(importer.action_target, path_prefix + "rotation_quaternion", index=0)
             _add_actionslot(importer.action_target, curveW)
 
@@ -1817,7 +1815,7 @@ def _import_ESPFloat_controller(ctlr:BSEffectShaderPropertyFloatController,
             raise Exception(f"Invalid controlled target on controller {ctlr.id}")
         importer.path_name = \
             f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
-    except:
+    except Exception:
         pass
 
     if not importer.path_name: 
@@ -1897,7 +1895,7 @@ def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController,
             ctlr.properties.controlledVariable)
         importer.path_name = \
                 f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
-    except:
+    except Exception:
         pass
 
     if not importer.path_name: 
@@ -1942,7 +1940,7 @@ def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController,
             ctlr.properties.controlledVariable)
         importer.path_name = \
             f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
-    except:
+    except Exception:
         pass
 
     if not importer.path_name: 
@@ -2046,10 +2044,8 @@ NiControllerSequence.import_node = _import_controller_sequence
 def _import_controller_manager(cm:NiControllerManager, 
                                 importer:ControllerHandler, 
                                 interp=None):
-    try:
-        t = bpy.types.ActionSlot
-    except:
-        log.warn("Blender version does not support Action Slots; cannot import controller manager properly.")
+    if not hasattr(bpy.types, 'ActionSlot'):
+        log.warning("Blender version does not support Action Slots; cannot import controller manager properly.")
         return
     
     a = None
@@ -2641,7 +2637,7 @@ def register():
     try:
         bpy.types.VIEW3D_MT_view.remove(_draw_apply_animation_menu_entry)
         bpy.utils.unregister_class(WM_OT_ApplyAnim)
-    except:
+    except (RuntimeError, ValueError, AttributeError):
         pass
     bpy.types.VIEW3D_MT_view.append(_draw_apply_animation_menu_entry)
     bpy.utils.register_class(WM_OT_ApplyAnim)
@@ -2650,5 +2646,5 @@ def unregister():
     try:
         bpy.types.VIEW3D_MT_view.remove(_draw_apply_animation_menu_entry)
         bpy.utils.unregister_class(WM_OT_ApplyAnim)
-    except:
+    except (RuntimeError, ValueError, AttributeError):
         pass

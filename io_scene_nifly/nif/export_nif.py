@@ -2039,7 +2039,7 @@ class NifExporter:
                 try:
                     new_shape.properties.vertexDesc = VertexFlags.parse(obj['pynVertexDesc']).value
                 except Exception as e:
-                    log.warn(f"Error setting pynVertexDesc for {obj.name}: pynVertexDesc={obj['pynVertexDesc']}")
+                    log.warning(f"Error setting pynVertexDesc for {obj.name}: pynVertexDesc={obj['pynVertexDesc']}")
 
             robj = ReprObject(obj, new_shape)
             self.objs_written.add(robj)
@@ -2218,7 +2218,7 @@ class NifExporter:
                 try:
                     self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
                 except Exception as e:
-                    log.warn(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
+                    log.warning(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
 
         if suffix == '_faceBones' and self.game != 'SF':
             # FO4/FO76 rename face bones through fo4FaceDict. Starfield's facebones keep their
@@ -2835,7 +2835,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         self.log_handler.finish("EXPORT", self.objects_to_export)
         context.scene.frame_set(initial_frame)
-        ObjectSelect([selected_objs])
+        ObjectSelect(selected_objs)
         ObjectActive(active_obj)
 
         # Save the directory path for next time

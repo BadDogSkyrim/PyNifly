@@ -1,6 +1,6 @@
 # Plan: code health burn-down
 
-Status: **Phase 1 complete** (2026-08-20). Phases 2-6 not started. Audit run against `main` @ `2064a5c`.
+Status: **Phases 1-2 complete** (2026-08-20). Phases 3-6 not started. Audit run against `main` @ `2064a5c`.
 
 Actions are coded `CH-<phase>.<n>` and referred to by code. `CH-S*` are standing habits (never
 ticked off); `CH-X*` are things deliberately excluded, listed so they don't get re-litigated.
@@ -174,25 +174,25 @@ they carry no compat argument at all.
 | oversized block swallowing real failures | 3 | 1447, 2050, 3164 | shrink the try; keep the log at 2050 |
 | misc `except: pass` | 4 | 1918, 2169, 2861, 3104 | narrow or delete |
 
-- [ ] **CH-2.1** — **The 9 non-compat sites** (socket-vs-value ×7, dict lookup ×2). Mechanical, covered by the
+- [x] **CH-2.1** — **The 9 non-compat sites** (socket-vs-value ×7, dict lookup ×2). Mechanical, covered by the
       existing shader tests, and settle nothing about the compat question — do these first
       regardless of where the rest lands.
-- [ ] **CH-2.2** — **The 3 latched globals.** `shader_io.py:940` (`SEPARATOR_*`), `:986` (`COMBINER_*`),
+- [x] **CH-2.2** — **The 3 latched globals.** `shader_io.py:940` (`SEPARATOR_*`), `:986` (`COMBINER_*`),
       `:1615` (`MIXNODE_*`) each mutate a module-level global inside a bare handler, so the first
       failure of any kind latches the whole session onto the Blender 3.x node names. Replace with
       a `hasattr(bpy.types, ...)` probe resolved once at import.
-- [ ] **CH-2.3** — **The node-group interface sites** (1083, 1277, 1340, 1426, 1461, 1542) — `grp.inputs` /
+- [x] **CH-2.3** — **The node-group interface sites** (1083, 1277, 1340, 1426, 1461, 1542) — `grp.inputs` /
       `grp.outputs` (3.x) vs `grp.interface.new_socket` (4.0+). One `hasattr(grp, 'inputs')`
       branch. This also fixes the 16- and 23-statement try blocks.
-- [ ] **CH-2.4** — **Shrink `:2013`** (FO4 greyscale-to-palette, 37 statements) and **`:3164`** (alpha
+- [x] **CH-2.4** — **Shrink `:2013`** (FO4 greyscale-to-palette, 37 statements) and **`:3164`** (alpha
       property, 9 statements) to wrap only what can raise. `:2013` at least logs a traceback
       today; keep that.
-- [ ] **CH-2.5** — **Check whether `:1569`/`:1575` are dead.** They fall back from `mesh.color_attributes` to
+- [x] **CH-2.5** — **Check whether `:1569`/`:1575` are dead.** They fall back from `mesh.color_attributes` to
       `mesh.vertex_colors`, which mattered before Blender 3.2. `bl_info` declares 4.0 minimum.
-- [ ] **CH-2.6** — **Decide the real minimum Blender version and make the docstrings agree.** `bl_info` says
+- [x] **CH-2.6** — **Decide the real minimum Blender version and make the docstrings agree.** `bl_info` says
       `(4, 0, 0)`; `make_separator` and `make_combiner` claim "Safe for all Blender 3.x and 4.0";
       `test_categories` lists minimums of `(3,0)`. Three sources, three answers.
-- [ ] **CH-2.7** — **Then apply the same pass** to `import_nif.py` (16), `controller.py` (13),
+- [x] **CH-2.7** — **Then apply the same pass** to `import_nif.py` (16), `controller.py` (13),
       `blender_defs.py` (9).
 
 **Note on `:2965`.** `Wrap U` vs legacy `Clamp S` is compat with *our own* previously-shipped
@@ -200,6 +200,74 @@ they carry no compat argument at all.
 solved by putting the version in the group name (`SF Layer v5`) so old and new coexist at no cost.
 Worth considering the same treatment rather than a fallback branch — but it's a separate decision,
 not part of this phase.
+
+### Phase 2 results (2026-08-20)
+
+**Bare `except:` addon-wide: 108 -> 36. Zero remain in `shader_io.py` (was 32), `import_nif.py`
+(16), `controller.py` (13) or `blender_defs.py` (9).** The 36 left are in files outside this
+phase's scope: `pyn/` (14), `hkx/` (7), `export_nif.py` (4), `collision.py` (3), `tri/` (3).
+
+Verified on **three Blender versions**: 5.1 **282/282**, 5.2 **282/282**, 4.2 **278/282** (the 4
+are pre-existing, see below). Plus 146 pyn and 18 anim tests.
+
+#### The version question, settled with measurement
+
+Probing bpy directly on 4.2 / 4.5 / 5.1 / 5.2 showed every "Blender 3.x" branch in `shader_io.py`
+is unreachable on any version the addon can load on:
+
+| capability | 4.2 | 4.5 | 5.1 | 5.2 |
+|---|---|---|---|---|
+| `NodeTree.inputs` / `.outputs` | no | no | no | no |
+| `NodeTree.interface` | yes | yes | yes | yes |
+| `ShaderNodeSeparateColor` / `CombineColor` | yes | yes | yes | yes |
+| `ShaderNodeSeparateRGB` / `CombineRGB` (the *fallback*) | yes | yes | **no** | **no** |
+| Principled BSDF `Specular` / `Subsurface` | no | no | no | no |
+| `mesh.color_attributes` | yes | yes | yes | yes |
+
+`bl_info["blender"]` is `(4, 0, 0)` and Blender refuses to enable an addon below its declared
+minimum, so those branches cannot execute. The fallback node names were themselves removed in
+Blender 5.0, so the fallback would have been broken even if it did fire. **Bad Dog's call: delete
+them** rather than convert to `hasattr`. `shader_io.py` lost 112 lines.
+
+#### Two real bugs the bare handlers were hiding
+
+- **`export_nif.py:2838` called `ObjectSelect([selected_objs])`** with stray brackets --
+  `selected_objs` is already `context.selected_objects`. `ObjectSelect` then called
+  `select_set()` on the inner *list*, raising `AttributeError`, which the bare handler swallowed.
+  **Restoring the user's selection after an export has never worked.** Surfaced the moment the
+  handler was narrowed. Fixed the caller rather than re-hiding it; the other 15
+  `ObjectSelect([obj])` call sites are correct (single object into a list).
+- **`import_grayscale`'s "no greyscale texture" path was itself broken.** The `else` branch
+  formatted `self.shape.textures['Greyscale']` -- the very key it had just established was
+  missing -- so it raised `KeyError` inside the handler, and the outer bare `except:` turned it
+  into a misleading "Could not load shader nodes from assets file" while skipping the rest of the
+  node setup. Now uses `.get()`.
+
+#### CH-2.8 (added mid-phase): Blender 4.2 was 156/282 failing on main
+
+Not caused by Phase 2 -- confirmed by running the pre-Phase-2 tree on 4.2 and diffing the failure
+sets (identical, 156 each). One systemic cause: animation export is gated on
+`hasattr(bpy.types, 'ActionSlot')` (Blender 4.4+), so on 4.0-4.3 the exporter warns on **every**
+export, and `test_loghandler.finish()` fails every test that exports.
+
+- [x] **CH-2.8** -- `ALWAYS_EXPECTED` in `blender_tests.py` now adds that message when
+      `ActionSlot` is absent, detected by capability rather than version to match how the
+      exporter gates it. **Blender 4.2: 156 failures -> 4.**
+
+The 4 that remain on 4.2 -- `TEST_BRIARHEART_ROOT_EXPORT`,
+`TEST_EXPORT_BONE_ROTATION_RESPECTS_SETTING`, `TEST_SF_FACEBONES_EXPORT`,
+`TEST_WORKSHOP_DOOR_CONNECT_POINTS` -- were all in the pre-Phase-2 baseline. Genuine 4.2-specific
+issues, not yet diagnosed. Worth a Phase 3 item.
+
+#### Notes for later
+
+- `make_maprange` appends the **socket** to `nodelist` where `make_mixnode` appends `socket.node`.
+  `relative_loc` reads `.location`/`.width`, which a socket doesn't have -- so that path would
+  raise if ever reached with a socket and no `location`/`neighbor` argument. Preserved verbatim
+  rather than "fixed" silently; worth a look.
+- `make_specular` assigns `m = make_mixnode(...)` and never uses `m`.
+- The `Wrap U` / `Clamp S` site (now `except KeyError`) is compat with **our own** older
+  `UV_Converter` node group, not with Blender -- still the separate decision noted above.
 
 ---
 

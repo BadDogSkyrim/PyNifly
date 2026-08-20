@@ -91,7 +91,7 @@ def ObjectSelect(objlist, deselect=True, active=True):
     """Select all the objects in the list"""
     try:
         bpy.ops.object.mode_set(mode = 'OBJECT')
-    except:
+    except RuntimeError:
         pass
     if deselect:
         bpy.ops.object.select_all(action='DESELECT')
@@ -99,19 +99,19 @@ def ObjectSelect(objlist, deselect=True, active=True):
         for o in objlist:
             try:
                 o.select_set(True)
-            except:
+            except (RuntimeError, ReferenceError):
                 pass
         o1 = objlist[0] if len(objlist) > 0 else None
     else:
         try:
             objlist.select_set(True)
-        except:
+        except (RuntimeError, ReferenceError):
             pass
         o1 = objlist
     if active and objlist:
         try:
             bpy.context.view_layer.objects.active = o1
-        except:
+        except (RuntimeError, ReferenceError):
             pass
 
 
@@ -124,22 +124,7 @@ def ObjectActive(obj):
 def MatrixLocRotScale(loc, rot, scale=None):
     """Same as Matrix.LocRotScale, For backwards compatibility."""
     if scale == None: scale = Vector((1,1,1,))
-    try:
-        return Matrix.LocRotScale(loc, rot, scale)
-    except:
-        tm = Matrix.Translation(loc)
-        rm = Matrix()
-        if issubclass(rot.__class__, Quaternion):
-            rm = rot.to_matrix()
-        else:
-            rm = Matrix(rot)
-        rm = rm.to_4x4()
-        sm = Matrix(((scale[0],0,0,0),
-                        (0,scale[1],0,0),
-                        (0,0,scale[2],0),
-                        (0,0,0,1)))
-        m = tm @ rm @ sm
-        return m
+    return Matrix.LocRotScale(loc, rot, scale)
 
 
 def transform_to_matrix(xf: TransformBuf) -> Matrix:
@@ -514,7 +499,7 @@ PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{
                         s.add(os.path.basename(f))
                     else:
                         s.add(f.name)
-                except:
+                except AttributeError:
                     pass
             fn = str(s)
 
@@ -600,9 +585,9 @@ def highlight_objects(objlist, context, is_callback=False):
                                         bpy.app.timers.register(highlight_selected, first_interval=0.5)
                                 else:
                                     bpy.ops.view3d.view_selected()
-                            except:
+                            except (RuntimeError, TypeError):
                                 pass
-                    except:
+                    except (RuntimeError, TypeError):
                         pass
 
 
@@ -617,7 +602,7 @@ def color_mapping(colormap):
     """
     try:
         mapping_scheme = colormap.domain
-    except:
+    except AttributeError:
         # Older
         mapping_scheme = 'CORNER'
     return mapping_scheme

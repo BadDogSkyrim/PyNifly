@@ -78,6 +78,13 @@ test_categories = {
 # TEST_IMPORT_DUPLICATE_TRIS_WARNS covers that the warning still fires.
 ALWAYS_EXPECTED = ("duplicate triangle(s) across",)
 
+# Animation export is gated on slotted actions (bpy.types.ActionSlot, Blender 4.4+).
+# On an older supported Blender the exporter warns on EVERY export, which otherwise
+# fails every test that exports -- 156 of 282 on Blender 4.2. Expected there, not a
+# failure. Detected by capability, not version, to match how the exporter gates it.
+if not hasattr(bpy.types, 'ActionSlot'):
+    ALWAYS_EXPECTED += ("animation export not supported",)
+
 
 class TestLogHandler(logging.Handler):
     def __init__(self):
