@@ -322,7 +322,6 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
                 use_vertex_alpha = True
         if use_vertex_colors \
             and shape.colors and len(shape.colors) > 0:
-            clayer = None
             clayer = mesh.color_attributes.new(name=COLOR_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
             alphlayer = None
             if use_vertex_alpha:
@@ -330,24 +329,17 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
                     name=ALPHA_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
                 alphlayer.name = ALPHA_MAP_NAME
         
+            # Both layers are created above with domain='POINT', so index by vertex.
             colors = shape.colors
-            if clayer.domain == 'POINT':
-                for i in range(0, len(mesh.vertices)):
-                    c = colors[i]
-                    clayer.data[i].color = (c[0], c[1], c[2], 1.0)
-                    if alphlayer:
-                        alph = colors[i][3] 
-                        cv = list(Color([alph, alph, alph]))
-                        # cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
-                        cv.append(1.0)
-                        alphlayer.data[i].color = cv
-            else:
-                for lp in mesh.loops:
-                    c = colors[lp.vertex_index]
-                    clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
-                    if alphlayer:
-                        alph = colors[lp.vertex_index][3]
-                        alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
+            for i in range(0, len(mesh.vertices)):
+                c = colors[i]
+                clayer.data[i].color = (c[0], c[1], c[2], 1.0)
+                if alphlayer:
+                    alph = colors[i][3]
+                    cv = list(Color([alph, alph, alph]))
+                    # cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
+                    cv.append(1.0)
+                    alphlayer.data[i].color = cv
     except Exception:
         log.exception(f"Could not read colors on shape {shape.name}")
 
