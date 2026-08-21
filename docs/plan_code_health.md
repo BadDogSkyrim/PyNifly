@@ -348,13 +348,28 @@ silently disabled** and would have passed no matter what the addon logged. `expe
 coerces a bare string to a one-tuple so it cannot recur, and all three tests pass with only their
 stated message suppressed -- the character matching had not been hiding anything else.
 
-**Caveat, found 2026-08-21.** The pruning rested on *one observation per Blender version*.
+**Caveat, found 2026-08-21 -- and the underlying cause has since been fixed properly.**
+The pruning rested on *one observation per Blender version*.
 `TEST_FACEGEN_SE` names YAS/Lykaios textures that live in a mod folder rather than the vanilla
 assets directory the suite points at, so whether they resolve depends on machine state. Its
 `'Could not find texture'` / `'Could not load'` entries measured as never-firing on all three
-versions, were pruned, and later fired on 5.2 -- breaking that test. Restored. Anything
-environment-dependent could have been pruned the same way; the suite is the safety net, but
-treat the 42 removals as "measured once", not "proven dead".
+versions, were pruned, and later fired on 5.2 -- breaking that test.
+
+Rather than restore the whitelist, the fixture now carries its own textures (Bad Dog's call:
+*"I'd really prefer to have the textures in the fixtures"*). Two changes were needed, because
+only fixing the first left the second half of the round trip still warning:
+
+1. `facegen.nif` moved to `tests/tests/SkyrimSE/meshes/`. `find_referenced_file` searches
+   relative to the nif **only if `'meshes'` is in the nif's path** -- otherwise that branch is
+   skipped entirely. All 12 referenced textures were added under the sibling `textures/` tree
+   as 64x64 DXT5 placeholders per the FFO recipe: **26.8 MB of source art -> 50 KB**.
+2. The re-import half reads `tests/tests/Out/TEST_FACEGEN_SE.nif`, which has no `meshes`
+   component either, so the fixture tree is now registered on the addon's alternate-path
+   preferences by `TTB.test_file` alongside the `texture_directory` it already sets. Slots 1-2
+   were empty, so nothing configured was clobbered.
+
+The general caveat still stands for the other removals: anything environment-dependent could
+have been pruned the same way. Treat the 42 as "measured once", not "proven dead".
 
 The remaining 83 entries look legitimate: warnings the test deliberately provokes (19x "assigned
 to more than one partition", "will not dismember in game"), and unsupported-feature notices

@@ -1142,12 +1142,13 @@ def TEST_FACEGEN():
 # assets dir the suite points at, so they may or may not resolve depending on the
 # machine. CH-3.2 pruned these two as never-firing on one observation per Blender
 # version; they do fire on 5.2. Restored -- see docs/plan_code_health.md.
-@TT.expect_errors(('Some faces have been assigned to more than one partition',
-                   'Could not find texture',
-                   'Could not load',))
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
 def TEST_FACEGEN_SE():
     """Skyrim SE facegen file round-trips correctly."""
-    testfile = TTB.test_file(r"tests\SkyrimSE\facegen.nif")
+    # Under meshes/ so find_referenced_file resolves textures from the sibling textures/
+    # tree -- that search is skipped entirely for a nif with no 'meshes' component in its
+    # path, which is why this used to warn about missing textures.
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\facegen.nif")
     outfile = TTB.test_file(r"tests/out/TEST_FACEGEN_SE.nif")
 
     nifin = pyn.NifFile(testfile)
