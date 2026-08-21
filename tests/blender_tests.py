@@ -137,7 +137,7 @@ def do_tests(
             execute_test(t, executed_tests, stop_on_fail=stop_on_fail)
             test_timings.append((t.__name__, perf_counter() - _t0))
 
-    print(f"\n\n===Slowest tests (top 30)===")
+    print("\n\n===Slowest tests (top 30)===")
     for name, dt in sorted(test_timings, key=lambda x: -x[1])[:30]:
         print(f"  {dt:7.2f}s  {name}")
     _total = sum(dt for _, dt in test_timings)
@@ -147,11 +147,11 @@ def do_tests(
     failed_tests = [t for t, v in executed_tests.items() if v == 'FAIL']
     skipped_tests = [t for t, v in executed_tests.items() if v == 'SKIP']
 
-    print(f"\n\n===Succesful tests===")
+    print("\n\n===Succesful tests===")
     print(", ".join(passed_tests))
-    print(f"\n\n===Failed tests===")
+    print("\n\n===Failed tests===")
     print(", ".join(failed_tests))
-    print(f"\n\n===Skipped tests===")
+    print("\n\n===Skipped tests===")
     print(", ".join(skipped_tests))
     if not failed_tests:
         msg = (f"""SUCCESS: {len(passed_tests):3d} test{"s" if len(passed_tests) != 1 else ""} """

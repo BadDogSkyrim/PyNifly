@@ -88,14 +88,14 @@ def TEST_TRI_SIMPLE():
     assert os.path.exists(tricubenifchg), f"Error: Should have exported {tricubenifchg}"
     
     cubetri = TriFile.from_filepath(tricubeniftri)
-    assert "Aah" in cubetri.morphs, f"Error: 'Aah' should be in tri"
-    assert "BrowIn" not in cubetri.morphs, f"Error: 'BrowIn' should not be in tri"
-    assert "*Extra" not in cubetri.morphs, f"Error: '*Extra' should not be in tri"
+    assert "Aah" in cubetri.morphs, "Error: 'Aah' should be in tri"
+    assert "BrowIn" not in cubetri.morphs, "Error: 'BrowIn' should not be in tri"
+    assert "*Extra" not in cubetri.morphs, "Error: '*Extra' should not be in tri"
     
     cubechg = TriFile.from_filepath(tricubenifchg)
-    assert "Aah" not in cubechg.morphs, f"Error: 'Aah' should not be in chargen"
-    assert "BrowIn" in cubechg.morphs, f"Error: 'BrowIn' should be in chargen"
-    assert "*Extra" not in cubechg.morphs, f"Error: '*Extra' should not be in chargen"
+    assert "Aah" not in cubechg.morphs, "Error: 'Aah' should not be in chargen"
+    assert "BrowIn" in cubechg.morphs, "Error: 'BrowIn' should be in chargen"
+    assert "*Extra" not in cubechg.morphs, "Error: '*Extra' should not be in chargen"
     
 
 @TT.category('FO4', 'TRI')
@@ -194,13 +194,13 @@ def TEST_IMPORT_AS_SHAPES():
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
-    assert TT.is_eq(len(meshes), 2, f"mesh count")
+    assert TT.is_eq(len(meshes), 2, "mesh count")
     sknames0 = [sk.name for sk in meshes[0].data.shape_keys.key_blocks]
     assert TT.is_samemembers(sknames0, ['Basis', '_0', '_1'], f"{meshes[0].name} Shape key names")
     sknames1 = [sk.name for sk in meshes[1].data.shape_keys.key_blocks]
     assert TT.is_samemembers(sknames1, ['Basis', '_0', '_1'], f"{meshes[1].name} Shape keys names")
     armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
-    assert TT.is_eq(len(armatures), 1, f"armature count")
+    assert TT.is_eq(len(armatures), 1, "armature count")
 
 
 @TT.category('SKYRIMSE', 'SHAPEKEY')
@@ -278,7 +278,7 @@ def TEST_EXP_SK_RENAMED():
     assert not os.path.exists(chargenfile), f"Chargen file not created: {os.path.exists(chargenfile)}"
 
     nif1 = pyn.NifFile(outfile)
-    assert len(nif1.shapes) == 1, f"Expected head nif"
+    assert len(nif1.shapes) == 1, "Expected head nif"
 
     ### CHECK TRI FILE ###
     
@@ -311,8 +311,8 @@ def TEST_EXP_SK_RENAMED():
 
     ### CHECK ###
 
-    TT.assert_eq(len(obj.data.shape_keys.key_blocks), 51, f"key block count")
-    TT.assert_contains('Smile.L', obj.data.shape_keys.key_blocks, f"Expected key")
+    TT.assert_eq(len(obj.data.shape_keys.key_blocks), 51, "key block count")
+    TT.assert_contains('Smile.L', obj.data.shape_keys.key_blocks, "Expected key")
 
 
 @TT.category('SKYRIMSE', 'BODYPART', 'SHAPEKEY')
@@ -403,19 +403,19 @@ def TEST_TRIP_SE():
     nifcheck = pyn.NifFile(outfile1)
 
     bodycheck = nifcheck.shape_dict["Penis_CBBE"]
-    assert TT.is_eq(bodycheck.name, "Penis_CBBE", f"Penis found")
+    assert TT.is_eq(bodycheck.name, "Penis_CBBE", "Penis found")
 
     stringdata = [sd for sd in bodycheck.extra_data(blockname="NiStringExtraData")]
-    assert stringdata, f"Found string data"
+    assert stringdata, "Found string data"
     sd = stringdata[0]
-    assert TT.is_eq(sd.name, 'BODYTRI', f"BODYTRI string data")
-    assert TT.is_eq(sd.string_data.endswith("TEST_TRIP_SE.tri"), True, f"BODYTRI filename")
+    assert TT.is_eq(sd.name, 'BODYTRI', "BODYTRI string data")
+    assert TT.is_eq(sd.string_data.endswith("TEST_TRIP_SE.tri"), True, "BODYTRI filename")
 
     tripcheck = TripFile.from_filepath(outfiletrip)
-    assert TT.is_eq(len(tripcheck.shapes), 1, f"shape count")
+    assert TT.is_eq(len(tripcheck.shapes), 1, "shape count")
     bodymorphs = tripcheck.shapes['Penis_CBBE']
-    assert TT.is_eq(len(bodymorphs), 27, f"morphs count")
-    assert TT.is_contains("CrotchBack", bodymorphs.keys(), f"morphs")
+    assert TT.is_eq(len(bodymorphs), 27, "morphs count")
+    assert TT.is_contains("CrotchBack", bodymorphs.keys(), "morphs")
 
 
 @TT.category('FO4', 'BODYPART', 'TRI')
@@ -437,19 +437,19 @@ def TEST_TRIP():
     nifcheck = pyn.NifFile(outfile)
 
     bodycheck = nifcheck.shape_dict["BaseMaleBody"]
-    assert TT.is_eq(bodycheck.name, "BaseMaleBody", f"Body found in nif")
+    assert TT.is_eq(bodycheck.name, "BaseMaleBody", "Body found in nif")
 
     stringdata = [sd for sd in nifcheck.root.extra_data(blockname="NiStringExtraData")]
-    assert stringdata, f"Found string data"
+    assert stringdata, "Found string data"
     sd = stringdata[0]
-    assert TT.is_eq(sd.name, 'BODYTRI', f"BODYTRI string data")
-    assert TT.is_eq(sd.string_data.endswith("TEST_TRIP.tri"), True, f"BODYTRI filename")
+    assert TT.is_eq(sd.name, 'BODYTRI', "BODYTRI string data")
+    assert TT.is_eq(sd.string_data.endswith("TEST_TRIP.tri"), True, "BODYTRI filename")
 
     tripcheck = TripFile.from_filepath(outfiletrip)
-    assert TT.is_eq(len(tripcheck.shapes), 1, f"shape count")
+    assert TT.is_eq(len(tripcheck.shapes), 1, "shape count")
     bodymorphs = tripcheck.shapes['BaseMaleBody']
     assert TT.is_gt(len(bodymorphs), 30, f"morphs count: {len(bodymorphs)}")
-    assert TT.is_contains("BTShoulders", bodymorphs.keys(), f"morphs")
+    assert TT.is_contains("BTShoulders", bodymorphs.keys(), "morphs")
 
 
 @TT.category('FO4', 'BODYPART', 'TRI')

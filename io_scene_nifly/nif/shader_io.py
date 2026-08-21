@@ -2795,7 +2795,7 @@ class ShaderExporter:
                 nodelist = self.material.node_tree.nodes
             if nodelist is None:
                 pass
-            elif not "Material Output" in nodelist:
+            elif "Material Output" not in nodelist:
                 log.warning(f"Have material but no Material Output for {self.material.name}")
             else:
                 self.material_output = nodelist["Material Output"]

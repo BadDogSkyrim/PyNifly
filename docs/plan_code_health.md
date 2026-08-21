@@ -1,6 +1,6 @@
 # Plan: code health burn-down
 
-Status: **Phases 1-4 complete** (2026-08-20). Phases 5-6 not started. Audit run against `main` @ `2064a5c`.
+Status: **Phases 1-5 complete** (2026-08-21), except the CI action (CH-5.2), which is deliberately deferred. Phase 6 not started. Audit run against `main` @ `2064a5c`.
 
 Actions are coded `CH-<phase>.<n>` and referred to by code. `CH-S*` are standing habits (never
 ticked off); `CH-X*` are things deliberately excluded, listed so they don't get re-litigated.
@@ -487,14 +487,58 @@ There is no `.github/`, no ruff or flake8 config, and no pre-commit. Nothing cat
 defect that costs nothing to fix and everything to find later — Phase 1's escape sequences are
 exactly that class.
 
-- [ ] **CH-5.1** — **Add a ruff config with a deliberately narrow rule set.** `W605` (invalid escapes), `F401`
+- [x] **CH-5.1** — **Add a ruff config with a deliberately narrow rule set.** `W605` (invalid escapes), `F401`
       (unused imports), `E722` (bare except) as a warning only, so it reports without blocking
       while Phase 2 runs. Resist enabling more; a linter that shouts is a linter that gets muted.
 - [ ] **CH-5.2** — **A push-triggered GitHub action that runs ruff.** The test suite needs Blender so CI can't
       run it, but lint costs nothing.
-- [ ] **CH-5.3** — **43 stray `print()` calls in shipping modules** — `sf_cdb` 9, `anim_skyrim` 9,
+- [x] **CH-5.3** — **43 stray `print()` calls in shipping modules** — `sf_cdb` 9, `anim_skyrim` 9,
       `cloth_autounpack` 7, `bgsmaterial` 7, `bhk_autounpack` 3, and 8 more. The rule is
       `log.debug`, not `print`. Excludes `io_scene_nifly/scripts/`, which is standalone tooling.
+
+### Phase 5 results (2026-08-21)
+
+`ruff check .` **passes at zero**, and the guards were verified by injecting a duplicate
+class, a mutable default and a bad escape into a file -- all three caught.
+
+**CH-5.1 -- `ruff.toml`.** Ruff is a local tool (`pip install ruff`; the VS Code extension is
+where it earns its keep). The rule set is chosen so the tree is at **zero**, because zero is
+what turns a new finding into a signal; a standing backlog is a dashboard nobody reads.
+
+Selected: `F`, `E4`, `E7`, `E9`, `W6`, `B006`, `B023`. Getting there needed real fixes:
+
+- **`F811` found three classes defined twice in `pynifly.py`** -- `BSEffectShaderProperty`,
+  `BSShaderPPLightingProperty` (both 2-line stubs shadowed by real definitions later) and
+  `BSEffectShaderPropertyFloatController`, whose first copy carried the **wrong**
+  `buffer_type`. Both copies stay alive in `NiObject.__subclasses__()`, so
+  `register_subclasses()` registered both and the later one won:
+  `buffer_types[BSEffectShaderPropertyBufType]` held a `NiFloatInterpController`. Anything
+  constructing an effect-shader block *by buffer type* got the wrong class. Deleted the dead
+  definitions; `TEST_NO_DUPLICATE_BLOCK_CLASSES` fails before and passes after.
+- `F541` -- 444 f-strings with no placeholders, auto-fixed.
+- `E713`/`E714`/`E401`/`E703` -- 31 auto-fixed.
+
+Explicitly ignored, each annotated in the file with its count and reason, as **debt rather
+than policy**: `F401` (153), `F841` (170), `E722` (53), `E721` (29), `E711` (20), plus the
+`F403`/`F405` that the `tests/blender` star-import design requires and the `E701`/`E702`
+that are Bad Dog's house style.
+
+Two rule families were measured and rejected on evidence rather than taste: **bugbear's
+`B006` and `B023` were the only ones worth keeping** -- of the other 203 bugbear findings,
+the bug-shaped ones were false positives on this code. `SIM`/`UP`/`PL`/`C4` add ~4,700
+findings and nothing of value here.
+
+**CH-5.3 -- the "43 stray `print()`" figure was wrong.** Classifying each call by what
+encloses it: 28 sit under `if _DEBUG:` or inside `__main__`/CLI blocks, and of the 15 left,
+13 are in self-test harnesses (`TEST_READ_BGSM`, `execute_test`, `TEST_CAM`), a CLI entry
+point (`sf_cdb._cli`) or a print-by-design helper (`_print_with_parent`). **Exactly one was
+on a runtime path**: `connectpoint.connection_name_root` printed
+`"WARNING: connection name malformed"` instead of logging it -- so it bypassed the log
+handler entirely and could never fail a test. Now `log.warning`.
+
+**CH-5.2 -- the GitHub action is deliberately not done.** The suite needs Blender so CI
+cannot run it, and for a solo developer with no PR flow a push-triggered lint adds little
+over the editor extension. Left open rather than closed, in case that changes.
 
 ---
 

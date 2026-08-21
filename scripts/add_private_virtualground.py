@@ -16,7 +16,7 @@ for filename in files:
     
     # Check if already has <shared>private</shared>
     if '<shared>private</shared>' in content:
-        print(f"  Already has private shared, skipping")
+        print("  Already has private shared, skipping")
         continue
     
     # Find VirtualGround and add <shared>private</shared> after <tag>ground</tag>
@@ -32,8 +32,8 @@ for filename in files:
     if new_content != content:
         with open(filepath, 'w', encoding='utf-8') as f:
             f.write(new_content)
-        print(f"  Added <shared>private</shared> to VirtualGround")
+        print("  Added <shared>private</shared> to VirtualGround")
     else:
-        print(f"  No changes made")
+        print("  No changes made")
 
 print("\n=== All tail configs processed ===")

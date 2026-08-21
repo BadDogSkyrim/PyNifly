@@ -10,7 +10,7 @@ print(f"Shapes before: {[s.name for s in nif.shapes]}")
 
 # Remove VirtualGround shape
 shapes_to_keep = [s for s in nif.shapes if s.name != "VirtualGround"]
-print(f"\nRemoving VirtualGround shape...")
+print("\nRemoving VirtualGround shape...")
 print(f"Shapes to keep: {[s.name for s in shapes_to_keep]}")
 
 # Create backup

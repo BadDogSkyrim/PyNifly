@@ -17,7 +17,7 @@ def TEST_BODYPART_SKY():
     
     # Importer creates an armature for the skinned shape.
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    assert arma, f"Found armature"
+    assert arma, "Found armature"
 
     # Root node imported and parents other objects. We do not parent the head to the 
     # armature--it's not a parent/child relationship in the nif so this seems to reflect
@@ -67,21 +67,21 @@ def TEST_BODYPART_XFORM():
     
     # Importer creates an armature for the skinned shape.
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    assert arma, f"Found armature"
+    assert arma, "Found armature"
 
     # Root node imported and parents other objects. 
     root_object = next(n for n in bpy.data.objects if 'pynRoot' in n)
-    assert body.parent == root_object, f"Body parented to root."
-    assert root_object.scale == Vector((0.1,0.1,0.1,)), f"Root applies a 1/10 scale."
+    assert body.parent == root_object, "Body parented to root."
+    assert root_object.scale == Vector((0.1,0.1,0.1,)), "Root applies a 1/10 scale."
 
     # The new bones from the reference skeleton have the same transform and scale as the
     # ones that came from the nif.
     bonez_max = max(b.head.z for b in arma.data.bones)
     vertz_max = max((body.matrix_local @ v.co).z for v in body.data.vertices)
-    assert bonez_max < vertz_max, f"Armature entirely within body."
+    assert bonez_max < vertz_max, "Armature entirely within body."
 
     spine1 = arma.data.bones['NPC Spine1']
-    assert "CME Spine" == spine1.parent.name, f"Spine1 has correct parent."
+    assert "CME Spine" == spine1.parent.name, "Spine1 has correct parent."
 
 
 @TT.category('SKYRIM', 'BODYPART', 'XFORM')    
@@ -438,7 +438,7 @@ def TEST_IMP_EXP_SKY_2():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     assert len([x for x in bpy.data.objects if x.type=='ARMATURE']) == 1, \
-        f"Both shapes brought in under one armor"
+        "Both shapes brought in under one armor"
     body = TTB.find_shape('MaleUnderwearBody:0')
     armor = TTB.find_shape('MaleUnderwear_1')
     assert NT.VNearEqual(armor.location, (-0.0003, -1.5475, 120.3436)), \
@@ -456,7 +456,7 @@ def TEST_IMP_EXP_SKY_2():
     TTB.check_unweighted_verts(nifout.shape_dict['MaleUnderwear_1'])
     assert NT.NearEqual(body.location.z, 120.343582, 0.01), f"{body.name} in lifted position: {body.location.z}"
     assert NT.NearEqual(armor.location.z, 120.343582, 0.01), f"{armor.name} in lifted position: {armor.location.z}"
-    assert "NPC R Hand [RHnd]" not in bpy.data.objects, f"Did not create extra nodes representing the bones"
+    assert "NPC R Hand [RHnd]" not in bpy.data.objects, "Did not create extra nodes representing the bones"
 
 
 @TT.category('FO4', 'BODYPART')
@@ -501,9 +501,9 @@ def TEST_IMP_EXP_FO4_2():
     body = TTB.find_shape('BaseMaleBody_03:0')
     armor = TTB.find_shape('Pack_UnderArmor_03_M:0')
     arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
-    TT.assert_gt(body.location.z, 120, f"Body transform")
-    TT.assert_gt(armor.location.z, 120, f"Armor transform")
-    TT.assert_gt(arma.data.bones['Neck'].matrix_local.translation.z, 100, f"Neck position")
+    TT.assert_gt(body.location.z, 120, "Body transform")
+    TT.assert_gt(armor.location.z, 120, "Armor transform")
+    TT.assert_gt(arma.data.bones['Neck'].matrix_local.translation.z, 100, "Neck position")
     assert armor.active_material, "Armor has material"
 
     bpy.ops.object.select_all(action='DESELECT')
@@ -613,7 +613,7 @@ def TEST_BPY_PARENT_A(game, blendxf, pretty):
     arma = next(x for x in bpy.data.objects
                 if x.type == 'ARMATURE' and 'NPC Hand.R' in x.data.bones)
     assert arma, "Found armature with hand bone"
-    assert TT.is_eq(arma.data.bones['NPC Hand.R'].parent.name, 'CME Forearm.R'), f"hand parent"
+    assert TT.is_eq(arma.data.bones['NPC Hand.R'].parent.name, 'CME Forearm.R'), "hand parent"
 
     # Both shapes should share one armature and have similar bounding boxes
     armatures = [x for x in bpy.data.objects if x.type == 'ARMATURE']
@@ -724,12 +724,12 @@ def TEST_DRAUGR_IMPORT_A():
 
     bonemaxz = max(b.head.z for b in arma.data.bones)
     hoodmaxz = max(v.co.z for v in hood.data.vertices)
-    assert hoodmaxz > bonemaxz, f"Hood covers skeleton"
+    assert hoodmaxz > bonemaxz, "Hood covers skeleton"
 
     # Pose position reflects the draugr skeleton, but bind position is the human position. 
     bone1 = arma.data.bones['NPC Head']
     pose1 = arma.pose.bones['NPC Head']
-    assert pose1.head.z > bone1.head.z+10, f"Pose well above bind positions"
+    assert pose1.head.z > bone1.head.z+10, "Pose well above bind positions"
     
 
 @TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
@@ -967,12 +967,12 @@ def TEST_IMP_EXP_SCALE_2():
     bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=True)
 
     armatures = [x for x in bpy.data.objects if x.type=='ARMATURE']
-    assert len(armatures) == 1, f"Have just one armature"
+    assert len(armatures) == 1, "Have just one armature"
     body = TTB.find_shape('MaleUnderwearBody:0')
     armor = TTB.find_shape('MaleUnderwear_1')
     body_arma = next(a.object for a in body.modifiers if a.type == 'ARMATURE')
     armor_arma = next(a.object for a in armor.modifiers if a.type == 'ARMATURE')
-    assert body_arma == armor_arma, f"Both shapes brought in under one armature"
+    assert body_arma == armor_arma, "Both shapes brought in under one armature"
 
     # We imported scaled down and rotated 180.
     assert NT.VNearEqual((armor_arma.matrix_world @ armor.location), (-0.0, 0.15475, 12.03436)), \
@@ -994,8 +994,8 @@ def TEST_ARMATURE_EXTEND():
     assert arma.type == 'ARMATURE', f"Selected oject is child of armature: {arma.name}"
     bpy.context.view_layer.objects.active = arma
     assert "SPINE1" in arma.data.bones, "Found neck bone in skeleton"
-    assert not "HEAD" in arma.data.bones, "Did not find head bone in skeleton"
-    assert "Leg_Calf.L" in arma.data.bones, f"Loaded bones not used by shape"
+    assert "HEAD" not in arma.data.bones, "Did not find head bone in skeleton"
+    assert "Leg_Calf.L" in arma.data.bones, "Loaded bones not used by shape"
     assert arma.data.bones['SPINE2'].matrix_local.translation.z > 0, \
         f"Armature in basic position: {arma.data.bones['SPINE2'].matrix_local.translation}"
 
@@ -1006,7 +1006,7 @@ def TEST_ARMATURE_EXTEND():
     bpy.ops.import_scene.pynifly(filepath=testfile2)
     new_arma = next(a.object for a in bpy.context.object.modifiers if a.type == 'ARMATURE')
     assert new_arma == arma, f"Have same armature parent: {bpy.context.object.parent.name}"
-    assert len([o for o in bpy.data.objects if o.type == 'ARMATURE']) == 1, f"Have only one armature"
+    assert len([o for o in bpy.data.objects if o.type == 'ARMATURE']) == 1, "Have only one armature"
     assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
 
     head = TTB.find_shape("BaseMaleHead:0")
@@ -1015,10 +1015,10 @@ def TEST_ARMATURE_EXTEND():
     v_head = TTB.find_vertex(head.data, target_v)
     v_body = TTB.find_vertex(body.data, target_v)
     assert NT.VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
-        f"Head and body verts align"
+        "Head and body verts align"
     
     # For FO4, we give a generous fudge factor.
-    assert TTB.MatNearEqual(head.matrix_world, body.matrix_world, epsilon=0.1), f"Shape transforms match"
+    assert TTB.MatNearEqual(head.matrix_world, body.matrix_world, epsilon=0.1), "Shape transforms match"
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
@@ -1040,18 +1040,18 @@ def TEST_ARMATURE_EXTEND_BT():
     bpy.ops.import_scene.pynifly(filepath=testfile)
     
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    assert arma.type == 'ARMATURE', f"Found armature"
+    assert arma.type == 'ARMATURE', "Found armature"
     bpy.context.view_layer.objects.active = arma
     assert "SPINE1" in arma.data.bones, "Found neck bone in skeleton"
-    assert not "HEAD" in arma.data.bones, "Did not find head bone in skeleton"
-    assert "Leg_Calf.L" in arma.data.bones, f"Loaded bones not used by shape"
+    assert "HEAD" not in arma.data.bones, "Did not find head bone in skeleton"
+    assert "Leg_Calf.L" in arma.data.bones, "Loaded bones not used by shape"
     assert arma.data.bones['SPINE2'].matrix_local.translation.z > 0, \
         f"Armature in basic position: {arma.data.bones['SPINE2'].matrix_local.translation}"
 
     BD.ObjectSelect([arma], active=True)
     bpy.ops.import_scene.pynifly(filepath=testfile2)
     
-    assert len([o for o in bpy.data.objects if o.type=='ARMATURE']) == 1, f"Have just one armature"
+    assert len([o for o in bpy.data.objects if o.type=='ARMATURE']) == 1, "Have just one armature"
     assert "HEAD" in arma.data.bones, "Found head bone in skeleton"
 
     head = TTB.find_shape("BaseMaleHead:0")
@@ -1060,7 +1060,7 @@ def TEST_ARMATURE_EXTEND_BT():
     v_head = TTB.find_vertex(head.data, target_v)
     v_body = TTB.find_vertex(body.data, target_v)
     assert NT.VNearEqual(head.data.vertices[v_head].co, body.data.vertices[v_body].co), \
-        f"Head and body verts align"
+        "Head and body verts align"
     # Shape transforms are different between vanilla head and BT body.
     #assert TTB.MatNearEqual(head.matrix_world, body.matrix_world), f"Shape transforms match"
 
@@ -1248,7 +1248,7 @@ def TEST_WEIGHTS_EXPORT():
     for bn, vertlist in headcheck.bone_weights.items():
         for vi, wgt in vertlist:
             vert_weights[vi] = 1
-    assert min(vert_weights) == 1, f"Have a weight for every vertex"
+    assert min(vert_weights) == 1, "Have a weight for every vertex"
 
 
 @TT.category('FO4', 'BODYPART', 'ARMATURE')
@@ -1258,7 +1258,7 @@ def TEST_0_WEIGHTS():
     testfile = TTB.test_file(r"tests\Out\weight0.nif")
 
     baby = TTB.append_from_file("TestBabyhead", True, r"tests\FO4\Test0Weights.blend", r"\Collection", "BabyCollection")
-    baby.parent.name == "BabyExportRoot", f"Error: Should have baby and armature"
+    baby.parent.name == "BabyExportRoot", "Error: Should have baby and armature"
     log.debug(f"Found object {baby.name}")
     try:
         bpy.ops.export_scene.pynifly(filepath=testfile, target_game="FO4")
@@ -1284,7 +1284,7 @@ def TEST_TIGER_EXPORT():
                                  intuit_defaults=False)
 
     nif1 = pyn.NifFile(f)
-    assert len(nif1.shapes) == 1, f"Expected tiger nif"
+    assert len(nif1.shapes) == 1, "Expected tiger nif"
     assert os.path.exists(fb), "Facebones file created"
     assert os.path.exists(ftri), "Tri file created"
     assert os.path.exists(fchargen), "Chargen file created"
@@ -1499,17 +1499,17 @@ def TEST_IMPORT_MULTI_OBJECTS():
     bpy.ops.import_scene.pynifly(files=testfiles)
 
     meshes = [obj for obj in bpy.data.objects if obj.type == 'MESH']
-    TT.assert_eq(len(meshes), 3, f"mesh count")
+    TT.assert_eq(len(meshes), 3, "mesh count")
     armatures = [obj for obj in bpy.data.objects if obj.type == 'ARMATURE']
-    TT.assert_eq(len(armatures), 1, f"armature count")
+    TT.assert_eq(len(armatures), 1, "armature count")
     roots = [obj for obj in bpy.data.objects if 'pynRoot' in obj]
-    TT.assert_eq(len(roots), 2, f"root count")
+    TT.assert_eq(len(roots), 2, "root count")
     for r in roots:
         assert r.parent == None, f"Roots do not have parents: {r}"
     bodyroot = next(obj for obj in roots if obj.name.startswith("Body"))
     invm = [obj for obj in bodyroot.children if 'InvMarker' in obj.name]
-    TT.assert_eq(len(invm), 1, f"inventory marker")
-    TT.assert_eq(invm[0].type, 'CAMERA', f"Inventory marker type")
+    TT.assert_eq(len(invm), 1, "inventory marker")
+    TT.assert_eq(invm[0].type, 'CAMERA', "Inventory marker type")
 
 
 @TT.category('FO4', 'ARMATURE')
@@ -1577,11 +1577,11 @@ def TEST_WELWA():
     welwa = TTB.find_shape("111")
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     lipbone = skel.data.bones['NPC UpperLip']
-    assert TT.is_equiv(lipbone.matrix_local.translation, (0, 49.717827, 161.427307), f"Upperlib translation")
+    assert TT.is_equiv(lipbone.matrix_local.translation, (0, 49.717827, 161.427307), "Upperlib translation")
     spine1 = skel.data.bones['NPC Spine1']
-    assert TT.is_equiv(spine1.matrix_local.translation, (0, -50.551056, 64.465019), f"Spine1 translation")
-    assert TT.is_contains("NPC Pelvis", skel.data.bones.keys(), f"Welwa pelvis")
-    assert TT.is_notcontains("NPC Pelvis [Pelv]", skel.data.bones.keys(), f"Pelvis renamed")
+    assert TT.is_equiv(spine1.matrix_local.translation, (0, -50.551056, 64.465019), "Spine1 translation")
+    assert TT.is_contains("NPC Pelvis", skel.data.bones.keys(), "Welwa pelvis")
+    assert TT.is_notcontains("NPC Pelvis [Pelv]", skel.data.bones.keys(), "Pelvis renamed")
 
     # Should remember that bones are not to be renamed.
     BD.ObjectSelect([welwa])
@@ -1590,8 +1590,8 @@ def TEST_WELWA():
     # ------- Check ---------
     nifcheck = pyn.NifFile(outfile)
 
-    assert TT.is_contains("NPC Pelvis", nifcheck.nodes, f"Welwa pelvis name in nif")
-    assert TT.is_notcontains("NPC Pelvis [Pelv]", nifcheck.nodes, f"Human pelvis name in nif")
+    assert TT.is_contains("NPC Pelvis", nifcheck.nodes, "Welwa pelvis name in nif")
+    assert TT.is_notcontains("NPC Pelvis [Pelv]", nifcheck.nodes, "Human pelvis name in nif")
 
 
 @TT.category('SKYRIMSE', 'ARMATURE')
@@ -1635,7 +1635,7 @@ def TEST_BONE_HIERARCHY():
     assert NT.VNearEqual(spine1Rot, (0.1509, 0, 0)), f"spine1 rotation correct: {spine1Rot}"
 
     spine2 = nifcheck.nodes["NPC Spine2 [Spn2]"]
-    assert spine2.parent.name == "NPC Spine1 [Spn1]", f"Spine2 parent is correct"
+    assert spine2.parent.name == "NPC Spine1 [Spn1]", "Spine2 parent is correct"
     assert NT.VNearEqual(spine2.transform.translation, (0, -0.017105, 9.864068), 0.01), f"Spine2 location is correct: \n{spine2.transform}"
 
     ### Currently the original has different bind and pose positions. We export with bind and pose the same. 
@@ -1645,7 +1645,7 @@ def TEST_BONE_HIERARCHY():
     # assert NT.VNearEqual(headRot, (0.1913, 0.0009, -0.0002), 0.01), f"head rotation correct: {headRot}"
 
     l3 = nifcheck.nodes["Anna L3"]
-    assert l3.parent, f"'Anna L3' parent exists"
+    assert l3.parent, "'Anna L3' parent exists"
     assert l3.parent.name == 'Anna L2', f"'Anna L3' parent is '{l3.parent.name}'"
     assert NT.VNearEqual(l3.transform.translation, (0, 5, -6), 0.1), f"{l3.name} location correct: \n{l3.transform}"
 
@@ -1731,7 +1731,7 @@ def TEST_NIFTOOLS_NAMES():
 
     if have_niftools:
         assert False, "Only one armature imported--scale factor didn't result in 2"
-        assert "skeleton.nif" not in arma.data.bones, f"Root node not imported as bone"
+        assert "skeleton.nif" not in arma.data.bones, "Root node not imported as bone"
         assert "NPC Calf [Clf].L" in arma.data.bones, f"Bones follow niftools name conventions {arma.data.bones.keys()}"
         #assert arma.data.niftools.axis_forward == "Z", f"Forward axis set to Z"
         assert 'NPC L Thigh [LThg]' not in arma.data.bones, f"No vanilla bone names: {arma.data.bones['NPC L Thigh [LThg]']}"
@@ -1782,8 +1782,8 @@ def TEST_FACEBONES():
     # ------- Load --------
     testfile = TTB.test_file(r"tests\FO4\BaseFemaleHead_faceBones.nif")
     goodfile = TTB.test_file(r"tests\FO4\BaseFemaleHead.nif")
-    outfile = TTB.test_file(f"tests/Out/TEST_FACEBONES.nif", output=1)
-    resfile = TTB.test_file(f"tests/Out/TEST_FACEBONES_facebones.nif", output=1)
+    outfile = TTB.test_file("tests/Out/TEST_FACEBONES.nif", output=1)
+    resfile = TTB.test_file("tests/Out/TEST_FACEBONES_facebones.nif", output=1)
 
     # Facebones files have NiTransformController nodes for reasons I don't understand. We
     # don't want to muck with those.
@@ -1801,13 +1801,13 @@ def TEST_FACEBONES():
     # Not sure what behavior is best. Node is in the nif, not used in the shape. Since we
     # are extending the armature, we import the bone as part of the armature.
     assert len([obj for obj in bpy.data.objects if "pynRoot" in obj]) == 1, \
-        f"Have the root Node"
+        "Have the root Node"
     assert "skin_bone_C_MasterEyebrow" not in bpy.data.objects, \
-        f"No separate empty node for skin_bone_C_MasterEyebrow"
+        "No separate empty node for skin_bone_C_MasterEyebrow"
     assert "skin_bone_C_MasterEyebrow" in head_arma.data.bones, \
-        f"Bone is loaded for parented bone skin_bone_C_MasterEyebrow"
+        "Bone is loaded for parented bone skin_bone_C_MasterEyebrow"
     assert head_arma.data.bones['skin_bone_C_MasterEyebrow'].matrix_local.translation.z < 150, \
-        f"Eyebrow in reasonable location"
+        "Eyebrow in reasonable location"
     sbme_pose = head_arma.pose.bones["skin_bone_C_MasterEyebrow"]
     assert sbme_pose.matrix.translation.x < 1e+30 and sbme_pose.matrix.translation.x > -1e+30, \
         f"Pose location not stupid: {sbme_pose.matrix.translation}"
@@ -1854,10 +1854,10 @@ def TEST_FACEBONES_RENAME():
 
     obj = bpy.context.object
     arma = next(m.object for m in obj.modifiers if m.type == 'ARMATURE')
-    assert 'skin_bone_Dimple.R' in obj.vertex_groups.keys(), f"Expected munged vertex groups"
-    assert 'skin_bone_Dimple.R' in arma.data.bones.keys(), f"Expected munged bone names"
-    assert 'skin_bone_R_Dimple' not in obj.vertex_groups.keys(), f"Expected munged vertex groups"
-    assert 'skin_bone_R_Dimple' not in arma.data.bones.keys(), f"Expected munged bone names"
+    assert 'skin_bone_Dimple.R' in obj.vertex_groups.keys(), "Expected munged vertex groups"
+    assert 'skin_bone_Dimple.R' in arma.data.bones.keys(), "Expected munged bone names"
+    assert 'skin_bone_R_Dimple' not in obj.vertex_groups.keys(), "Expected munged vertex groups"
+    assert 'skin_bone_R_Dimple' not in arma.data.bones.keys(), "Expected munged bone names"
 
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
@@ -1897,7 +1897,7 @@ def TEST_JIARAN():
     TTB.export_from_blend(r"tests\SKYRIMSE\jiaran.blend", "hair.001", 'SKYRIMSE', outfile)
 
     nif1 = pyn.NifFile(outfile)
-    assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
+    assert len(nif1.shapes) == 1, "Expected Jiaran nif"
 
 
 @TT.category('FO4', 'BODYPART')

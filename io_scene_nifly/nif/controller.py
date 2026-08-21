@@ -938,7 +938,7 @@ class ControllerHandler():
         out_list = []
         for x, y, z in zip(kx, ky, kz):
             if not all_NearEqual([x.time, y.time, z.time]):
-                raise Exception(f"Time values do not match")
+                raise Exception("Time values do not match")
             
             if isinstance(x, QuadScalarKey):
                 k = NiAnimKeyQuadTransBuf()
@@ -1679,7 +1679,7 @@ def _import_blendfloat_interpolator(fi:NiBlendFloatInterpolator,
                                importer:ControllerHandler, 
                                interp:NiInterpController):
     if fi.properties.flags != InterpBlendFlags.MANAGER_CONTROLLED:
-        importer.warn(f"NYI: BlendFloatInterpolator that is not MANAGER_CONTROLLED")
+        importer.warn("NYI: BlendFloatInterpolator that is not MANAGER_CONTROLLED")
     
 NiBlendFloatInterpolator.import_node = _import_blendfloat_interpolator
 
@@ -1769,7 +1769,7 @@ def _import_alphatest_controller(ctlr:BSNiAlphaPropertyTestRefController,
                                  importer:ControllerHandler,
                                  interp:NiInterpController=None):
     importer.action_group = "Shader"
-    importer.path_name = f'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value'
+    importer.path_name = 'nodes["AlphaProperty"].inputs["Alpha Threshold"].default_value'
     if not interp:
         interp = ctlr.interpolator
     if _ignore_interp(interp):
@@ -1847,9 +1847,9 @@ def _import_ESPColor_controller(ctlr:BSEffectShaderPropertyColorController,
 
     importer.action_group = "Shader"
     if "Fallout 4 MTS - Greyscale To Palette Vector" in importer.action_target.nodes:
-        importer.path_name = f'nodes["Fallout 4 MTS - Greyscale To Palette Vector"].inputs["Palette"].default_value'
+        importer.path_name = 'nodes["Fallout 4 MTS - Greyscale To Palette Vector"].inputs["Palette"].default_value'
     else:
-        importer.path_name = f'nodes["Fallout 4 Effect"].inputs["Emission Color"].default_value'
+        importer.path_name = 'nodes["Fallout 4 Effect"].inputs["Emission Color"].default_value'
 
     if not interp:
         interp = ctlr.interpolator
@@ -2113,7 +2113,7 @@ def _parse_transform_curves(exporter:ControllerHandler, curve_list):
         targetname = t1
     
     if len(loc) != 3 and len(eu) != 3 and len(quat) != 4:
-        log.info(f"No useable transforms in fcurves for "
+        log.info("No useable transforms in fcurves for "
             + f"{c.data_path[0:-6] if c.data_path.endswith('.scale') else c.data_path}")
     
     if loc: 
@@ -2166,12 +2166,12 @@ def _export_quaterion_curves(exporter, td, quat, rot_type, targ_q,
         # nifs don't support it, so don't allow it.
         if not all_equal([len(quat[0].keyframe_points), len(quat[1].keyframe_points),
                           len(quat[2].keyframe_points), len(quat[3].keyframe_points)]):
-            raise Exception(f"Different number of quaternion keyframes")
+            raise Exception("Different number of quaternion keyframes")
 
         for k1, k2, k3, k4 in zip(quat[0].keyframe_points, quat[1].keyframe_points,
                                 quat[2].keyframe_points, quat[3].keyframe_points):
             if not all_NearEqual([k1.co[0], k2.co[0], k3.co[0], k4.co[0]]):
-                raise Exception (f"Quaternion keyframes not at matching times")
+                raise Exception ("Quaternion keyframes not at matching times")
 
             tdq = Quaternion([k1.co[1], k2.co[1], k3.co[1], k4.co[1]])
             if R_q:
@@ -2388,7 +2388,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
     export_R_q_inv = None
     export_R_3x3 = None
     if targetobj.type == 'ARMATURE':
-        if not targetname in targetobj.data.bones:
+        if targetname not in targetobj.data.bones:
             log.warning(f"Target of fcurve not found in armature: {curve_list[0].data_path}")
             curve_list.pop(0)
             targ_xf = None
@@ -2436,7 +2436,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
 
     if scale:
         if not exporter.given_scale_warning:
-            log.info(f"Ignoring scale transforms--not used in Skyrim")
+            log.info("Ignoring scale transforms--not used in Skyrim")
             exporter.given_scale_warning = True
 
     if quat or eu or loc:
@@ -2492,7 +2492,7 @@ def _export_color_curves(exporter, curve_list, target_obj=None):
     keyframes = [(None, None, None, )]
     for k1, k2, k3 in zip(fcv[0].keyframe_points, fcv[1].keyframe_points, fcv[2].keyframe_points):
         if k1.co[0] != k2.co[0] or k1.co[0] != k3.co[0]:
-            raise Exception(f"Cannot handle color fcurves with mismatched keyframes")
+            raise Exception("Cannot handle color fcurves with mismatched keyframes")
         keyframes.append((k1, k2, k3,))
     keyframes.append((None, None, None, ))
 

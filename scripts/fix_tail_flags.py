@@ -19,7 +19,7 @@ for nif_path in nif_paths:
     # Load and modify
     nif = pynifly.NifFile(nif_path)
     
-    print(f"\n  Before:")
+    print("\n  Before:")
     for s in nif.shapes:
         print(f"    {s.name:20} flags: {s.flags}")
     
@@ -32,12 +32,12 @@ for nif_path in nif_paths:
         else:
             s.flags = 524302
     
-    print(f"\n  After:")
+    print("\n  After:")
     for s in nif.shapes:
         print(f"    {s.name:20} flags: {s.flags}")
     
     # Save
     nif.save()
-    print(f"  Saved!\n")
+    print("  Saved!\n")
 
 print("Done! Collision shapes set to 14, visible shapes set to 524302")

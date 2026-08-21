@@ -437,7 +437,7 @@ class TestModule:
         the_test = TestModule.__dict__[t]
         print(the_test.__doc__)
         the_test()
-        print(f"------------- done")
+        print("------------- done")
 
     def run(self, start=None, test=None):
         print("""\n
@@ -472,8 +472,8 @@ class TestModule:
         assert m.textures['Diffuse'] == r"Actors/Character/BaseHumanMale/BaseMaleHead_d.dds", \
             f"Have correct diffuse texture: {m.textures['Diffuse']}"
         assert m.specularColor[:] == [1.0, 0.0, 0.0], f"Have correct specular color: {m.specularColor[:]}"
-        assert m.emitEnabled, f"Emittance enabled"
-        assert m.castShadows, f"castShadows correct"
+        assert m.emitEnabled, "Emittance enabled"
+        assert m.castShadows, "castShadows correct"
         assert m.grayscaleToPaletteScale == 1.5, f"grayscaleToPaletteScale is correct: {m.grayscaleToPaletteScale}"
 
         mdict = {}
@@ -490,8 +490,8 @@ class TestModule:
         assert m.environmentMappingMaskScale == 1.5, "environmentMappingMaskScale is correct: {m.environmentMappingMaskScale}"
         assert m.bloodEnabled, "bloodEnabled is enabled."
         assert m.falloffEnabled, "Falloff is enabled."
-        assert m.lightingInfluence == 0.75, f"have correct lightingInfluence"
-        assert m.envmapMinLOD == 4, f"have correct envmapMinLOD"
+        assert m.lightingInfluence == 0.75, "have correct lightingInfluence"
+        assert m.envmapMinLOD == 4, "have correct envmapMinLOD"
 
         mdict = {}
         m.extract(mdict)

@@ -27,7 +27,7 @@ if str(root_path) not in sys.path:
 
 from pyn.pynifly import NifFile
 from pyn.nifdefs import (
-    NODEID_NONE, CycleType, EffectShaderControlledVariable, LightingShaderControlledVariable, 
+    NODEID_NONE, EffectShaderControlledVariable, LightingShaderControlledVariable, 
     NiKeyType, CycleType, ShaderFlags1, ShaderFlags2, BSLSPShaderType,)
 from pyn.nifconstants import VertexFlags
 
@@ -66,11 +66,11 @@ def Check_malehead(nif:NifFile):
     Check the Skyrim male head.
     Checks transforms, block types, shader properties, textures.
     """
-    TT.assert_eq(nif.shapes[0].parent.name, nif.rootName, f"Head parent")
+    TT.assert_eq(nif.shapes[0].parent.name, nif.rootName, "Head parent")
     if nif.game == 'SKYRIMSE':
-        TT.assert_eq(nif.shapes[0].blockname, "BSDynamicTriShape", f"Head shape blockname")
+        TT.assert_eq(nif.shapes[0].blockname, "BSDynamicTriShape", "Head shape blockname")
     else:
-        TT.assert_eq(nif.shapes[0].blockname, "NiTriShape", f"Head shape blockname")
+        TT.assert_eq(nif.shapes[0].blockname, "NiTriShape", "Head shape blockname")
 
     # Transforms
     TT.assert_equiv(nif.shapes[0].transform.translation[2], 120.3, "z translation", e=0.1)
@@ -80,12 +80,12 @@ def Check_malehead(nif:NifFile):
     # in space. Since this nif doesn't contain bone relationships, that's just
     # the transform on the bone.
     mat = nif.get_node_xform_to_global("NPC Spine2 [Spn2]")
-    TT.assert_equiv(mat.translation[2], 91.2488, f"xform to global for spine2")
+    TT.assert_equiv(mat.translation[2], 91.2488, "xform to global for spine2")
 
     # If the bone isn't in the nif, the node-to-global is retrieved from
     # the reference skeleton.
     mat2 = nif.get_node_xform_to_global("NPC L Forearm [LLar]")
-    TT.assert_equiv(mat2.translation[2], 85.7311, f"NPC L Forearm from ref skeleton")
+    TT.assert_equiv(mat2.translation[2], 85.7311, "NPC L Forearm from ref skeleton")
 
     # Partitions
     TT.assert_eq(len(nif.shapes[0].partitions), 3, "partition count")
@@ -95,7 +95,7 @@ def Check_malehead(nif:NifFile):
     # Partition tri list matches tris 1:1, so has same as number of tris. Refers 
     # to the partitions by index into the partitioin list.
     TT.assert_eq(len(nif.shapes[0].partition_tris), 1694, "tri count")
-    TT.assert_lt(max(nif.shapes[0].partition_tris), len(nif.shapes[0].partitions), f"max tri index")
+    TT.assert_lt(max(nif.shapes[0].partition_tris), len(nif.shapes[0].partitions), "max tri index")
 
     # Shader properties accessible
     TT.assert_eq(nif.shapes[0].shader_block_name, "BSLightingShaderProperty", "shader block name")
@@ -243,7 +243,7 @@ def Check_fo4MaleBody(nif:NifFile):
             allnames.append(s.name)
 
     for i, n in enumerate(allsegments):
-        assert i == n, f"Indicies are continuous"
+        assert i == n, "Indicies are continuous"
 
     # Segments and subsegments are associated with triangles. There should be a
     # (sub)segment common to all verts of every triangle.

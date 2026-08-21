@@ -261,11 +261,11 @@ def CheckBow(nif, nifcheck, bow):
 
     bodycheck = collcheck.body
     p = bodycheck.properties
-    assert p.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, f"Have correct collision layer"
+    assert p.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, "Have correct collision layer"
     assert NT.VNearEqual(p.translation[0:3], [0.0931, -0.0709, 0.0006]), f"Collision body translation is correct: {p.translation[0:3]}"
 
     boxcheck = bodycheck.shape
-    assert boxcheck.blockname == 'bhkBoxShape', f"Box shape block correct"
+    assert boxcheck.blockname == 'bhkBoxShape', "Box shape block correct"
 
     # Rotation and dimensions are related. Could check the bounds, which is a lot of math.
     # Instead check the values, but make sure the values give a good collision.
@@ -277,10 +277,10 @@ def CheckBow(nif, nifcheck, bow):
     assert dimv.x > dimv.y > dimv.z, f"Have good collision bounds: {dimv}"
 
     bsxcheck = nifcheck.rootNode.get_extra_data(blockname='BSXFlags', name='BSX')
-    assert TT.is_eq(bsxcheck.flags, 202, f"BSX Flags")
+    assert TT.is_eq(bsxcheck.flags, 202, "BSX Flags")
 
     bsinvcheck = nifcheck.rootNode.get_extra_data(blockname='BSInvMarker', name='INV')
-    assert TT.is_eq(bsinvcheck.rotation, (4712, 0, 785), f"Inventory marker rotation")
+    assert TT.is_eq(bsinvcheck.rotation, (4712, 0, 785), "Inventory marker rotation")
     assert TT.is_equiv(bsinvcheck.zoom, 1.24038, "Inventory marker zoom")
 
 

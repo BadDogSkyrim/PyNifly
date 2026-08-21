@@ -168,7 +168,7 @@ class FO4Segment(Partition):
         if self._name:
             return self._name
         else:
-            return f"FO4 Seg " + '{:0>3d}'.format(self.index)
+            return "FO4 Seg " + '{:0>3d}'.format(self.index)
 
     @classmethod
     def name_match(cls, name):
@@ -2416,25 +2416,6 @@ class NiVisController(NiSingleInterpController):
             values=values, buftype=PynBufferTypes.NiVisControllerBufType)
 
 
-class BSEffectShaderPropertyFloatController(NiFloatInterpController):
-    buffer_type = PynBufferTypes.BSEffectShaderPropertyBufType
-
-    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None,
-                 target=None, interpolator=None):
-        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent,
-                 target=target, interpolator=interpolator)
-        if self.id == NODEID_NONE and file and properties: 
-            self.id = nifly.addBlock(
-                file._handle,
-                None,
-                byref(properties),
-                parent.id if parent else None
-            )
-            if parent: parent.controller = self
-
-    @classmethod
-    def getbuf(cls, values=None):
-        return BSEffectShaderPropertyFloatControllerBuf(values)
 
 
 class BSEffectShaderPropertyColorController(NiFloatInterpController):
@@ -3788,8 +3769,6 @@ class NiShader(NiProperty):
 class BSDistantTreeShaderProperty(NiShader):
     pass
 
-class BSEffectShaderProperty(NiShader):
-    pass
 
 class BSLightingShaderProperty(NiShader):
     pass
@@ -3800,8 +3779,6 @@ class BSShaderLightingProperty(NiShader):
 class BSShaderNoLightingProperty(NiShader):
     pass
 
-class BSShaderPPLightingProperty(NiShader):
-    pass
 
 class BSShaderProperty(NiShader):
     pass
@@ -4323,7 +4300,7 @@ class NiShape(NiNode):
 
     @shaderflags1.setter
     def shaderflags1(self, val):
-        nifly.setShaderFlags(self.file._handle, self._handle, val);
+        nifly.setShaderFlags(self.file._handle, self._handle, val)
 
     @property
     def textures(self):
@@ -4616,11 +4593,11 @@ class NiShape(NiNode):
                     seg_new = p.parent
                 elif type(p).__name__ == "FO4Segment":
                     seg_new = p
-                if not seg_new.name in pdict:
+                if seg_new.name not in pdict:
                     pdict[seg_new.name] = seg_new
                 # All prior segments must also be included
                 for i in range(0, seg_new.index):
-                    if not f"FO4 Seg {i:03d}" in pdict:
+                    if f"FO4 Seg {i:03d}" not in pdict:
                         maxid += 1
                         pdict[f"FO4 Seg {i:03d}"] = FO4Segment(part_id=maxid, index=i)
             parts = list(pdict.values())
@@ -4988,7 +4965,7 @@ class NifFile:
         self._handle = None
         self._game = None
         self._root = None
-        if not filepath is None:
+        if filepath is not None:
             self._handle = nifly.load(str(filepath).encode('utf-8'))
             if not self._handle:
                 raise Exception(f"Could not open '{filepath}' as nif")

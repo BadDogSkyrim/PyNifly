@@ -491,10 +491,10 @@ def TEST_SPRIGGAN():
     nifout = pyn.NifFile(outfile)
     bodout = nifout.shape_dict['SprigganFxTestUnified:0']
     assert bodout.shader.properties.shaderflags2_test(ShaderFlags2.GLOW_MAP), \
-        f"Glow map flag is set"
+        "Glow map flag is set"
     assert bodout.shader.textures['Glow'].lower().endswith('spriggan_g.dds')
     leavesout = nifout.shape_dict['SprigganBodyLeaves']
-    assert TT.is_eq(leavesout.shader.blockname, 'BSEffectShaderProperty', f"Leaf shader block type")
+    assert TT.is_eq(leavesout.shader.blockname, 'BSEffectShaderProperty', "Leaf shader block type")
 
     outcm:pyn.NiControllerManager = nifout.root.controller
     assert TT.is_equiv(outcm.properties.frequency, 1.0, "Controller Manager frequency")
@@ -511,7 +511,7 @@ def TEST_SPRIGGAN():
     bodyleavescb:pyn.ControllerLink = [b for b in lllseq.controlled_blocks 
                                        if b.node_name == 'SprigganBodyLeaves'][0]
     ctlr = bodyleavescb.controller
-    isinstance(ctlr, pyn.BSNiAlphaPropertyTestRefController), f"Have alpha controller"
+    isinstance(ctlr, pyn.BSNiAlphaPropertyTestRefController), "Have alpha controller"
     # glow = nif.shape_dict["L2_WindowGlow"]
     # glowcheck = nifcheck.shape_dict["L2_WindowGlow"]
 
@@ -587,7 +587,7 @@ def TEST_SHADER_EFFECT_GLOWINGONE():
                  "Grayscale texture")
     
     # Shader knows it has a controller.
-    assert glowcheck.shader.controller is not None, f"Shader has a controller"
+    assert glowcheck.shader.controller is not None, "Shader has a controller"
     
     # Check the alpha
     alphacheck = glowcheck.alpha_property
@@ -659,7 +659,7 @@ def TEST_ALPHA_THRESHOLD_CHANGE():
     TT.assert_equiv(alphanode.inputs['Alpha Threshold'].default_value, 6.0, "Alpha Threshold post-export")
 
     nifout = pyn.NifFile(outfile1)
-    assert nifout.shapes[0].alpha_property.controller is not None, f"Have alpha property controller"
+    assert nifout.shapes[0].alpha_property.controller is not None, "Have alpha property controller"
 
     # The alpha property can have only one controller, so all sequences must reference it.
     TT.assert_samemembers(nifout.root.controller.sequences.keys(),
@@ -784,7 +784,7 @@ def TEST_PIPBOY():
         assert TTB.MatNearEqual(axf, bxf), f"{a.name} transform preserved: \n{axf}\n != \n{bxf}"
 
     testfile = TTB.test_file(r"tests\FO4\PipBoy_Simple.nif")
-    outfile = TTB.test_file(f"tests/Out/TEST_PIPBOY.nif", output=1)
+    outfile = TTB.test_file("tests/Out/TEST_PIPBOY.nif", output=1)
 
     bpy.ops.import_scene.pynifly(filepath=testfile)
     TT.assert_true(bpy.data.objects['TapeDeckLid'].animation_data is not None, \
@@ -804,17 +804,17 @@ def TEST_PIPBOY():
                                  export_animations=True)
 
     nifcheck = pyn.NifFile(outfile)
-    TT.assert_true(nifcheck.nodes.get("PipboyBody"), f"Exported PipboyBody")
-    TT.assert_true(nifcheck.nodes.get("TapeDeck01"), f"Exported TapeDeck01")
+    TT.assert_true(nifcheck.nodes.get("PipboyBody"), "Exported PipboyBody")
+    TT.assert_true(nifcheck.nodes.get("TapeDeck01"), "Exported TapeDeck01")
     TT.assert_eq(nifcheck.nodes["TapeDeck01"].parent.name, nifcheck.nodes["PipboyBody"].name, 
-                 f"TapeDeck01 parent")
+                 "TapeDeck01 parent")
     TT.assert_eq(nifcheck.nodes["TapeDeckLid"].parent.name, nifcheck.nodes["TapeDeck01"].name, 
-                 f"TapeDeckLid parent")
+                 "TapeDeckLid parent")
     TT.assert_eq(nifcheck.nodes["TapeDeckLid_mesh"].parent.name, nifcheck.nodes["TapeDeckLid"].name, 
-                 f"TapeDeckLid_mesh parent")
+                 "TapeDeckLid_mesh parent")
     TT.assert_eq(nifcheck.shape_dict["TapeDeckLid_mesh:1"].parent.name,
                  nifcheck.nodes["TapeDeckLid_mesh"].name, 
-                 f"TapeDeckLid_mesh:1 parent")
+                 "TapeDeckLid_mesh:1 parent")
 
     niftest = pyn.NifFile(testfile)
 
@@ -867,7 +867,7 @@ def TEST_ANIM_ANIMATRON():
 
     assert arma, f"Found armature '{arma.name}'"
     lleg_thigh = arma.data.bones['LLeg_Thigh']
-    assert lleg_thigh.parent, f"LLeg_Thigh has parent"
+    assert lleg_thigh.parent, "LLeg_Thigh has parent"
     assert lleg_thigh.parent.name == 'Pelvis', f"LLeg_Thigh parent is {lleg_thigh.parent.name}"
 
     # EXPORT
@@ -924,13 +924,13 @@ def TEST_SKEL_HKX_IMPORT():
     arma = next(x for x in bpy.data.objects if x.type == 'ARMATURE')
 
     rootbone = arma.data.bones["NPC Root"]
-    assert rootbone, f"Have root bone"
+    assert rootbone, "Have root bone"
 
     headbone = arma.data.bones["NPC Head"]
     handbone = arma.data.bones["NPC Hand.L"]
-    assert BD.NearEqual(headbone.matrix_local.translation[2], 120.3436), f"Head bone where it should be" 
-    assert BD.NearEqual(handbone.matrix_local.translation[0], -28.9358), f"L Hand bone where it should be" 
-    assert headbone.parent.name == "NPC Neck", f"Bone has correct parent."
+    assert BD.NearEqual(headbone.matrix_local.translation[2], 120.3436), "Head bone where it should be" 
+    assert BD.NearEqual(handbone.matrix_local.translation[0], -28.9358), "L Hand bone where it should be" 
+    assert headbone.parent.name == "NPC Neck", "Bone has correct parent."
     # bonesvert = sorted(arma.data.bones, key=lambda b: b.matrix_local.translation)
     # assert BD.NearEqual(bonesvert[0].matrix_local.translation[2], 0), f"Lowest bone at 0"
     # assert BD.NearEqual(bonesvert[-1].matrix_local.translation[2], 124), f"Highest bone near 124"
@@ -1127,7 +1127,7 @@ def TEST_SKEL_XML():
     outcheck = pyn.hkxSkeletonFile(outfile)
     inhead = incheck.nodes["TailBone05"]
     outhead = outcheck.nodes["TailBone05"]
-    assert inhead.properties.transform.NearEqual(outhead.properties.transform), f"Have same tail transform"
+    assert inhead.properties.transform.NearEqual(outhead.properties.transform), "Have same tail transform"
 
 
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
@@ -1185,7 +1185,7 @@ def TEST_SKEL_TAIL_HKX():
     armacheck = bpy.context.object
     assert TTB.MatNearEqual(arma.data.bones['TailBone01'].matrix_local,
                            armacheck.data.bones['TailBone01'].matrix_local), \
-        f"Have matching transforms."
+        "Have matching transforms."
 
 
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
@@ -1602,7 +1602,7 @@ def TEST_DWEMER_CHEST():
     # Read animations correctly
     animations = ['Close', 'Open']
     for anim in animations:
-        TT.assert_contains(anim, bpy.data.actions, f"Animations")
+        TT.assert_contains(anim, bpy.data.actions, "Animations")
 
     # Lid has been animated
     assert lid.animation_data is not None
@@ -2067,8 +2067,8 @@ def TEST_KF_RENAME():
 
     nifcheck = pyn.NifFile(outfile)
     names = [cb.node_name for cb in nifcheck.rootNode.controlled_blocks]
-    assert 'NPC Pelvis [Pelv]' in names, f"Have nif name"
-    assert 'NPC Pelvis' not in names, f"Don't have Blender name"
+    assert 'NPC Pelvis [Pelv]' in names, "Have nif name"
+    assert 'NPC Pelvis' not in names, "Don't have Blender name"
 
     # 
     # The original has 333 keyframes for the Lft rotations--one keyframe every 1/30 sec,
@@ -2080,7 +2080,7 @@ def TEST_KF_RENAME():
     footcb:pyn.ControllerLink = next(x for x in nifcheck.rootNode.controlled_blocks if x.node_name == 'NPC L Foot [Lft ]')
     assert TT.is_eq(footcb.controller_type, 'NiTransformController', "Controller Type")
     foottd = footcb.interpolator.data
-    assert TT.is_eq(len(foottd.qrotations), 333, f"Number of L Foot rotations")
+    assert TT.is_eq(len(foottd.qrotations), 333, "Number of L Foot rotations")
     assert TT.is_eq(foottd.properties.translations.interpolation, pyn.NiKeyType.LINEAR_KEY, "L Foot translation interpolation")
     assert TT.is_eq(len(foottd.translations), 333, "Number of L Foot translations")
     timeinterval = foottd.qrotations[10].time - foottd.qrotations[9].time
@@ -2088,7 +2088,7 @@ def TEST_KF_RENAME():
     assert TT.is_equiv(foottd.translations[-1].time, 11.0667, "Last keyframe time")
 
     assert TT.is_equiv(foottd.qrotations[10].time, tdin.qrotations[10].time, "time signatures")
-    assert TT.is_equiv(foottd.translations[1].value, tdin.translations[1].value, f"translation values")
+    assert TT.is_equiv(foottd.translations[1].value, tdin.translations[1].value, "translation values")
 
     comcb_in = next(x for x in nifin.rootNode.controlled_blocks if x.node_name == 'NPC COM [COM ]')
     comtd_in = comcb_in.interpolator.data
@@ -2098,8 +2098,8 @@ def TEST_KF_RENAME():
     comtd = comcb.interpolator.data
     commax = max(x.value[1] for x in comtd.translations)
     commin = min(x.value[1] for x in comtd.translations)
-    assert TT.is_equiv(commax, commax_in, f"Max com movement")
-    assert TT.is_equiv(commin, commin_in, f"Max com movement")
+    assert TT.is_equiv(commax, commax_in, "Max com movement")
+    assert TT.is_equiv(commin, commin_in, "Max com movement")
 
 
 @TT.category('SKYRIM', 'HKX')
@@ -2187,10 +2187,10 @@ def TEST_AUXBONES():
     poseb = arma.pose.bones['NPC Genitals06 [Gen06]']
     bpy.context.scene.frame_set(1)
     assert TTB.MatNearEqual(baseb.matrix_local, poseb.matrix, epsilon=0.1), \
-        f"Gen06 at rest on frame 1"
+        "Gen06 at rest on frame 1"
     bpy.context.scene.frame_set(int(arma.animation_data.action.frame_end))
     assert not TTB.MatNearEqual(baseb.matrix_local, poseb.matrix, epsilon=0.1), \
-        f"Gen06 has moved by last frame"
+        "Gen06 has moved by last frame"
 
     orig_frame_end = int(arma.animation_data.action.frame_end)
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
@@ -2212,7 +2212,7 @@ def TEST_AUXBONES():
     # Re-imported animation should also show movement on Gen06
     bpy.context.scene.frame_set(int(reimported.frame_end))
     assert not TTB.MatNearEqual(baseb.matrix_local, poseb.matrix, epsilon=0.1), \
-        f"Gen06 has moved after re-import"
+        "Gen06 has moved after re-import"
 
 
 @TT.category('SKYRIM', 'HKX')

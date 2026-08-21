@@ -61,10 +61,10 @@ def TEST_SHEATH():
     bglist = [obj for obj in bpy.data.objects if obj.name.startswith("BSBehaviorGraphExtraData")]
     slist = [obj for obj in bpy.data.objects if obj.name.startswith("NiStringExtraData")]
     bgnames = set([obj.pyn_bsbehavior.name for obj in bglist])
-    assert TT.is_eq(bgnames, set(["BGED"]), f"BG extra data properties")
+    assert TT.is_eq(bgnames, set(["BGED"]), "BG extra data properties")
     snames = set([obj.pyn_nistrdata.name for obj in slist])
     assert TT.is_eq(snames, set(["HDT Havok Path", "HDT Skinned Mesh Physics Object"]), 
-        f"string extra data properties")
+        "string extra data properties")
 
     # Write and check
     print('------- Can write extra data -------')
@@ -80,12 +80,12 @@ def TEST_SHEATH():
     assert TT.is_contains("BGED", names, "BGED exists")
     bgedCheck = nifCheck.root.get_extra_data(name="BGED")
     assert TT.is_eq(bgedCheck.behavior_graph_file, r"AuxBones\SOS\SOSMale.hkx", 
-                    f"Extra data value")
-    assert TT.is_eq(bgedCheck.controls_base_skeleton, True, f"controls base skeleton")
+                    "Extra data value")
+    assert TT.is_eq(bgedCheck.controls_base_skeleton, True, "controls base skeleton")
 
     strings = [sd.name for sd in nifCheck.root.extra_data(blockname="NiStringExtraData")]
-    assert TT.is_contains("HDT Havok Path", strings, f"havoc path")
-    assert TT.is_contains("HDT Skinned Mesh Physics Object", strings, f"physics object")
+    assert TT.is_contains("HDT Havok Path", strings, "havoc path")
+    assert TT.is_contains("HDT Skinned Mesh Physics Object", strings, "physics object")
 
 
 @TT.category('SKYRIM', 'EXTRA_DATA')
@@ -101,7 +101,7 @@ def TEST_FEET():
     feet = bpy.data.objects['FootLowRes']
     assert TT.is_eq(len(feet.children), 1, "Feet have children")
     assert TT.is_eq(feet.children[0].pyn_nistrdata.name, "SDTA", "Feet have extra data child")
-    assert TT.is_eq(feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), True, f"Feet have string data")
+    assert TT.is_eq(feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), True, "Feet have string data")
 
     # Write and check that it's correct. Only the feet have to be selected--the extra data
     # goes because the object is a child of the feet object.
@@ -129,7 +129,7 @@ def TEST_FEET_MULTI():
     feet = bpy.data.objects['FootLowRes']
     TT.assert_eq(len(feet.children), 1, "Feet children")
     TT.assert_eq(feet.children[0].pyn_nistrdata.name, "SDTA", "extra data child name")
-    assert feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), f"Feet have string data"
+    assert feet.children[0].pyn_nistrdata.value.startswith('[{"name"'), "Feet have string data"
 
     ### WRITE ###
      
@@ -265,7 +265,7 @@ def TEST_FONV():
     grip = bpy.data.objects['Ninemm:0']
     coll = bpy.data.objects['bhkConvexVerticesShape']
     colbb = TTB.get_obj_bbox(coll)
-    assert grip is not None, f"Have grip"
+    assert grip is not None, "Have grip"
     assert NT.VNearEqual(colbb[0], (-4.55526, -6.1704, -1.2513), epsilon=0.1), f"Collision bounding box near correct min: {colbb}"
     assert NT.VNearEqual(colbb[1], (15.6956, 10.2399, 1.07098), epsilon=2.0), f"Collision bounding box near correct max: {colbb}"
     # TODO: Check collision object. It's coming in 10x the size
@@ -335,7 +335,7 @@ def TEST_EMPTY_NODES():
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nifout = pyn.NifFile(outfile)
-    assert "L2_Ivy" in nifout.nodes, f"Has empty node"
+    assert "L2_Ivy" in nifout.nodes, "Has empty node"
 
 
 @TT.category('SKYRIM')
@@ -348,14 +348,14 @@ def TEST_EMPTY_FLAGS():
     bpy.ops.import_scene.pynifly(filepath=testfile, blender_xf=True)
     
     obj = bpy.context.object
-    assert obj['pynNodeFlags'] != "", f"pynNodeFlags is not empty"
+    assert obj['pynNodeFlags'] != "", "pynNodeFlags is not empty"
 
     obj['pynNodeFlags'] = "XYZ"
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
     nifout = pyn.NifFile(outfile)
-    assert "FarmBench01:5" in nifout.nodes, f"Has object"
-    assert nifout.nodes["FarmBench01:5"].properties.flags == 0, f"Has zero flags"
+    assert "FarmBench01:5" in nifout.nodes, "Has object"
+    assert nifout.nodes["FarmBench01:5"].properties.flags == 0, "Has zero flags"
 
 
 @TT.category('SKYRIM')

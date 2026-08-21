@@ -16,7 +16,7 @@ print('=== Searching for collision properties ===')
 # Check VirtualGround shape for collision properties
 for s in nif.shapes:
     if s.name == 'VirtualGround':
-        print(f'\nVirtualGround shape found')
+        print('\nVirtualGround shape found')
         print(f'Available attributes: {[attr for attr in dir(s) if not attr.startswith("_")]}')
         
         # Check for collision-related attributes
@@ -32,7 +32,7 @@ for s in nif.shapes:
         # Look in the shape_dict for extra data
         shape_obj = nif.shape_dict.get(s.name)
         if shape_obj:
-            print(f'\nShape dict entry found')
+            print('\nShape dict entry found')
             print(f'Type: {type(shape_obj)}')
 
 # Look for BSClothExtraData or similar

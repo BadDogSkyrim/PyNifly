@@ -2,7 +2,9 @@
 
 Usage: python dump_collision.py <nif_path>
 """
-import sys, os, struct
+import sys
+import os
+import struct
 
 # Ensure the pyn package is importable without changing cwd
 _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -104,11 +106,11 @@ def dump_nif(path):
         print(f"  Materials: {mats}")
 
     # Chunks (using raw binary parse since we may not have chunk reader in DLL)
-    print(f"\n--- Chunk details (raw binary parse) ---")
+    print("\n--- Chunk details (raw binary parse) ---")
     _dump_chunks_binary(path)
 
     # MOPP disassembly
-    print(f"\n--- MOPP disassembly ---")
+    print("\n--- MOPP disassembly ---")
     lines = disassemble_mopp(md, origin=origin)
     for line in lines:
         print(line)
@@ -257,7 +259,7 @@ def _parse_cmsd(data):
         print(f"    welding: {nw} entries ({sum(1 for w in weld_data if w != 0)} nonzero)")
 
         # Dump triangles
-        print(f"    Triangles:")
+        print("    Triangles:")
         tri_idx = 0
         idx = 0
         for si, sl in enumerate(strip_data):

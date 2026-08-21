@@ -233,7 +233,7 @@ def partitions_from_vert_groups(obj, game):
                     # so it will already have been created if it exists separately
                     parent_name, subseg_id, material = pynifly.FO4Subsegment.name_match(vg.name)
                     if parent_name:
-                        if not parent_name in val:
+                        if parent_name not in val:
                             # Create parent segments if not there
                             val[parent_name] = pynifly.FO4Segment(
                                 part_id=len(val),
@@ -1276,7 +1276,7 @@ class NifExporter:
             elif len(p) > 1:
                 self.warnings.add('MANY_PARITITON')
                 if not self.objs_mult_part:
-                    log.warning(f"Some faces have been assigned to more than one partition")
+                    log.warning("Some faces have been assigned to more than one partition")
                 self.objs_mult_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, BD.MULTIPLE_PARTITION_GROUP, face_verts)
                 None
@@ -1365,7 +1365,7 @@ class NifExporter:
         if not have_partitions:
             log.warning(f"Wrote faces without partitions on {mesh}")
         if partition_err:
-            log.warning(f"Some faces are in multiple partitions, or no partition")
+            log.warning("Some faces are in multiple partitions, or no partition")
 
         return loops, uvs, norms, colors, partition_map
 
@@ -1743,7 +1743,7 @@ class NifExporter:
         if bone_name in self.shape_bones:
             return self.shape_bones[bone_name]
 
-        if not bone_name in bones_to_write and not self.settings.preserve_hierarchy:
+        if bone_name not in bones_to_write and not self.settings.preserve_hierarchy:
             return None
 
         nifname = self.nif_name(bone_name)
@@ -2349,7 +2349,7 @@ class NifExporter:
 
     def execute(self):
         if not self.objects and not self.armature:
-            self.warn(f"No objects selected for export", tags=["NOTHING"])
+            self.warn("No objects selected for export", tags=["NOTHING"])
             return
 
         log.info(str(self))
@@ -2750,7 +2750,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         initial_frame = context.scene.frame_current
 
         if not self.poll(context):
-            self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
+            self.report({"ERROR"}, "Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
         if len(self.objects_to_export) == 0:
@@ -2817,19 +2817,19 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 rep = True
             if 'NOTHING' in exporter.warnings:
                 status = {"WARNING"}
-                self.report(status, f"No mesh selected; nothing to export")
+                self.report(status, "No mesh selected; nothing to export")
                 rep = True
             if 'WARNING' in exporter.warnings:
                 status = {"WARNING"}
-                self.report(status, f"Export completed with warnings. Check the console window.")
+                self.report(status, "Export completed with warnings. Check the console window.")
                 rep = True
             if not rep:
                 if self.log_handler.max_error <= logging.INFO:
-                    self.report({'INFO'}, f"Export successful")
+                    self.report({'INFO'}, "Export successful")
                 elif self.log_handler.max_error <= logging.WARNING:
-                    self.report({'WARNING'}, f"Export completed with warnings")
+                    self.report({'WARNING'}, "Export completed with warnings")
                 elif self.log_handler.max_error <= logging.WARNING:
-                    self.report({'ERROR'}, f"Export failed, see console window for details")
+                    self.report({'ERROR'}, "Export failed, see console window for details")
             
         except ShapeTooBigError as e:
             log.error(str(e))

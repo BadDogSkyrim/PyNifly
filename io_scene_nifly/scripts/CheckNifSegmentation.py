@@ -33,5 +33,5 @@ def check_nif(f):
             print(f"{f}: No subsegments in segment 1")
 
 for f in all_files(target_directory):
-    if not "_faceBones" in f:
+    if "_faceBones" not in f:
         check_nif(f)

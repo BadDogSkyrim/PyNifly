@@ -969,7 +969,8 @@ def TEST_SF_MAT_EXPORT_PRESERVES_EXISTING():
     That destroyed Bad Dog's hand-built Lykaios material on a routine re-export and broke the
     head in the CK. The export now patches the material it's about to overwrite.
     """
-    import json, shutil
+    import json
+    import shutil
     testfile = TTB.test_file(r"tests\SF\meshes\malehead.nif")
     # test_file() deletes what it's given when it's under tests/Out -- so only ever hand it the
     # FILE, and derive the directory. Passing the directory raises WinError 5 on the second run.
@@ -1386,7 +1387,8 @@ def TEST_SF_MORPH_NIFEXPORT():
     path on the shape, they default to meshes/morphs/<nifstem>/{chargen,performance}/morph.dat under
     the nif's meshes root. write_tris=False skips them entirely.
     """
-    import os, shutil
+    import os
+    import shutil
     from pyn.sf_morph import MorphFile
 
     # Clean prior output so the write_tris-off assertion can't see stale files.
@@ -1440,7 +1442,8 @@ def TEST_SF_MORPH_MESH_MATCH():
     on a vertex-count mismatch -- exactly what broke the Lykaios head facegen (Geometry[5558] vs
     Morph[5405]). Regression: SF morph export rebuilt from the RAW shape keys (Blender count) instead
     of the export's split morphdict, so any seam-splitting head desynced mesh vs morph."""
-    import os, shutil
+    import os
+    import shutil
     from pyn.sf_morph import MorphFile
 
     d = os.path.dirname(TTB.test_file(os.path.join("tests", "Out", "TEST_SF_MORPH_MESH_MATCH", "m")))

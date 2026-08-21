@@ -1055,7 +1055,7 @@ class NifImporter():
                 # Isn't a shader node, which are handled with their parent
                 and (not n.__class__.__name__.startswith('NiShader'))
                 # Isn't an editor marker, or we are importing editor markers
-                and ((not n.id in self.editor_markers) 
+                and ((n.id not in self.editor_markers) 
                      or (not self.settings.smart_editor_markers))): 
                 p = self.import_node_parents(arma, n)
                 self.import_ninode(arma, n, p)
@@ -1822,7 +1822,7 @@ class NifImporter():
                     else:
                         c = armature.data.collections[bg_name].assign(b)
         except (RuntimeError, AttributeError, IndexError):
-            log.info(f"Cannot create convenience bone groups")
+            log.info("Cannot create convenience bone groups")
 
 
     def roll_bones(self, arma):
@@ -2097,7 +2097,7 @@ class NifImporter():
                     if priors else False))
 
         orphan_shapes = set([o for o in self.objects_created.blender_objects()
-                             if o.parent==None and not 'pynRoot' in o])
+                             if o.parent==None and 'pynRoot' not in o])
             
         if imp_mesh_only:
             for obj in self.loaded_meshes:
@@ -2106,7 +2106,7 @@ class NifImporter():
         else:
             # Make armature
             if len(self.nif.shapes) == 0:
-                log.info(f"No shapes in nif, importing bones as skeleton")
+                log.info("No shapes in nif, importing bones as skeleton")
                 if not self.armature:
                     self.armature = self.make_armature(self.collection)
                 self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())

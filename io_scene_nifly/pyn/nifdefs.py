@@ -295,15 +295,15 @@ class BGSMShader(bgsmaterial.BGSMaterial):
 
     def shaderflags1_test(self, flag):
         if flag == ShaderFlags1.MODEL_SPACE_NORMALS:
-            return self.modelSpaceNormals;
+            return self.modelSpaceNormals
 
     def shaderflags1_set(self, flag=True):
         if flag == ShaderFlags1.MODEL_SPACE_NORMALS:
-            self.modelSpaceNormals = flag.value;
+            self.modelSpaceNormals = flag.value
 
     def shaderflags1_clear(self, flag=True):
         if flag == ShaderFlags1.MODEL_SPACE_NORMALS:
-            self.modelSpaceNormals = ~flag.value;
+            self.modelSpaceNormals = ~flag.value
 
 
 class ALPHA_FUNCTION(IntEnum):

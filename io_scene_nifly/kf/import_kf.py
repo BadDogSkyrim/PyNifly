@@ -102,7 +102,7 @@ class ImportKF(bpy.types.Operator, ImportHelper):
         self.directory_path = Path(self.directory)
 
         if not self.poll(context):
-            self.report({"ERROR"}, f"Cannot run importer--see system console for details")
+            self.report({"ERROR"}, "Cannot run importer--see system console for details")
             return {'CANCELLED'} 
 
         self.log_handler = LogHandler()

@@ -589,7 +589,7 @@ def load_skyrim_animation(filepath: str) -> AnimationData:
             raise ValueError("No hkaSplineCompressedAnimation found in XML.")
         return anim
 
-    raise ValueError(f"Unrecognized file format (not HKX binary or XML).")
+    raise ValueError("Unrecognized file format (not HKX binary or XML).")
 
 
 def load_skyrim_skeleton(filepath: str) -> Optional[Skeleton]:

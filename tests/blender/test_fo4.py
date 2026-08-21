@@ -62,7 +62,7 @@ def TEST_CONNECT_SKEL(xf, bonerot):
     # Parent connect points are children of the armature. Could also be children of the root
     # but they get transposed based on the armature bones' transforms.
     cp_lleg = bpy.data.objects['BSConnectPointParents::P-ArmorLleg']
-    assert TT.is_eq(cp_lleg.parent.type, 'ARMATURE', f"P-ArmorLleg parent")
+    assert TT.is_eq(cp_lleg.parent.type, 'ARMATURE', "P-ArmorLleg parent")
     
     log.debug(f"cp_lleg location blender xf={xf} bone rot={bonerot}: {cp_lleg.matrix_world.translation}")
     expected_loc = Vector((-8.7480, -3.1508, 35.2600))
@@ -83,10 +83,10 @@ def TEST_CONNECT_SKEL(xf, bonerot):
     skel_in = pyn.NifFile(testfile)
     skel_out = pyn.NifFile(outfile)
     assert TT.is_contains("L_RibHelper", skel_out.nodes, "Bones written to nif")
-    assert TT.is_eq(skel_out.nodes["L_RibHelper"].parent.name, "Chest", f"RibHelper parent")
+    assert TT.is_eq(skel_out.nodes["L_RibHelper"].parent.name, "Chest", "RibHelper parent")
     helm_cp_in = [x for x in skel_in.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
     helm_cp_out = [x for x in skel_out.connect_points_parent if x.name.decode('utf-8') == 'P-ArmorHelmet'][0]
-    assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', f"ArmorHelmet parent")
+    assert TT.is_eq(helm_cp_out.parent.decode('utf-8'), 'HEAD', "ArmorHelmet parent")
     assert TT.is_equiv(helm_cp_in.translation, helm_cp_out.translation[:], "ArmorHelmet location")
 
 
@@ -487,7 +487,8 @@ def TEST_FO4_SSF_GENERATED():
     sits next to the NIF, and (c) the SSF contains the expected shape entry
     with DeltaBones for each dismember bone the supply step recognized.
     """
-    import os, json
+    import os
+    import json
     testfile = TTB.test_file(r"tests/FO4/VanillaMaleBody.nif")
     outfile = TTB.test_file(r"tests/Out/TEST_FO4_SSF_GENERATED.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -599,7 +600,7 @@ def TEST_EXP_SEGMENTS_BAD():
     assert "ERROR" not in pyn.NifFile.message_log(), f"Error: Expected no error message, got: \n{pyn.NifFile.message_log()}---\n"
 
     nif1 = pyn.NifFile(outfile)
-    assert len(nif1.shapes) == 1, f"Single shape was exported"
+    assert len(nif1.shapes) == 1, "Single shape was exported"
 
     body = nif1.shapes[0]
     assert len(body.partitions) >= 4, "All important segments exported"
@@ -629,7 +630,7 @@ def TEST_EXP_SEG_ORDER():
     assert "ERROR" not in pyn.NifFile.message_log(), f"Error: Expected no error message, got: \n{pyn.NifFile.message_log()}---\n"
 
     nif1 = pyn.NifFile(outfile)
-    assert len(nif1.shapes) == 1, f"Single shape was exported"
+    assert len(nif1.shapes) == 1, "Single shape was exported"
 
     # Third segment should be arm, with 5 subsegments
     body = nif1.shapes[0]
@@ -656,7 +657,7 @@ def TEST_PARTITIONS():
         for vg in v.groups:
             if vg.group == neckgroup.index:
                 maxz = max(maxz, v.co.z)
-    assert -3 < maxz < -2, f"Neck verts are all low on head"
+    assert -3 < maxz < -2, "Neck verts are all low on head"
 
     print("### Can write Skyrim partitions")
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIM")
@@ -764,8 +765,8 @@ def TEST_SCALING_OBJ():
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     fx0 = fmarkers[0].matrix_world
     fx1 = fmarkers[1].matrix_world
-    assert fx0.translation.x > bbmin.x and fx0.translation.x < bbmax.x, f"Furniture marker within bench bounds"
-    assert fx1.translation.x > bbmin.x and fx1.translation.x < bbmax.x, f"Furniture marker within bench bounds"
+    assert fx0.translation.x > bbmin.x and fx0.translation.x < bbmax.x, "Furniture marker within bench bounds"
+    assert fx1.translation.x > bbmin.x and fx1.translation.x < bbmax.x, "Furniture marker within bench bounds"
     # assert fmarkers[0].location.z < 3.4, f"Furniture marker location is correct: {fmarkers[0].location.z}"
 
     # -------- Export --------
@@ -842,7 +843,7 @@ def TEST_MULT_PART():
     bpy.context.view_layer.objects.active = obj
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SKYRIMSE")
 
-    assert "*MULTIPLE_PARTITIONS*" not in obj.vertex_groups, f"Exported without throwing *MULTIPLE_PARTITIONS* error"
+    assert "*MULTIPLE_PARTITIONS*" not in obj.vertex_groups, "Exported without throwing *MULTIPLE_PARTITIONS* error"
 
 
 @TT.category('FO4')
@@ -866,7 +867,7 @@ def TEST_TREE():
     assert root['pynBlockName'] == "BSLeafAnimNode", f"Have correct root type: {root['pynBlockName']}"
 
     tree = next(obj for obj in bpy.data.objects if obj.name.startswith("Tree") and obj.type == 'MESH')
-    assert 'TREE_ANIM' in tree.active_material.pyn_shader.Shader_Flags_2, f"Have shader flags"
+    assert 'TREE_ANIM' in tree.active_material.pyn_shader.Shader_Flags_2, "Have shader flags"
     assert tree['pynBlockName'] == "BSMeshLODTriShape", f"Have correct block type: {tree['pynBlockName']}"
     assert TT.is_eq(lod0_size, 1126, "Have correct LOD0 size")
 
@@ -894,10 +895,10 @@ def TEST_TREE():
     # ------- Check
     TTB.stage_materials_for(outfile)
     nifcheck = pyn.NifFile(outfile)
-    assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
+    assert nifcheck.rootNode.blockname == "BSLeafAnimNode", "Have correct root node type"
     treecheck = nifcheck.shapes[0]
-    assert treecheck.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-    assert treecheck.shader.properties.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), f"Tree animation set"
+    assert treecheck.blockname == "BSMeshLODTriShape", "Have correct shape node type"
+    assert treecheck.shader.properties.shaderflags2_test(pyn.ShaderFlags2.TREE_ANIM), "Tree animation set"
     assert TT.is_eq(treecheck.properties.vertexCount, 1059, "Have correct vertex count")
     assert TT.is_eq(treecheck.properties.lodSize0, lod0_size, "LOD0 size round-trips")
     assert TT.is_eq(treecheck.properties.lodSize1, lod1_size, "LOD1 size round-trips")
@@ -951,17 +952,17 @@ def TEST_CONNECT_POINT():
 
     assert cpchildren, f"Found child connect points: {cpchildren}"
     assert "C-Receiver" in cpchildren[0].pyn_connectpoint.child_names.split('\n'), \
-        f"Did not find child name"
+        "Did not find child name"
 
     # assert NT.NearEqual(cpcasing.rotation_quaternion.w, 0.9098), f"Have correct rotation: {cpcasing.rotation_quaternion}"
     assert cpcasing.parent.name == "CombatShotgunReceiver", f"Casing has correct parent {cpcasing.parent.name}"
 
     # Shapes remember their block type
-    assert TT.is_eq(shotgun['pynBlockName'], 'BSTriShape', f"blockname")
+    assert TT.is_eq(shotgun['pynBlockName'], 'BSTriShape', "blockname")
 
     proj_node = TTB.find_shape("ProjectileNode", type="EMPTY")
     barrel_cp = TTB.find_shape("BSConnectPointParents::P-Barrel", type="EMPTY")
-    assert TT.is_equiv(proj_node.matrix_world, barrel_cp.matrix_world, f"Projectile node and barrel cp transform")
+    assert TT.is_equiv(proj_node.matrix_world, barrel_cp.matrix_world, "Projectile node and barrel cp transform")
 
     # -------- Export --------
     # Testing intuited defaults
@@ -974,22 +975,22 @@ def TEST_CONNECT_POINT():
     nifsrc = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
     pcheck = set(x.name.decode() for x in nifcheck.connect_points_parent)
-    assert TT.is_samemembers(pcheck, parentnames, f"parent names")
+    assert TT.is_samemembers(pcheck, parentnames, "parent names")
     assert TT.is_eq(len(casingsrc_list := [cp for cp in nifsrc.connect_points_parent 
                                            if cp.name.decode()=="P-Casing"]),
-                    1, f"Have one casing connect point in source")
+                    1, "Have one casing connect point in source")
     pcasingsrc = casingsrc_list[0]
     assert TT.is_eq(len(pcasing_list := [cp for cp in nifcheck.connect_points_parent 
                                          if cp.name.decode()=="P-Casing"]),
-                    1, f"Have one casing connect point in check")
+                    1, "Have one casing connect point in check")
     pcasing = pcasing_list[0]
-    assert TT.is_equiv(pcasing.rotation[:], pcasingsrc.rotation[:], f"P-Casing rotation")
+    assert TT.is_equiv(pcasing.rotation[:], pcasingsrc.rotation[:], "P-Casing rotation")
 
     chnames = nifcheck.connect_points_child
     assert TT.is_samemembers(chnames, childnames, "child connect point names")
 
     sgcheck = nifcheck.shape_dict['CombatShotgunReceiver:0']
-    assert TT.is_eq(sgcheck.blockname, 'BSTriShape', f"blockname")
+    assert TT.is_eq(sgcheck.blockname, 'BSTriShape', "blockname")
 
 
 @TT.category('FO4', 'CONNECTPOINT')
@@ -1066,7 +1067,7 @@ def TEST_CONNECT_WEAPON_PART():
     barrel = TTB.assert_exists('CombatShotgunBarrel:0')
     barrelccp = TTB.assert_exists('BSConnectPointChildren::C-Barrel')
     assert TT.is_eq(barrelccp.constraints['Copy Transforms'].target, barrelpcp, 
-                    f"connection to parent")
+                    "connection to parent")
     # Barrel physical location is correct in relation to receiver
     barrel_min_y = min((barrel.matrix_world @ v.co).y for v in barrel.data.vertices)
     barrel_max_y = max((barrel.matrix_world @ v.co).y for v in barrel.data.vertices)
@@ -1254,7 +1255,7 @@ def TEST_FARMBENCH():
 
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
-    assert TT.is_eq(len(fmarkers), 2, f"furniture marker count in import")
+    assert TT.is_eq(len(fmarkers), 2, "furniture marker count in import")
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
@@ -1272,8 +1273,8 @@ def TEST_FARMBENCH():
     nifcheck = pyn.NifFile(outfile)
     fmcheck = nifcheck.root.get_extra_data(blockname='BSFurnitureMarkerNode')
     assert fmcheck, "BSFurnitureMarkerNode exists"
-    assert TT.is_eq(fmcheck.position_count, 2, f"furniture marker position count")
-    assert TT.is_eq(len(fmcheck.furniture_markers), 2, f"furniture marker list length")
+    assert TT.is_eq(fmcheck.position_count, 2, "furniture marker position count")
+    assert TT.is_eq(len(fmcheck.furniture_markers), 2, "furniture marker list length")
 
 
 @TT.category('SKYRIMSE', 'FURNITURE')
@@ -1287,7 +1288,7 @@ def TEST_COMMONCHAIR():
     fmarkers = [obj for obj in bpy.data.objects if obj.name.startswith("BSFurnitureMarkerNode")]
     
     assert TT.is_eq(len(fmarkers), 1, f"Found furniture markers: {fmarkers}")
-    assert TT.is_equiv(fmarkers[0].rotation_euler, (-math.pi/2, 0, 0)), f"Marker points the right direction"
+    assert TT.is_equiv(fmarkers[0].rotation_euler, (-math.pi/2, 0, 0)), "Marker points the right direction"
 
     # -------- Export --------
     bpy.ops.object.select_all(action='DESELECT')
@@ -1300,9 +1301,9 @@ def TEST_COMMONCHAIR():
     nifcheck = pyn.NifFile(outfile)
     fmcheck = nifcheck.root.get_extra_data(blockname='BSFurnitureMarkerNode')
     assert fmcheck, "BSFurnitureMarkerNode exists"
-    assert TT.is_eq(fmcheck.position_count, 1, f"furniture marker position count")
-    assert TT.is_eq(len(fmcheck.furniture_markers), 1, f"furniture marker list length")
-    assert TT.is_eq(fmcheck.furniture_markers[0].entry_points, 13, f"Entry point data is correct")
+    assert TT.is_eq(fmcheck.position_count, 1, "furniture marker position count")
+    assert TT.is_eq(len(fmcheck.furniture_markers), 1, "furniture marker list length")
+    assert TT.is_eq(fmcheck.furniture_markers[0].entry_points, 13, "Entry point data is correct")
 
 
 @TT.category('FO4', 'FURNITURE')
@@ -1318,7 +1319,7 @@ def TEST_FO4_CHAIR():
     assert TT.is_eq(len(fmarkers), 4, f"Found furniture markers: {fmarkers}")
     # Lowest points forward off the seat
     seatmarker = [m for m in fmarkers if BD.NearEqual(m.location.z, 34, epsilon=1)]
-    assert TT.is_eq(len(seatmarker), 1, f"Have one marker on the seat")
+    assert TT.is_eq(len(seatmarker), 1, "Have one marker on the seat")
     mk = seatmarker[0]
     assert TT.is_equiv(mk.rotation_euler, (-math.pi/2, 0, 0)), \
         f"Marker {mk.name} points the right direction: {mk.rotation_euler, (-math.pi/2, 0, 0)}"
@@ -1340,9 +1341,9 @@ def TEST_FO4_CHAIR():
     nifcheck = pyn.NifFile(outfile)
     fmcheck = nifcheck.root.get_extra_data(blockname='BSFurnitureMarkerNode')
     assert fmcheck, "BSFurnitureMarkerNode exists"
-    assert TT.is_eq(fmcheck.position_count, 4, f"furniture marker position count")
-    assert TT.is_eq(len(fmcheck.furniture_markers), 4, f"furniture marker list length")
-    assert TT.is_eq(fmcheck.furniture_markers[0].entry_points, 0, f"Entry point data is correct")
+    assert TT.is_eq(fmcheck.position_count, 4, "furniture marker position count")
+    assert TT.is_eq(len(fmcheck.furniture_markers), 4, "furniture marker list length")
+    assert TT.is_eq(fmcheck.furniture_markers[0].entry_points, 0, "Entry point data is correct")
         
 
 @TT.category('FO4', 'EXTRA_DATA')
@@ -1365,8 +1366,8 @@ def TEST_COTH_DATA():
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     nif1 = pyn.NifFile(outfile)
-    assert len(nif1.shapes) == 1, f"Expected hair nif"
-    assert len(nif1.cloth_data) == 1, f"Expected cloth data"
+    assert len(nif1.shapes) == 1, "Expected hair nif"
+    assert len(nif1.cloth_data) == 1, "Expected cloth data"
     assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
 
 

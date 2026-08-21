@@ -411,14 +411,14 @@ class pynStructure(Structure):
         """ Return a copy of the object """
         n = self.__class__()
         for f, t in self._fields_:
-            if not f in exclude:
+            if f not in exclude:
                 n.__setattr__(f, self.__getattribute__(f))
         return n
 
     def copyto(self, other, exclude=()):
         """ Copy the object's fields to another object """
         for f, t in self._fields_:
-            if not f in exclude:
+            if f not in exclude:
                 other.__setattr__(f, self.__getattribute__(f))
         return other
     

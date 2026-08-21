@@ -36,7 +36,7 @@ print("\n=== VirtualGround Details ===")
 for s in nif.shapes:
     if s.name == "VirtualGround":
         print(f"Vertices: {len(s.verts)}")
-        print(f"Sample vertices:")
+        print("Sample vertices:")
         for i in range(min(4, len(s.verts))):
             print(f"  Vertex {i}: {s.verts[i]}")
         if hasattr(s, 'bone_weights'):

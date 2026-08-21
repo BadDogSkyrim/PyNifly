@@ -1,0 +1,79 @@
+# Lint config for PyNifly. Ruff is a local tool -- `pip install ruff`, then:
+#
+#     ruff check .            # whole tree, well under a second
+#     ruff check --fix .      # apply the mechanical fixes
+#
+# The VS Code extension (charliermarsh.ruff) runs the same rules as you type, which is
+# where it earns its keep. There is no CI running this.
+#
+# The rule set is chosen so that `ruff check .` passes at ZERO. That is the whole point:
+# zero is what turns a new finding into a signal you act on. A permanent backlog of
+# warnings is a dashboard nobody reads. If a rule cannot be brought to zero it is either
+# fixed, or listed below with the reason -- never left to accumulate.
+
+target-version = "py311"          # Blender 4.2 ships 3.11; 5.x ships 3.13
+line-length = 100                 # advisory; E501 is not enabled
+
+exclude = [
+    "NiflyDLL",                   # build output, incl. a full copy of the addon
+    "tests/tests",                # test fixtures
+]
+
+[lint]
+select = [
+    "F",      # pyflakes -- undefined names, duplicate definitions, unused imports.
+              # F811 is why this file exists: it found three classes defined twice in
+              # pynifly.py, one of which had corrupted NiObject.buffer_types.
+    "E4",     # import placement
+    "E7",     # comparison and statement errors
+    "E9",     # syntax / IO errors
+    "W6",     # deprecated constructs, incl. W605 invalid escape sequences
+    "B006",   # mutable argument default
+    "B023",   # function definition captures a loop variable
+]
+
+ignore = [
+    # tests/blender/*.py is deliberately built on `from .common import *`, which is how
+    # every test module gets the shared imports and helpers. F403/F405 flag exactly that.
+    "F403", "F405",
+
+    # Bad Dog's house style: `if x: return` and semicolon-separated statements.
+    "E701", "E702",
+
+    # Ambiguous variable names (l, I, O). Not worth churning existing code over.
+    "E741",
+
+    # Blender addons import bpy and reload submodules before the rest of the imports;
+    # E402 fights that idiom, and 59 of them are load-bearing.
+    "E402",
+
+    # Still outstanding, deliberately not muted forever -- see the note at the bottom.
+    "F401",   # 153 unused imports
+    "F841",   # 170 unused variables
+    "E722",   #  53 bare except, in the files Phase 2 did not reach
+    "E721",   #  29 type(x) == y -- isinstance is not a drop-in, it accepts subclasses
+    "E711",   #  20 == None -- `is None` is not a drop-in for types with custom __eq__
+]
+
+[lint.per-file-ignores]
+# The aggregator exists to re-export; that is its job.
+"tests/blender_tests.py" = ["F401"]
+
+# ---------------------------------------------------------------------------------
+# The `ignore` list above is debt, not policy. Counts as of 2026-08-21, all tracked in
+# docs/plan_code_health.md. Each one should shrink to zero and then move into `select`:
+#
+#   F401  153  unused imports. Auto-fixable, but the fix is "unsafe" where a module
+#              re-exports a name deliberately -- needs a read, not a blind --fix.
+#   F841  170  unused variables. Worth reading rather than fixing: some are dead code,
+#              and in tests some are assertions that got dropped. This is how
+#              `m = make_mixnode(...)` going nowhere in shader_io.py was spotted.
+#   E722   53  bare except, in the files Phase 2 did not reach -- pyn/, hkx/, tri/,
+#              export_nif.py, collision.py. shader_io.py, import_nif.py, controller.py
+#              and blender_defs.py are already at zero and would stay there.
+#   E721   29  type(x) == y. A misplaced paren in one of these was a live bug
+#              (BoneDict.dismem); the rest need reading, since isinstance accepts
+#              subclasses and type() == does not.
+#   E711   20  == None.
+#
+# Everything in `select` is at zero. Keep it that way -- that is the point.

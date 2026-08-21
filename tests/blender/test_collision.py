@@ -55,31 +55,31 @@ def TEST_COLLISION_BOW_SCALE():
     assert TT.is_equiv(bow.scale, Vector((1,1,1,)), "Bow scale")
     maxy = max(v.co.y for v in bow.data.vertices)
     miny = min(v.co.y for v in bow.data.vertices)
-    assert TT.is_equiv(maxy, 64.4891, f"Max y")
-    assert TT.is_equiv(miny, -50.5509, f"Min y")
+    assert TT.is_equiv(maxy, 64.4891, "Max y")
+    assert TT.is_equiv(miny, -50.5509, "Min y")
 
     # Make sure the bone positions didn't get messed up by blender_xf.
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     mxbind = arma.data.bones['Bow_StringBone1'].matrix_local
     mxpose = arma.pose.bones['Bow_StringBone1'].matrix
-    assert TT.is_equiv(mxbind, mxpose, f"Bind position vs pose position")
+    assert TT.is_equiv(mxbind, mxpose, "Bind position vs pose position")
 
     # Check collision info
     midbone = arma.data.bones['Bow_MidBone']
     midbonew = arma.matrix_world @ midbone.matrix_local
     coll = arma.pose.bones['Bow_MidBone'].constraints[0].target
-    assert TT.is_equiv(coll.matrix_world.translation, midbonew.translation, f"Collision position")
+    assert TT.is_equiv(coll.matrix_world.translation, midbonew.translation, "Collision position")
 
     q = coll.matrix_world.to_quaternion()
-    assert TT.is_equiv(q, (0.7071, 0.0, 0.0, 0.7071,), f"Collision body rotation")
+    assert TT.is_equiv(q, (0.7071, 0.0, 0.0, 0.7071,), "Collision body rotation")
 
     # Scale factor applied to bow
     objmin, objmax = TTB.get_obj_bbox(bow, worldspace=True)
-    assert TT.is_lt(objmax.y - objmin.y, 12, f"Bow scale")
+    assert TT.is_lt(objmax.y - objmin.y, 12, "Bow scale")
 
     # Collision box bounds close to bow bounds.
     collbox = TTB.find_shape('bhkBoxShape')
-    assert TTB.close_bounds(bow, collbox), f"Collision just covers bow"
+    assert TTB.close_bounds(bow, collbox), "Collision just covers bow"
 
     # Quick unit test--getting box info should be correct in world coordinates.
     c, d, r = BD.find_box_info(collbox)
@@ -87,10 +87,10 @@ def TEST_COLLISION_BOW_SCALE():
     dworld = Vector([abs(n) for n in dworld])
 
     # The rotation should result is the long axis aligned with y, short with z
-    assert dworld.y > dworld.x > dworld.z, f"Have correct rotation"
+    assert dworld.y > dworld.x > dworld.z, "Have correct rotation"
 
     # Centerpoint of collision box is just offset from origin
-    assert TT.is_equiv(c, Vector((0.6402, 0.0143, 0.002,)), f"Centerpoint")
+    assert TT.is_equiv(c, Vector((0.6402, 0.0143, 0.002,)), "Centerpoint")
 
     ### FIX ###
 
@@ -125,14 +125,14 @@ def TEST_COLLISION_BOW_SCALE():
                       bow)
 
     rootcheck = nifcheck.rootNode
-    assert TT.is_eq(rootcheck.name, "GlassBowSkinned.nif", f"Root node name")
-    assert TT.is_eq(rootcheck.blockname, "BSFadeNode", f"Root node type")
-    assert TT.is_eq(rootcheck.flags, 14, f"Root block flags")
+    assert TT.is_eq(rootcheck.name, "GlassBowSkinned.nif", "Root node name")
+    assert TT.is_eq(rootcheck.blockname, "BSFadeNode", "Root node type")
+    assert TT.is_eq(rootcheck.flags, 14, "Root block flags")
 
     midbowcheck = nifcheck.nodes["Bow_MidBone"]
     collcheck = midbowcheck.collision_object
-    assert TT.is_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node block")
-    assert TT.is_eq(bhkCOFlags(collcheck.flags).fullname, "ACTIVE | SYNC_ON_UPDATE", f"Collision flags")
+    assert TT.is_eq(collcheck.blockname, "bhkCollisionObject", "Collision node block")
+    assert TT.is_eq(bhkCOFlags(collcheck.flags).fullname, "ACTIVE | SYNC_ON_UPDATE", "Collision flags")
 
     # Full check of locations and rotations to make sure we got them right
     TTB.compare_bones('Bow_MidBone', nif, nifcheck, e=0.001)
@@ -152,10 +152,10 @@ def TEST_COLLISION_BOW_SCALE():
     box = bone.constraints[0].target
     mina, maxa = TTB.get_obj_bbox(bow, worldspace=True)
     minb, maxb = TTB.get_obj_bbox(box, worldspace=True)
-    assert TT.is_lt(minb[0], mina[0], f"Box min x")
-    assert TT.is_lt(minb[1], mina[1], f"Box min y")
-    assert TT.is_gt(maxb[0], maxa[0], f"Box max x")
-    assert TT.is_gt(maxb[1], maxa[1], f"Box max y")
+    assert TT.is_lt(minb[0], mina[0], "Box min x")
+    assert TT.is_lt(minb[1], mina[1], "Box min y")
+    assert TT.is_gt(maxb[0], maxa[0], "Box max x")
+    assert TT.is_gt(maxb[1], maxa[1], "Box max y")
 
 
 @TT.category('SKYRIM', 'PHYSICS')
@@ -213,8 +213,8 @@ def TEST_COLLISION_BOW():
 
     # assert NT.VNearEqual(coll.rotation_quaternion, (0.7071, 0.0, 0.0, 0.7071)), f"Collision body rotation correct: {collbody.rotation_quaternion}"
 
-    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'MATERIAL_BOWS_STAVES', f"Shape material")
-    TT.assert_equiv(coll.pyn_collshape.bhkRadius, 0.0136, f"Radius")
+    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'MATERIAL_BOWS_STAVES', "Shape material")
+    TT.assert_equiv(coll.pyn_collshape.bhkRadius, 0.0136, "Radius")
 
     # Covers the bow closely in the Y axis
     bowmax = max((bow.matrix_world @ v.co).y for v in bow.data.vertices)
@@ -237,11 +237,11 @@ def TEST_COLLISION_BOW():
     TT.assert_eq(bged.pyn_bsbehavior.value, r"Weapons\Bow\BowProject.hkx", "BGED node value")
 
     strd = TTB.find_shape("NiStringExtraData", type='EMPTY')
-    TT.assert_eq(strd.pyn_nistrdata.value, "WeaponBow", f"string extra data value")
+    TT.assert_eq(strd.pyn_nistrdata.value, "WeaponBow", "string extra data value")
 
     bsxf = TTB.find_shape("BSXFlags", type='EMPTY')
     root = [o for o in bpy.data.objects if "pynRoot" in o][0]
-    TT.assert_eq(bsxf.parent, root, f"Extra data parent")
+    TT.assert_eq(bsxf.parent, root, "Extra data parent")
     TT.assert_eq(bsxf.pyn_bsxflags.name, "BSX", "BSX Flags name")
     TT.assert_eq(bsxf.pyn_bsxflags.value, "HAVOC | COMPLEX | DYNAMIC | ARTICULATED", "BSX Flags value")
 
@@ -386,7 +386,7 @@ def TEST_COLLISION_BOW3(bl):
 
     cshapecheck3 = bodycheck3.shape
     assert cshapecheck3.blockname == "bhkConvexVerticesShape", f"Shape is convex vertices: {cshapecheck3.blockname}"
-    assert NT.VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), f"Convex shape is correct"
+    assert NT.VNearEqual(cshapecheck3.vertices[0], (-0.73, -0.267, 0.014, 0.0)), "Convex shape is correct"
 
 
 @TT.category('SKYRIM', 'PHYSICS')
@@ -404,11 +404,11 @@ def TEST_COLLISION_HIER():
     leek0 = TTB.find_shape("Leek04:0")
     leek1 = TTB.find_shape("Leek04:1")
     leek4 = leek0.parent
-    assert leek4.name == 'Leek04', f"Have correct parent"
-    assert leek0.parent == leek1.parent, f"Have correct parent/child relationships"
-    assert len(leek4.constraints) > 0, f"Have constraint on parent"
+    assert leek4.name == 'Leek04', "Have correct parent"
+    assert leek0.parent == leek1.parent, "Have correct parent/child relationships"
+    assert len(leek4.constraints) > 0, "Have constraint on parent"
     cshape = leek4.constraints[0].target
-    assert cshape, f"Have collision shape"
+    assert cshape, "Have collision shape"
     xf = cshape.matrix_world
     minx = min((xf @ v.co).x for v in cshape.data.vertices)
     maxx = max((xf @ v.co).x for v in cshape.data.vertices)
@@ -443,7 +443,7 @@ def TEST_COLLISION_HIER():
     coCheck = leek4Check.collision_object
     rbCheck = coCheck.body
     shCheck = rbCheck.shape
-    assert shCheck.blockname == "bhkConvexVerticesShape", f"Have our convex vert shape"
+    assert shCheck.blockname == "bhkConvexVerticesShape", "Have our convex vert shape"
     l0Check = nifcheck.shape_dict["Leek04:0"]
     l1Check = nifcheck.shape_dict["Leek04:1"]
     assert l0Check.parent.name == "Leek04", f"Shapes are under the grouping node: {l0Check.parent.name}"
@@ -466,9 +466,9 @@ def TEST_COLLISION_MULTI():
     leek10 = TTB.find_shape("Leek01:0")
     leek11 = TTB.find_shape("Leek01:1")
     leek1 = leek10.parent
-    leek1 == leek10.parent == leek11.parent, f"Parent/child relationships correct"
-    assert leek1.name == "Leek01", f"Have correct parent"
-    assert len(leek1.constraints) > 0, f"Leek has constraints"
+    leek1 == leek10.parent == leek11.parent, "Parent/child relationships correct"
+    assert leek1.name == "Leek01", "Have correct parent"
+    assert len(leek1.constraints) > 0, "Leek has constraints"
     
     # -------- Export --------
     bpy.ops.object.select_all(action='SELECT')
@@ -478,8 +478,8 @@ def TEST_COLLISION_MULTI():
     nif = pyn.NifFile(outfile)
     l1 = nif.nodes["Leek01"]
     l4 = nif.nodes["Leek04"]
-    assert l1.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
-    assert l4.collision_object.body.shape.blockname == "bhkConvexVerticesShape", f"Have the correct collisions"
+    assert l1.collision_object.body.shape.blockname == "bhkConvexVerticesShape", "Have the correct collisions"
+    assert l4.collision_object.body.shape.blockname == "bhkConvexVerticesShape", "Have the correct collisions"
     l10 = nif.shape_dict["Leek01:0"]
     l11 = nif.shape_dict["Leek01:1"]
     assert l10.parent.name == "Leek01", f"Leek01:0 parent correct: {l10.parent.name}"
@@ -511,20 +511,20 @@ def TEST_COLLISION_CONVEXVERT(bx):
     # Check collision info
     root = cheese.parent
     constr = [c for c in root.constraints if c.type == 'COPY_TRANSFORMS']
-    assert constr, f"Have constraints on root"
+    assert constr, "Have constraints on root"
     coll = constr[0].target
-    assert coll, f"Have collision object"
-    assert coll.rigid_body, f"Collision object has physics"
-    TT.assert_eq(coll.rigid_body.type, 'ACTIVE', f"Collision body type")
-    TT.assert_equiv(coll.rigid_body.mass, 2.5, f"mass")
-    TT.assert_equiv(coll.rigid_body.friction, 0.5, f"friction")
-    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'CLOTH', f"Shape material custom property")
+    assert coll, "Have collision object"
+    assert coll.rigid_body, "Collision object has physics"
+    TT.assert_eq(coll.rigid_body.type, 'ACTIVE', "Collision body type")
+    TT.assert_equiv(coll.rigid_body.mass, 2.5, "mass")
+    TT.assert_equiv(coll.rigid_body.friction, 0.5, "friction")
+    TT.assert_eq(coll.pyn_collshape.bhkMaterial, 'CLOTH', "Shape material custom property")
 
     xmax1 = max([v.co.x for v in cheese.data.vertices])
     xmax2 = max([v.co.x for v in coll.data.vertices])
-    TT.assert_equiv(xmax1, xmax2, f"Max x vertex", e=0.5)
+    TT.assert_equiv(xmax1, xmax2, "Max x vertex", e=0.5)
     corner = coll.data.vertices[0].co
-    TT.assert_equiv(corner, (-4.18715, -7.89243, 7.08596,), f"Collision shape position")
+    TT.assert_equiv(corner, (-4.18715, -7.89243, 7.08596,), "Collision shape position")
 
     # ------- Export --------
 
@@ -546,17 +546,17 @@ def TEST_COLLISION_CONVEXVERT(bx):
     bodycheck = collcheck.body
     cvscheck = bodycheck.shape
 
-    TT.assert_eq(rootcheck.name, "CheeseWedge01", f"Root node name")
-    TT.assert_eq(rootcheck.blockname, "BSFadeNode", f"Root node type")
+    TT.assert_eq(rootcheck.name, "CheeseWedge01", "Root node name")
+    TT.assert_eq(rootcheck.blockname, "BSFadeNode", "Root node type")
 
-    TT.assert_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node type")
-    TT.assert_eq(collcheck.target, rootcheck, f"Collision target")
+    TT.assert_eq(collcheck.blockname, "bhkCollisionObject", "Collision node type")
+    TT.assert_eq(collcheck.target, rootcheck, "Collision target")
 
-    TT.assert_eq(bodycheck.blockname, "bhkRigidBody", f"Rigid body type")
-    TT.assert_eq(bodycheck.properties.mass, 2.5, f"Rigid body mass")
-    TT.assert_eq(bodycheck.properties.friction, 0.5, f"Rigid body friction")
+    TT.assert_eq(bodycheck.blockname, "bhkRigidBody", "Rigid body type")
+    TT.assert_eq(bodycheck.properties.mass, 2.5, "Rigid body mass")
+    TT.assert_eq(bodycheck.properties.friction, 0.5, "Rigid body friction")
 
-    TT.assert_eq(cvscheck.blockname, "bhkConvexVerticesShape", f"Collision shape type")
+    TT.assert_eq(cvscheck.blockname, "bhkConvexVerticesShape", "Collision shape type")
     TT.assert_eq(cvscheck.properties.bhkMaterial, SkyrimHavokMaterial.CLOTH, 
         "Collision body shape material")
 
@@ -565,8 +565,8 @@ def TEST_COLLISION_CONVEXVERT(bx):
     minxorig = min(v[0] for v in cvsorig.vertices)
     maxxorig = max(v[0] for v in cvsorig.vertices)
 
-    TT.assert_equiv(minxch, minxorig, f"Vertex x min")
-    TT.assert_equiv(maxxch, maxxorig, f"Vertex x max")
+    TT.assert_equiv(minxch, minxorig, "Vertex x min")
+    TT.assert_equiv(maxxch, maxxorig, "Vertex x max")
 
     # Re-import
     #
@@ -581,7 +581,7 @@ def TEST_COLLISION_CONVEXVERT(bx):
     cheese_new = bpy.context.object
     impcollshape = cheese_new.parent.constraints[0].target
     zmin = min([v.co.z for v in impcollshape.data.vertices])
-    TT.assert_gt(zmin, -0.01, f"Minimum z")
+    TT.assert_gt(zmin, -0.01, "Minimum z")
 
 
 @TT.category('SKYRIM', 'PHYSICS')
@@ -638,7 +638,7 @@ def TEST_COLLISION_CAPSULE(bx):
 
     staff = TTB.find_shape("3rdPersonStaff04")
     coll = staff.parent.constraints[0].target
-    assert coll.pyn_collshape.bhkMaterial == 'SOLID_METAL', f"Have correct material"
+    assert coll.pyn_collshape.bhkMaterial == 'SOLID_METAL', "Have correct material"
     strd = TTB.find_shape("NiStringExtraData", type="EMPTY")
     bsxf = TTB.find_shape("BSXFlags", type="EMPTY")
     invm = TTB.find_shape("BSInvMarker", type="EMPTY")
@@ -748,7 +748,7 @@ def TEST_COLLISION_LIST(bx):
     assert yvals == expectedy, f"Have expected y vals: {yvals} == {expectedy}"
 
     assert collshape.name.startswith("bhkListShape"), f"Found list collision shape: {collshape.name}"
-    assert len(collshape.children) == 3, f" Collision shape has children"
+    assert len(collshape.children) == 3, " Collision shape has children"
 
     # -------- Export --------
     BD.ObjectSelect([root], active=True)
@@ -781,13 +781,13 @@ def TEST_COLLISION_LIST(bx):
     convex_xf = Matrix(convex_xf_shape.properties.transform)
     assert convex_xf.to_scale()[0] == 1.0, f"Have the correct scale: {convex_xf.to_scale()}"
 
-    assert convex_xf_shape.child.blockname == "bhkBoxShape", f"Found the box shape"
+    assert convex_xf_shape.child.blockname == "bhkBoxShape", "Found the box shape"
 
     # Check that the ConvexTransforms put the collision shapes in the right place,
     # no matter what order they're written.
     xflist = set(round(xfs.transform[1][3], 3) for xfs in xfshapesorig)
     xfcheck = set(round(xfs.transform[1][3], 3) for xfs in xfshapescheck)
-    assert xflist == xfcheck, f"Have same transforms in both files"
+    assert xflist == xfcheck, "Have same transforms in both files"
 
     cts45check = None
     for cts in listcheck.children:
@@ -817,7 +817,7 @@ def TEST_COLLISION_BOW_CHANGE():
     strd = TTB.find_shape("NiStringExtraData", type='EMPTY')
     bsxf = TTB.find_shape("BSXFlags", type='EMPTY')
     invm = TTB.find_shape("BSInvMarker", type='EMPTY')
-    assert TT.is_eq(collshape.name, 'bhkBoxShape', f"Found collision shape")
+    assert TT.is_eq(collshape.name, 'bhkBoxShape', "Found collision shape")
     
     collshape.name = "bhkConvexVerticesShape"
 
@@ -834,13 +834,13 @@ def TEST_COLLISION_BOW_CHANGE():
     collcheck = midbowcheck.collision_object
     assert TT.is_eq(collcheck.blockname, "bhkCollisionObject", f"Collision node block set: {collcheck.blockname}")
     bodycheck = collcheck.body
-    assert TT.is_eq(bodycheck.properties.bufType, PynBufferTypes.bhkRigidBodyBufType, f"Have correct buffer type")
+    assert TT.is_eq(bodycheck.properties.bufType, PynBufferTypes.bhkRigidBodyBufType, "Have correct buffer type")
 
     names = [x.name for x in nifcheck.root.extra_data(blockname="BSBehaviorGraphExtraData")]
     assert TT.is_contains("BGED", names, f"Error: Expected BGED in {names}")
     bgedCheck = nifcheck.root.get_extra_data(blockname='BSBehaviorGraphExtraData', name='BGED')
-    assert TT.is_eq(bgedCheck.behavior_graph_file, "Weapons\\Bow\\BowProject.hkx", f"Extra data value")
-    assert TT.is_eq(bgedCheck.controls_base_skeleton, False, f"Extra data controls base skeleton")
+    assert TT.is_eq(bgedCheck.behavior_graph_file, "Weapons\\Bow\\BowProject.hkx", "Extra data value")
+    assert TT.is_eq(bgedCheck.controls_base_skeleton, False, "Extra data controls base skeleton")
 
 
 @TT.min_version(4, 0, 0)
@@ -912,11 +912,11 @@ def TEST_COLLISION_XFORM():
     listcheck = rbcheck.shape
     capsules = [c.child for c in listcheck.children if c.child.blockname == "bhkCapsuleShape"]
     assert capsules[0].properties.point1[1] < 0 < capsules[0].properties.point2[1], \
-        f"Capsule crosses origin"
+        "Capsule crosses origin"
     
     capcts = listcheck.children[0] 
     capshape = capcts.child
-    assert capshape.blockname == 'bhkCapsuleShape', f"Have the capsule"
+    assert capshape.blockname == 'bhkCapsuleShape', "Have the capsule"
     capmaxy = (capcts.transform[1][3] + capshape.properties.point2[1]) * HAVOC_SCALE_FACTOR
     assert BD.NearEqual(capmaxy, 67, epsilon=1.0), f"Capsule max y correct: {capmaxy}"
 

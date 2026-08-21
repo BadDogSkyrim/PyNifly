@@ -801,7 +801,7 @@ def TEST_SKYRIMSE_HKX_BINARY_FORMAT():
         assert cap & 0x80000000, \
             f"{name} cap must have DONT_DEALLOCATE flag (got {cap:#010x})"
 
-    print(f"    Binary format validation passed")
+    print("    Binary format validation passed")
 
 
 def TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY():

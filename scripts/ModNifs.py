@@ -69,4 +69,4 @@ for td in target_directory:
         if i % 1000 == 0:
             print(f"Checked {i} files...")
         fix_nif(f)
-print(f"Done.")
+print("Done.")

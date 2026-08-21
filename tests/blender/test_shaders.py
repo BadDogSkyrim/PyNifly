@@ -30,20 +30,20 @@ def TEST_SHADER_LE():
 
     headobj = bpy.context.object
     TT.assert_contains('SkyrimShader:Face', headobj.active_material.node_tree.nodes, 
-        f"Have face shader")
+        "Have face shader")
     bsdf = headobj.active_material.node_tree.nodes['SkyrimShader:Face']
-    assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
+    assert bsdf.inputs['Diffuse'].is_linked, "Have a base color"
     diff_img = BD.find_node(bsdf.inputs['Diffuse'], "ShaderNodeTexImage")
-    TT.assert_gt(len(diff_img), 0, f"Have diffuse texture image node")
-    TT.assert_gt(len(diff_img[0].image.filepath), 0, f"Have diffuse texture filepath")
-    assert bsdf.inputs['Normal'].is_linked, f"Have a normal map"
-    assert bsdf.inputs['Diffuse'].is_linked, f"Have a base color"
-    assert bsdf.inputs['Specular'].is_linked, f"Have specular"
-    assert not bsdf.inputs['Specular Color'].is_linked, f"Specular color not linked"
-    TT.assert_equiv(bsdf.inputs['Glossiness'].default_value, 33, f"Glossiness value")
+    TT.assert_gt(len(diff_img), 0, "Have diffuse texture image node")
+    TT.assert_gt(len(diff_img[0].image.filepath), 0, "Have diffuse texture filepath")
+    assert bsdf.inputs['Normal'].is_linked, "Have a normal map"
+    assert bsdf.inputs['Diffuse'].is_linked, "Have a base color"
+    assert bsdf.inputs['Specular'].is_linked, "Have specular"
+    assert not bsdf.inputs['Specular Color'].is_linked, "Specular color not linked"
+    TT.assert_equiv(bsdf.inputs['Glossiness'].default_value, 33, "Glossiness value")
     TT.assert_patheq(headobj.active_material['BSShaderTextureSet_SoftLighting'], 
                      r"textures\actors\character\male\MaleHead_sk.dds", 
-                     f"stashed texture path")
+                     "stashed texture path")
 
     ### WRITE ###
 
@@ -57,7 +57,7 @@ def TEST_SHADER_LE():
     nifcheck = pyn.NifFile(outfile)
     headcheck = nifcheck.shapes[0]
     
-    TT.assert_samemembers(headcheck.textures.keys(), head.textures.keys(), f"texture slots")
+    TT.assert_samemembers(headcheck.textures.keys(), head.textures.keys(), "texture slots")
     for k in headcheck.textures:
         TT.assert_patheq(headcheck.textures[k], head.textures[k], f"{k} texture path")
 
@@ -141,10 +141,10 @@ def TEST_SHADER_FO4():
 
     assert TT.is_samemembers(shapecheck.textures.keys(), 
         ('Wrinkles', 'RootMaterialPath', 'EnvMap', 'Specular', 'Normal', 'Diffuse',), 
-        f"texture slots")
-    assert TT.is_patheq(shapecheck.textures['Diffuse'], r"Actors\Character\BaseHumanMale\BaseMaleHead_d.dds", f"diffuse")
-    assert TT.is_patheq(shapecheck.textures['Normal'], r"Actors\Character\BaseHumanMale\BaseMaleHead_n.dds", f"normal")
-    assert TT.is_patheq(shapecheck.textures['Specular'], r"Actors\Character\BaseHumanMale\BaseMaleHead_s.dds", f"specular")
+        "texture slots")
+    assert TT.is_patheq(shapecheck.textures['Diffuse'], r"Actors\Character\BaseHumanMale\BaseMaleHead_d.dds", "diffuse")
+    assert TT.is_patheq(shapecheck.textures['Normal'], r"Actors\Character\BaseHumanMale\BaseMaleHead_n.dds", "normal")
+    assert TT.is_patheq(shapecheck.textures['Specular'], r"Actors\Character\BaseHumanMale\BaseMaleHead_s.dds", "specular")
 
     assert not shapecheck.properties.compare(shapeorig.properties), \
         f"Shader attributes preserved: {shapecheck.properties.compare(shapeorig.properties)}"
@@ -269,7 +269,7 @@ def TEST_SHADER_ALPHA():
     tail = bpy.data.objects["tail_fur"]
     TT.assert_contains('SkyrimShader:Default', tail.active_material.node_tree.nodes.keys(), "Shader")
     bsdf = tail.active_material.node_tree.nodes['SkyrimShader:Default']
-    assert bsdf.inputs['Normal'].is_linked, f"Have normal map"
+    assert bsdf.inputs['Normal'].is_linked, "Have normal map"
     TT.assert_contains('Diffuse_Texture', tail.active_material.node_tree.nodes.keys(), "Diffuse texture node")
     alpha = bsdf.inputs['Alpha Property'].links[0].from_node
     TT.assert_eq(alpha.inputs['Alpha Test'].default_value, True, "Alpha Test")
@@ -286,7 +286,7 @@ def TEST_SHADER_ALPHA():
     diffs = checkfurshape.shader.properties.compare(furshape.shader.properties)
     assert not diffs, f"No difference in properties: {diffs}"
 
-    assert checkfurshape.has_alpha_property, f"Have alpha property"
+    assert checkfurshape.has_alpha_property, "Have alpha property"
     TT.assert_eq(checkfurshape.alpha_property.properties.flags, furshape.alpha_property.properties.flags, 
                  "Alpha flags")
     TT.assert_eq(checkfurshape.alpha_property.properties.threshold, furshape.alpha_property.properties.threshold, 
@@ -369,7 +369,7 @@ def TEST_TEXTURE_PATHS(txtdir):
     mat = circlet.active_material
     bsdf = mat.node_tree.nodes['Material Output'].inputs['Surface'].links[0].from_node
     diffuse = shader_io.get_image_filepath(bsdf.inputs['Diffuse'])
-    assert TT.is_patheq(Path(diffuse), diffuse_file, f"diffuse texture path")
+    assert TT.is_patheq(Path(diffuse), diffuse_file, "diffuse texture path")
     norm = shader_io.get_image_filepath(bsdf.inputs['Normal'])
     assert TT.is_patheq(Path(norm), normal_file, "normal texture path")
 
@@ -399,8 +399,8 @@ def TEST_CAVE_GREEN():
     
     assert bsdf.inputs['Vertex Color'].is_linked, "Vertex Color linked to node"
     n = BD.find_node(bsdf.inputs['Vertex Color'], 'ShaderNodeAttribute')[0]
-    assert n.attribute_name == "VERTEX_COLOR", f"Using vertex colors"
-    assert n.attribute_type == "GEOMETRY", f"Using vertex colors"
+    assert n.attribute_name == "VERTEX_COLOR", "Using vertex colors"
+    assert n.attribute_type == "GEOMETRY", "Using vertex colors"
 
     roots = TTB.find_shape("L2_Roots:5")
 
@@ -454,7 +454,7 @@ def TEST_COLORS2():
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
     obj = bpy.context.object
-    assert obj.data.attributes['VERTEX_COLOR'].domain == 'POINT', f"Have vertec colors in Blender"
+    assert obj.data.attributes['VERTEX_COLOR'].domain == 'POINT', "Have vertec colors in Blender"
     colordata = obj.data.attributes['VERTEX_COLOR'].data
     targetv = TTB.find_vertex(obj.data, (1.62, 7.08, 0.37))
     assert colordata[0].color[:] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not read correctly: {colordata[0].color[:]}"
@@ -620,11 +620,11 @@ def TEST_VERTEX_ALPHA_IO():
     head = bpy.context.object
     nodes = head.active_material.node_tree.nodes
     shader = nodes["SkyrimShader:Face"]
-    assert shader, f"Found shader"
+    assert shader, "Found shader"
     diffuse = BD.find_node(shader.inputs["Diffuse"], "ShaderNodeTexImage")[0]
     TT.assert_eq(diffuse.bl_idname, "ShaderNodeTexImage", "diffuse shader node")
     TT.assert_eq_nocase(Path(diffuse.image.filepath).stem, 'KhajiitMaleHead', "diffuse file name")
-    assert shader.inputs['Alpha Property'].is_linked, f"Have alpha map"
+    assert shader.inputs['Alpha Property'].is_linked, "Have alpha map"
 
     bpy.ops.export_scene.pynifly(filepath=outfile)
 
@@ -689,7 +689,7 @@ def TEST_VERTEX_ALPHA():
             alphamap = objcheck.data.attributes[BD.ALPHA_MAP_NAME]
         except:
             alphamap = objcheck.data.vertex_colors[BD.ALPHA_MAP_NAME]
-        assert alphamap.name == BD.ALPHA_MAP_NAME, f"Expected alpha map"
+        assert alphamap.name == BD.ALPHA_MAP_NAME, "Expected alpha map"
 
         #check that imported color is still 188
         for i, c in enumerate(alphamap.data):
@@ -1129,7 +1129,7 @@ def TEST_FACEGEN():
     eyes = [obj for obj in bpy.context.selected_objects if obj.name.startswith('FFOUngulateMaleEyes')][0]
 
     # Head in world coordinates should be taller than wide.
-    diag = TTB.get_obj_bbox(head, worldspace=True);
+    diag = TTB.get_obj_bbox(head, worldspace=True)
     assert diag[1].x-diag[0].x < diag[1].z-diag[0].z, f"Head is taller than wide: {diag[1]-diag[0]}"
     exmin = min((eyes.matrix_world @ v.co).x for v in eyes.data.vertices)
     exmax = max((eyes.matrix_world @ v.co).x for v in eyes.data.vertices)

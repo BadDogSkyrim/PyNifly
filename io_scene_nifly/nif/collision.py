@@ -10,7 +10,7 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from ..pyn.nifconstants import (
     HAVOC_SCALE_FACTOR, game_collision_sf, SkyrimCollisionLayer, SkyrimHavokMaterial,
     bhkCOFlags)
-from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix,
+from ..blender_defs import (ObjectSelect, transform_to_matrix,
                             find_box_info, append_if_new, MatrixLocRotScale)
 from ..pyn.niflytools import MatNearEqual
 from .. import blender_defs as BD
