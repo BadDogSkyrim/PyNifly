@@ -1993,6 +1993,63 @@ def TEST_NO_DUPLICATE_BLOCK_CLASSES():
             TT.assert_eq(int(cls.buffer_type), i,
                          f"class at buffer_types[{i}] claims that buffer type")
 
+
+def TEST_SF_CDB_READ():
+    """Read the real Starfield material database.
+
+    sf_cdb.py is 727 lines that nothing exercised. It decodes materialsbeta.cdb, which
+    stores materials by resource ID with no file paths -- so the path -> resource-ID
+    addressing has to be right or nothing resolves at all.
+
+    Values pinned against the shipping database (v4, build 1.16.244.0, 48,755 materials).
+    """
+    import json
+    import tempfile
+    from pyn import sf_cdb
+    from pyn.sf_materials import material_id
+
+    cdb_path = os.path.join(TT.SF_ASSETS, 'materials', 'materialsbeta.cdb')
+    assert os.path.exists(cdb_path), f"Starfield material DB not found at {cdb_path}"
+
+    cdb = sf_cdb.load_cdb(cdb_path)
+    TT.assert_eq(cdb.version, 4, "cdb format version")
+    TT.assert_eq(cdb.build_version, '1.16.244.0', "cdb build version")
+    TT.assert_eq(len(cdb.resource_to_db), 48755, "material count")
+
+    # Path -> database id. The whole addressing scheme rests on this.
+    TT.assert_eq(cdb.material_dbid(r"Materials\Actors\Human\Faces\male_default.mat"),
+                 13399, "male_default dbid")
+    TT.assert_eq(cdb.material_dbid(r"Materials\Actors\Human\Eyelashes\male_eyelash.mat"),
+                 2660, "male_eyelash dbid")
+    TT.assert_eq(cdb.material_dbid(r"Materials\Nonexistent\nope.mat"),
+                 None, "unknown material resolves to nothing")
+
+    # sf_cdb.crc32 and sf_materials.material_id are separate implementations of the same
+    # CRC. They must agree, or a material found in the DB gets a different MaterialID
+    # written into the nif.
+    for mp in (r"Materials\Actors\Human\Faces\male_default.mat",
+               r"Materials\Actors\Human\Eyelashes\male_eyelash.mat"):
+        TT.assert_eq(sf_cdb.crc32(mp.lower()), material_id(mp),
+                     f"crc32 agrees with material_id for {mp}")
+
+    # End to end: extract to loose .mat JSON, in the same shape a loose file has.
+    outdir = tempfile.mkdtemp()
+    out = sf_cdb.extract_material(cdb, r"Materials\Actors\Human\Faces\male_default.mat", outdir)
+    assert out, "extract_material returned a path"
+    TT.assert_true(os.path.exists(out), "material file written")
+    TT.assert_true(out.lower().endswith(
+        os.path.join('materials', 'actors', 'human', 'faces', 'male_default.mat').lower()),
+        "written to the mirrored material path")
+
+    doc = json.load(open(out, encoding='utf-8'))
+    TT.assert_eq(doc['Version'], 1, "loose .mat document version")
+    TT.assert_eq(len(doc['Objects']), 34, "male_default object count")
+    names = [c['Data']['Name'] for o in doc['Objects'] for c in o.get('Components', [])
+             if c.get('Type') == 'BSComponentDB::CTName']
+    TT.assert_contains('male_default', names, "CTName component names the material")
+
+    TT.assert_eq(sf_cdb.extract_material(cdb, r"Materials\Nope\x.mat", outdir), None,
+                 "extracting an unknown material returns nothing")
 def TEST_READ_WRITE():
     """Basic load-and-store for Skyrim--Can read the armor nif and spit out armor and body separately"""
     testfile = "tests/Skyrim/test.nif"
@@ -3199,7 +3256,7 @@ def TEST_SHADER_TYPE_OVERRIDE():
 @test_category('SHADER')
 def TEST_SHADER_SCAFFOLD():
     testfile = r"tests\FO4\ScaffFrame1x2Str01.nif"
-    nif = NifFile(testfile, materialsRoot=r"C:\Modding\FalloutAssets\00 FO4 Assets")
+    nif = NifFile(testfile, materialsRoot=TT.FO4_ASSETS)
     CHK.Check_ScaffoldFrame(nif)
 
 
@@ -4907,7 +4964,7 @@ def TEST_HKX_SKELETON_ROUNDTRIP():
         'atronachfrost/character assets/skeleton.hkx',
         'dragon/character assets/skeleton.hkx',
     ]
-    base = Path(r'C:/Modding/SkyrimSEAssets/00 Vanilla Assets/meshes/actors')
+    base = Path(TT.SKYRIM_ASSETS) / 'meshes' / 'actors'
     files = [base / c for c in candidates if (base / c).exists()]
     if not files:
         print("(skipped — vanilla SE assets not available)")

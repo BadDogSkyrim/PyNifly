@@ -21,8 +21,9 @@ _pynifly_test_path = Path(_pynifly_dev_root, "pynifly", "tests")
 log = logging.getLogger("pynifly")
 
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSE\00 Vanilla Assets"
-PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
+from . import test_tools as _TT
+PYNIFLY_TEXTURES_SKYRIM = _TT.SKYRIM_ASSETS
+PYNIFLY_TEXTURES_FO4 = _TT.FO4_ASSETS
 
 # Textures committed alongside the fixtures, e.g. tests/tests/SkyrimSE/textures/YAS/...
 # find_referenced_file only searches relative to the nif when 'meshes' is in the nif's

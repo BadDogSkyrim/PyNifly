@@ -15,8 +15,17 @@ pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 log = logging.getLogger("pynifly")
 
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
-PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
+# Unpacked vanilla game assets. Single source of truth -- test_tools_bpy and
+# pynifly_tests both take these from here. There used to be three separate copies of
+# the Skyrim path and they drifted: two still pointed at C:/Modding/SkyrimSEAssets,
+# which does not exist, so TEST_HKX_SKELETON_ROUNDTRIP silently skipped itself and
+# every Skyrim texture lookup fell through to nothing.
+SKYRIM_ASSETS = os.path.join('C:' + os.sep, 'Modding', 'SkyrimSE', '00 Vanilla Assets')
+FO4_ASSETS    = os.path.join('C:' + os.sep, 'Modding', 'FalloutAssets', '00 FO4 Assets')
+SF_ASSETS     = os.path.join('C:' + os.sep, 'Modding', 'Starfield', '00 Starfield Assets')
+
+PYNIFLY_TEXTURES_SKYRIM = SKYRIM_ASSETS
+PYNIFLY_TEXTURES_FO4 = FO4_ASSETS
 
 
 def min_version(*args):

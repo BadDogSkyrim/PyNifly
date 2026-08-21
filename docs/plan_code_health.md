@@ -1,6 +1,6 @@
 # Plan: code health burn-down
 
-Status: **Phases 1-5 complete** (2026-08-21), except the CI action (CH-5.2), which is deliberately deferred. Phase 6 not started. Audit run against `main` @ `2064a5c`.
+Status: **complete** (2026-08-21). All six phases done, except CH-5.2 (the CI action), deliberately deferred. Audit run against `main` @ `2064a5c`.
 
 Actions are coded `CH-<phase>.<n>` and referred to by code. `CH-S*` are standing habits (never
 ticked off); `CH-X*` are things deliberately excluded, listed so they don't get re-litigated.
@@ -544,11 +544,41 @@ over the editor extension. Left open rather than closed, in case that changes.
 
 ## Phase 6 — test the untested new code
 
-- [ ] **CH-6.1** — **`pyn/sf_cdb.py` — 727 lines, zero test references** in any of the three test files. It's
+- [x] **CH-6.1** — **`pyn/sf_cdb.py` — 727 lines, zero test references** in any of the three test files. It's
       the only module from the recent push without tests, and it's pure `pyn/` code with no
       Blender dependency, so it's the easy kind to cover. One functional test in
       `pynifly_tests.py` against a real `materialsbeta.cdb` slice — open it, pull a known
       material, assert its fields — covers the parser's spine.
+
+### Phase 6 results (2026-08-21)
+
+**`TEST_SF_CDB_READ`** covers `sf_cdb.py`, 727 lines that nothing exercised. It reads the real
+shipping database from `TT.SF_ASSETS` and pins format version 4, build `1.16.244.0` and
+**48,755 materials**, then checks the part that actually matters: the database stores materials
+by **resource ID with no file paths**, so `path -> dbid` addressing has to be exactly right or
+nothing resolves. Two known paths resolve to 13399 and 2660, an unknown one to `None`.
+
+It also asserts something no single-module test would: **`sf_cdb.crc32` and
+`sf_materials.material_id` are separate implementations of the same CRC and must agree.** If
+they drift, a material found in the database gets a different MaterialID written into the nif.
+
+Finally an end-to-end extract to loose `.mat` JSON -- mirrored path, `Version` 1, 34 objects,
+and the `BSComponentDB::CTName` component naming the material.
+
+#### A vacuous test found on the way
+
+`TEST_HKX_SKELETON_ROUNDTRIP` pointed at `C:/Modding/SkyrimSEAssets/00 Vanilla Assets`, which
+does not exist. Its `files` list came out empty, it printed *"(skipped -- vanilla SE assets not
+available)"* and returned -- **passing while exercising nothing**. It is in the passing list and
+has been for as long as that path has been wrong. All six skeletons it wants are present at the
+correct root; it now runs for real.
+
+That was the **third** copy of the stale path. CH-1.6 fixed the one in `test_tools_bpy.py`;
+`test_tools.py` had its own (unused and stale), and `pynifly_tests.py` a third inline. They had
+drifted because there were three of them. Now there is one definition -- `TT.SKYRIM_ASSETS`,
+`TT.FO4_ASSETS`, `TT.SF_ASSETS` in `test_tools.py` -- and both suites take the roots from there.
+
+**pyn suite: 146 -> 148 tests**, all passing; Blender 4.2 235 / 5.1 282 / 5.2 282 unchanged.
 
 ---
 
