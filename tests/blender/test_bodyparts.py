@@ -1900,7 +1900,7 @@ def TEST_JIARAN():
     assert len(nif1.shapes) == 1, f"Expected Jiaran nif"
 
 
-@TT.category('FO4', 'BODYPARTS')
+@TT.category('FO4', 'BODYPART')
 @TT.expect_errors(("Could not find materials file",))
 def TEST_FULL_PRECISION():
     """Can set full precision."""
@@ -1923,7 +1923,7 @@ def TEST_FULL_PRECISION():
         f"Has full precision: {nifout.shapes[0].properties.hasFullPrecision}"
 
 
-@TT.category('FO4', 'BODYPARTS')
+@TT.category('FO4', 'BODYPART')
 @TT.expect_errors(("Could not find materials file",))
 def TEST_FULL_PRECISION_OPTION():
     """The export dialog's full-precision option sets/clears the shape's hasFullPrecision property."""

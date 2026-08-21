@@ -896,7 +896,7 @@ def TEST_SPLIT_NORMALS():
     assert found >= 0, "Triangle not in output mesh"
 
 
-@TT.category('SKYRIM', 'SHADER', 'SHAPEKEYS')
+@TT.category('SKYRIM', 'SHADER', 'SHAPEKEY')
 def TEST_ROGUE02():
     """Shape keys export normals correctly"""
     # Shape keys and custom normals interfere with each other. If a shape key warps the

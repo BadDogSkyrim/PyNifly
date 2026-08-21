@@ -437,10 +437,13 @@ Two facts worth recording that came out of checking the category list:
   `test_categories` are `(3,0)`, i.e. no constraint beyond the addon's own 4.0 floor. Twelve
   categories in use are not declared at all and default to `(0,0)` — harmless, but the dict is
   not the taxonomy it looks like.
-- **`'BODYPARTS'`, `'SHAPEKEYS'` and `'FURNITUREMARKER'` are typos** of `'BODYPART'`,
-  `'SHAPEKEY'` and `'FURNITURE'`, used by 2, 1 and 3 tests. They silently create a parallel
-  category nothing selects. Documented rather than fixed, since renaming changes selection
-  behaviour and is not a docs change.
+- **`'BODYPARTS'`, `'SHAPEKEYS'` and `'FURNITUREMARKER'` were typos** of `'BODYPART'`,
+  `'SHAPEKEY'` and `'FURNITURE'`, used by 2, 1 and 3 tests, silently creating a parallel category
+  nothing could select. **Fixed on request** (2026-08-20): the six sites renamed, the canonical
+  list moved to `TT.TEST_CATEGORIES` in `test_tools.py` and completed with the twelve categories
+  that were in use but undeclared, and `@TT.category` now raises `ValueError` on an unknown name
+  so the next typo fails at import. All three targets were declared `(3,0)` and the typo forms
+  defaulted to `(0,0)`, so nothing was gated differently -- passing sets identical on 4.2/5.1/5.2.
 
 **PROJECT_PLAN.md** — kept; it holds reminders and format notes that have no other home. Given a
 header saying what belongs there versus `docs/plan_*.md` and `TODO.md`. Its one "Open Issue", the

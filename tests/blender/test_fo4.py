@@ -1244,7 +1244,7 @@ def TEST_CONNECT_WORKSHOP2():
                     0, "Origin location")
 
 
-@TT.category('SKYRIMSE', 'FURNITUREMARKER')
+@TT.category('SKYRIMSE', 'FURNITURE')
 def TEST_FARMBENCH():
     """Furniture markers work"""
 
@@ -1276,7 +1276,7 @@ def TEST_FARMBENCH():
     assert TT.is_eq(len(fmcheck.furniture_markers), 2, f"furniture marker list length")
 
 
-@TT.category('SKYRIMSE', 'FURNITUREMARKER')
+@TT.category('SKYRIMSE', 'FURNITURE')
 def TEST_COMMONCHAIR():
     """Furniture markers work"""
 
@@ -1305,7 +1305,7 @@ def TEST_COMMONCHAIR():
     assert TT.is_eq(fmcheck.furniture_markers[0].entry_points, 13, f"Entry point data is correct")
 
 
-@TT.category('FO4', 'FURNITUREMARKER')
+@TT.category('FO4', 'FURNITURE')
 def TEST_FO4_CHAIR():
     """Furniture markers are imported and exported"""
 

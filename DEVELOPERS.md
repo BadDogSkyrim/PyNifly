@@ -154,7 +154,8 @@ tests carrying it, and the Skyrim one for everything else. Tag FO4 tests accordi
 - `'XFORM'` - transforms  ·  `'SCALING'` - scaling  ·  `'GEOMETRY'` - mesh geometry
 
 #### Minimum Blender version
-`test_categories` in `blender_tests.py` maps a category to the lowest Blender it can run on.
+`TT.TEST_CATEGORIES` in `test_tools.py` maps a category to the lowest Blender it can run on
+(`blender_tests.test_categories` is an alias for it).
 Only two carry a real constraint: **`'ANIMATION'` and `'HKX'` require 4.4**, because animation
 import and export are gated on `bpy.types.ActionSlot`. Everything else is listed at `(3,0)`,
 which means "no constraint beyond the addon's own 4.0 floor". A test that depends on an
@@ -163,10 +164,10 @@ Blender 4.0-4.3.
 
 For a one-off limit unrelated to a category, use `@TT.min_version(5, 1, 0)`.
 
-**Watch for near-duplicates.** `'BODYPARTS'`, `'SHAPEKEYS'` and `'FURNITUREMARKER'` exist in the
-suite as typos of `'BODYPART'`, `'SHAPEKEY'` and `'FURNITURE'`. They silently create a separate
-category that nothing selects and that has no declared version minimum. Check the list above
-before inventing a name.
+**Category names are validated.** `@TT.category` raises `ValueError` on a name that is not in
+`TT.TEST_CATEGORIES`, so a typo fails at import rather than silently creating a parallel
+category nothing can select. `'BODYPARTS'`, `'SHAPEKEYS'` and `'FURNITUREMARKER'` were exactly
+that, and are gone. To add a genuinely new category, add it to `TEST_CATEGORIES` first.
 
 #### Example Usage
 ```python

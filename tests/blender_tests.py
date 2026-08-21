@@ -19,30 +19,9 @@ from .blender.test_starfield import *
 from .blender.test_animation import *
 
 
-test_categories = {
-    # Category and minimum Blender version supported.
-    'ANIMATION': (4,4,), # Animations, embedded in NIF files
-    'ARMATURE': (3,0,), # Armature from nif bones
-    'BODYPART': (3,0,), # meshes rigged for bodyparts
-    'CONNECTPOINT': (3,0,), # Connect points and properties
-    'EXTRA_DATA': (3,0,), # Extra data attached to nodes
-    'FACEBONES': (3,0,), # Facebone animations and exports
-    'FACEGEN': (3,0,), # Facegen-specific tests
-    'FO4': (3,0,), # Fallout 4-specific tests
-    'FURNITURE': (3,0,), # Furniture markers and properties
-    'HKX': (4,4,), # HKX and KF animations
-    'INVENTORY_MARKER': (3,0,), # Inventory markers and properties
-    'LOD': (3,0,), # LOD handling
-    'PARTITIONS': (3,0,), # Body partitions and vertex groups
-    'PHYSICS': (3,0,), # Object collisions and physics
-    'SCALING': (3,0,), # Tests of import/export scaling
-    'SETTINGS': (3,0,), # Tests of various import/export settings
-    'SHADER': (3,0,), # Shader properties and effects
-    'SHAPEKEY': (3,0,), # Shape keys and morphs
-    'SKYRIM': (3,0,), # Skyrim-specific tests
-    'TRI': (3,0,), # Tri file tests
-    'XFORM': (3,0,), # Tests of transforms
-    }
+# The canonical list lives in test_tools so the @TT.category decorator can validate
+# against it. execute_test reads it here to find a test's minimum Blender version.
+test_categories = TT.TEST_CATEGORIES
 
 
 
