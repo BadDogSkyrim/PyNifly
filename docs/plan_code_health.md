@@ -1,6 +1,6 @@
 # Plan: code health burn-down
 
-Status: **Phases 1-3 complete** (2026-08-20). Phases 4-6 not started. Audit run against `main` @ `2064a5c`.
+Status: **Phases 1-4 complete** (2026-08-20). Phases 5-6 not started. Audit run against `main` @ `2064a5c`.
 
 Actions are coded `CH-<phase>.<n>` and referred to by code. `CH-S*` are standing habits (never
 ticked off); `CH-X*` are things deliberately excluded, listed so they don't get re-litigated.
@@ -400,11 +400,58 @@ which are gone. See CH-X4.
 
 ## Phase 4 — docs that contradict the code
 
-- [ ] **CH-4.1** — **`README.md`** — last commit 2026-03-18, before Starfield material I/O, FO4 collision
+- [x] **CH-4.1** — **`README.md`** — last commit 2026-03-18, before Starfield material I/O, FO4 collision
       export, SF morphs and the HKX skeleton writers all shipped. It's the file users read.
-- [ ] **CH-4.2** — **`DEVELOPERS.md`** (2026-03-12) and **`PROJECT_PLAN.md`** (2026-03-31) — same vintage.
+- [x] **CH-4.2** — **`DEVELOPERS.md`** (2026-03-12) and **`PROJECT_PLAN.md`** (2026-03-31) — same vintage.
       Decide whether `PROJECT_PLAN.md` still has a job now that `docs/plan_*.md` carries the real
       planning.
+
+### Phase 4 results (2026-08-20)
+
+**README** — the version line was fixed in Phase 2; the feature list still said "Supports FO4,
+Skyrim LE, Skyrim SE" and predated everything shipped since March. Now covers Starfield, FO4
+dismemberment cut offsets, collision *export* (Skyrim MOPP and FO4 native physics), hkx skeleton
+export, trees/switch nodes, and the named property panels.
+
+**DEVELOPERS.md** — had four things that were actively wrong, not merely stale:
+
+- The project tree listed four directories; there are twelve. It also still described
+  `tests/blender_tests.py` as "main test cases". Rewritten, with the `pyn/` no-`bpy` rule stated
+  explicitly and a note on where to put a new test.
+- The example called `ND.NifFile(outfile)` — an alias that does not exist anywhere in the suite.
+  Now `pyn.NifFile`.
+- The check-routine list was missing `is_neq`, `is_le`, `is_true`, `get_property` and the entire
+  `assert_*` family (17 functions).
+- The category list included `'FO3'` and `'MESH'`, neither of which is a category, and omitted
+  twelve that are in use — including `'STARFIELD'`, `'HKX'` and `'MOPP'`. The `do_tests` example
+  selected `categories=['SKYRIM', 'MESH']`, which would have matched nothing.
+
+Also replaced the "open Blender, load the script into the text editor" instructions with the
+headless command, since that is how these are actually run, plus the two traps that cost time:
+`PYNIFLY_DEV_ROOT` is the **parent** of the checkout, and the per-version addons directory must
+be a junction rather than a copy.
+
+Two facts worth recording that came out of checking the category list:
+
+- **Only `'ANIMATION'` and `'HKX'` carry a real version minimum** (4.4). The other 19 entries in
+  `test_categories` are `(3,0)`, i.e. no constraint beyond the addon's own 4.0 floor. Twelve
+  categories in use are not declared at all and default to `(0,0)` — harmless, but the dict is
+  not the taxonomy it looks like.
+- **`'BODYPARTS'`, `'SHAPEKEYS'` and `'FURNITUREMARKER'` are typos** of `'BODYPART'`,
+  `'SHAPEKEY'` and `'FURNITURE'`, used by 2, 1 and 3 tests. They silently create a parallel
+  category nothing selects. Documented rather than fixed, since renaming changes selection
+  behaviour and is not a docs change.
+
+**PROJECT_PLAN.md** — kept; it holds reminders and format notes that have no other home. Given a
+header saying what belongs there versus `docs/plan_*.md` and `TODO.md`. Its one "Open Issue", the
+UV V-flip in the core library, is **done** — resolved exactly as the note proposed. There is no
+`1-v` left anywhere in `pynifly.py`; the flip is now in the Blender export path at
+`export_nif.py:2028`. Moved to Done with that evidence.
+
+Its FO4 packfile offset table looked like a duplicate of `docs/fo4_havok_packfile_format.md` and
+was nearly deleted as such. **It is not** — the offset sets barely overlap because the two use
+different bases (that document covers the packfile as a whole; this table is the `body_props`
+array). Cross-referenced both ways instead.
 
 ---
 
