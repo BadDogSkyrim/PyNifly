@@ -348,6 +348,14 @@ silently disabled** and would have passed no matter what the addon logged. `expe
 coerces a bare string to a one-tuple so it cannot recur, and all three tests pass with only their
 stated message suppressed -- the character matching had not been hiding anything else.
 
+**Caveat, found 2026-08-21.** The pruning rested on *one observation per Blender version*.
+`TEST_FACEGEN_SE` names YAS/Lykaios textures that live in a mod folder rather than the vanilla
+assets directory the suite points at, so whether they resolve depends on machine state. Its
+`'Could not find texture'` / `'Could not load'` entries measured as never-firing on all three
+versions, were pruned, and later fired on 5.2 -- breaking that test. Restored. Anything
+environment-dependent could have been pruned the same way; the suite is the safety net, but
+treat the 42 removals as "measured once", not "proven dead".
+
 The remaining 83 entries look legitimate: warnings the test deliberately provokes (19x "assigned
 to more than one partition", "will not dismember in game"), and unsupported-feature notices
 ("Unknown block type: ...", "bhkPhysicsSystem decode failed"). The **materials/texture** band-aid

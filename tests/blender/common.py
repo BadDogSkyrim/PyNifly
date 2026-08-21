@@ -304,6 +304,20 @@ def _np_bodies(nif):
     return out
 
 
+def _np_shape_verts(s):
+    """All verts of a possibly-compound collision shape.
+
+    Was a closure defined inside a loop, appending to an accumulator rebound each
+    iteration -- safe only because it was called in the same iteration.
+    """
+    if s.shape_type == 'compound':
+        out = []
+        for c in s.children:
+            out.extend(_np_shape_verts(c))
+        return out
+    return list(s.verts)
+
+
 def _np_body_world_bounds(nif):
     """World-space AABB of every native-physics body, keyed by node name.
 
@@ -313,14 +327,7 @@ def _np_body_world_bounds(nif):
     """
     out = {}
     for name, body in _np_bodies(nif).items():
-        pts = []
-        def collect(s):
-            if s.shape_type == 'compound':
-                for c in s.children:
-                    collect(c)
-            else:
-                pts.extend(s.verts)
-        collect(body)
+        pts = _np_shape_verts(body)
         if not pts:
             continue
         mx = BD.transform_to_matrix(nif.nodes[name].global_transform)

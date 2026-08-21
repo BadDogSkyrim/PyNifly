@@ -1939,6 +1939,28 @@ def TEST_CREATE_WEIGHTS():
     xform = newshape.get_shape_skin_to_bone("BONE2")
     assert not VNearEqual(xform.translation, [0.0, 0.0, 0.0]), "Error: Translation should not be null"
 
+def TEST_BONEDICT_DISMEM():
+    """Each game's BoneDict gets its own dismember dict.
+
+    dismem_list defaulted to a mutable [], so skyrimDict, sfDict and fnvDict all shared
+    one list object -- and `if type(dismem_list == dict)` had a misplaced paren, making it
+    always true, so the branch that builds the name-keyed dict was dead. Those three games
+    ended up with a *list* where lines 514/529/557 use dismem as a dict.
+    """
+    from pyn.niflytools import skyrimDict, fo4Dict, sfDict, fnvDict
+    dicts = {'skyrim': skyrimDict, 'fo4': fo4Dict, 'sf': sfDict, 'fnv': fnvDict}
+
+    for name, d in dicts.items():
+        TT.assert_true(isinstance(d.dismem, dict), f"{name} dismem is a dict")
+
+    ids = [id(d.dismem) for d in dicts.values()]
+    TT.assert_eq(len(set(ids)), len(ids), "every game has its own dismem dict")
+
+    # FO4 is the one with real data, keyed by name.
+    TT.assert_gt(len(fo4Dict.dismem), 0, "fo4 dismem is populated")
+    TT.assert_true(all(isinstance(k, str) for k in fo4Dict.dismem), "fo4 dismem keyed by name")
+
+
 
 def TEST_READ_WRITE():
     """Basic load-and-store for Skyrim--Can read the armor nif and spit out armor and body separately"""

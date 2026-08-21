@@ -2895,7 +2895,7 @@ class NiTextKeyExtraData(NiExtraData):
         self._keys.append((time, val,))
 
     @classmethod
-    def New(cls, file, name='', keys=[], parent=None):
+    def New(cls, file, name='', keys=(), parent=None):
         p = NiTextKeyExtraDataBuf()
         tk = file.add_block(name, p, parent)
         for t, v in keys:
@@ -3475,11 +3475,11 @@ class NiDefaultAVObjectPalette(NiObject):
             self._objects[objname] = obj
     
     @classmethod
-    def New(cls, file, scene=None, objects={}, parent=None):
+    def New(cls, file, scene=None, objects=None, parent=None):
         p = NiDefaultAVObjectPaletteBuf()
         p.sceneID = scene.id if scene else NODEID_NONE
         objp = file.add_block(None, p, parent)
-        for name, obj in objects.items():
+        for name, obj in (objects or {}).items():
             objp.add_object(name, obj)
         return objp
 

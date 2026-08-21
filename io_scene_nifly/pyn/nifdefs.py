@@ -893,7 +893,7 @@ class NiNodeBuf(pynStructure):
         self.bufType = PynBufferTypes.NiNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.nameID = NODEID_NONE
         c.controllerID = NODEID_NONE
@@ -923,7 +923,7 @@ class BSValueNodeBuf(pynStructure):
         self.bufType = PynBufferTypes.BSValueNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.nameID = NODEID_NONE
         c.controllerID = NODEID_NONE
@@ -954,7 +954,7 @@ class NiSwitchNodeBuf(pynStructure):
         self.bufType = PynBufferTypes.NiSwitchNodeBufType
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.nameID = NODEID_NONE
         c.controllerID = NODEID_NONE
@@ -986,7 +986,7 @@ class BSMultiBoundNodeBuf(pynStructure):
         self.nameID = self.controllerID = self.collisionID = NODEID_NONE
         self.multiBoundID = NODEID_NONE
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.nameID = NODEID_NONE
         c.controllerID = NODEID_NONE
@@ -1418,14 +1418,14 @@ class NiSingleInterpControllerBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = buftype
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.nextControllerID = NODEID_NONE
         c.targetID = NODEID_NONE
         c.interpolatorID = NODEID_NONE
         return c
     
-    def copyto(self, other, exclude=[]):
+    def copyto(self, other, exclude=()):
         c = super().copyto(other, exclude=exclude)
         c.nextControllerID = NODEID_NONE
         c.targetID = NODEID_NONE
@@ -1486,12 +1486,12 @@ class NiTransformInterpolatorBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiTransformInterpolatorBufType
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.dataID = NODEID_NONE
         return c
     
-    def copyto(self, other, exclude=[]):
+    def copyto(self, other, exclude=()):
         c = super().copyto(other, exclude=exclude)
         c.dataID = NODEID_NONE
         return c
@@ -1510,12 +1510,12 @@ class NiFloatInterpolatorBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatInterpolatorBufType
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.dataID = NODEID_NONE
         return c
     
-    def copyto(self, other, exclude=[]):
+    def copyto(self, other, exclude=()):
         c = super().copyto(other, exclude=exclude)
         c.dataID = NODEID_NONE
         return c
@@ -1534,12 +1534,12 @@ class NiBoolInterpolatorBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiBoolInterpolatorBufType
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.dataID = NODEID_NONE
         return c
     
-    def copyto(self, other, exclude=[]):
+    def copyto(self, other, exclude=()):
         c = super().copyto(other, exclude=exclude)
         c.dataID = NODEID_NONE
         return c
@@ -1557,12 +1557,12 @@ class NiPoint3InterpolatorBuf(pynStructure):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiPoint3InterpolatorBufType
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         c = super().copy(exclude=exclude)
         c.dataID = NODEID_NONE
         return c
     
-    def copyto(self, other, exclude=[]):
+    def copyto(self, other, exclude=()):
         c = super().copyto(other, exclude=exclude)
         c.dataID = NODEID_NONE
         return c

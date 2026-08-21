@@ -480,10 +480,13 @@ class NifExporter:
             to file: {self.filepath}
         """
 
-    def warn(self, msg, tags=[]):
+    def warn(self, msg, tags=()):
         """
-        Report a warning-level error message to the log, and capture any tags
-        for later reporting.
+        Report a warning-level error message to the log.
+
+        NB `tags` is not implemented -- nothing collects it. One caller passes
+        tags=["NOTHING"] and it is silently dropped. Left in place rather than removed
+        because the capture-and-report behaviour it implies may still be wanted.
         """
         log.warning(msg)
 
@@ -594,6 +597,22 @@ class NifExporter:
         # mean — and record the SSF bone -> bearer ref.
         m2arma = arma_inv @ obj.matrix_world
         encoded = {}
+        def centroid_t(ss, origin, axis):
+            vg = obj.vertex_groups.get(ss.name)
+            if vg is None:
+                return float('inf')
+            gi = vg.index
+            acc = None
+            n = 0
+            for v in obj.data.vertices:
+                if any(g.group == gi and g.weight > 0 for g in v.groups):
+                    p = m2arma @ v.co
+                    acc = p if acc is None else acc + p
+                    n += 1
+            if not n:
+                return float('inf')
+            return ((acc / n) - origin).dot(axis)
+
         for material, cuts in mat_cuts.items():
             cuts = sorted(cuts)
             origin, axis = mat_axis[material]
@@ -604,23 +623,11 @@ class NifExporter:
 
             mean_cut = sum(cuts) / len(cuts)
 
-            def centroid_t(ss):
-                vg = obj.vertex_groups.get(ss.name)
-                if vg is None:
-                    return float('inf')
-                gi = vg.index
-                acc = None
-                n = 0
-                for v in obj.data.vertices:
-                    if any(g.group == gi and g.weight > 0 for g in v.groups):
-                        p = m2arma @ v.co
-                        acc = p if acc is None else acc + p
-                        n += 1
-                if not n:
-                    return float('inf')
-                return ((acc / n) - origin).dot(axis)
-
-            bearer = min(cands, key=lambda ss: abs(centroid_t(ss) - mean_cut))
+            # origin/axis/mean_cut are rebound every iteration, so bind them at lambda
+            # definition time rather than capturing the loop variables.
+            bearer = min(cands,
+                         key=lambda ss, o=origin, a=axis, mc=mean_cut:
+                             abs(centroid_t(ss, o, a) - mc))
             bearer.cut_offsets = cuts
             try:
                 sub_idx = bearer.parent.subsegments.index(bearer)

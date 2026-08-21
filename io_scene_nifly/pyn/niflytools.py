@@ -432,7 +432,7 @@ class BodyPart:
             self.material = id
 
 class BoneDict:
-    def __init__(self, bone_list, morph_list, part_list, dismem_list=[], use_niftools=False):
+    def __init__(self, bone_list, morph_list, part_list, dismem_list=None, use_niftools=False):
         self.byNif = {}
         self.byPynifly = {}
         self.byNiftools = {}
@@ -456,12 +456,17 @@ class BoneDict:
             self.morph_dic_game[m[0]] = m[1]
             self.morph_dic_blender[m[1]] = m[0]
 
-        if type(part_list) == dict:
+        if isinstance(part_list, dict):
             self.parts = part_list
         else:
             for p in part_list:
                 self.parts[p.name] = p
-        if type(dismem_list == dict):
+        # NB the test below read `type(dismem_list == dict)` -- a misplaced paren, so it
+        # was always truthy and the else branch was dead. Games passing a list (or taking
+        # the default) got a list where lines below use dismem as a dict.
+        if dismem_list is None:
+            dismem_list = {}
+        if isinstance(dismem_list, dict):
             self.dismem = dismem_list
         else:
             for d in dismem_list:

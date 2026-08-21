@@ -329,7 +329,7 @@ class pynStructure(Structure):
                         diffs.append((fn, self.__getattribute__(fn), other.__getattribute__(fn)))
         return diffs
     
-    def load(self, shape, ignore=[], game='SKYRIM'):
+    def load(self, shape, ignore=None, game='SKYRIM'):
         """
         Load fields from the dictionary-like object 'shape'. 
         """
@@ -407,7 +407,7 @@ class pynStructure(Structure):
                         or (v1 != v2):
                     self.extract_field(shape, fn, t, game=game)
 
-    def copy(self, exclude=[]):
+    def copy(self, exclude=()):
         """ Return a copy of the object """
         n = self.__class__()
         for f, t in self._fields_:
@@ -415,7 +415,7 @@ class pynStructure(Structure):
                 n.__setattr__(f, self.__getattribute__(f))
         return n
 
-    def copyto(self, other, exclude=[]):
+    def copyto(self, other, exclude=()):
         """ Copy the object's fields to another object """
         for f, t in self._fields_:
             if not f in exclude:

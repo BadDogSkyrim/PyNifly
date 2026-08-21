@@ -156,6 +156,11 @@ def _dump_chunks_binary(path):
     print("  No bhkCompressedMeshShapeData block found")
 
 
+def _dq(vert_data, tx, vi, axis):
+    """Dequantize a packed vertex coordinate to world space."""
+    return vert_data[vi*3+axis] / 1000.0 + tx[axis]
+
+
 def _parse_cmsd(data):
     """Parse and dump bhkCompressedMeshShapeData."""
     pos = 0
@@ -263,11 +268,9 @@ def _parse_cmsd(data):
                     a, b, c = idx_data[idx+k], idx_data[idx+k+1], idx_data[idx+k+2]
 
                 # Dequantize to show world coords
-                def dq(vi, axis):
-                    return vert_data[vi*3+axis] / 1000.0 + tx[axis]
-                wa = (dq(a,0), dq(a,1), dq(a,2))
-                wb = (dq(b,0), dq(b,1), dq(b,2))
-                wc = (dq(c,0), dq(c,1), dq(c,2))
+                wa = (_dq(vert_data, tx, a, 0), _dq(vert_data, tx, a, 1), _dq(vert_data, tx, a, 2))
+                wb = (_dq(vert_data, tx, b, 0), _dq(vert_data, tx, b, 1), _dq(vert_data, tx, b, 2))
+                wc = (_dq(vert_data, tx, c, 0), _dq(vert_data, tx, c, 1), _dq(vert_data, tx, c, 2))
                 w = weld_data[tri_idx] if tri_idx < nw else 0
                 we = (w & 0x1F, (w>>5)&0x1F, (w>>10)&0x1F)
                 idx_position = idx + k  # index position = strip_start + k
@@ -282,9 +285,7 @@ def _parse_cmsd(data):
         flat_idx = 0
         for i in range(idx, ni - 2, 3):
             a, b, c = idx_data[i], idx_data[i+1], idx_data[i+2]
-            def dq(vi, axis):
-                return vert_data[vi*3+axis] / 1000.0 + tx[axis]
-            wa = (dq(a,0), dq(a,1), dq(a,2))
+            wa = (_dq(vert_data, tx, a, 0), _dq(vert_data, tx, a, 1), _dq(vert_data, tx, a, 2))
             w = weld_data[tri_idx] if tri_idx < nw else 0
             we = (w & 0x1F, (w>>5)&0x1F, (w>>10)&0x1F)
             idx_position = flat_start + flat_idx * 3

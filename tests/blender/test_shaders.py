@@ -1138,7 +1138,13 @@ def TEST_FACEGEN():
 
 
 @TT.category('SKYRIMSE', 'FACEGEN')
-@TT.expect_errors(('Some faces have been assigned to more than one partition',))
+# The YAS/Lykaios textures this fixture names live in a mod folder, not the vanilla
+# assets dir the suite points at, so they may or may not resolve depending on the
+# machine. CH-3.2 pruned these two as never-firing on one observation per Blender
+# version; they do fire on 5.2. Restored -- see docs/plan_code_health.md.
+@TT.expect_errors(('Some faces have been assigned to more than one partition',
+                   'Could not find texture',
+                   'Could not load',))
 def TEST_FACEGEN_SE():
     """Skyrim SE facegen file round-trips correctly."""
     testfile = TTB.test_file(r"tests\SkyrimSE\facegen.nif")
