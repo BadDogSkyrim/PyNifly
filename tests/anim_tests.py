@@ -38,6 +38,7 @@ _OUT_DIR = _test_dir / "tests" / "Out"
 
 _ROUNDTRIP_OUT = str(_OUT_DIR / "TEST_FO4_ANIM_ROUNDTRIP.hkx")
 _ROUNDTRIP_DEATH_OUT = str(_OUT_DIR / "TEST_FO4_ANIM_ROUNDTRIP_DEATH.hkx")
+_ANNOTATION_ROUNDTRIP_OUT = str(_OUT_DIR / "TEST_FO4_ANNOTATIONS.hkx")
 _SKYRIM_ROUNDTRIP_OUT = str(_OUT_DIR / "TEST_SKYRIM_ANIM_ROUNDTRIP.hkx")
 _SKYRIMSE_ROUNDTRIP_OUT = str(_OUT_DIR / "TEST_SKYRIMSE_ANIM_ROUNDTRIP.hkx")
 
@@ -186,6 +187,47 @@ def TEST_FO4_ANIM_ROUNDTRIP():
 
     print(f"    Max rotation error: {max_rot_err:.6f}")
     print(f"    Max translation error: {max_pos_err:.6f}")
+
+
+def TEST_FO4_ANNOTATION_ROUNDTRIP():
+    """Native FO4 writer stores duplicate-time events on the Root track."""
+    frame_count = 3
+    tracks = []
+    for _ in range(2):
+        tracks.append(anim_fo4.TrackData(
+            translations=[[0.0, 0.0, 0.0] for _ in range(frame_count)],
+            rotations=[[0.0, 0.0, 0.0, 1.0] for _ in range(frame_count)],
+            scales=[[1.0, 1.0, 1.0] for _ in range(frame_count)],
+        ))
+
+    annotations = [
+        anim_fo4.Annotation(0.0, "SoundPlay.TestDescriptor"),
+        anim_fo4.Annotation(0.0, "StartAnimatedCamera.Camera"),
+        anim_fo4.Annotation(2.0 / 30.0, "SoundStop.TestDescriptor"),
+    ]
+    animation = anim_fo4.AnimationData(
+        duration=2.0 / 30.0,
+        num_frames=frame_count,
+        num_tracks=2,
+        frame_duration=1.0 / 30.0,
+        tracks=tracks,
+        bone_names=["", "COM"],
+        track_to_bone_indices=[0, 1],
+        original_skeleton_name="Root",
+        annotations=annotations,
+    )
+
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    anim_fo4.write_fo4_animation(_ANNOTATION_ROUNDTRIP_OUT, animation)
+    reloaded = anim_fo4.load_fo4_animation(_ANNOTATION_ROUNDTRIP_OUT)
+
+    assert TT.is_eq(reloaded.bone_names, ["Root", "COM"],
+                    "Annotation track names")
+    assert TT.is_eq(len(reloaded.annotations), 3, "Annotation count")
+    for index, (expected, actual) in enumerate(zip(annotations, reloaded.annotations)):
+        assert TT.is_eq(actual.text, expected.text, f"Annotation {index} text")
+        assert TT.is_equiv(actual.time, expected.time,
+                           f"Annotation {index} time", e=0.0001)
 
 
 def TEST_FO4_ANIM_ROUNDTRIP_VARIETY():
@@ -981,6 +1023,7 @@ ALL_TESTS = [
     TEST_READ_FO4_ANIM,
     TEST_FO4_ANIM_TRACKS,
     TEST_FO4_ANIM_ROUNDTRIP,
+    TEST_FO4_ANNOTATION_ROUNDTRIP,
     TEST_FO4_ANIM_ROUNDTRIP_VARIETY,
     TEST_FO4_ANIM_QUATERNION_VALID,
     TEST_READ_SKYRIM_ANIM,

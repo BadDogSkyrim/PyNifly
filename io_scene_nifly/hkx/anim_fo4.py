@@ -1991,20 +1991,57 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     write(bytes(spline_hdr))
     align16()
 
-    # Annotation track structs (0x18 each: name_ptr + annotations hkArray)
+    # Annotation track structs (0x18 each: name_ptr + annotations hkArray).
+    # Fallout 4 reads animation events from the track named "Root". Keep the
+    # flat AnimationData.annotations API, but serialize every event into that
+    # track instead of silently emitting empty annotation arrays.
+    annotations = list(anim.annotations or [])
+    root_track_index = next(
+        (i for i, name in enumerate(bone_names) if name.casefold() == "root"),
+        None,
+    )
+    # Some existing FO4 animations leave every annotation track name blank;
+    # their first transform track is still Root by binding convention.
+    if root_track_index is None and num_tracks:
+        root_track_index = 0
+    if annotations and root_track_index is None:
+        raise ValueError(
+            "Cannot export annotations: animation has no transform tracks."
+        )
+
     annot_tracks_rel = rel()
     fx.add_local(spline_rel + 0x28, annot_tracks_rel)
     annot_track_offsets = []
+    annot_array_offsets = []
     for i in range(num_tracks):
         at_rel = rel()
         annot_track_offsets.append(at_rel)
         write(bytes(8))      # name ptr
-        write(_hkarray(0))   # annotations (empty for now)
+        count = len(annotations) if i == root_track_index else 0
+        annot_array_offsets.append(write(_hkarray(count)))
+
+    # hkaAnnotation payload for Root. Each item is 0x10 bytes:
+    # float time, 4 bytes padding, and an hkStringPtr.
+    if annotations:
+        align16()
+        annot_events_rel = rel()
+        fx.add_local(annot_array_offsets[root_track_index], annot_events_rel)
+        annot_event_offsets = []
+        for annotation in annotations:
+            event = bytearray(0x10)
+            struct.pack_into('<f', event, 0, float(annotation.time))
+            annot_event_offsets.append(write(bytes(event)))
+        for event_rel, annotation in zip(annot_event_offsets, annotations):
+            text_rel = rel()
+            write_string(str(annotation.text))
+            fx.add_local(event_rel + 0x08, text_rel)
 
     # Annotation track name strings
     for i in range(num_tracks):
         name_str_rel = rel()
         name = bone_names[i] if i < len(bone_names) else ""
+        if annotations and i == root_track_index:
+            name = "Root"
         write_string(name)
         fx.add_local(annot_track_offsets[i], name_str_rel)
     align16()

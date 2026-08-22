@@ -68,12 +68,14 @@ No reference skeleton file is needed -- PyNifly uses the bone data stored on the
 | **FPS** | Frames per second. Default 30, which matches the standard for Bethesda animations. |
 | **Reference Skeleton** | Only needed for the legacy hkxcmd workflow. |
 
-## Annotation Markers
+## Annotations
 
 HKX animation files can contain annotation events (text labels at specific times), used by the game engine to trigger sounds, effects, etc.
 
-- **On import**, annotations become Blender timeline markers.
-- **On export**, timeline markers are written back as annotations.
+- **On import**, annotations are stored on the imported Action and mirrored as Blender timeline markers.
+- With an HKX armature selected, use **Object Properties > PyNifly HKX Annotations** to add, edit, or remove events. Multiple events may share a frame.
+- **On native FO4 export**, Action annotations are written to the `Root` annotation track. Existing files without Action annotation data still fall back to in-range timeline markers.
+- **Use Timeline Markers** copies the active Action's in-range timeline markers into its annotation data. **Rebuild Timeline Mirror** recreates the visible markers from the Action data.
 
 ## Tips
 
