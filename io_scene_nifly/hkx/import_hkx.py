@@ -247,15 +247,15 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                         self.reference_skel = self.reference_skel.strip('"')
                         fp, ext = os.path.splitext(self.reference_skel)
                         if ext.lower() != ".hkx":
-                            log.error(f"Must have an HKX file to use as reference skeleton.")
+                            log.error("Must have an HKX file to use as reference skeleton.")
                             return {'CANCELLED'}
                         self.reference_skel_short = tmp_copy_nospace(Path(self.reference_skel))
 
                     if not context.object:
-                        log.error(f"Must have selected object for animation.")
+                        log.error("Must have selected object for animation.")
                         return {'CANCELLED'}
                     if not self.reference_skel:
-                        log.error(f"Must provide a reference skeleton for the animation.")
+                        log.error("Must provide a reference skeleton for the animation.")
                         return {'CANCELLED'}
                     if self.reference_skel:
                         context.object['PYN_SKELETON_FILE'] = self.reference_skel
@@ -606,7 +606,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
 
         # 3. Annotation track names
         if anim_data.bone_names and any(n for n in anim_data.bone_names):
-            log.info(f"FO4 bone mapping: annotation track names")
+            log.info("FO4 bone mapping: annotation track names")
             return anim_data.bone_names
 
         return None

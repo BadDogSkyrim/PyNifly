@@ -15,20 +15,82 @@ pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 log = logging.getLogger("pynifly")
 
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
-PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
+# Unpacked vanilla game assets. Single source of truth -- test_tools_bpy and
+# pynifly_tests both take these from here. There used to be three separate copies of
+# the Skyrim path and they drifted: two still pointed at C:/Modding/SkyrimSEAssets,
+# which does not exist, so TEST_HKX_SKELETON_ROUNDTRIP silently skipped itself and
+# every Skyrim texture lookup fell through to nothing.
+SKYRIM_ASSETS = os.path.join('C:' + os.sep, 'Modding', 'SkyrimSE', '00 Vanilla Assets')
+FO4_ASSETS    = os.path.join('C:' + os.sep, 'Modding', 'FalloutAssets', '00 FO4 Assets')
+SF_ASSETS     = os.path.join('C:' + os.sep, 'Modding', 'Starfield', '00 Starfield Assets')
+
+PYNIFLY_TEXTURES_SKYRIM = SKYRIM_ASSETS
+PYNIFLY_TEXTURES_FO4 = FO4_ASSETS
 
 
 def min_version(*args):
-    """Decorator to specify a minimum version supported by the test feature."""
+    """Decorator to specify a minimum Blender version supported by the test.
+
+    The key must be "min_blender_version" -- that is what blender_tests.execute_test
+    reads -- and it must be a tuple, since it is compared against bpy.app.version.
+    """
     def wrap(fn):
-        fn.__dict__["min_version"] = set(args)
+        fn.__dict__["min_blender_version"] = tuple(args)
         return fn
     return wrap
 
 
+TEST_CATEGORIES = {
+    # Category -> lowest Blender version the category can run on.
+    # (3,0) predates the addon's own 4.0 floor and means "no constraint".
+    # Only ANIMATION and HKX carry a real one: animation import and export are
+    # gated on bpy.types.ActionSlot, which arrived in Blender 4.4.
+    'ANIMATION': (4,4,),        # Animations, embedded in NIF files
+    'HKX': (4,4,),              # HKX and KF animations
+    'ARMATURE': (3,0,),         # Armature from nif bones
+    'BODYPART': (3,0,),         # meshes rigged for bodyparts
+    'COLLISION': (3,0,),        # Collision shapes and bodies
+    'CONNECTPOINT': (3,0,),     # Connect points and properties
+    'EXTRA_DATA': (3,0,),       # Extra data attached to nodes
+    'FACEBONES': (3,0,),        # Facebone animations and exports
+    'FACEGEN': (3,0,),          # Facegen-specific tests
+    'FO4': (3,0,),              # Fallout 4-specific tests
+    'FONV': (3,0,),             # Fallout New Vegas-specific tests
+    'FURNITURE': (3,0,),        # Furniture markers and properties
+    'GEOMETRY': (3,0,),         # Mesh geometry
+    'IMPORT': (3,0,),           # Import operator behaviour
+    'INVENTORY_MARKER': (3,0,), # Inventory markers and properties
+    'LOD': (3,0,),              # LOD handling
+    'MOPP': (3,0,),             # MOPP collision trees
+    'OSD': (3,0,),              # Bodyslide OSD sliders
+    'PARTITIONS': (3,0,),       # Body partitions and vertex groups
+    'PHYSICS': (3,0,),          # Object collisions and physics
+    'SCALING': (3,0,),          # Tests of import/export scaling
+    'SETTINGS': (3,0,),         # Tests of various import/export settings
+    'SHADER': (3,0,),           # Shader properties and effects
+    'SHAPEKEY': (3,0,),         # Shape keys and morphs
+    'SKYRIM': (3,0,),           # Skyrim-specific tests
+    'SKYRIMSE': (3,0,),         # Skyrim SE-specific tests
+    'STARFIELD': (3,0,),        # Starfield-specific tests
+    'TREE': (3,0,),             # BSTreeNode / NiSwitchNode
+    'TRI': (3,0,),              # Tri file tests
+    'XFORM': (3,0,),            # Tests of transforms
+    }
+
+
 def category(*args):
-    """Decorator to classify tests by category."""
+    """Decorator to classify tests by category.
+
+    Names are checked against TEST_CATEGORIES. An unknown name used to be accepted
+    silently, which created a parallel category nothing could select and that had no
+    declared version minimum -- 'BODYPARTS', 'SHAPEKEYS' and 'FURNITUREMARKER' all
+    existed that way. Add the category above rather than inventing a name here.
+    """
+    unknown = [a for a in args if a not in TEST_CATEGORIES]
+    if unknown:
+        raise ValueError(
+            f"Unknown test category {unknown} -- add it to TEST_CATEGORIES in test_tools.py. "
+            f"Known: {sorted(TEST_CATEGORIES)}")
     def wrap(fn):
         fn.__dict__["category"] = set(args)
         return fn
@@ -52,9 +114,16 @@ def error_level(errlevel):
 def expect_errors(errlist):
     """
     Decorator to set expected errors. errlist is a list of expected error messages.
+
+    A bare string is wrapped in a tuple. Passing one used to sail through and then get
+    iterated CHARACTER BY CHARACTER, so any message containing any of its letters was
+    suppressed -- which disabled error checking for the test entirely. Three tests were
+    in that state (TEST_EXPORT_HANDS, TEST_FACEBONES, TEST_FACEBONES_RENAME).
     """
+    if isinstance(errlist, str):
+        errlist = (errlist,)
     def wrap(fn):
-        fn.__dict__["expected_errors"] = errlist
+        fn.__dict__["expected_errors"] = tuple(errlist)
         return fn
     return wrap
 

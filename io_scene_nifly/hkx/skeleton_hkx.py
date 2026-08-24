@@ -23,8 +23,8 @@ from .. import bl_info
 
 log = logging.getLogger('pynifly')
 
-numseqpat = re.compile("[\d\.\s-]+")
-numberpat = re.compile("[\d\.-]+")
+numseqpat = re.compile(r"[\d\.\s-]+")
+numberpat = re.compile(r"[\d\.-]+")
 
 
 def extract_skeleton_from_armature(arma, selected_bones=None):

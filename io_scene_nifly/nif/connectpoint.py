@@ -80,7 +80,7 @@ def connection_name_root(s):
     """Return the root part of a connection name ('P-Foo' -> 'Foo')"""
     parts = s.split('-', 1)
     if len(parts) < 2:
-        print(f"WARNING: connection name malformed: {s}")
+        log.warning(f"Connection name malformed: {s}")
         return parts[0]
     return parts[-1]
 
@@ -280,7 +280,7 @@ class ConnectPointCollection():
 
         elif is_parent(cp):
             n = get_nifname(cp)
-            if not n in [p.name for p in self.parents]:
+            if n not in [p.name for p in self.parents]:
                 p = ConnectPointParent(n, ReprObject(cp, None))
                 self.add(p)
 

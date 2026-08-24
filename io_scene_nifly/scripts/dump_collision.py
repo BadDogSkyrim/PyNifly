@@ -2,7 +2,9 @@
 
 Usage: python dump_collision.py <nif_path>
 """
-import sys, os, struct
+import sys
+import os
+import struct
 
 # Ensure the pyn package is importable without changing cwd
 _script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -104,11 +106,11 @@ def dump_nif(path):
         print(f"  Materials: {mats}")
 
     # Chunks (using raw binary parse since we may not have chunk reader in DLL)
-    print(f"\n--- Chunk details (raw binary parse) ---")
+    print("\n--- Chunk details (raw binary parse) ---")
     _dump_chunks_binary(path)
 
     # MOPP disassembly
-    print(f"\n--- MOPP disassembly ---")
+    print("\n--- MOPP disassembly ---")
     lines = disassemble_mopp(md, origin=origin)
     for line in lines:
         print(line)
@@ -154,6 +156,11 @@ def _dump_chunks_binary(path):
             return
         off += bsizes[i]
     print("  No bhkCompressedMeshShapeData block found")
+
+
+def _dq(vert_data, tx, vi, axis):
+    """Dequantize a packed vertex coordinate to world space."""
+    return vert_data[vi*3+axis] / 1000.0 + tx[axis]
 
 
 def _parse_cmsd(data):
@@ -252,7 +259,7 @@ def _parse_cmsd(data):
         print(f"    welding: {nw} entries ({sum(1 for w in weld_data if w != 0)} nonzero)")
 
         # Dump triangles
-        print(f"    Triangles:")
+        print("    Triangles:")
         tri_idx = 0
         idx = 0
         for si, sl in enumerate(strip_data):
@@ -263,11 +270,9 @@ def _parse_cmsd(data):
                     a, b, c = idx_data[idx+k], idx_data[idx+k+1], idx_data[idx+k+2]
 
                 # Dequantize to show world coords
-                def dq(vi, axis):
-                    return vert_data[vi*3+axis] / 1000.0 + tx[axis]
-                wa = (dq(a,0), dq(a,1), dq(a,2))
-                wb = (dq(b,0), dq(b,1), dq(b,2))
-                wc = (dq(c,0), dq(c,1), dq(c,2))
+                wa = (_dq(vert_data, tx, a, 0), _dq(vert_data, tx, a, 1), _dq(vert_data, tx, a, 2))
+                wb = (_dq(vert_data, tx, b, 0), _dq(vert_data, tx, b, 1), _dq(vert_data, tx, b, 2))
+                wc = (_dq(vert_data, tx, c, 0), _dq(vert_data, tx, c, 1), _dq(vert_data, tx, c, 2))
                 w = weld_data[tri_idx] if tri_idx < nw else 0
                 we = (w & 0x1F, (w>>5)&0x1F, (w>>10)&0x1F)
                 idx_position = idx + k  # index position = strip_start + k
@@ -282,9 +287,7 @@ def _parse_cmsd(data):
         flat_idx = 0
         for i in range(idx, ni - 2, 3):
             a, b, c = idx_data[i], idx_data[i+1], idx_data[i+2]
-            def dq(vi, axis):
-                return vert_data[vi*3+axis] / 1000.0 + tx[axis]
-            wa = (dq(a,0), dq(a,1), dq(a,2))
+            wa = (_dq(vert_data, tx, a, 0), _dq(vert_data, tx, a, 1), _dq(vert_data, tx, a, 2))
             w = weld_data[tri_idx] if tri_idx < nw else 0
             we = (w & 0x1F, (w>>5)&0x1F, (w>>10)&0x1F)
             idx_position = flat_start + flat_idx * 3

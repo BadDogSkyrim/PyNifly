@@ -33,7 +33,7 @@ else:
     print("\nNo string_data attribute")
 
 # Check all top-level blocks
-print(f"\n=== All NIF blocks ===")
+print("\n=== All NIF blocks ===")
 for i, block in enumerate(nif.shapes):
     if hasattr(block, 'string_data'):
         print(f"Shape {i} ({block.name}) has string_data:")

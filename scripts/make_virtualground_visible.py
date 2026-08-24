@@ -18,4 +18,4 @@ shutil.copy2(nif_path, backup_path)
 print(f"Backup created: {backup_path}")
 
 nif.save()
-print(f"Saved with VirtualGround now visible")
+print("Saved with VirtualGround now visible")

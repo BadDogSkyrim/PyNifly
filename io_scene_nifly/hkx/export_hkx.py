@@ -215,7 +215,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         res = set()
 
         if not self.poll(context):
-            log.error(f"Cannot run exporter--see system console for details")
+            log.error("Cannot run exporter--see system console for details")
             return {'CANCELLED'}
 
         self.context = context

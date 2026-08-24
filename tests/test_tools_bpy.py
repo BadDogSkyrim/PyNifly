@@ -21,8 +21,28 @@ _pynifly_test_path = Path(_pynifly_dev_root, "pynifly", "tests")
 log = logging.getLogger("pynifly")
 
 
-PYNIFLY_TEXTURES_SKYRIM = r"C:\Modding\SkyrimSEAssets\00 Vanilla Assets"
-PYNIFLY_TEXTURES_FO4 = r"C:\Modding\FalloutAssets\00 FO4 Assets"
+from . import test_tools as _TT
+PYNIFLY_TEXTURES_SKYRIM = _TT.SKYRIM_ASSETS
+PYNIFLY_TEXTURES_FO4 = _TT.FO4_ASSETS
+
+# Textures committed alongside the fixtures, e.g. tests/tests/SkyrimSE/textures/YAS/...
+# find_referenced_file only searches relative to the nif when 'meshes' is in the nif's
+# path, and exported files land in tests/tests/Out/ -- so on the re-import half of a
+# round trip the fixture textures are invisible unless the fixture tree is also on the
+# addon's alternate-path list. Registering them there covers both halves.
+PYNIFLY_FIXTURES_SKYRIMSE = str(_pynifly_test_path / "tests" / "SkyrimSE")
+PYNIFLY_FIXTURES_SKYRIM = str(_pynifly_test_path / "tests" / "Skyrim")
+PYNIFLY_FIXTURES_FO4 = str(_pynifly_test_path / "tests" / "FO4")
+
+
+def _use_fixture_textures(game):
+    """Put this game's fixture texture tree on the addon's search path."""
+    prefs = bpy.context.preferences.addons["io_scene_nifly"].preferences
+    if game == 'SKYRIM':
+        prefs.sky_texture_path_1 = PYNIFLY_FIXTURES_SKYRIMSE
+        prefs.sky_texture_path_2 = PYNIFLY_FIXTURES_SKYRIM
+    elif game == 'FO4':
+        prefs.fo4_texture_path_1 = PYNIFLY_FIXTURES_FO4
 
 
 def stage_materials_for(*nif_paths):
@@ -197,8 +217,10 @@ def test_file(filename, output=False) -> str:
     
     if path.parts[1] in ["Skyrim", "SkyrimSE"]:
         bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_SKYRIM
+        _use_fixture_textures('SKYRIM')
     elif path.parts[1] in ["FO4"]:
         bpy.context.preferences.filepaths.texture_directory = PYNIFLY_TEXTURES_FO4
+        _use_fixture_textures('FO4')
 
     fullname = _pynifly_test_path / filename
     if path.parts[1].upper() == "OUT":

@@ -1190,7 +1190,7 @@ def load_fo4_animation(filepath: str) -> AnimationData:
             raise ValueError("No hkaSplineCompressedAnimation found in file.")
         return anim
 
-    raise ValueError(f"Unrecognized file format (not HKX binary or XML).")
+    raise ValueError("Unrecognized file format (not HKX binary or XML).")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

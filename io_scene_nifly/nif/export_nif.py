@@ -233,7 +233,7 @@ def partitions_from_vert_groups(obj, game):
                     # so it will already have been created if it exists separately
                     parent_name, subseg_id, material = pynifly.FO4Subsegment.name_match(vg.name)
                     if parent_name:
-                        if not parent_name in val:
+                        if parent_name not in val:
                             # Create parent segments if not there
                             val[parent_name] = pynifly.FO4Segment(
                                 part_id=len(val),
@@ -480,10 +480,13 @@ class NifExporter:
             to file: {self.filepath}
         """
 
-    def warn(self, msg, tags=[]):
+    def warn(self, msg, tags=()):
         """
-        Report a warning-level error message to the log, and capture any tags
-        for later reporting.
+        Report a warning-level error message to the log.
+
+        NB `tags` is not implemented -- nothing collects it. One caller passes
+        tags=["NOTHING"] and it is silently dropped. Left in place rather than removed
+        because the capture-and-report behaviour it implies may still be wanted.
         """
         log.warning(msg)
 
@@ -594,6 +597,22 @@ class NifExporter:
         # mean — and record the SSF bone -> bearer ref.
         m2arma = arma_inv @ obj.matrix_world
         encoded = {}
+        def centroid_t(ss, origin, axis):
+            vg = obj.vertex_groups.get(ss.name)
+            if vg is None:
+                return float('inf')
+            gi = vg.index
+            acc = None
+            n = 0
+            for v in obj.data.vertices:
+                if any(g.group == gi and g.weight > 0 for g in v.groups):
+                    p = m2arma @ v.co
+                    acc = p if acc is None else acc + p
+                    n += 1
+            if not n:
+                return float('inf')
+            return ((acc / n) - origin).dot(axis)
+
         for material, cuts in mat_cuts.items():
             cuts = sorted(cuts)
             origin, axis = mat_axis[material]
@@ -604,23 +623,11 @@ class NifExporter:
 
             mean_cut = sum(cuts) / len(cuts)
 
-            def centroid_t(ss):
-                vg = obj.vertex_groups.get(ss.name)
-                if vg is None:
-                    return float('inf')
-                gi = vg.index
-                acc = None
-                n = 0
-                for v in obj.data.vertices:
-                    if any(g.group == gi and g.weight > 0 for g in v.groups):
-                        p = m2arma @ v.co
-                        acc = p if acc is None else acc + p
-                        n += 1
-                if not n:
-                    return float('inf')
-                return ((acc / n) - origin).dot(axis)
-
-            bearer = min(cands, key=lambda ss: abs(centroid_t(ss) - mean_cut))
+            # origin/axis/mean_cut are rebound every iteration, so bind them at lambda
+            # definition time rather than capturing the loop variables.
+            bearer = min(cands,
+                         key=lambda ss, o=origin, a=axis, mc=mean_cut:
+                             abs(centroid_t(ss, o, a) - mc))
             bearer.cut_offsets = cuts
             try:
                 sub_idx = bearer.parent.subsegments.index(bearer)
@@ -1269,7 +1276,7 @@ class NifExporter:
             elif len(p) > 1:
                 self.warnings.add('MANY_PARITITON')
                 if not self.objs_mult_part:
-                    log.warning(f"Some faces have been assigned to more than one partition")
+                    log.warning("Some faces have been assigned to more than one partition")
                 self.objs_mult_part.add(self.active_obj)
                 create_group_from_verts(self.active_obj, BD.MULTIPLE_PARTITION_GROUP, face_verts)
                 None
@@ -1358,7 +1365,7 @@ class NifExporter:
         if not have_partitions:
             log.warning(f"Wrote faces without partitions on {mesh}")
         if partition_err:
-            log.warning(f"Some faces are in multiple partitions, or no partition")
+            log.warning("Some faces are in multiple partitions, or no partition")
 
         return loops, uvs, norms, colors, partition_map
 
@@ -1736,7 +1743,7 @@ class NifExporter:
         if bone_name in self.shape_bones:
             return self.shape_bones[bone_name]
 
-        if not bone_name in bones_to_write and not self.settings.preserve_hierarchy:
+        if bone_name not in bones_to_write and not self.settings.preserve_hierarchy:
             return None
 
         nifname = self.nif_name(bone_name)
@@ -2039,7 +2046,7 @@ class NifExporter:
                 try:
                     new_shape.properties.vertexDesc = VertexFlags.parse(obj['pynVertexDesc']).value
                 except Exception as e:
-                    log.warn(f"Error setting pynVertexDesc for {obj.name}: pynVertexDesc={obj['pynVertexDesc']}")
+                    log.warning(f"Error setting pynVertexDesc for {obj.name}: pynVertexDesc={obj['pynVertexDesc']}")
 
             robj = ReprObject(obj, new_shape)
             self.objs_written.add(robj)
@@ -2218,7 +2225,7 @@ class NifExporter:
                 try:
                     self.nif.rootNode.flags = NiAVFlags.parse(self.root_object["pynNodeFlags"]).value
                 except Exception as e:
-                    log.warn(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
+                    log.warning(f"Error setting pynNodeFlags for root object {self.root_object.name}: pynNodeFlags={self.root_object['pynNodeFlags']}")
 
         if suffix == '_faceBones' and self.game != 'SF':
             # FO4/FO76 rename face bones through fo4FaceDict. Starfield's facebones keep their
@@ -2342,7 +2349,7 @@ class NifExporter:
 
     def execute(self):
         if not self.objects and not self.armature:
-            self.warn(f"No objects selected for export", tags=["NOTHING"])
+            self.warn("No objects selected for export", tags=["NOTHING"])
             return
 
         log.info(str(self))
@@ -2743,7 +2750,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         initial_frame = context.scene.frame_current
 
         if not self.poll(context):
-            self.report({"ERROR"}, f"Cannot run exporter--see system console for details")
+            self.report({"ERROR"}, "Cannot run exporter--see system console for details")
             return {'CANCELLED'} 
 
         if len(self.objects_to_export) == 0:
@@ -2810,19 +2817,19 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 rep = True
             if 'NOTHING' in exporter.warnings:
                 status = {"WARNING"}
-                self.report(status, f"No mesh selected; nothing to export")
+                self.report(status, "No mesh selected; nothing to export")
                 rep = True
             if 'WARNING' in exporter.warnings:
                 status = {"WARNING"}
-                self.report(status, f"Export completed with warnings. Check the console window.")
+                self.report(status, "Export completed with warnings. Check the console window.")
                 rep = True
             if not rep:
                 if self.log_handler.max_error <= logging.INFO:
-                    self.report({'INFO'}, f"Export successful")
+                    self.report({'INFO'}, "Export successful")
                 elif self.log_handler.max_error <= logging.WARNING:
-                    self.report({'WARNING'}, f"Export completed with warnings")
+                    self.report({'WARNING'}, "Export completed with warnings")
                 elif self.log_handler.max_error <= logging.WARNING:
-                    self.report({'ERROR'}, f"Export failed, see console window for details")
+                    self.report({'ERROR'}, "Export failed, see console window for details")
             
         except ShapeTooBigError as e:
             log.error(str(e))
@@ -2835,7 +2842,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
 
         self.log_handler.finish("EXPORT", self.objects_to_export)
         context.scene.frame_set(initial_frame)
-        ObjectSelect([selected_objs])
+        ObjectSelect(selected_objs)
         ObjectActive(active_obj)
 
         # Save the directory path for next time

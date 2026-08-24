@@ -10,7 +10,7 @@ from mathutils import Matrix, Vector, Quaternion, Euler, geometry
 from ..pyn.nifconstants import (
     HAVOC_SCALE_FACTOR, game_collision_sf, SkyrimCollisionLayer, SkyrimHavokMaterial,
     bhkCOFlags)
-from ..blender_defs import (MatrixLocRotScale, ObjectSelect, transform_to_matrix,
+from ..blender_defs import (ObjectSelect, transform_to_matrix,
                             find_box_info, append_if_new, MatrixLocRotScale)
 from ..pyn.niflytools import MatNearEqual
 from .. import blender_defs as BD
@@ -236,6 +236,20 @@ def find_capsule_ends(obj):
 
     bpy.ops.object.mode_set(mode='OBJECT')
     return p1, p2, r
+
+
+def _leaf_shapes(s):
+    """Flatten a possibly-compound shape into its leaf shapes.
+
+    Was a closure defined inside a loop that appended to an accumulator rebound each
+    iteration -- safe only because it was called in the same iteration.
+    """
+    if s.shape_type == 'compound':
+        out = []
+        for child in s.children:
+            out.extend(_leaf_shapes(child))
+        return out
+    return [s]
 
 
 class CollisionHandler():
@@ -637,15 +651,7 @@ class CollisionHandler():
                 for child in body_shape.children:
                     leaf_entries.append((child, body_xf, False, child.transform))
             else:
-                leaves = []
-                def _collect(s):
-                    if s.shape_type == 'compound':
-                        for child in s.children:
-                            _collect(child)
-                    else:
-                        leaves.append(s)
-                _collect(body_shape)
-                for s in leaves:
+                for s in _leaf_shapes(body_shape):
                     leaf_entries.append((s, body_xf, apply_body, None))
 
         if not leaf_entries:

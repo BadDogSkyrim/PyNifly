@@ -30,5 +30,5 @@ def check_nif(f):
 
 
 for f in all_files(target_directory):
-    if not "_faceBones" in f:
+    if "_faceBones" not in f:
         check_nif(f)

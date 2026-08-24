@@ -373,7 +373,7 @@ def qhull3d(vertices, precision = 0.0001, verbose = False):
             print("visible edges", visible_edges)
         # 4. construct horizon: edges that are not shared with another triangle
         horizon_edges = [ edge for edge in visible_edges
-                          if not tuple(reversed(edge)) in visible_edges ]
+                          if tuple(reversed(edge)) not in visible_edges ]
         # 5. remove visible triangles from list
         # this puts a hole inside the triangle list
         visible_outer = set()

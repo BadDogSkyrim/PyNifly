@@ -16,7 +16,7 @@ for s in nif.shapes:
 print('\n=== Checking VirtualGround shape ===')
 for s in nif.shapes:
     if s.name == 'VirtualGround':
-        print(f'VirtualGround found!')
+        print('VirtualGround found!')
         print(f'  Vertices: {len(s.verts)}')
         print(f'  Triangles: {len(s.tris)}')
         
@@ -28,7 +28,7 @@ for s in nif.shapes:
         
         # Check actual vertex positions
         if hasattr(s, 'verts') and s.verts:
-            print(f'\n  Vertex positions:')
+            print('\n  Vertex positions:')
             for i, v in enumerate(s.verts):
                 print(f'    Vertex {i}: ({v[0]:.2f}, {v[1]:.2f}, {v[2]:.2f})')
             
@@ -42,7 +42,7 @@ for s in nif.shapes:
 print('\n=== Checking NPC Root position ===')
 if 'NPC Root [Root]' in nif.nodes:
     root = nif.nodes['NPC Root [Root]']
-    print(f'NPC Root [Root] found')
+    print('NPC Root [Root] found')
     if hasattr(root, 'transform'):
         print(f'  Transform: {root.transform}')
     if hasattr(root, 'position'):

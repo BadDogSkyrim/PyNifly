@@ -36,7 +36,7 @@ from pyn.niflytools import *
 from pyn.nifdefs import *
 from pyn.pynifly import *
 from . import test_tools as TT
-from .test_nifchecker import CheckNif
+from . import test_nifchecker as CHK
 
 
 """Quick and dirty test harness."""
@@ -403,10 +403,10 @@ def TEST_READ():
     testfile = r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif"
     outfile = 'tests/out/TEST_KHAJIIT_RW.nif'
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_khajiithead(nif)
 
     testfile = r"tests\SkyrimSE\eyesmale.nif"
-    CheckNif(nif)
+    CHK.Check_khajiithead(nif)
 
 
 def TEST_SF_MESH_READ():
@@ -1603,7 +1603,7 @@ def TEST_RW_HEAD():
     outfile = r"tests/Out/TEST_RW_HEAD.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_malehead(nif)
 
     nifout = NifFile()
     nifout.initialize('SKYRIM', outfile)
@@ -1613,7 +1613,7 @@ def TEST_RW_HEAD():
     nifout.save()
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, testfile)
+    CHK.Check_malehead(nifcheck)
 
 
 
@@ -1624,7 +1624,7 @@ def TEST_SHAPE_QUERY():
     f1 = NifFile("tests/skyrim/test.nif")
     assert f1.game == "SKYRIM", "'game' property gives the game the nif is good for"
     assert f1.rootName == "Scene Root", "'rootName' is the name of the root node in the file: " + str(f1.rootName)
-    assert f1.nodes[f1.rootName].blockname == 'NiNode', f"'blockname' is the type of block"
+    assert f1.nodes[f1.rootName].blockname == 'NiNode', "'blockname' is the type of block"
 
     # Same for FO4 nifs
     f2 = NifFile("tests/FO4/AlarmClock.nif")
@@ -1939,7 +1939,117 @@ def TEST_CREATE_WEIGHTS():
     xform = newshape.get_shape_skin_to_bone("BONE2")
     assert not VNearEqual(xform.translation, [0.0, 0.0, 0.0]), "Error: Translation should not be null"
 
+def TEST_BONEDICT_DISMEM():
+    """Each game's BoneDict gets its own dismember dict.
 
+    dismem_list defaulted to a mutable [], so skyrimDict, sfDict and fnvDict all shared
+    one list object -- and `if type(dismem_list == dict)` had a misplaced paren, making it
+    always true, so the branch that builds the name-keyed dict was dead. Those three games
+    ended up with a *list* where lines 514/529/557 use dismem as a dict.
+    """
+    from pyn.niflytools import skyrimDict, fo4Dict, sfDict, fnvDict
+    dicts = {'skyrim': skyrimDict, 'fo4': fo4Dict, 'sf': sfDict, 'fnv': fnvDict}
+
+    for name, d in dicts.items():
+        TT.assert_true(isinstance(d.dismem, dict), f"{name} dismem is a dict")
+
+    ids = [id(d.dismem) for d in dicts.values()]
+    TT.assert_eq(len(set(ids)), len(ids), "every game has its own dismem dict")
+
+    # FO4 is the one with real data, keyed by name.
+    TT.assert_gt(len(fo4Dict.dismem), 0, "fo4 dismem is populated")
+    TT.assert_true(all(isinstance(k, str) for k in fo4Dict.dismem), "fo4 dismem keyed by name")
+
+
+
+
+def TEST_NO_DUPLICATE_BLOCK_CLASSES():
+    """pynifly.py defines each block class exactly once.
+
+    A class defined twice silently loses the first body, and both objects stay alive in
+    NiObject.__subclasses__() -- so register_subclasses() puts BOTH in NiObject.buffer_types
+    and whichever it reaches last wins that slot. That is how
+    buffer_types[BSEffectShaderPropertyBufType] came to hold a NiFloatInterpController.
+    """
+    import ast
+    import collections
+    from pyn import pynifly as P
+    from pyn.nifdefs import PynBufferTypes
+
+    src = open(P.__file__, encoding='utf-8').read()
+    names = collections.Counter(
+        n.name for n in ast.parse(src).body if isinstance(n, ast.ClassDef))
+    dupes = sorted(n for n, c in names.items() if c > 1)
+    TT.assert_eq(dupes, [], "no class is defined twice in pynifly.py")
+
+    # The slot that the duplicates actually corrupted.
+    got = P.NiObject.buffer_types[int(PynBufferTypes.BSEffectShaderPropertyBufType)]
+    TT.assert_eq(got, P.BSEffectShaderProperty,
+                 "BSEffectShaderPropertyBufType resolves to BSEffectShaderProperty")
+
+    # Every registered class must claim the slot it occupies.
+    for i, cls in enumerate(P.NiObject.buffer_types):
+        if cls is not None:
+            TT.assert_eq(int(cls.buffer_type), i,
+                         f"class at buffer_types[{i}] claims that buffer type")
+
+
+def TEST_SF_CDB_READ():
+    """Read the real Starfield material database.
+
+    sf_cdb.py is 727 lines that nothing exercised. It decodes materialsbeta.cdb, which
+    stores materials by resource ID with no file paths -- so the path -> resource-ID
+    addressing has to be right or nothing resolves at all.
+
+    Values pinned against the shipping database (v4, build 1.16.244.0, 48,755 materials).
+    """
+    import json
+    import tempfile
+    from pyn import sf_cdb
+    from pyn.sf_materials import material_id
+
+    cdb_path = os.path.join(TT.SF_ASSETS, 'materials', 'materialsbeta.cdb')
+    assert os.path.exists(cdb_path), f"Starfield material DB not found at {cdb_path}"
+
+    cdb = sf_cdb.load_cdb(cdb_path)
+    TT.assert_eq(cdb.version, 4, "cdb format version")
+    TT.assert_eq(cdb.build_version, '1.16.244.0', "cdb build version")
+    TT.assert_eq(len(cdb.resource_to_db), 48755, "material count")
+
+    # Path -> database id. The whole addressing scheme rests on this.
+    TT.assert_eq(cdb.material_dbid(r"Materials\Actors\Human\Faces\male_default.mat"),
+                 13399, "male_default dbid")
+    TT.assert_eq(cdb.material_dbid(r"Materials\Actors\Human\Eyelashes\male_eyelash.mat"),
+                 2660, "male_eyelash dbid")
+    TT.assert_eq(cdb.material_dbid(r"Materials\Nonexistent\nope.mat"),
+                 None, "unknown material resolves to nothing")
+
+    # sf_cdb.crc32 and sf_materials.material_id are separate implementations of the same
+    # CRC. They must agree, or a material found in the DB gets a different MaterialID
+    # written into the nif.
+    for mp in (r"Materials\Actors\Human\Faces\male_default.mat",
+               r"Materials\Actors\Human\Eyelashes\male_eyelash.mat"):
+        TT.assert_eq(sf_cdb.crc32(mp.lower()), material_id(mp),
+                     f"crc32 agrees with material_id for {mp}")
+
+    # End to end: extract to loose .mat JSON, in the same shape a loose file has.
+    outdir = tempfile.mkdtemp()
+    out = sf_cdb.extract_material(cdb, r"Materials\Actors\Human\Faces\male_default.mat", outdir)
+    assert out, "extract_material returned a path"
+    TT.assert_true(os.path.exists(out), "material file written")
+    TT.assert_true(out.lower().endswith(
+        os.path.join('materials', 'actors', 'human', 'faces', 'male_default.mat').lower()),
+        "written to the mirrored material path")
+
+    doc = json.load(open(out, encoding='utf-8'))
+    TT.assert_eq(doc['Version'], 1, "loose .mat document version")
+    TT.assert_eq(len(doc['Objects']), 34, "male_default object count")
+    names = [c['Data']['Name'] for o in doc['Objects'] for c in o.get('Components', [])
+             if c.get('Type') == 'BSComponentDB::CTName']
+    TT.assert_contains('male_default', names, "CTName component names the material")
+
+    TT.assert_eq(sf_cdb.extract_material(cdb, r"Materials\Nope\x.mat", outdir), None,
+                 "extracting an unknown material returns nothing")
 def TEST_READ_WRITE():
     """Basic load-and-store for Skyrim--Can read the armor nif and spit out armor and body separately"""
     testfile = "tests/Skyrim/test.nif"
@@ -2143,7 +2253,7 @@ def TEST_PARTITIONS():
 
     testfile = r"tests/Skyrim/malehead.nif"
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_malehead(nif)
 
     """Can write partitions back out"""
     nif2 = NifFile()
@@ -2156,7 +2266,7 @@ def TEST_PARTITIONS():
     nif2.save()
 
     nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
-    CheckNif(nif3, testfile)
+    CHK.Check_malehead(nif3)
 
 
 def TEST_PARTITIONS_BY_ID():
@@ -2200,7 +2310,7 @@ def TEST_SEGMENTS_EMPTY():
 
     nif3 = NifFile(r"tests/Out/TEST_SEGMENTS_EMPTY.nif")
 
-    assert len([x for x in nif3.shapes[0].partition_tris if x == 3]) == len(nif3.shapes[0].tris), f"Expected all tris in the 4th partition"
+    assert len([x for x in nif3.shapes[0].partition_tris if x == 3]) == len(nif3.shapes[0].tris), "Expected all tris in the 4th partition"
 
 
 def TEST_SEGMENTS():
@@ -2209,7 +2319,7 @@ def TEST_SEGMENTS():
     outfile  = r"tests/Out/TEST_SEGMENTS.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_fo4MaleBody(nif)
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -2224,7 +2334,7 @@ def TEST_SEGMENTS():
     nif2.save()
 
     nif3 = NifFile(outfile)
-    CheckNif(nif3, testfile)
+    CHK.Check_fo4MaleBody(nif3)
 
 
 @test_category('FO4', 'PARTITION', 'SHADER')
@@ -2234,7 +2344,7 @@ def TEST_BP_SEGMENTS():
     outfile = r"tests/Out/TEST_BP_SEGMENTS.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_fo4Helmet(nif)
 
     """Can write segments back out"""
     # When writing segments, the tri list refers to segments/subsegments by ID *not*
@@ -2265,7 +2375,7 @@ def TEST_BP_SEGMENTS():
     nif2.save()
 
     nif3 = NifFile(outfile)
-    CheckNif(nif3, testfile)
+    CHK.Check_fo4Helmet(nif3)
 
 
 @test_category('FO4', 'PARTITION')
@@ -2693,7 +2803,7 @@ def TEST_LOD():
     outfile = r"Tests/Out/TEST_LOD.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_blackbriarchalet(nif)
 
     nifout = NifFile()
     nifout.initialize("SKYRIM", outfile)
@@ -2702,7 +2812,7 @@ def TEST_LOD():
     nifout.save()
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, testfile)
+    CHK.Check_blackbriarchalet(nifcheck)
 
 
 def TEST_UNSKINNED():
@@ -3146,22 +3256,22 @@ def TEST_SHADER_TYPE_OVERRIDE():
 @test_category('SHADER')
 def TEST_SHADER_SCAFFOLD():
     testfile = r"tests\FO4\ScaffFrame1x2Str01.nif"
-    nif = NifFile(testfile, materialsRoot=r"C:\Modding\FalloutAssets\00 FO4 Assets")
-    CheckNif(nif)
+    nif = NifFile(testfile, materialsRoot=TT.FO4_ASSETS)
+    CHK.Check_ScaffoldFrame(nif)
 
 
 @test_category('SHADER')
 def TEST_SHADER_WALL():
     testfile = r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif"
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_brickcolumn(nif)
 
 
 @test_category('CONTROLLER')
 def TEST_HIGHTECHLIGHT():
     testfile = r"tests\FO4\Workshop_HighTechLightFloor05_On.nif"
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_HighTechLight(nif)
 
     ### EXPORT ###
 
@@ -3173,7 +3283,7 @@ def TEST_HIGHTECHLIGHT():
     nifOut.save()
 
     nifTest = NifFile(r"tests\out\TEST_HIGHTECHLIGHT.nif")
-    CheckNif(nifTest, testfile)
+    CHK.Check_HighTechLight(nifTest)
 
 
 def TEST_ALPHA():
@@ -3202,9 +3312,9 @@ def TEST_ALPHA():
             f"Error: alpha flags don't match, {tailcheck.alpha_property.properties.flags} != {tailfur.alpha_property.properties.flags}"
     assert tailcheck.alpha_property.properties.threshold == tailfur.alpha_property.properties.threshold, \
             f"Error: alpha flags don't match, {tailcheck.alpha_property.properties.threshold} != {tailfur.alpha_property.properties.threshold}"
-    assert not tailcheck.alpha_property.properties.alpha_blend, f"Have correct blend flag"
-    assert tailcheck.alpha_property.properties.alpha_test, f"Have correct test flag"
-    assert tailcheck.alpha_property.properties.source_blend_mode == ALPHA_FUNCTION.SRC_ALPHA, f"Have correct blend mode"
+    assert not tailcheck.alpha_property.properties.alpha_blend, "Have correct blend flag"
+    assert tailcheck.alpha_property.properties.alpha_test, "Have correct test flag"
+    assert tailcheck.alpha_property.properties.source_blend_mode == ALPHA_FUNCTION.SRC_ALPHA, "Have correct blend mode"
     
 @test_category('SKYRIM', 'EXTRA_DATA')
 def TEST_SHEATH():
@@ -3519,7 +3629,7 @@ def TEST_EXP_BODY():
     # error caused by referencing a segment that doesn't exist
     tri_map = [16] * len(sh.tris)
 
-    NifFile.clear_log();
+    NifFile.clear_log()
     sh.set_partitions([seg0, seg1, seg4], tri_map)
 
     assert "ERROR" in NifFile.message_log(), "Error: Expected error message, got '{NifFile.message_log()}'"
@@ -3533,7 +3643,7 @@ def TEST_EFFECT_SHADER_SKY():
 
     print("---Read---")
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_daedriccuirass(nif)
 
     """Can read and write shader"""
     print("---Write---")
@@ -3545,7 +3655,7 @@ def TEST_EFFECT_SHADER_SKY():
 
     print("---Check---")
     nifTest = NifFile(outfile, materialsRoot='tests/FO4')
-    CheckNif(nifTest, testfile)
+    CHK.Check_daedriccuirass(nifTest)
 
 
 # TODO: Setting up to test the alpha threshold controller when there are multiple 
@@ -3579,7 +3689,7 @@ def TEST_TEXTURE_CLAMP():
     def CheckNif(nif:NifFile):
         shape:NiShape = nif.shapes[0]
         sh = shape.shader
-        assert sh.blockname == "BSLightingShaderProperty", f"Have correct shader"
+        assert sh.blockname == "BSLightingShaderProperty", "Have correct shader"
         assert sh.properties.textureClampMode == 0, f"Have correct textureClampMode: {sh.properties.textureClampMode}"
 
     print("---Read---")
@@ -3603,7 +3713,7 @@ def TEST_BOW():
     nif = NifFile(r"tests\SkyrimSE\meshes\weapons\glassbowskinned.nif")
 
     root = nif.rootNode
-    TT.assert_eq(root.blockname, "BSFadeNode", f"Top level BSFadeNode")
+    TT.assert_eq(root.blockname, "BSFadeNode", "Top level BSFadeNode")
     TT.assert_eq(root.flags, 14, "Root node flags")
     TT.assert_equiv(root.global_transform.translation, [0,0,0], "Root node translation")
     TT.assert_equiv(root.global_transform.rotation[0], [1,0,0], "Root node transform")
@@ -3614,40 +3724,40 @@ def TEST_BOW():
     # Test behavior graph data using new classes
     bged = root.get_extra_data(blockname='BSBehaviorGraphExtraData', name='BGED')
     assert bged, "BGED extra data exists"
-    TT.assert_eq(bged.name, 'BGED', f"behavior graph data tag")
+    TT.assert_eq(bged.name, 'BGED', "behavior graph data tag")
     TT.assert_patheq(bged.behavior_graph_file, r"Weapons\Bow\BowProject.hkx", 
-                     f"behavior graph hkx path")
-    TT.assert_eq(bged.controls_base_skeleton, False, f"behavior graph flag")
+                     "behavior graph hkx path")
+    TT.assert_eq(bged.controls_base_skeleton, False, "behavior graph flag")
 
     # Test inventory marker using new classes
     inv_marker = root.get_extra_data(blockname='BSInvMarker', name='INV')
     assert inv_marker, "Inventory marker extra data exists"
-    TT.assert_eq(inv_marker.name, 'INV', f"inventory marker tag")
-    TT.assert_eq(inv_marker.rotation, (4712, 0, 785), f"inventory marker rotation")
-    TT.assert_equiv(inv_marker.zoom, 1.1273, f"inventory marker zoom")
+    TT.assert_eq(inv_marker.name, 'INV', "inventory marker tag")
+    TT.assert_eq(inv_marker.rotation, (4712, 0, 785), "inventory marker rotation")
+    TT.assert_equiv(inv_marker.zoom, 1.1273, "inventory marker zoom")
 
     # Test BSX flags using new classes
     bsx_flags = root.get_extra_data(blockname='BSXFlags', name='BSX')
     assert bsx_flags, "BSX flags extra data exists"
-    TT.assert_eq(bsx_flags.name, 'BSX', f"BSX flags tag")
-    TT.assert_eq(bsx_flags.flags, 202, f"BSX flags value")
+    TT.assert_eq(bsx_flags.name, 'BSX', "BSX flags tag")
+    TT.assert_eq(bsx_flags.flags, 202, "BSX flags value")
 
     bone = nif.nodes['Bow_MidBone']
     co = bone.collision_object
     assert co.blockname == "bhkCollisionObject", f"Can find type of collision object from the block name: {co.blockname}"
 
-    assert co.flags == bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE, f'Can read collision flags'
-    assert co.target.name == "Bow_MidBone", f"Can read collision target"
+    assert co.flags == bhkCOFlags.ACTIVE + bhkCOFlags.SYNC_ON_UPDATE, 'Can read collision flags'
+    assert co.target.name == "Bow_MidBone", "Can read collision target"
     assert co.body.blockname == "bhkRigidBodyT", "Can read collision block"
 
     assert co.body.properties.collisionResponse == hkResponseType.SIMPLE_CONTACT
-    assert co.body.properties.motionSystem == hkMotionType.SPHERE_STABILIZED, f"Collision body properties hold the specifics"
+    assert co.body.properties.motionSystem == hkMotionType.SPHERE_STABILIZED, "Collision body properties hold the specifics"
 
     collshape = co.body.shape
-    assert collshape.blockname == "bhkBoxShape", f"Collision body's shape property returns the collision shape"
+    assert collshape.blockname == "bhkBoxShape", "Collision body's shape property returns the collision shape"
     assert collshape.properties.bhkMaterial == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES, "Collision body shape material is readable"
-    assert round(collshape.properties.bhkRadius, 4) == 0.0136, f"Collision body shape radius is readable"
-    assert [round(x, 4) for x in collshape.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions are readable"
+    assert round(collshape.properties.bhkRadius, 4) == 0.0136, "Collision body shape radius is readable"
+    assert [round(x, 4) for x in collshape.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], "Collision body shape dimensions are readable"
 
     # WRITE MESH WITH COLLISION DATA 
 
@@ -3684,7 +3794,7 @@ def TEST_BOW():
     assert bodycheck.properties.qualityType == hkQualityType.MOVING, f"Movement quality type not correct, {bodycheck.properties.qualityType} != {hkQualityType.MOVING}"
 
     boxcheck = bodycheck.shape
-    assert [round(x, 4) for x in boxcheck.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], f"Collision body shape dimensions written correctly"
+    assert [round(x, 4) for x in boxcheck.properties.bhkDimensions] == [0.1574, 0.8238, 0.0136], "Collision body shape dimensions written correctly"
 
 
 def TEST_CONVEX():
@@ -3695,20 +3805,20 @@ def TEST_CONVEX():
     co = root.collision_object
     assert co.blockname == "bhkCollisionObject", f"Can find type of collision object from the block name: {co.blockname}"
 
-    assert co.target.name == root.name, f"Can read collision target"
+    assert co.target.name == root.name, "Can read collision target"
     assert co.body.blockname == "bhkRigidBody", "Can read collision block"
 
     assert co.body.properties.collisionResponse == hkResponseType.SIMPLE_CONTACT
-    assert co.body.properties.motionSystem == hkMotionType.SPHERE_STABILIZED, f"Collision body properties hold the specifics"
+    assert co.body.properties.motionSystem == hkMotionType.SPHERE_STABILIZED, "Collision body properties hold the specifics"
 
     collshape = co.body.shape
-    assert collshape.blockname == "bhkConvexVerticesShape", f"Collision body's shape property returns the collision shape"
+    assert collshape.blockname == "bhkConvexVerticesShape", "Collision body's shape property returns the collision shape"
     assert collshape.properties.bhkMaterial == SkyrimHavokMaterial.CLOTH, "Collision body shape material is readable"
 
-    assert VNearEqual(collshape.vertices[0], [-0.059824, -0.112763, 0.101241, 0]), f"Vertex 0 is correct"
-    assert VNearEqual(collshape.vertices[7], [-0.119985, 0.000001, 0, 0]), f"Vertex 7 is correct"
-    assert VNearEqual(collshape.normals[0], [0.513104, 0, 0.858327, -0.057844]), f"Normal 0 is correct"
-    assert VNearEqual(collshape.normals[9], [-0.929436, 0.273049, 0.248180, -0.111519]), f"Normal 9 is correct"
+    assert VNearEqual(collshape.vertices[0], [-0.059824, -0.112763, 0.101241, 0]), "Vertex 0 is correct"
+    assert VNearEqual(collshape.vertices[7], [-0.119985, 0.000001, 0, 0]), "Vertex 7 is correct"
+    assert VNearEqual(collshape.normals[0], [0.513104, 0, 0.858327, -0.057844]), "Normal 0 is correct"
+    assert VNearEqual(collshape.normals[9], [-0.929436, 0.273049, 0.248180, -0.111519]), "Normal 9 is correct"
 
     # WRITE MESH WITH COLLISION DATA 
 
@@ -3738,7 +3848,7 @@ def _checkFalmerStaff(nif):
     staff = nif.shapes[0]
     coll = nif.rootNode.collision_object
     collbody = coll.body
-    assert collbody.properties.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, f"Rigid body has values"
+    assert collbody.properties.collisionFilter_layer == SkyrimCollisionLayer.WEAPON, "Rigid body has values"
     collshape = collbody.shape
     assert collshape.blockname == "bhkListShape", f"Have list shape: {collshape.blockname}"
     assert collshape.properties.bhkMaterial == SkyrimHavokMaterial.MATERIAL_BOWS_STAVES
@@ -3753,7 +3863,7 @@ def _checkFalmerStaff(nif):
     assert NearEqual(cts0.properties.bhkRadius, 0.009899), "ConvexTransformShape has values"
 
     assert len(staff.bone_weights) == 0, f"Shape not skinned: {staff}"
-    assert len(staff.partitions) == 0, f"Shape has no partitioins"
+    assert len(staff.partitions) == 0, "Shape has no partitioins"
 
     box0 = cts0.child
 
@@ -3813,8 +3923,8 @@ def TEST_FURNITURE_MARKER():
     # Test reading existing furniture markers
     furniture_node = root.get_extra_data(blockname='BSFurnitureMarkerNode')
     assert furniture_node, "BSFurnitureMarker extra data exists"
-    assert TT.is_eq(furniture_node.name, 'FRN', f"furniture marker node name")
-    assert TT.is_eq(furniture_node.position_count, 2, f"furniture marker count")
+    assert TT.is_eq(furniture_node.name, 'FRN', "furniture marker node name")
+    assert TT.is_eq(furniture_node.position_count, 2, "furniture marker count")
     
     markers = furniture_node.furniture_markers
     assert len(markers) == 2, f"Found expected number of furniture markers: {len(markers)}"
@@ -3822,18 +3932,18 @@ def TEST_FURNITURE_MARKER():
     # Test first marker properties
     marker1 = markers[0]
     assert isinstance(marker1, FurnitureMarkerDataBuf), "First marker is FurnitureMarkerDataBuf"
-    assert TT.is_equiv(marker1.offset, (30.0, 0.0, 33.84), f"First marker offset", e=0.001)
-    assert TT.is_equiv(marker1.heading, 3.14159, f"First marker heading", e=0.001)
-    assert TT.is_eq(marker1.animation_type, FurnAnimationType.SIT, f"First marker animation type")
-    assert TT.is_eq(marker1.entry_points, FurnEntryPoints.FRONT | FurnEntryPoints.BEHIND, f"First marker entry points")
+    assert TT.is_equiv(marker1.offset, (30.0, 0.0, 33.84), "First marker offset", e=0.001)
+    assert TT.is_equiv(marker1.heading, 3.14159, "First marker heading", e=0.001)
+    assert TT.is_eq(marker1.animation_type, FurnAnimationType.SIT, "First marker animation type")
+    assert TT.is_eq(marker1.entry_points, FurnEntryPoints.FRONT | FurnEntryPoints.BEHIND, "First marker entry points")
     
     # Test second marker properties
     marker2 = markers[1]
     assert isinstance(marker2, FurnitureMarkerDataBuf), "Second marker is FurnitureMarkerDataBuf"
-    assert TT.is_equiv(marker2.offset, (-30.0, 0.0, 33.84), f"Second marker offset", e=0.001)
-    assert TT.is_equiv(marker2.heading, 3.14159, f"Second marker heading", e=0.001)
-    assert TT.is_eq(marker2.animation_type, FurnAnimationType.SIT, f"Second marker animation type")
-    assert TT.is_eq(marker2.entry_points, FurnEntryPoints.FRONT | FurnEntryPoints.BEHIND, f"Second marker entry points")
+    assert TT.is_equiv(marker2.offset, (-30.0, 0.0, 33.84), "Second marker offset", e=0.001)
+    assert TT.is_equiv(marker2.heading, 3.14159, "Second marker heading", e=0.001)
+    assert TT.is_eq(marker2.animation_type, FurnAnimationType.SIT, "Second marker animation type")
+    assert TT.is_eq(marker2.entry_points, FurnEntryPoints.FRONT | FurnEntryPoints.BEHIND, "Second marker entry points")
 
     # WRITE NEW NIF WITH FURNITURE MARKERS
     nifOut = NifFile()
@@ -3874,24 +3984,24 @@ def TEST_FURNITURE_MARKER():
     
     furniture_check = rootCheck.get_extra_data(blockname='BSFurnitureMarkerNode', name='BSFurnitureMarker')
     assert furniture_check, "Written furniture marker node exists"
-    assert TT.is_eq(furniture_check.position_count, 2, f"Written furniture marker count correct")
+    assert TT.is_eq(furniture_check.position_count, 2, "Written furniture marker count correct")
     
     markers_check = furniture_check.furniture_markers
     assert len(markers_check) == 2, f"Written furniture markers count correct: {len(markers_check)}"
     
     # Test written first marker
     marker1_check = markers_check[0]
-    assert TT.is_equiv(marker1_check.offset, (10.0, 5.0, 2.0), f"First written marker offset")
-    assert TT.is_equiv(marker1_check.heading, 1.57, f"First written marker heading")
-    assert TT.is_eq(marker1_check.animation_type, FurnAnimationType.SIT, f"First written marker animation type")
-    assert TT.is_eq(marker1_check.entry_points, FurnEntryPoints.FRONT, f"First written marker entry points")
+    assert TT.is_equiv(marker1_check.offset, (10.0, 5.0, 2.0), "First written marker offset")
+    assert TT.is_equiv(marker1_check.heading, 1.57, "First written marker heading")
+    assert TT.is_eq(marker1_check.animation_type, FurnAnimationType.SIT, "First written marker animation type")
+    assert TT.is_eq(marker1_check.entry_points, FurnEntryPoints.FRONT, "First written marker entry points")
     
     # Test written second marker
     marker2_check = markers_check[1]
-    assert TT.is_equiv(marker2_check.offset, (-10.0, -5.0, 2.0), f"Second written marker offset")
-    assert TT.is_equiv(marker2_check.heading, -1.57, f"Second written marker heading")
-    assert TT.is_eq(marker2_check.animation_type, FurnAnimationType.SLEEP, f"Second written marker animation type")
-    assert TT.is_eq(marker2_check.entry_points, FurnEntryPoints.BEHIND | FurnEntryPoints.LEFT, f"Second written marker entry points")
+    assert TT.is_equiv(marker2_check.offset, (-10.0, -5.0, 2.0), "Second written marker offset")
+    assert TT.is_equiv(marker2_check.heading, -1.57, "Second written marker heading")
+    assert TT.is_eq(marker2_check.animation_type, FurnAnimationType.SLEEP, "Second written marker animation type")
+    assert TT.is_eq(marker2_check.entry_points, FurnEntryPoints.BEHIND | FurnEntryPoints.LEFT, "Second written marker entry points")
 
     # Test empty furniture markers
     nifEmpty = NifFile()
@@ -3907,8 +4017,8 @@ def TEST_FURNITURE_MARKER():
     nifEmptyCheck = NifFile(r"tests\out\TEST_FURNITURE_MARKER_EMPTY.nif")
     empty_furniture = nifEmptyCheck.root.get_extra_data(blockname='BSFurnitureMarkerNode', name='BSFurnitureMarker')
     assert empty_furniture, "Empty furniture marker node exists"
-    assert TT.is_eq(empty_furniture.position_count, 0, f"Empty furniture marker count is zero")
-    assert TT.is_eq(len(empty_furniture.furniture_markers), 0, f"Empty furniture markers list is empty")
+    assert TT.is_eq(empty_furniture.position_count, 0, "Empty furniture marker count is zero")
+    assert TT.is_eq(len(empty_furniture.furniture_markers), 0, "Empty furniture markers list is empty")
 
 
 def TEST_MANY_SHAPES():
@@ -4088,8 +4198,8 @@ def TEST_ANIMATION():
     # assert td.properties.rotationKeyCount == 0, f"Found no rotation keys: {td.properties.rotationKeyCount}"
     assert td.properties.translations.numKeys == 18, f"Found translation keys: {td.properties.translations.numKeys}"
     assert td.properties.translations.interpolation == NiKeyType.LINEAR_KEY, f"Found correct interpolation: {td.properties.translations.interpolation}"
-    assert td.translations[0].time == 0, f"First time 0"
-    assert NearEqual(td.translations[1].time, 0.033333), f"Second time 0.03"
+    assert td.translations[0].time == 0, "First time 0"
+    assert NearEqual(td.translations[1].time, 0.033333), "Second time 0.03"
 
     # The second controlled object is a gear, so it has rotations around
     # the Z axis.
@@ -4229,30 +4339,30 @@ def TEST_ANIMATION_NOBLECHEST():
     # CHECK
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.Check_noblechest01(nifcheck)
 
 
 def TEST_ANIMATION_ALDUIN():
     """Animated skinned nif"""
     nif = NifFile(r"tests/SkyrimSE/loadscreenalduinwall.nif")
     tail2 = nif.nodes["NPC Tail2"]
-    assert tail2.controller is not None, f"Have transform controller"
-    assert tail2.controller.blockname == "NiTransformController", f"Created type correctly"
+    assert tail2.controller is not None, "Have transform controller"
+    assert tail2.controller.blockname == "NiTransformController", "Created type correctly"
     assert math.isclose(tail2.controller.properties.stopTime, 28, abs_tol=0.001), "Have correct stop time"
     tdtail2 = tail2.controller.interpolator.data
-    assert tdtail2.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, f"Have correct rotation type"
-    assert tdtail2.properties.xRotations.numKeys == 16, f"Have correct number of keys"
-    assert tdtail2.translations[0].time == 0, f"Have 0 time value"
-    assert VNearEqual(tdtail2.translations[0].value, [94.485031, 0, 0]), f"Have 0 location value"
-    assert tdtail2.translations[15].time == 28.0, f"Have 15 time value"
-    assert VNearEqual(tdtail2.translations[15].value, [94.485031, 0, 0]), f"Have 0 location value"
+    assert tdtail2.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY, "Have correct rotation type"
+    assert tdtail2.properties.xRotations.numKeys == 16, "Have correct number of keys"
+    assert tdtail2.translations[0].time == 0, "Have 0 time value"
+    assert VNearEqual(tdtail2.translations[0].value, [94.485031, 0, 0]), "Have 0 location value"
+    assert tdtail2.translations[15].time == 28.0, "Have 15 time value"
+    assert VNearEqual(tdtail2.translations[15].value, [94.485031, 0, 0]), "Have 0 location value"
     
     # Lots of these rotations are LINEAR_KEY which means they're coded as a sequence
     # of quaternions.
     thighl = nif.nodes["NPC LLegThigh"]
     tdthighl = thighl.controller.interpolator.data
-    assert len(tdthighl.xrotations) == 0, f"Have xrotations"
-    assert len(tdthighl.qrotations) == 161, f"Have quat rotations"
+    assert len(tdthighl.xrotations) == 0, "Have xrotations"
+    assert len(tdthighl.qrotations) == 161, "Have quat rotations"
     assert NearEqual(tdthighl.qrotations[0].value[0], 0.2911), f"Have correct angle: {tdthighl.qrotations[0].value}"
 
 
@@ -4262,7 +4372,7 @@ def TEST_ANIMATION_SHADER():
     outfile = r"tests\out\TEST_ANIMATION_SHADER.nif"
     nif = NifFile(testfile)
 
-    CheckNif(nif)
+    CHK.Check_daedriccuirass(nif)
 
     nifout = NifFile()
     nifout.initialize('SKYRIM', outfile)
@@ -4272,7 +4382,7 @@ def TEST_ANIMATION_SHADER():
     assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.Check_daedriccuirass(nifcheck)
 
 
 def TEST_ANIMATION_SHADER_BSLSP():
@@ -4281,7 +4391,7 @@ def TEST_ANIMATION_SHADER_BSLSP():
     outfile = r"tests\out\TEST_ANIMATION_SHADER_BSLSP.nif"
 
     nif = NifFile(testfile)
-    CheckNif(nif)
+    CHK.Check_voidshade(nif)
 
     nifout = NifFile()
     nifout.initialize('SKYRIMSE', outfile)
@@ -4290,7 +4400,7 @@ def TEST_ANIMATION_SHADER_BSLSP():
     assert NifFile.message_log() == "", f"No messages: {NifFile.message_log()}"
 
     nifcheck = NifFile(outfile)
-    CheckNif(nifcheck, source=testfile)
+    CHK.Check_voidshade(nifcheck)
 
 
 def TEST_ANIMATION_SHADER_SPRIGGAN():
@@ -4324,17 +4434,17 @@ def TEST_ANIMATION_SHADER_SPRIGGAN():
         if cl.node_name == "SprigganFxHandCovers"
     )
     handcoversctl:BSEffectShaderPropertyFloatController = handcovers.controller
-    assert math.isclose(handcoversctl.properties.stopTime, 11.933, abs_tol=0.001), f"Have correct float controller"
+    assert math.isclose(handcoversctl.properties.stopTime, 11.933, abs_tol=0.001), "Have correct float controller"
     
     # Because they are managed by a ControllerSequence, they have a blend interpolator
     hcblendint:NiBlendFloatInterpolator = handcoversctl.interpolator
-    assert hcblendint.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED, f"Blend is manager controlled"
+    assert hcblendint.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED, "Blend is manager controlled"
 
     # Float interpolator with data
     hcfi:NiFloatInterpolator = handcovers.interpolator
     hcdat:NiFloatData = hcfi.data
-    assert hcdat.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY, f"Correct key type"
-    assert math.isclose(hcdat.keys[1].time, 1.333, abs_tol=0.001), f"Correct key time"
+    assert hcdat.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY, "Correct key type"
+    assert math.isclose(hcdat.keys[1].time, 1.333, abs_tol=0.001), "Correct key time"
 
     # CONTROLLER LINK: Spriggan leaves
     bodyctl:ControllerLink = next(
@@ -4342,7 +4452,7 @@ def TEST_ANIMATION_SHADER_SPRIGGAN():
         if cl.node_name == "SprigganHandLeaves"
     )
     leavesctl:BSNiAlphaPropertyTestRefController = bodyctl.controller
-    assert math.isclose(leavesctl.properties.stopTime, 15.333, abs_tol=0.001), f"Have correct alpha controller"
+    assert math.isclose(leavesctl.properties.stopTime, 15.333, abs_tol=0.001), "Have correct alpha controller"
 
     # CONTROLLER LINK: Spriggan body color
     bodyctl, body2ctl = [
@@ -4350,18 +4460,18 @@ def TEST_ANIMATION_SHADER_SPRIGGAN():
         if cl.node_name == "SprigganFxTestUnified:0"
     ]
     colorctl:BSLightingShaderPropertyColorController = bodyctl.controller
-    assert math.isclose(colorctl.properties.stopTime, 15.2333, abs_tol=0.01), f"stopTime correct"
+    assert math.isclose(colorctl.properties.stopTime, 15.2333, abs_tol=0.01), "stopTime correct"
     assert colorctl.properties.controlledVariable == LightingShaderControlledColor.EMISSIVE
 
     colorblendinterp:NiBlendPoint3Interpolator = colorctl.interpolator
-    colorblendinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED, f"Correct control"
+    colorblendinterp.properties.flags == InterpBlendFlags.MANAGER_CONTROLLED, "Correct control"
 
     colorinterp:NiPoint3Interpolator = bodyctl.interpolator
     colordat:NiPosData = colorinterp.data
-    assert colordat.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY, f"Correct key type"
-    assert math.isclose(colordat.keys[1].time, 2.0, abs_tol=0.001), f"Time is correct"
-    assert math.isclose(colordat.keys[1].value[0], 0.5294, abs_tol=0.001), f"Have correct value"
-    assert math.isclose(colordat.keys[1].value[1], 0.992157, abs_tol=0.001), f"Value is correct"
+    assert colordat.properties.keys.interpolation == NiKeyType.QUADRATIC_KEY, "Correct key type"
+    assert math.isclose(colordat.keys[1].time, 2.0, abs_tol=0.001), "Time is correct"
+    assert math.isclose(colordat.keys[1].value[0], 0.5294, abs_tol=0.001), "Have correct value"
+    assert math.isclose(colordat.keys[1].value[1], 0.992157, abs_tol=0.001), "Value is correct"
 
     # CONTROLLER LINK: Spriggan body emissive
     emissctl:BSLightingShaderPropertyFloatController = body2ctl.controller
@@ -4372,15 +4482,15 @@ def TEST_ANIMATION_SHADER_SPRIGGAN():
     glowshape = nif.shape_dict['MaleTorsoGlow']
     ctlr = glowshape.shader.controller
     assert ctlr, f"Have shader controller {ctlr.blockname}"
-    assert ctlr.properties.flags == 72, f"Have controller flags"
-    assert ctlr.properties.controlledVariable == EffectShaderControlledVariable.V_Offset, f"Have correct controlled variable"
+    assert ctlr.properties.flags == 72, "Have controller flags"
+    assert ctlr.properties.controlledVariable == EffectShaderControlledVariable.V_Offset, "Have correct controlled variable"
     interp = ctlr.interpolator
-    assert interp, f"Have interpolator"
-    assert interp.data, f"Have interpolator data"
+    assert interp, "Have interpolator"
+    assert interp.data, "Have interpolator data"
     d = interp.data
-    assert d.properties.keys.numKeys == 3, f"Have correct number of keys"
-    assert NearEqual(d.keys[1].time, 3.333), f"Have correct time at 1"
-    assert NearEqual(d.keys[1].backward, -1), f"Have correct backwards value at 1"
+    assert d.properties.keys.numKeys == 3, "Have correct number of keys"
+    assert NearEqual(d.keys[1].time, 3.333), "Have correct time at 1"
+    assert NearEqual(d.keys[1].backward, -1), "Have correct backwards value at 1"
 
     nifout = NifFile()
     nifout.initialize('SKYRIM', outfile)
@@ -4391,7 +4501,7 @@ def TEST_ANIMATION_SHADER_SPRIGGAN():
 
     nifcheck = NifFile(outfile)
     glowcheck = nifcheck.shape_dict['MaleTorsoGlow']
-    assert glowcheck.shader.controller, f"Have EffectShaderController"
+    assert glowcheck.shader.controller, "Have EffectShaderController"
 
 
 def TEST_KF():
@@ -4454,16 +4564,16 @@ def TEST_KF():
     nifout.save()
 
     nifcheck = NifFile(r"tests/Out/TEST_KF.kf")
-    assert nifcheck.rootNode.blockname == "NiControllerSequence", f"Have correct root node type"
-    assert nifcheck.rootNode.name == "testKF", f"Root node has name"
+    assert nifcheck.rootNode.blockname == "NiControllerSequence", "Have correct root node type"
+    assert nifcheck.rootNode.name == "testKF", "Root node has name"
     assert len(nifcheck.rootNode.controlled_blocks) > 0, f"Have controlled blocks {nifcheck.rootNode.controlled_blocks}"
 
     # Check first controlled block
     cb = nifcheck.rootNode.controlled_blocks[0]
-    assert cb.properties.controllerID == NODEID_NONE, f"No controller for this block"
-    assert cb.node_name == "NPC Root [Root]", f"Have correct node name"
-    assert cb.controller_type == "NiTransformController", f"Have transform controller type"
-    assert cb.properties.propType == NODEID_NONE, f"Do NOT have property type"
+    assert cb.properties.controllerID == NODEID_NONE, "No controller for this block"
+    assert cb.node_name == "NPC Root [Root]", "Have correct node name"
+    assert cb.controller_type == "NiTransformController", "Have transform controller type"
+    assert cb.properties.propType == NODEID_NONE, "Do NOT have property type"
 
     # Check first Interpolator/Data pair
     ticheck = cb.interpolator
@@ -4495,26 +4605,26 @@ def TEST_SKEL():
     com = nif.nodes['NPC COM [COM ]']
     com_col = com.collision_object
     assert com_col.blockname == "bhkBlendCollisionObject", f"Have collision object: {com.collision_object.blockname}"
-    com_col.properties.heirGain == 1.0, f"Have unique property"
+    com_col.properties.heirGain == 1.0, "Have unique property"
     com_shape = com_col.body.shape
     assert NearEqual(com_shape.properties.point1[0], -com_shape.properties.point2[0]), \
-        f"Capsule shape symmetric around x-axis."
-    assert NearEqual(com_shape.properties.point1[0], 0.041862), f"Have correct X location"
-    assert NearEqual(com_shape.properties.bhkRadius, 0.130600), f"Have correct radius"
+        "Capsule shape symmetric around x-axis."
+    assert NearEqual(com_shape.properties.point1[0], 0.041862), "Have correct X location"
+    assert NearEqual(com_shape.properties.bhkRadius, 0.130600), "Have correct radius"
 
     # Spine1 node has a ragdoll node, which references two others
     spine1 = nif.nodes['NPC Spine1 [Spn1]']
     spine1_col = spine1.collision_object
     spine1_rb = spine1_col.body
     spine1_rag = spine1_rb.constraints[0]
-    assert len(spine1_rag.entities) == 2, f"Have ragdoll entities"
+    assert len(spine1_rag.entities) == 2, "Have ragdoll entities"
 
     # The character bumper uses a bhkSimpleShapePhantom, with its own transform.
     bumper = nif.nodes['CharacterBumper']
     bumper_col = bumper.collision_object
     bumper_bod = bumper_col.body
     assert bumper_bod.blockname == "bhkSimpleShapePhantom"
-    assert bumper_bod.properties.transform[0][0] != 0, f"Have a transform"
+    assert bumper_bod.properties.transform[0][0] != 0, "Have a transform"
 
 
 def TEST_COLLISION_SPHERE():
@@ -4538,13 +4648,13 @@ def TEST_TREE():
     """Test that the special nodes for trees work correctly."""
 
     def check_tree(nifcheck):
-        assert nifcheck.rootNode.blockname == "BSLeafAnimNode", f"Have correct root node type"
+        assert nifcheck.rootNode.blockname == "BSLeafAnimNode", "Have correct root node type"
 
         tree = nifcheck.shapes[0]
-        assert tree.blockname == "BSMeshLODTriShape", f"Have correct shape node type"
-        assert tree.shader.properties.shaderflags2_test(ShaderFlags2.TREE_ANIM), f"Tree animation set"
-        assert tree.properties.vertexCount == 1059, f"Have correct vertex count"
-        assert tree.properties.lodSize0 == 1126, f"Have correct lodSize0"
+        assert tree.blockname == "BSMeshLODTriShape", "Have correct shape node type"
+        assert tree.shader.properties.shaderflags2_test(ShaderFlags2.TREE_ANIM), "Tree animation set"
+        assert tree.properties.vertexCount == 1059, "Have correct vertex count"
+        assert tree.properties.lodSize0 == 1126, "Have correct lodSize0"
 
     testfile = _test_file(r"tests\FO4\meshes\TreeMaplePreWar01Orange.nif")
     outfile = _test_file(r"tests/Out/TEST_TREE.nif")
@@ -4552,13 +4662,13 @@ def TEST_TREE():
     nif = NifFile(testfile)
     check_tree(nif)
 
-    print(f"------------- write")
+    print("------------- write")
     nifOut = NifFile()
     nifOut.initialize('FO4', outfile, nif.rootNode.blockname, nif.rootNode.name)
     _export_shape(nif.shapes[0], nifOut)
     nifOut.save()
 
-    print(f"------------- check")
+    print("------------- check")
     nifCheck = NifFile(outfile)
     check_tree(nifCheck)
 
@@ -4750,7 +4860,7 @@ def TEST_DOCKSTEPSDOWNEND():
         assert nif.rootNode.blockname == "BSFadeNode", f"Have BSFadeNode as root: {nif.rootNode.blockname}"
         assert len(nif.shapes) == 3, "Have all shapes"
         s = nif.shape_dict["DockStepsDownEnd01:0 - L1_Supports:0"]
-        assert s, f"Have supports shape"
+        assert s, "Have supports shape"
         assert s.blockname == "BSLODTriShape", "Have BSLODTriShape"
         assert s.properties.level0 == 234, f"Have correct level0: {s.properties.level0}"
         assert s.properties.level1 == 88, f"Have correct level1: {s.properties.level1}"
@@ -4797,7 +4907,7 @@ def TEST_FULLPREC():
 
     print("------------- check")
     nifCheck = NifFile(outfile)
-    assert nifCheck.shapes[0].properties.hasFullPrecision, f"Have full precision"
+    assert nifCheck.shapes[0].properties.hasFullPrecision, "Have full precision"
 
 
 @test_category('FO4', 'SHADER')
@@ -4825,7 +4935,7 @@ def TEST_SET_SKINTINT():
     nifCheck = NifFile(outfile)
     helmetcheck = nifCheck.shape_dict["Helmet:0"]
     assert TT.is_eq(helmetcheck.shader.properties.Shader_Type, BSLSPShaderType.Skin_Tint), \
-        f"shader type"
+        "shader type"
 
 
 @test_category("HKX", "SKYRIM")
@@ -4854,7 +4964,7 @@ def TEST_HKX_SKELETON_ROUNDTRIP():
         'atronachfrost/character assets/skeleton.hkx',
         'dragon/character assets/skeleton.hkx',
     ]
-    base = Path(r'C:/Modding/SkyrimSEAssets/00 Vanilla Assets/meshes/actors')
+    base = Path(TT.SKYRIM_ASSETS) / 'meshes' / 'actors'
     files = [base / c for c in candidates if (base / c).exists()]
     if not files:
         print("(skipped — vanilla SE assets not available)")
@@ -5004,7 +5114,7 @@ def TEST_HKX_SKELETON():
     headbone = f.nodes["NPC Head [Head]"]
     handbone = f.nodes["NPC L Hand [LHnd]"]
     assert NearEqual(headbone.global_transform.translation[2], 120.3436), "Head bone where it should be."
-    assert NearEqual(handbone.global_transform.translation[0], -28.9358), f"L Hand bone where it should be" 
+    assert NearEqual(handbone.global_transform.translation[0], -28.9358), "L Hand bone where it should be" 
 
 
 def TEST_RENAME_NODES():
@@ -5024,9 +5134,9 @@ def TEST_RENAME_NODES():
         print("... renaming nodes")
         nif = NifFile(fn)
         anchor = nif.nodes["ANCHOR"]
-        assert anchor, f"Have ANCHOR node"
+        assert anchor, "Have ANCHOR node"
         hook = nif.shape_dict["L1_Hook:0"]
-        assert hook, f"Have L1_Hook:0 shape"
+        assert hook, "Have L1_Hook:0 shape"
 
         anchor.name = "MyAnchor"
         hook.name = "MyHook"
@@ -5532,7 +5642,7 @@ def TEST_FO4_CAPSULE_PHYSICS():
     c:bhkNPCollisionObject = root.collision_object
     assert c is not None, "Root has a collision object"
     assert TT.is_eq(c.blockname, "bhkNPCollisionObject",
-                    f"Collision type is bhkNPCollisionObject")
+                    "Collision type is bhkNPCollisionObject")
 
     ps = c.physics_system
     assert ps is not None, "bhkNPCollisionObject references a bhkPhysicsSystem"
@@ -7044,7 +7154,7 @@ def execute_test(t, stop_on_fail=True):
         except:
             log.exception("Test failed with exception")
             executed_tests[t.__name__] = "FAILED"
-    print(f"------------- done")
+    print("------------- done")
 
 
 def execute(start=None, testlist=None, exclude=None, categories:set=None, stop_on_fail=True):
@@ -7074,7 +7184,7 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None, stop_o
             if "SKIP" in t.__dict__.get("category", set()):
                 executed_tests[t.__name__] = "SKIPPED"
             elif (doit 
-                    and not t in exclude 
+                    and t not in exclude 
                     and t.__name__ not in executed_tests):
                 execute_test(t, stop_on_fail=stop_on_fail)
 

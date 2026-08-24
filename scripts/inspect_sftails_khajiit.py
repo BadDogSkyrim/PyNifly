@@ -35,7 +35,7 @@ for shape in nif.shapes:
         print(f"\nShape: {shape.name}")
         print(f"  Flags: {shape.flags}")
         print(f"  Vertices: {len(shape.verts)}")
-        print(f"  Sample vertices:")
+        print("  Sample vertices:")
         for i, vert in enumerate(shape.verts[:4]):
             print(f"    Vertex {i}: {vert}")
         if hasattr(shape, 'bone_weights'):

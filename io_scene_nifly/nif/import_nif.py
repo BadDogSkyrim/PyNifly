@@ -322,39 +322,25 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
                 use_vertex_alpha = True
         if use_vertex_colors \
             and shape.colors and len(shape.colors) > 0:
-            clayer = None
-            try: #Post V3.5
-                clayer = mesh.color_attributes.new(name=COLOR_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
-            except:
-                clayer = mesh.vertex_colors.new()
+            clayer = mesh.color_attributes.new(name=COLOR_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
             alphlayer = None
             if use_vertex_alpha:
-                try:
-                    alphlayer = mesh.color_attributes.new(
-                        name=ALPHA_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
-                except:
-                    alphlayer = mesh.vertex_colors.new()
+                alphlayer = mesh.color_attributes.new(
+                    name=ALPHA_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
                 alphlayer.name = ALPHA_MAP_NAME
         
+            # Both layers are created above with domain='POINT', so index by vertex.
             colors = shape.colors
-            if clayer.domain == 'POINT':
-                for i in range(0, len(mesh.vertices)):
-                    c = colors[i]
-                    clayer.data[i].color = (c[0], c[1], c[2], 1.0)
-                    if alphlayer:
-                        alph = colors[i][3] 
-                        cv = list(Color([alph, alph, alph]))
-                        # cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
-                        cv.append(1.0)
-                        alphlayer.data[i].color = cv
-            else:
-                for lp in mesh.loops:
-                    c = colors[lp.vertex_index]
-                    clayer.data[lp.index].color = (c[0], c[1], c[2], 1.0)
-                    if alphlayer:
-                        alph = colors[lp.vertex_index][3]
-                        alphlayer.data[lp.index].color = [alph, alph, alph, 1.0]
-    except:
+            for i in range(0, len(mesh.vertices)):
+                c = colors[i]
+                clayer.data[i].color = (c[0], c[1], c[2], 1.0)
+                if alphlayer:
+                    alph = colors[i][3]
+                    cv = list(Color([alph, alph, alph]))
+                    # cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
+                    cv.append(1.0)
+                    alphlayer.data[i].color = cv
+    except Exception:
         log.exception(f"Could not read colors on shape {shape.name}")
 
 
@@ -419,7 +405,7 @@ class NifImporter():
         self.connect_points = connectpoint.ConnectPointCollection()
         try:
             self.connect_points.add_all(context.selected_objects)
-        except:
+        except AttributeError:
             self.connect_points.add_all(bpy.context.selected_objects)
         self.loaded_parent_cp = {}
         self.loaded_child_cp = {}
@@ -970,7 +956,7 @@ class NifImporter():
 
             try:
                 mx = self.import_xf @ BD.transform_to_matrix(ninode.transform)
-            except:
+            except (TypeError, ValueError):
                 mx = Matrix.Identity(4)
             obj.matrix_local = mx
 
@@ -994,18 +980,18 @@ class NifImporter():
             if ninode.collision_object and self.settings.import_collisions:
                 collision.CollisionHandler.import_collision_obj(
                     self, ninode.collision_object, obj)
-        except:
+        except Exception:
             log.exception(f"Error importing collisions {ninode.name}")
 
         try:
             self.import_extra(obj, ninode)
-        except:
+        except Exception:
             log.exception(f"Error importing extra data {ninode.name}")
 
         try:
             if ninode.blockname == 'BSMultiBoundNode':
                 self.import_multibound_obb(ninode, obj)
-        except:
+        except Exception:
             log.exception(f"Error importing multibound {ninode.name}")
 
         try:
@@ -1014,7 +1000,7 @@ class NifImporter():
                 # stored as nif-name lists; export re-resolves them to nodes.
                 obj['pynBSTreeBones1'] = json.dumps(ninode.bones1)
                 obj['pynBSTreeBones2'] = json.dumps(ninode.bones2)
-        except:
+        except Exception:
             log.exception(f"Error importing BSTreeNode bones {ninode.name}")
 
         try:
@@ -1028,7 +1014,7 @@ class NifImporter():
                     self.controller_mgr.import_controller(ninode.controller, 
                                                           arma if arma else obj, 
                                                           obj)
-        except:
+        except Exception:
             log.exception(f"Error importing controllers {ninode.name}")
         
         return obj
@@ -1069,7 +1055,7 @@ class NifImporter():
                 # Isn't a shader node, which are handled with their parent
                 and (not n.__class__.__name__.startswith('NiShader'))
                 # Isn't an editor marker, or we are importing editor markers
-                and ((not n.id in self.editor_markers) 
+                and ((n.id not in self.editor_markers) 
                      or (not self.settings.smart_editor_markers))): 
                 p = self.import_node_parents(arma, n)
                 self.import_ninode(arma, n, p)
@@ -1393,7 +1379,7 @@ class NifImporter():
                 if skin_name and skin_name != 'BSDismemberSkinInstance':
                     new_object["pynSkinInstanceType"] = skin_name
             except Exception as e:
-                log.warn(f"Error setting pynVertexDesc for {new_object.name}: {e}")
+                log.warning(f"Error setting pynVertexDesc for {new_object.name}: {e}")
             self.loaded_meshes.append(new_object)
             self.nodes_loaded[new_object.name] = the_shape
         
@@ -1712,7 +1698,7 @@ class NifImporter():
                             skbloc, skbrot, skbscale = skb_xf.decompose()
                             bloc, brot, bscale = bone_xf.decompose()
                             bone_xf = BD.MatrixLocRotScale(bloc, skbrot, bscale)
-                        except:
+                        except Exception:
                             log.exception(f"Error handling facegen bone rotations {bn}")
 
                     pose_bone = arma.pose.bones[blname]
@@ -1769,7 +1755,7 @@ class NifImporter():
                     if niparent and niparent.name != self.nif.rootName:
                         try:
                             parentnifname = niparent.nif_name
-                        except:
+                        except AttributeError:
                             parentnifname = niparent.name
                         parentname = self.blender_name(niparent.name)
 
@@ -1820,9 +1806,7 @@ class NifImporter():
 
     def group_bones(self, armature):
         """For convenience, create armature bone groups."""
-        ok = False
         try:
-            # Blender 4.x
             for b in armature.data.bones:
                 bg_name = b.name.split()[0]
                 if bg_name not in ARMATURE_BONE_GROUPS:
@@ -1837,37 +1821,8 @@ class NifImporter():
                         c = armature.data.collections.new(name=bg_name)
                     else:
                         c = armature.data.collections[bg_name].assign(b)
-            ok = True
-        except:
-            pass
-
-        if not ok:
-            try:
-                # Blender 3.x
-                groups = {}
-                for g in armature.pose.bone_groups:
-                    groups[g.name] = g
-
-                for b in armature.pose.bones:
-                    bg_name = b.name.split()[0]
-                    if bg_name not in ARMATURE_BONE_GROUPS:
-                        if "_skin" in b.name:
-                            bg_name = "Skin"
-                        else:
-                            bg_name = None
-                    if bg_name:
-                        if bg_name in groups:
-                            target_group = groups[bg_name]
-                        else:
-                            target_group = armature.pose.bone_groups.new(name=bg_name)
-                            groups[bg_name] = target_group
-                        if target_group:
-                            b.bone_group = target_group
-            except:
-                pass
-        
-        if not ok:
-            log.info(f"Cannot create convenience bone groups")
+        except (RuntimeError, AttributeError, IndexError):
+            log.info("Cannot create convenience bone groups")
 
 
     def roll_bones(self, arma):
@@ -2142,7 +2097,7 @@ class NifImporter():
                     if priors else False))
 
         orphan_shapes = set([o for o in self.objects_created.blender_objects()
-                             if o.parent==None and not 'pynRoot' in o])
+                             if o.parent==None and 'pynRoot' not in o])
             
         if imp_mesh_only:
             for obj in self.loaded_meshes:
@@ -2151,7 +2106,7 @@ class NifImporter():
         else:
             # Make armature
             if len(self.nif.shapes) == 0:
-                log.info(f"No shapes in nif, importing bones as skeleton")
+                log.info("No shapes in nif, importing bones as skeleton")
                 if not self.armature:
                     self.armature = self.make_armature(self.collection)
                 self.add_bones_to_arma(self.armature, self.nif, self.nif.nodes.keys())
@@ -2703,7 +2658,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
             BD.highlight_objects(objlist, context)
             BD.ObjectSelect(objlist)
 
-        except:
+        except Exception:
             log.exception("Import of nif failed")
             self.report({"ERROR"}, "Import of nif failed, see console window for details")
             self.status = {'CANCELLED'}

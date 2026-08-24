@@ -804,6 +804,10 @@ POS_LEFT = 0
 POS_RIGHT = 1
 
 # Equivalent nodes that have different names in different versions of blender. Fuckers.
+# Node type and socket names as of Blender 4.0, which is the addon's minimum
+# (bl_info["blender"]); Blender refuses to enable the addon below it. The pre-4.0
+# names are not carried -- ShaderNodeSeparateRGB/CombineRGB were themselves removed
+# in Blender 5.0, so a fallback to them would be broken anyway.
 MIXNODE_IDNAME = 'ShaderNodeMix'
 MIXNODE_IN1 = 'A'
 MIXNODE_IN2 = 'B'
@@ -928,27 +932,9 @@ def reposition(node, vpos=POS_BOTTOM, xpos=POS_RIGHT, padding=Vector((0, 0)), re
 def make_separator(nodetree, input, loc):
     """
     Make a color separator node with input connected to socket "input".
-    Safe for all Blender 3.x and 4.0
     """
-    global SEPARATOR_IDNAME 
-    global SEPARATOR_IN 
-    global SEPARATOR_OUT1 
-    global SEPARATOR_OUT2 
-    global SEPARATOR_OUT3 
-    try:
-        rgbsep = nodetree.nodes.new(SEPARATOR_IDNAME)
-    except:
-        SEPARATOR_IDNAME = 'ShaderNodeSeparateRGB'
-        SEPARATOR_IN = 'Image'
-        SEPARATOR_OUT1 = 'R'
-        SEPARATOR_OUT2 = 'G'
-        SEPARATOR_OUT3 = 'B'
-        rgbsep = nodetree.nodes.new(SEPARATOR_IDNAME)
-
-    try:
-        rgbsep.mode = 'RGB'
-    except:
-        pass
+    rgbsep = nodetree.nodes.new(SEPARATOR_IDNAME)
+    rgbsep.mode = 'RGB'
 
     rgbsep.location = loc
     nodetree.links.new(input, rgbsep.inputs[SEPARATOR_IN])
@@ -963,10 +949,7 @@ def make_specular(nodetree, source, strength, color, bsdf, location=(0, 0)):
     color = socket with the specular color to use.
     bsdf = shader node to receive specular values.
     """
-    if 'Specular' in bsdf.inputs:
-        skt = bsdf.inputs['Specular']
-    elif 'Specular IOR Level' in bsdf.inputs:
-        skt = bsdf.inputs['Specular IOR Level']
+    skt = bsdf.inputs['Specular IOR Level']
     m = make_mixnode(nodetree, source, strength, skt, location=location)
 
     nodetree.links.new(color, bsdf.inputs['Specular Tint'])
@@ -975,30 +958,19 @@ def make_specular(nodetree, source, strength, color, bsdf, location=(0, 0)):
 def make_combiner(nodetree, r, g, b, loc):
     """
     Make a combiner node with inputs from sockets r, g, b. Returns created node.
-    Safe for all Blender 3.x and 4.0
 
     b can be a socket or float value.
     """
-    global COMBINER_IDNAME
-    global COMBINER_OUT
-    try:
-        combiner = nodetree.nodes.new(COMBINER_IDNAME)
-    except:
-        COMBINER_IDNAME = 'ShaderNodeCombineRGB'
-        COMBINER_OUT = 'Value'
-        combiner = nodetree.nodes.new(COMBINER_IDNAME)
+    combiner = nodetree.nodes.new(COMBINER_IDNAME)
 
     combiner.location = loc
-    try:
-        combiner.mode = 'RGB'
-    except:
-        pass
+    combiner.mode = 'RGB'
 
     nodetree.links.new(r, combiner.inputs[0])
     nodetree.links.new(g, combiner.inputs[1])
-    try:
+    if isinstance(b, bpy.types.NodeSocket):
         nodetree.links.new(b, combiner.inputs[2])
-    except:
+    else:
         combiner.inputs[2].default_value = b
     return combiner
 
@@ -1006,7 +978,6 @@ def make_combiner(nodetree, r, g, b, loc):
 def make_combiner_xyz(nodetree, x, y, z, loc):
     """
     Make a combiner node with inputs from sockets x, y, z. Returns created node.
-    Safe for all Blender 3.x and 4.0
     """
     combiner = nodetree.nodes.new('ShaderNodeCombineXYZ')
     combiner.location = loc
@@ -1015,6 +986,11 @@ def make_combiner_xyz(nodetree, x, y, z, loc):
     nodetree.links.new(y, combiner.inputs[1])
     if z: nodetree.links.new(z, combiner.inputs[2])
     return combiner
+
+
+# What append_groupnode raises when the assets .blend is missing or doesn't hold the
+# group: libraries.load -> OSError/RuntimeError, the [0] lookup -> IndexError/KeyError.
+ASSET_LOAD_ERRORS = (OSError, RuntimeError, KeyError, IndexError)
 
 
 def append_groupnode(parent, name, label, shader_path, location=None):
@@ -1063,54 +1039,35 @@ def make_shader_skyrim(parent, shader_path, location,
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-6*NODE_WIDTH, -0.5 * TEXTURE_NODE_HEIGHT)
-    try:
-        grp.inputs.new('NodeSocketColor', 'Diffuse')
-        grp.inputs.new('NodeSocketFloat', 'Alpha')
-        grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
-        grp.inputs.new('NodeSocketColor', 'Use Vertex Color')
-        grp.inputs.new('NodeSocketColor', 'Vertex Color')
-        grp.inputs.new('NodeSocketFloat', 'Use Vertex Alpha')
-        grp.inputs.new('NodeSocketFloat', 'Vertex Alpha')
-        grp.inputs.new('NodeSocketColor', 'Subsurface')
-        grp.inputs.new('NodeSocketColor', 'Subsurface Str')
-        grp.inputs.new('NodeSocketColor', 'Specular')
-        grp.inputs.new('NodeSocketColor', 'Specular Color')
-        grp.inputs.new('NodeSocketFloat', 'Specular Str')
-        grp.inputs.new('NodeSocketColor', 'Normal')
-        grp.inputs.new('NodeSocketFloat', 'Glossiness')
-        grp.inputs.new('NodeSocketColor', 'Emission Color')
-        grp.inputs.new('NodeSocketFloat', 'Emission Strength')
-    except:
-        # Blender 4.0
-        grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
-        if facegen:
-            for i in range(0, 3):
-                s = grp.interface.new_socket(f'Tint {i+1}', in_out='INPUT', socket_type='NodeSocketFloat')
-                s.default_value = 0
-                grp.interface.new_socket(f'Tint {i+1} Color', in_out='INPUT', socket_type='NodeSocketColor')
-                s = grp.interface.new_socket(f'Tint {i+1} Strength', in_out='INPUT', socket_type='NodeSocketFloat')
-                s.default_value = 1.0
-                s.min_value = 0.0
-                s.max_value = 1.0
-        s = grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
-        s.default_value = 1.0
-        s.min_value = 0.0
-        s.max_value = 1.0
-        s = grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
-        s.default_value = 1.0
-        s.min_value = 0.0
-        s.max_value = 1.0
-        grp.interface.new_socket('Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Vertex Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Subsurface', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Subsurface Str', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Specular', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Glossiness', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Emission Color', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
+    if facegen:
+        for i in range(0, 3):
+            s = grp.interface.new_socket(f'Tint {i+1}', in_out='INPUT', socket_type='NodeSocketFloat')
+            s.default_value = 0
+            grp.interface.new_socket(f'Tint {i+1} Color', in_out='INPUT', socket_type='NodeSocketColor')
+            s = grp.interface.new_socket(f'Tint {i+1} Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+            s.default_value = 1.0
+            s.min_value = 0.0
+            s.max_value = 1.0
+    s = grp.interface.new_socket('Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+    s.default_value = 1.0
+    s.min_value = 0.0
+    s.max_value = 1.0
+    s = grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
+    s.default_value = 1.0
+    s.min_value = 0.0
+    s.max_value = 1.0
+    grp.interface.new_socket('Vertex Color', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Vertex Alpha', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Subsurface', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Subsurface Str', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Specular', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Glossiness', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Emission Color', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
 
     # Shader output node
     bsdf = grp.nodes.new('ShaderNodeBsdfPrincipled')
@@ -1197,11 +1154,8 @@ def make_shader_skyrim(parent, shader_path, location,
             location=invalph.location + Vector((5*NODE_WIDTH, -COLOR_NODE_HEIGHT)))
         m.inputs[MIXNODE_FACTOR].default_value = 0.1
 
-    try:
-        grp.links.new(group_inputs.outputs['Subsurface'], bsdf.inputs['Subsurface Radius'])
-        bsdf.inputs['Subsurface Scale'].default_value = 2 # Reduce for scaled-down meshes
-    except:
-        pass
+    grp.links.new(group_inputs.outputs['Subsurface'], bsdf.inputs['Subsurface Radius'])
+    bsdf.inputs['Subsurface Scale'].default_value = 2 # Reduce for scaled-down meshes
 
     # Specular 
     make_specular(grp,
@@ -1272,11 +1226,7 @@ def make_shader_skyrim(parent, shader_path, location,
 
     group_outputs = grp.nodes.new('NodeGroupOutput')
     group_outputs.location = (bsdf.location.x + NODE_WIDTH*2, 0)
-    try:
-        grp.outputs.new('NodeSocketShader', 'BSDF')
-    except:
-        # Blender 4.0
-        grp.interface.new_socket('BSDF', in_out='OUTPUT', socket_type='NodeSocketShader')
+    grp.interface.new_socket('BSDF', in_out='OUTPUT', socket_type='NodeSocketShader')
     grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
@@ -1308,57 +1258,33 @@ def make_shader_fo4(parent, shader_path, location, facegen=True, effect_shader=F
         return shader_node
     
     except Exception as e:
-        log.warn(f"Could not load shader from assets file: {traceback.format_exc()}; building nodes directly")
+        log.warning(f"Could not load shader from assets file: {traceback.format_exc()}; building nodes directly")
 
     grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='FO4Shader')
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-NODE_WIDTH*2, 0)
-    try:
-        grp.inputs.new('NodeSocketColor', 'Diffuse')
-        if facegen:
-            for i in range(0, 3):
-                n = grp.inputs.new('NodeSocketFloat', f'Tint {i+1}')
-                n.default_value = 0.0
-                grp.inputs.new('NodeSocketColor', f'Tint {i+1} Color')
-                n = grp.inputs.new('NodeSocketFloat', f'Tint {i+1} Strength')
-                n.default_value = 1.0
-                n.min_value = 0.0
-                n.max_value = 1.0
-        grp.inputs.new('NodeSocketColor', 'Specular')
-        grp.inputs.new('NodeSocketColor', 'Specular Color')
-        grp.inputs.new('NodeSocketColor', 'Specular Str')
-        grp.inputs.new('NodeSocketColor', 'Normal')
-        n = grp.inputs.new('NodeSocketFloat', 'Alpha')
-        n.default_value = 1.0
-        n = grp.inputs.new('NodeSocketFloat', 'Alpha Mult')
-        n.default_value = 1.0
-        n = grp.inputs.new('NodeSocketColor', 'Emission Color')
-        n.default_value = 0
-        n = grp.inputs.new('NodeSocketFloat', 'Emission Strength')
-        n.default_value = 0
-    except:
-        grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
-        if facegen:
-            for i in range(0, 3):
-                s = grp.interface.new_socket(f'Tint {i+1}', in_out='INPUT', socket_type='NodeSocketFloat')
-                s.default_value = 0
-                grp.interface.new_socket(f'Tint {i+1} Color', in_out='INPUT', socket_type='NodeSocketColor')
-                s = grp.interface.new_socket(f'Tint {i+1} Strength', in_out='INPUT', socket_type='NodeSocketFloat')
-                s.default_value = 1.0
-                s.min_value = 0.0
-                s.max_value = 1.0
-        grp.interface.new_socket('Specular', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketColor')
-        grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
-        s.default_value = 1.0
-        s = grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
-        s.default_value = 1.0
-        s = grp.interface.new_socket('Emission Color', in_out='INPUT', socket_type='NodeSocketColor')
-        s.default_value = (0,0,0,0,)
-        s = grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
-        s.default_value = 0
+    grp.interface.new_socket('Diffuse', in_out='INPUT', socket_type='NodeSocketColor')
+    if facegen:
+        for i in range(0, 3):
+            s = grp.interface.new_socket(f'Tint {i+1}', in_out='INPUT', socket_type='NodeSocketFloat')
+            s.default_value = 0
+            grp.interface.new_socket(f'Tint {i+1} Color', in_out='INPUT', socket_type='NodeSocketColor')
+            s = grp.interface.new_socket(f'Tint {i+1} Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+            s.default_value = 1.0
+            s.min_value = 0.0
+            s.max_value = 1.0
+    grp.interface.new_socket('Specular', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Specular Color', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Specular Str', in_out='INPUT', socket_type='NodeSocketColor')
+    grp.interface.new_socket('Normal', in_out='INPUT', socket_type='NodeSocketColor')
+    s.default_value = 1.0
+    s = grp.interface.new_socket('Alpha Mult', in_out='INPUT', socket_type='NodeSocketFloat')
+    s.default_value = 1.0
+    s = grp.interface.new_socket('Emission Color', in_out='INPUT', socket_type='NodeSocketColor')
+    s.default_value = (0,0,0,0,)
+    s = grp.interface.new_socket('Emission Strength', in_out='INPUT', socket_type='NodeSocketFloat')
+    s.default_value = 0
 
     # Create tint layer mixnodes if needed
     diffuse_source = group_inputs.outputs['Diffuse']
@@ -1421,10 +1347,7 @@ def make_shader_fo4(parent, shader_path, location, facegen=True, effect_shader=F
 
     group_outputs = grp.nodes.new('NodeGroupOutput')
     group_outputs.location = (bsdf.location.x + NODE_WIDTH*2, 0)
-    try:
-        grp.outputs.new('NodeSocketShader', 'BSDF')
-    except:
-        grp.interface.new_socket('BSDF', in_out='OUTPUT', socket_type='NodeSocketShader')
+    grp.interface.new_socket('BSDF', in_out='OUTPUT', socket_type='NodeSocketShader')
     grp.links.new(bsdf.outputs['BSDF'], group_outputs.inputs['BSDF'])
 
     shader_node = parent.nodes.new('ShaderNodeGroup')
@@ -1444,27 +1367,19 @@ def make_uv_node(parent, shader_path, location):
     try: 
         shader_node = append_groupnode(parent, "UV_Converter", "UV_Converter", shader_path, location)
         return shader_node
-    except:
+    except ASSET_LOAD_ERRORS:
         pass
 
     grp = bpy.data.node_groups.new(type='ShaderNodeTree', name='UV_Converter')
 
     group_inputs = grp.nodes.new('NodeGroupInput')
     group_inputs.location = (-200, 0)
-    try:
-        grp.inputs.new('NodeSocketFloat', 'Offset U')
-        grp.inputs.new('NodeSocketFloat', 'Offset V')
-        grp.inputs.new('NodeSocketFloat', 'Scale U')
-        grp.inputs.new('NodeSocketFloat', 'Scale V')
-        grp.inputs.new('NodeSocketInt', 'Wrap U')
-        grp.inputs.new('NodeSocketInt', 'Wrap V')
-    except:
-        grp.interface.new_socket('Offset U', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Offset V', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Scale U', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Scale V', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Wrap U', in_out='INPUT', socket_type='NodeSocketFloat')
-        grp.interface.new_socket('Wrap V', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Offset U', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Offset V', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Scale U', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Scale V', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Wrap U', in_out='INPUT', socket_type='NodeSocketFloat')
+    grp.interface.new_socket('Wrap V', in_out='INPUT', socket_type='NodeSocketFloat')
 
     tc = grp.nodes.new('ShaderNodeTexCoord')
     tc.location = (-200, 400)
@@ -1537,10 +1452,7 @@ def make_uv_node(parent, shader_path, location):
 
     group_outputs = grp.nodes.new('NodeGroupOutput')
     group_outputs.location = (uv_comb.location.x + 200, 0)
-    try:
-        grp.outputs.new('NodeSocketVector', 'Vector')
-    except:
-        grp.interface.new_socket('Vector', in_out='OUTPUT', socket_type='NodeSocketVector')
+    grp.interface.new_socket('Vector', in_out='OUTPUT', socket_type='NodeSocketVector')
 
     grp.links.new(uv_comb.outputs['Vector'], group_outputs.inputs['Vector'])
 
@@ -1560,21 +1472,9 @@ def get_effective_colormaps(mesh):
     if not mesh:
         return None, None
 
-    vertcolors = None
-    colormap = None
     alphamap = None
-    try:
-        vertcolors = mesh.color_attributes
-        colormap = vertcolors.active_color
-    except:
-        pass
-    if not vertcolors:
-        try:
-            vertcolors = mesh.vertex_colors
-            colormap = mesh.vertex_colors.active
-        except:
-            pass
-
+    vertcolors = mesh.color_attributes
+    colormap = vertcolors.active_color
     if not vertcolors:
         return None, None
         
@@ -1604,43 +1504,24 @@ def make_mixnode(nodetree, input1, input2, output=None, factor=1.0,
     """
     Create a shader RGB mix node--or fall back if it's an older version of Blender.
     """
-    global MIXNODE_IDNAME 
-    global MIXNODE_IN1 
-    global MIXNODE_IN2 
-    global MIXNODE_FACTOR 
-    global MIXNODE_OUT 
-    mixnode = None
-    try:
-        mixnode = nodetree.nodes.new(MIXNODE_IDNAME)
-    except:
-        # Fall back to older names
-        MIXNODE_IDNAME = 'ShaderNodeMixRGB'
-        MIXNODE_IN1 = 'Color1'
-        MIXNODE_IN2 = 'Color2'
-        MIXNODE_OUT = 'Color'
-        MIXNODE_FACTOR = 'Fac'
-        mixnode = nodetree.nodes.new(MIXNODE_IDNAME)
-
-    try:
-        mixnode.data_type = 'RGBA'
-    except: 
-        pass
+    mixnode = nodetree.nodes.new(MIXNODE_IDNAME)
+    mixnode.data_type = 'RGBA'
 
     nodetree.links.new(input1, mixnode.inputs[MIXNODE_IN1])
     inputlist = [input1.node]
-    try:
+    if isinstance(input2, bpy.types.NodeSocket):
         nodetree.links.new(input2, mixnode.inputs[MIXNODE_IN2])
         inputlist.append(input2.node)
-    except:
+    else:
         for i, v in enumerate(input2):
             mixnode.inputs[MIXNODE_IN2].default_value[i] = v
     if output: 
         nodetree.links.new(mixnode.outputs[MIXNODE_OUT], output)
     mixnode.blend_type = blend_type
-    try:
+    if isinstance(factor, bpy.types.NodeSocket):
         nodetree.links.new(factor, mixnode.inputs[MIXNODE_FACTOR])
         inputlist.append(factor.node)
-    except:
+    else:
         mixnode.inputs[MIXNODE_FACTOR].default_value = factor
     
     if location: 
@@ -1665,28 +1546,28 @@ def make_maprange(nodetree, in_value=None,
         nodetree.links.new(in_value, node.inputs['Value'])
         nodelist.append(in_value.node)
     if in_from_min: 
-        try:
+        if isinstance(in_from_min, bpy.types.NodeSocket):
             nodetree.links.new(in_from_min, node.inputs['From Min'])
             nodelist.append(in_from_min)
-        except:
+        else:
             node.inputs['From Min'].default_value = in_from_min
     if in_from_max: 
-        try:
+        if isinstance(in_from_max, bpy.types.NodeSocket):
             nodetree.links.new(in_from_max, node.inputs['From Max'])
             nodelist.append(in_from_max)
-        except:
+        else:
             node.inputs['From Max'].default_value = in_from_max
     if in_to_min: 
-        try:
+        if isinstance(in_to_min, bpy.types.NodeSocket):
             nodetree.links.new(in_to_min, node.inputs['To Min'])
             nodelist.append(in_to_min)
-        except:
+        else:
             node.inputs['To Min'].default_value = in_to_min
     if in_to_max: 
-        try:
+        if isinstance(in_to_max, bpy.types.NodeSocket):
             nodetree.links.new(in_to_max, node.inputs['To Max'])
             nodelist.append(in_to_max)
-        except:
+        else:
             node.inputs['To Max'].default_value = in_to_max
 
     if neighbor:
@@ -1833,10 +1714,7 @@ class ShaderImporter:
             n.location = (self.bsdf.location[0] + self.xloc, self.ytop)
             h = height
             if h == 0:
-                try:
-                    h = shader_node_height[nodetype]
-                except:
-                    h = 150
+                h = shader_node_height.get(nodetype, 150)
             self.ytop -= h + VERTICAL_GAP
 
         if name: 
@@ -1915,7 +1793,7 @@ class ShaderImporter:
             self.link(self.vertex_alpha.outputs['Color'], self.bsdf.inputs['Vertex Alpha'])
         try:
             self.diffuse.image.alpha_mode = 'NONE'
-        except:
+        except AttributeError:
             pass
         return False
         
@@ -2010,45 +1888,55 @@ class ShaderImporter:
         """
         Import shader nodes to handle grayscale coloring.
         """
+        txt_outskt = txtnode.outputs['Color']
         try:
-            txt_outskt = txtnode.outputs['Color']
             gtpvector = append_groupnode(self,
                                          "Fallout 4 MTS - Greyscale To Palette Vector",
                                          "Greyscale to Palette Vector",
                                          self.asset_path)
-            gtpvector.width = txtnode.width
-            if self.is_effect_shader:
-                # EffectShader doesn't have a grayscaleToPaletteScale value. Use 0.99
-                # instead of 1.0 because 1.0 wraps around to 0.
-                gtpvector.inputs['Palette'].default_value = 0.99
-            else:
-                gtpvector.inputs['Palette'].default_value = self.shape.shader.properties.grayscaleToPaletteScale
-            self.link(txt_outskt, gtpvector.inputs['Diffuse'])
-            txtnode.image.colorspace_settings.name = "Non-Color"
-            reposition(gtpvector)
+        except ASSET_LOAD_ERRORS:
+            self.warn(f"Could not load shader nodes from assets file: {traceback.format_exc()}")
+            return
 
-            palettenode = self.make_node("ShaderNodeTexImage",
-                                         name='Palette Vector')
-            if 'Greyscale' in self.textures and self.textures['Greyscale']:
-                imgp = bpy.data.images.load(self.textures['Greyscale'])
+        gtpvector.width = txtnode.width
+        if self.is_effect_shader:
+            # EffectShader doesn't have a grayscaleToPaletteScale value. Use 0.99
+            # instead of 1.0 because 1.0 wraps around to 0.
+            gtpvector.inputs['Palette'].default_value = 0.99
+        else:
+            gtpvector.inputs['Palette'].default_value = self.shape.shader.properties.grayscaleToPaletteScale
+        self.link(txt_outskt, gtpvector.inputs['Diffuse'])
+        txtnode.image.colorspace_settings.name = "Non-Color"
+        reposition(gtpvector)
+
+        palettenode = self.make_node("ShaderNodeTexImage",
+                                     name='Palette Vector')
+        greyscale_path = self.textures.get('Greyscale')
+        if greyscale_path:
+            try:
+                imgp = bpy.data.images.load(greyscale_path)
                 imgp.colorspace_settings.name = "sRGB"
                 palettenode.image = imgp
-            else:
-                self.warn(f"Could not load greyscale texture '{self.shape.textures['Greyscale']}'")
-            self.link(gtpvector.outputs[0], palettenode.inputs[0])
-            reposition(palettenode)
+            except (OSError, RuntimeError):
+                self.warn(f"Could not load greyscale texture '{greyscale_path}'")
+        else:
+            self.warn(f"Could not load greyscale texture '{greyscale_path}'")
+        self.link(gtpvector.outputs[0], palettenode.inputs[0])
+        reposition(palettenode)
 
+        try:
             gtpcolor = append_groupnode(self,
                                         "Fallout 4 MTS - Greyscale To Palette Color",
                                         "Greyscale To Palette Color", 
                                          self.asset_path)
-            gtpcolor.width = txtnode.width
-            self.link(palettenode.outputs["Color"], gtpcolor.inputs['Greyscale'])
-            self.link(gtpcolor.outputs['Diffuse'], self.bsdf.inputs['Diffuse'])
-            reposition(gtpcolor)
-    
-        except:
+        except ASSET_LOAD_ERRORS:
             self.warn(f"Could not load shader nodes from assets file: {traceback.format_exc()}")
+            return
+
+        gtpcolor.width = txtnode.width
+        self.link(palettenode.outputs["Color"], gtpcolor.inputs['Greyscale'])
+        self.link(gtpcolor.outputs['Diffuse'], self.bsdf.inputs['Diffuse'])
+        reposition(gtpcolor)
 
 
     def import_diffuse(self):
@@ -2166,7 +2054,7 @@ class ShaderImporter:
             self.link(self.texmap.outputs['Vector'], simgnode.inputs['Vector'])
             try: 
                 self.link(simgnode.outputs['Color'], self.bsdf.inputs['Glow Map'])
-            except:
+            except KeyError:
                 pass
 
 
@@ -2858,7 +2746,7 @@ def get_image_filepath(node_input):
     try:
         nl = BD.find_node(node_input, 'ShaderNodeTexImage')
         return bpy.path.abspath(nl[0].image.filepath)
-    except:
+    except (IndexError, AttributeError):
         pass
     return ''
 
@@ -2896,8 +2784,18 @@ class ShaderExporter:
         self.shader_node = None
         if blender_obj.active_material:
             self.material = blender_obj.active_material
-            nodelist = self.material.node_tree.nodes
-            if not "Material Output" in nodelist:
+            # A material with "Use Nodes" off has no node tree at all. Blender 5.x dropped
+            # the non-node path so node_tree is always present there, but on 4.x it is None
+            # and is an ordinary state for a hand-authored material -- don't crash the export.
+            if self.material.node_tree is None:
+                log.warning(f"Material {self.material.name} has no shader nodes "
+                            f"(Use Nodes is off); exporting {blender_obj.name} without shader")
+                nodelist = None
+            else:
+                nodelist = self.material.node_tree.nodes
+            if nodelist is None:
+                pass
+            elif "Material Output" not in nodelist:
                 log.warning(f"Have material but no Material Output for {self.material.name}")
             else:
                 self.material_output = nodelist["Material Output"]
@@ -2913,7 +2811,7 @@ class ShaderExporter:
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
 
     def warn(self, msg):
-        self.logger.warn(msg)
+        self.logger.warning(msg)
 
 
     def _export_shader_attrs(self, shape):
@@ -2962,7 +2860,7 @@ class ShaderExporter:
                     shape.shader.properties.textureClampMode = \
                         (2 if uv['Wrap U'].default_value == 1 else 0) \
                         + (1 if uv['Wrap V'].default_value == 1 else 0)
-                except:
+                except KeyError:
                     shape.shader.properties.textureClampMode = \
                         (2 if uv['Clamp S'].default_value == 1 else 0) \
                         + (1 if uv['Clamp T'].default_value == 1 else 0)
@@ -2998,11 +2896,9 @@ class ShaderExporter:
 
     @property
     def is_effectshader(self):
-        try:
-            return self.material['BS_Shader_Block_Name'] == 'BSEffectShaderProperty'
-        except:
-            pass
-        return False
+        if not self.material:
+            return False
+        return self.material.get('BS_Shader_Block_Name') == 'BSEffectShaderProperty'
     
 
     texture_slots = {"EnvMap": (1, ShaderFlags1.ENVIRONMENT_MAPPING),
@@ -3101,7 +2997,7 @@ class ShaderExporter:
                 if imagenode.image:
                     foundpath = bpy.path.abspath(imagenode.image.filepath)
                     relpath = Path(foundpath)
-            except:
+            except AttributeError:
                 pass
             # Clean up the path for export
             if foundpath:
@@ -3152,6 +3048,8 @@ class ShaderExporter:
 
         alphanode = alpha_input.links[0].from_node
         alpha = shape.alpha_property.properties
+        # A node group from an older PyNifly may not carry these sockets; fall back to
+        # the custom properties the importer stashed. Only a missing socket is expected.
         try:
             alpha.alpha_test = bool(alphanode.inputs['Alpha Test'].default_value)
             if alpha.alpha_test:
@@ -3161,7 +3059,7 @@ class ShaderExporter:
             alpha.alpha_blend = bool(alphanode.inputs['Alpha Blend'].default_value)
             alpha.source_blend_mode = alphanode.inputs['Source Blend Mode'].default_value
             alpha.dst_blend_mode = alphanode.inputs['Destination Blend Mode'].default_value
-        except:
+        except KeyError:
             if 'NiAlphaProperty_flags' in self.material:
                 shape.alpha_property.properties.flags = self.material['NiAlphaProperty_flags']
             if 'NiAlphaProperty_threshold' in self.material:

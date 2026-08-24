@@ -19,7 +19,7 @@ for nif_path in nif_paths:
     # Load and modify
     nif = pynifly.NifFile(nif_path)
     
-    print(f"\n  Before:")
+    print("\n  Before:")
     for s in nif.shapes:
         print(f"    {s.name:20} flags: {s.flags}")
     
@@ -27,12 +27,12 @@ for nif_path in nif_paths:
     for s in nif.shapes:
         s.flags = 14
     
-    print(f"\n  After:")
+    print("\n  After:")
     for s in nif.shapes:
         print(f"    {s.name:20} flags: {s.flags}")
     
     # Save
     nif.save()
-    print(f"  Saved!\n")
+    print("  Saved!\n")
 
 print("Done! All shape flags changed to 14 to match SkyFurry.")

@@ -112,7 +112,7 @@ def analyze_file(filepath, label):
     print(f"  Game: {nif.game}")
 
     # List all blocks
-    print(f"\n  All blocks:")
+    print("\n  All blocks:")
     block_id = 0
     while True:
         name = get_blockname(nif._handle, block_id)

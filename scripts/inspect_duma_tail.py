@@ -37,7 +37,7 @@ for shape in nif.shapes:
         print(f"\nTriangles: {len(shape.tris)}")
         for i, tri in enumerate(shape.tris):
             print(f"  Triangle {i}: {tri}")
-        print(f"\nBone weights:")
+        print("\nBone weights:")
         if hasattr(shape, 'bone_weights'):
             for bone_name, weights in shape.bone_weights.items():
                 print(f"  Bone: {bone_name}")

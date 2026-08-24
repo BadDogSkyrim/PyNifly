@@ -19,7 +19,7 @@ for nif_path in nif_paths:
     # Load and modify
     nif = pynifly.NifFile(nif_path)
     
-    print(f"\n  Before:")
+    print("\n  Before:")
     for s in nif.shapes:
         if s.name in ["VirtualGround", "CollisionTail", "TAIL"]:
             print(f"    {s.name:20} flags: {s.flags}")
@@ -31,13 +31,13 @@ for nif_path in nif_paths:
         if s.name == "VirtualGround":
             s.flags = 524302
     
-    print(f"\n  After:")
+    print("\n  After:")
     for s in nif.shapes:
         if s.name in ["VirtualGround", "CollisionTail", "TAIL"]:
             print(f"    {s.name:20} flags: {s.flags}")
     
     # Save
     nif.save()
-    print(f"  Saved!\n")
+    print("  Saved!\n")
 
 print("Done! VirtualGround changed to flags=524302 to match working cloak")

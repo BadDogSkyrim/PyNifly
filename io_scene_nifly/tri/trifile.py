@@ -263,7 +263,7 @@ class TriFile():
         tmp_buffer = file.read(FLOAT_LEN*3*self.header.addVertexNum)
         if len(tmp_buffer) < FLOAT_LEN*3*self.header.addVertexNum:
             # self.log.error("\n----=| Tri Import Error |=----\nEOF reading mod-morph vertices\nShould read " + str(self.header.addVertexNum) + " mod verticies with\n" + str(FLOAT_LEN*3*header.addVertexNum) + " bytes but only read " + str(len(tmp_buffer)) + "\nTRI file has valid header, but file appears to be corrupt")
-            raise ValueError(f"Error reading TRI file: Not enough mod vertices")
+            raise ValueError("Error reading TRI file: Not enough mod vertices")
         
         for i in range(self.header.addVertexNum):
             data = unpack('<3f', tmp_buffer[FLOAT_LEN*3*i:(FLOAT_LEN*3*i)+(FLOAT_LEN*3)])

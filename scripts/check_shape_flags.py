@@ -16,15 +16,15 @@ for s in nif.shapes:
     
     # Check if it's marked as hidden or non-rendering
     if s.properties.flags == 14:
-        print(f'  ⚠️  Flags = 14 (hidden/non-rendering - typical for collision meshes)')
+        print('  ⚠️  Flags = 14 (hidden/non-rendering - typical for collision meshes)')
     elif s.properties.flags == 524302:
-        print(f'  ✓ Flags = 524302 (visible rendering mesh)')
+        print('  ✓ Flags = 524302 (visible rendering mesh)')
     
     # Check shader
     if s.shader:
         print(f'  Shader name: {s.shader.blockname if hasattr(s.shader, "blockname") else "unknown"}')
     else:
-        print(f'  ⚠️  NO SHADER (might not render or be recognized)')
+        print('  ⚠️  NO SHADER (might not render or be recognized)')
     
     print()
 

@@ -5,7 +5,8 @@ Usage: python dump_collision_mesh.py <input_nif> <output_obj>
 Exports the bhkCompressedMeshShape chunk triangles as an OBJ file
 with correct winding, so you can inspect face orientation in Blender.
 """
-import sys, os
+import sys
+import os
 
 _script_dir = os.path.dirname(os.path.abspath(__file__))
 _pyn_parent = os.path.join(_script_dir, '..')

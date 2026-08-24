@@ -26,7 +26,7 @@ for filename in files:
             break
     
     if vg_start < 0:
-        print(f"  No VirtualGround found, skipping")
+        print("  No VirtualGround found, skipping")
         continue
     
     print(f"  VirtualGround currently at line {vg_start + 1}")
@@ -41,12 +41,12 @@ for filename in files:
                 needs_fix = True
         
         if needs_fix:
-            print(f"  Fixing penetration -> prenetration")
+            print("  Fixing penetration -> prenetration")
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.writelines(lines)
-            print(f"  Fixed!")
+            print("  Fixed!")
         else:
-            print(f"  Already at top, no changes needed")
+            print("  Already at top, no changes needed")
         continue
     
     # Backup
@@ -82,6 +82,6 @@ for filename in files:
         f.writelines(final_lines)
     
     print(f"  Moved VirtualGround to line {insert_at + 2} and fixed penetration")
-    print(f"  Done!")
+    print("  Done!")
 
 print("\n=== All tail configs processed ===")

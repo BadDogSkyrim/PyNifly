@@ -1,15 +1,13 @@
 # PyNifly Project Plan
 
-Ideas, reminders, wish list, and open questions.
+Ideas, reminders, wish list, and open questions — the loose end of the notebook.
+
+Work with an agreed design and phases lives in `docs/plan_*.md` instead; near-term defects
+live in `TODO.md`. Reach for this file for things that are not yet either.
 
 ## Open Issues
 
-### UV V-flip asymmetry in standalone (non-Blender) usage
-- `createShapeFromData` flips UV V coordinate (`1-v`) on write (line ~4700 in pynifly.py)
-- `shape.uvs` returns raw NIF values on read — no flip
-- This means a read-then-write round trip inverts the V axis
-- The flip exists for Blender's UV convention, but it should live in the Blender import/export layer, not in the core library
-- **Fix**: Remove the `1-v` from `createShapeFromData`, add it to the Blender addon's export path instead
+*(none currently — see `TODO.md`)*
 
 ## Wish List
 
@@ -46,6 +44,12 @@ Ideas, reminders, wish list, and open questions.
 - Elric needs files under a `meshes/` folder to be happy
 
 ### FO4 Havok packfile physics — decoded fields (2026-03)
+
+> The fuller write-up is `docs/fo4_havok_packfile_format.md`. **The two use different bases**
+> — that document covers the packfile structure as a whole, this table is specifically the
+> `body_props` array — so they are complementary rather than copies. Check both before
+> concluding a field is undocumented, and update both if one is corrected.
+
 All offsets below are relative to the start of the body_props array data (PSD+0x10).
 
 **Encoding note**: Several fields use "truncated float16" — the upper 16 bits of an IEEE 754 float32 stored as uint16. Decode: `value = struct.unpack('<f', struct.pack('<I', uint16_val << 16))[0]`. Encode: `uint16_val = struct.unpack('<I', struct.pack('<f', value))[0] >> 16`.
@@ -79,6 +83,12 @@ All offsets below are relative to the start of the body_props array data (PSD+0x
 **Vanilla defaults**: All vanilla objects use friction=0.5, restitution=0.4, linearDamping=0.1, angularDamping=0.05, gravityFactor=1.0, maxLinVel=104.4, maxAngVel=31.6. Verified across 10 objects (wood, ceramic, plastic, metal, rubber, stone) and confirmed with Elric-compiled output.
 
 ## Done
+
+### UV V-flip moved out of the core library (verified 2026-08-20)
+Resolved exactly as proposed above: there is no `1-v` anywhere in `pynifly.py` any more, and the
+flip now happens in the Blender export path — `export_nif.py:2028`,
+`uvmap_nif = [(u, 1.0 - v) for u, v in uvmap_new]`. Read and write are symmetric in the core
+library, so a standalone read-then-write round trip no longer inverts the V axis.
 
 ### Native HKX animation (2026-03)
 - Import/export for Skyrim LE, SE, and FO4 — no hkxcmd dependency
