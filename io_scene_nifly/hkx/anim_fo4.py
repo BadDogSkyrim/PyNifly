@@ -1856,8 +1856,15 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         return off
 
     def write_string(s: str) -> int:
+        # hkStringPtr stores its ownership flag in pointer bit 0. Packfile
+        # string targets must therefore be 2-byte aligned; an odd address is
+        # masked down while reading and freed as owned memory on destruction.
+        while len(data) % 2:
+            data.append(0)
         off = rel()
         data.extend(s.encode('ascii') + b'\x00')
+        while len(data) % 2:
+            data.append(0)
         return off
 
     def align16():
@@ -1893,20 +1900,10 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     align16()
 
     # Variant strings
-    nv0_name_str = rel()
-    write_string("Merged Animation Container")
-    while len(data) % 2:
-        data.append(0)
-    nv0_class_str = rel()
-    write_string("hkaAnimationContainer")
-    while len(data) % 2:
-        data.append(0)
-    nv1_name_str = rel()
-    write_string("Resource Data")
-    while len(data) % 2:
-        data.append(0)
-    nv1_class_str = rel()
-    write_string("hkMemoryResourceContainer")
+    nv0_name_str = write_string("Merged Animation Container")
+    nv0_class_str = write_string("hkaAnimationContainer")
+    nv1_name_str = write_string("Resource Data")
+    nv1_class_str = write_string("hkMemoryResourceContainer")
     align16()
 
     # Fixups for variant name/class strings (local)
@@ -2032,17 +2029,15 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
             struct.pack_into('<f', event, 0, float(annotation.time))
             annot_event_offsets.append(write(bytes(event)))
         for event_rel, annotation in zip(annot_event_offsets, annotations):
-            text_rel = rel()
-            write_string(str(annotation.text))
+            text_rel = write_string(str(annotation.text))
             fx.add_local(event_rel + 0x08, text_rel)
 
     # Annotation track name strings
     for i in range(num_tracks):
-        name_str_rel = rel()
         name = bone_names[i] if i < len(bone_names) else ""
         if annotations and i == root_track_index:
             name = "Root"
-        write_string(name)
+        name_str_rel = write_string(name)
         fx.add_local(annot_track_offsets[i], name_str_rel)
     align16()
 
@@ -2111,11 +2106,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     write(bytes(bind_hdr))
 
     # Skeleton name string
-    skel_name_rel = rel()
-    write_string(skel_name)
+    skel_name_rel = write_string(skel_name)
     fx.add_local(binding_rel + 0x10, skel_name_rel)
-    while len(data) % 2:
-        data.append(0)
 
     # Animation ptr (global fixup — inter-object reference)
     fx.add_global(binding_rel + 0x18, 2, spline_rel)
@@ -2252,8 +2244,14 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
         return off
 
     def write_string(s: str) -> int:
+        # hkStringPtr uses pointer bit 0 as an ownership flag, so every string
+        # target in a native packfile must be 2-byte aligned.
+        while len(data) % 2:
+            data.append(0)
         off = rel()
         data.extend(s.encode('ascii') + b'\x00')
+        while len(data) % 2:
+            data.append(0)
         return off
 
     def align16():
@@ -2295,10 +2293,11 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
     align16()
 
     # Variant strings
-    nv0_name_str = rel(); write_string("Merged Animation Container"); align_to(2)
-    nv0_class_str = rel(); write_string("hkaAnimationContainer"); align_to(2)
-    nv1_name_str = rel(); write_string("Resource Data"); align_to(2)
-    nv1_class_str = rel(); write_string("hkMemoryResourceContainer"); align16()
+    nv0_name_str = write_string("Merged Animation Container")
+    nv0_class_str = write_string("hkaAnimationContainer")
+    nv1_name_str = write_string("Resource Data")
+    nv1_class_str = write_string("hkMemoryResourceContainer")
+    align16()
 
     fx.add_local(nv0_name, nv0_name_str)
     fx.add_local(nv0_class, nv0_class_str)
@@ -2372,10 +2371,8 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
     write(bytes(skel_buf))
 
     # Skeleton name string
-    skel_name_rel = rel()
-    write_string(skel_name)
+    skel_name_rel = write_string(skel_name)
     fx.add_local(skel_obj_rel + o_name, skel_name_rel)
-    align_to(2)
 
     # parentIndices data (int16 array)
     pi_data_rel = rel()
@@ -2399,9 +2396,7 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
 
     # bone name strings
     for i in range(nbones):
-        align_to(2)
-        bn_rel = rel()
-        write_string(bones[i] or "")
+        bn_rel = write_string(bones[i] or "")
         fx.add_local(bone_struct_offsets[i], bn_rel)
     align16()
 
@@ -2432,10 +2427,8 @@ def _build_skel_data_section_fo4(skel: Skeleton, name_offs: Dict[str, int]) -> T
         for _ in float_slots:
             slot_ptr_offsets.append(rel())
             write(bytes(P))
-        align_to(2)
         for i, name in enumerate(float_slots):
-            sn_rel = rel()
-            write_string(name)
+            sn_rel = write_string(name)
             fx.add_local(slot_ptr_offsets[i], sn_rel)
         align16()
 

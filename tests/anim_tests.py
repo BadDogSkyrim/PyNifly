@@ -219,6 +219,25 @@ def TEST_FO4_ANNOTATION_ROUNDTRIP():
 
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
     anim_fo4.write_fo4_animation(_ANNOTATION_ROUNDTRIP_OUT, animation)
+
+    # hkStringPtr reserves pointer bit 0 as its ownership flag. Verify the
+    # packfile fixups themselves, since the PyNifly reader can round-trip an
+    # odd target without reproducing Havok's pointer masking and destruction.
+    raw = Path(_ANNOTATION_ROUNDTRIP_OUT).read_bytes()
+    data_section = anim_fo4._parse_hkx_sections(raw)["__data__"]
+    local_fixups = anim_fo4._parse_local_fixups(raw, data_section)
+    expected_strings = [annotation.text for annotation in annotations]
+    expected_strings.extend(["Root", "COM"])
+    for expected in expected_strings:
+        encoded = expected.encode("ascii") + b"\x00"
+        targets = [
+            target for target in local_fixups.values()
+            if raw.startswith(encoded, data_section["offset"] + target)
+        ]
+        assert targets, f"No local fixup targets hkStringPtr value {expected!r}"
+        assert all(target % 2 == 0 for target in targets), \
+            f"Unaligned hkStringPtr target for {expected!r}: {targets}"
+
     reloaded = anim_fo4.load_fo4_animation(_ANNOTATION_ROUNDTRIP_OUT)
 
     assert TT.is_eq(reloaded.bone_names, ["Root", "COM"],
