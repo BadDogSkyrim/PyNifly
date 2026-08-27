@@ -909,16 +909,22 @@ def _build_anim_data_section(anim: AnimationData,
         # Fixup: track 0's annotation hkArray → event data
         fx.add_local(annot_track_offsets[0] + P, ann_events_data_rel)
 
-    # Annotation event strings
+    # Annotation event strings.  Every string start must be 2-aligned: Havok's
+    # hkStringPtr uses the pointer's low bit as an "owned" flag, so a string at
+    # an odd address is freed into the packfile buffer when the animation
+    # resource unloads -- in-game CTD when the animation stops playing.
     for i, evt in enumerate(ann_events):
+        align_to(2)
         evt_str_rel = rel()
         write_string(evt.text or "")
         fx.add_local(ann_event_offsets[i], evt_str_rel)
     if ann_events:
         align16()
 
-    # Annotation track name strings
+    # Annotation track name strings -- 2-aligned for the same hkStringPtr
+    # owned-bit reason as above.
     for i in range(num_tracks):
+        align_to(2)
         name_str_rel = rel()
         name = bone_names[i] if i < len(bone_names) else ""
         write_string(name)
@@ -1317,8 +1323,8 @@ def _build_skel_data_section(skel: Skeleton,
         for _ in float_slots:
             slot_ptr_offsets.append(rel())
             write_ptr()
-        align_to(2)
         for i, name in enumerate(float_slots):
+            align_to(2)  # per-string: hkStringPtr treats an odd address as "owned"
             sn_rel = rel()
             write_string(name)
             fx.add_local(slot_ptr_offsets[i], sn_rel)
