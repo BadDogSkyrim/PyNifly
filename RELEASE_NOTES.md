@@ -5,15 +5,13 @@ PyNifly, re-export them.
 
 ## Animation (HKX)
 
-- **Exported animations no longer crash the game when they stop.** Playback was always
-  fine, which is why this never looked like an export bug. Affects Skyrim LE/SE and
-  Fallout 4. Thanks to sse-anim-tools for tracking it down (#418) and jarari for the
-  Fallout 4 half (#415).
+- **Exported animations no longer crash the game when they stop.** Thanks to
+  sse-anim-tools for tracking it down (#418) and jarari for the Fallout 4 half (#415).
 
 - **Annotations now survive export.** Native HKX export silently dropped every annotation
   event, so an animation that came in with footstep or sound triggers went out with none.
 
-- **Annotations are now pose markers, not timeline markers.** They belong to the action,
+- Note: **Annotations are pose markers, not timeline markers.** They belong to the action,
   so they follow the animation instead of the scene, and several events can share a frame.
   To see them: open a **Dope Sheet**, switch it to **Action Editor**, and turn on
   **View > Show Pose Markers** — it's off by default. `M` adds a marker, `F2` renames it.
@@ -23,7 +21,7 @@ PyNifly, re-export them.
   as pose markers.
 
 **Known limitation:** the legacy hkxcmd export path still reads scene timeline markers,
-so annotations from a native import won't reach it.
+so annotations from a native import won't reach it. The whole legacy path is depreciated.
 
 
 # PyNifly 28.1.0 Release Notes
