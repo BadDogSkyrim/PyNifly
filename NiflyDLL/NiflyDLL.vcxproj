@@ -329,9 +329,7 @@
     </Link>
     <PostBuildEvent>
       <Command>xcopy /y $(OutDir)NiflyDLL.dll  $(OutDir)io_scene_nifly\
-xcopy /y/s/i $(ProjectDir)..\io_scene_nifly\skeletons $(OutDir)io_scene_nifly\skeletons
-xcopy /y/s/i $(ProjectDir)..\io_scene_nifly\blender_assets $(OutDir)io_scene_nifly\blender_assets
-robocopy "$(ProjectDir)..\io_scene_nifly" "$(OutDir)io_scene_nifly" /E /XD tests /XF *.pyproj *.user *.sln
+robocopy "$(ProjectDir)..\io_scene_nifly" "$(OutDir)io_scene_nifly" /E /XD tests __pycache__ /XF *.pyproj *.user *.sln *.pyc *~ *.blend1 *.blend2
 del /q "$(OutDir)io_scene_nifly.zip"
 7z a -tzip $(OutDir)io_scene_nifly.zip $(OutDir)io_scene_nifly</Command>
     </PostBuildEvent>
