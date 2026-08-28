@@ -41,7 +41,7 @@ With the armature selected, use **File > Import > Import NIF (PyNifly)** to brin
 
 ### Step 3: Import an Animation (Optional)
 
-With the armature selected, use **File > Import > Import HKX (PyNifly)** and select an animation HKX file. The animation is loaded as a Blender action on the armature. Annotation events from the HKX file become timeline markers.
+With the armature selected, use **File > Import > Import HKX (PyNifly)** and select an animation HKX file. The animation is loaded as a Blender action on the armature. Annotation events from the HKX file become pose markers on that action.
 
 Edit the animation to your heart's content.
 
@@ -72,8 +72,14 @@ No reference skeleton file is needed -- PyNifly uses the bone data stored on the
 
 HKX animation files can contain annotation events (text labels at specific times), used by the game engine to trigger sounds, effects, etc.
 
-- **On import**, annotations become Blender timeline markers.
-- **On export**, timeline markers are written back as annotations.
+- **On import**, annotations become pose markers on the imported action.
+- **On export**, the action's pose markers are written back as annotations.
+
+Pose markers belong to the action rather than the scene, so they follow the animation
+they came from, and several events can share a frame. To see and edit them, open a
+**Dope Sheet** editor, set its mode to **Action Editor**, and turn on
+**View > Show Pose Markers** (it is off by default). Add a marker with `M` and rename
+it with `F2`.
 
 ## Tips
 

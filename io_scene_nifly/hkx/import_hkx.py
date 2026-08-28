@@ -43,6 +43,37 @@ else:
 log = logging.getLogger("pynifly")
 
 
+def _store_annotations(armature, annotations, fps):
+    """Store HKX annotation events as pose markers on the armature's action.
+
+    Pose markers are action-scoped, so annotations stay with the animation they
+    belong to rather than the scene, and any number of them may share a frame.
+    This matches how the NIF path stores NiTextKeyExtraData.
+    """
+    if not armature.animation_data or not armature.animation_data.action:
+        return
+    action = armature.animation_data.action
+    for ann in annotations:
+        if ann.text:
+            m = action.pose_markers.new(ann.text)
+            # round, not truncate: times are stored as float32, so a value a
+            # hair under an exact frame boundary must still land on that frame.
+            # Truncating cost a frame on every roundtrip. The NIF text-key path
+            # has always rounded.
+            m.frame = round(ann.time * fps) + 1
+
+
+def _read_annotations(action, frame_start, frame_end, fps):
+    """Return Annotations for the action's in-range pose markers, in time order."""
+    result = []
+    for m in sorted(action.pose_markers, key=lambda m: m.frame):
+        if m.name and frame_start <= m.frame <= frame_end:
+            result.append(anim_fo4.Annotation(
+                time=(m.frame - frame_start) / fps,
+                text=m.name))
+    return result
+
+
 ################################################################################
 #                                                                              #
 #                             HKX ANIMATION IMPORT                              #
@@ -506,11 +537,11 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
         context.scene.frame_set(1)
 
-        # ── Import annotation events as timeline markers ──
-        for ann in anim_data.annotations:
-            if ann.text:
-                context.scene.timeline_markers.new(
-                    ann.text, frame=int(ann.time * self.fps) + 1)
+        # ── Import annotation events as pose markers on the action ──
+        # Pose markers belong to the action, so they travel with the animation
+        # instead of the scene, and several events may share a frame. This is
+        # the same mechanism the NIF text-key path uses.
+        _store_annotations(armature, anim_data.annotations, self.fps)
 
         bdefs.highlight_objects([armature], context)
         log.info(f"Import of FO4 HKX animation completed: {anim_name}")
@@ -724,10 +755,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
         context.scene.frame_set(1)
 
-        for ann in anim_data.annotations:
-            if ann.text:
-                context.scene.timeline_markers.new(
-                    ann.text, frame=int(ann.time * self.fps) + 1)
+        _store_annotations(armature, anim_data.annotations, self.fps)
 
         bdefs.highlight_objects([armature], context)
         log.info(f"Import of Skyrim HKX animation completed: {anim_name}")
@@ -1167,4 +1195,6 @@ def extract_fo4_animation(armature, fps=None):
         original_skeleton_name="Root",
         blend_hint=1 if additive else 0,
     )
+    anim_out.annotations = _read_annotations(
+        action, frame_start, frame_end, blender_fps)
     return anim_out

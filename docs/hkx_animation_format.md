@@ -289,21 +289,31 @@ Custom properties stored on Blender armatures:
 | `PYN_HKX_PTR_SIZE` | 4 (LE) or 8 (SE/FO4) |
 | `PYN_HKX_ADDITIVE` | True if additive animation |
 
-## Annotations (Timeline Markers)
+## Annotations (Pose Markers)
 
-HKX annotations map to Blender timeline markers:
+HKX annotations map to pose markers on the imported action -- the same mechanism
+the NIF path uses for `NiTextKeyExtraData`:
 
 ```
 HKX:     {time: 0.5, text: "SoundPlay.footstep"}
-Blender: marker at frame 15 (at 30 fps) named "SoundPlay.footstep"
+Blender: action.pose_markers entry at frame 16 (at 30 fps) named "SoundPlay.footstep"
 ```
+
+Pose markers are owned by the action, not the scene, so they stay with the
+animation they belong to, and any number may share a frame. Frame numbers are
+1-based and **rounded**, not truncated: annotation times are stored as float32,
+so a value a hair under a frame boundary must still land on that frame.
+
+The legacy hkxcmd import/export path still uses scene timeline markers.
 
 ## Limitations
 
 - No root motion export (reference frame samples always zero)
 - No float tracks (morph target animations)
 - B-spline degree limited to 0 (constant) and 1 (linear), not cubic
-- All annotation events stored on track 0
+- All annotation events stored on track 0, with every annotation track name left
+  empty -- this is what the games ship: of 311 annotated vanilla FO4 animations
+  and 50 annotated vanilla Skyrim SE animations, not one names an annotation track
 
 ## Architecture
 

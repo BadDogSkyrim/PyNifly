@@ -2258,44 +2258,8 @@ def TEST_EXPORT_BOGUS():
 
 
 @TT.category('FO4', 'HKX')
-def TEST_FO4_ANIM_IMPORT():
-    """Can import FO4 HKX animation onto skeleton imported from HKX."""
-    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
-    hkx_anim = TTB.test_file(r"tests\FO4\Animations\Death1.hkx")
-
-    bpy.context.scene.render.fps = 30
-
-    # Import the HKX skeleton — creates armature with stored bone list
-    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
-                                      rename_bones=False,
-                                      blender_xf=False)
-
-    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    assert TT.is_gt(len(arma.data.bones), 90, "Skeleton has bones")
-    assert 'PYN_HKX_BONES' in arma, "Armature has stored HKX bone list"
-
-    BD.ObjectSelect([arma], active=True)
-
-    # Import FO4 animation — no skeleton reference needed
-    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
-                                      rename_bones=False,
-                                      blender_xf=False)
-
-    assert arma.animation_data is not None, "Armature has animation data"
-    assert arma.animation_data.action is not None, "Armature has an action"
-
-    act = arma.animation_data.action
-    fcurves = list(BD.action_fcurves(act))
-    assert TT.is_gt(len(fcurves), 0, "Action has fcurves")
-
-    # Check that COM bone has animation
-    com_curves = [c for c in fcurves if 'COM' in c.data_path]
-    assert TT.is_gt(len(com_curves), 0, "COM bone is animated")
-
-
-@TT.category('FO4', 'HKX')
 def TEST_FO4_ANIM_EXPORT():
-    """Can export FO4 HKX animation and re-import with matching tracks."""
+    """Can import a FO4 HKX animation, export it, and re-import it unchanged."""
     hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
     hkx_anim = TTB.test_file(r"tests\FO4\Animations\Death1.hkx")
     outfile = TTB.test_file(r"tests\Out\TEST_FO4_ANIM_EXPORT.hkx")
@@ -2307,18 +2271,42 @@ def TEST_FO4_ANIM_EXPORT():
                                       rename_bones=False,
                                       blender_xf=False)
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert TT.is_gt(len(arma.data.bones), 90, "Skeleton has bones")
+    assert 'PYN_HKX_BONES' in arma, "Armature has stored HKX bone list"
+
     BD.ObjectSelect([arma], active=True)
     bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
                                       rename_bones=False,
                                       blender_xf=False)
 
+    assert arma.animation_data is not None, "Armature has animation data"
+    assert arma.animation_data.action is not None, "Armature has an action"
+
     orig_action = arma.animation_data.action
     orig_frame_end = int(orig_action.frame_end)
+    orig_fcurves = list(BD.action_fcurves(orig_action))
+    assert TT.is_gt(len(orig_fcurves), 0, "Action has fcurves")
+    assert TT.is_gt(len([c for c in orig_fcurves if 'COM' in c.data_path]), 0,
+                    "COM bone is animated")
+
+    # Death1's five annotations become timeline markers. Two names repeat at
+    # different times, so check frames and text together.
+    orig_markers = sorted((m.frame, m.name)
+                          for m in orig_action.pose_markers)
+    assert TT.is_eq(orig_markers,
+                    [(14, 'FootRight'),
+                     (26, 'FootLeft'),
+                     (35, 'FootLeft'),
+                     (48, 'FootRight'),
+                     (60, 'Ragdoll')],
+                    "Annotation markers imported")
 
     # Export
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
 
-    # Clear and re-import to verify roundtrip
+    # Clear and re-import to verify roundtrip. Pose markers belong to the
+    # action, so removing the actions takes the annotations with them --
+    # nothing stale can satisfy the check below.
     bpy.ops.object.mode_set(mode='OBJECT')
     for a in bpy.data.actions:
         bpy.data.actions.remove(a)
@@ -2349,6 +2337,13 @@ def TEST_FO4_ANIM_EXPORT():
     assert com_bone is not None, "COM bone exists"
     com_z = (arma.matrix_world @ com_bone.matrix).translation.z
     assert TT.is_lt(com_z, 20.0, "COM z near floor at end of death anim")
+
+    # Annotations must survive the export. Compared against what the first
+    # import produced, so a shift in either direction shows up.
+    reimported_markers = sorted((m.frame, m.name)
+                                for m in reimported.pose_markers)
+    assert TT.is_eq(reimported_markers, orig_markers,
+                    "Annotations preserved through export")
 
 
 @TT.category('SKYRIM', 'HKX')
@@ -2437,55 +2432,6 @@ def TEST_FO4_HKX_SKEL_WITH_NIF():
     assert chest_skin is not None, "Chest_skin bone exists"
     assert chest_skin.parent is not None, "Chest_skin has a parent"
     assert TT.is_eq(chest_skin.parent.name, 'Chest', "Chest_skin parented to Chest")
-
-
-@TT.category('SKYRIM', 'HKX')
-def TEST_SKYRIM_ANIM_IMPORT():
-    """Can import Skyrim HKX animation onto skeleton imported from HKX."""
-    hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
-    hkx_anim = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
-
-    bpy.context.scene.render.fps = 30
-
-    # Import the HKX skeleton — creates armature with stored bone list
-    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
-                                      rename_bones=True,
-                                      blender_xf=False)
-
-    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    assert arma.name.endswith(':ARMATURE'), f"Armature name ends with :ARMATURE, got '{arma.name}'"
-    assert TT.is_eq(len(arma.data.bones), 99, "Skeleton has 99 bones")
-    assert 'PYN_HKX_BONES' in arma, "Armature has stored HKX bone list"
-    assert TT.is_eq(arma.get('PYN_HKX_GAME'), 'SKYRIM', "Game property is SKYRIM")
-    assert TT.is_eq(arma.get('PYN_HKX_PTR_SIZE'), 4, "Ptr size is 4 (LE)")
-
-    # Verify bone renaming was applied (L/R bones use Blender .L/.R suffix)
-    assert arma.data.bones.get('NPC Calf.L') is not None, "NPC L Calf renamed to NPC Calf.L"
-
-    BD.ObjectSelect([arma], active=True)
-
-    # Import Skyrim animation
-    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
-                                      rename_bones=True,
-                                      blender_xf=False)
-
-    assert arma.animation_data is not None, "Armature has animation data"
-    assert arma.animation_data.action is not None, "Armature has an action"
-
-    act = arma.animation_data.action
-    fcurves = list(BD.action_fcurves(act))
-    assert TT.is_gt(len(fcurves), 0, "Action has fcurves")
-
-    # Check that NPC COM bone has animation
-    com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
-    assert TT.is_gt(len(com_curves), 0, "NPC COM bone is animated")
-
-    # Verify frame range
-    assert TT.is_eq(int(act.frame_end), 38, "Animation has 38 frames")
-
-    # Verify annotation markers were imported
-    markers = bpy.context.scene.timeline_markers
-    assert TT.is_ge(len(markers), 3, "At least 3 annotation markers")
 
 
 @TT.category('SKYRIM', 'FO4', 'HKX', 'ARMATURE')
@@ -2602,7 +2548,7 @@ def TEST_HKX_ANIM_ORIENT_ROUNDTRIP(game):
 
 @TT.category('SKYRIM', 'HKX')
 def TEST_SKYRIM_ANIM_EXPORT():
-    """Can export Skyrim HKX animation and re-import with matching tracks."""
+    """Can import a Skyrim HKX animation, export it, and re-import it unchanged."""
     hkx_skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
     hkx_anim = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
     outfile = TTB.test_file(r"tests\Out\TEST_SKYRIM_ANIM_EXPORT.hkx")
@@ -2614,13 +2560,42 @@ def TEST_SKYRIM_ANIM_EXPORT():
                                       rename_bones=True,
                                       blender_xf=False)
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert arma.name.endswith(':ARMATURE'), f"Armature name ends with :ARMATURE, got '{arma.name}'"
+    assert TT.is_eq(len(arma.data.bones), 99, "Skeleton has 99 bones")
+    assert 'PYN_HKX_BONES' in arma, "Armature has stored HKX bone list"
+    assert TT.is_eq(arma.get('PYN_HKX_GAME'), 'SKYRIM', "Game property is SKYRIM")
+    assert TT.is_eq(arma.get('PYN_HKX_PTR_SIZE'), 4, "Ptr size is 4 (LE)")
+
+    # Verify bone renaming was applied (L/R bones use Blender .L/.R suffix)
+    assert arma.data.bones.get('NPC Calf.L') is not None, "NPC L Calf renamed to NPC Calf.L"
+
     BD.ObjectSelect([arma], active=True)
     bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
                                       rename_bones=True,
                                       blender_xf=False)
 
+    assert arma.animation_data is not None, "Armature has animation data"
+    assert arma.animation_data.action is not None, "Armature has an action"
+
     orig_action = arma.animation_data.action
     orig_frame_end = int(orig_action.frame_end)
+    assert TT.is_eq(orig_frame_end, 38, "Animation has 38 frames")
+
+    orig_fcurves = list(BD.action_fcurves(orig_action))
+    assert TT.is_gt(len(orig_fcurves), 0, "Action has fcurves")
+    assert TT.is_gt(len([c for c in orig_fcurves if 'NPC COM' in c.data_path]), 0,
+                    "NPC COM bone is animated")
+
+    # Check frames and text together: the fixture's three events include the
+    # same name at two different times, so a count or a name set alone would
+    # not catch a mangled marker.
+    orig_markers = sorted((m.frame, m.name)
+                          for m in orig_action.pose_markers)
+    assert TT.is_eq(orig_markers,
+                    [(4, 'FootScuffRight'),
+                     (15, 'FootScuffLeft'),
+                     (22, 'FootScuffRight')],
+                    "Annotation markers imported")
 
     # Export
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
@@ -2630,7 +2605,9 @@ def TEST_SKYRIM_ANIM_EXPORT():
         hdr = f.read(0x11)
     assert TT.is_eq(hdr[0x10], 4, "Exported file has ptr_size=4 (LE)")
 
-    # Clear and re-import to verify roundtrip
+    # Clear and re-import to verify roundtrip. Pose markers belong to the
+    # action, so removing the actions takes the annotations with them --
+    # nothing stale can satisfy the check below.
     bpy.ops.object.mode_set(mode='OBJECT')
     for a in bpy.data.actions:
         bpy.data.actions.remove(a)
@@ -2654,50 +2631,18 @@ def TEST_SKYRIM_ANIM_EXPORT():
     com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
     assert TT.is_gt(len(com_curves), 0, "NPC COM bone still animated after roundtrip")
 
-
-@TT.category('SKYRIM', 'HKX')
-def TEST_SKYRIMSE_ANIM_IMPORT():
-    """Can import Skyrim SE HKX animation (8-byte pointers) onto SE skeleton."""
-    hkx_skel = TTB.test_file(r"tests\SkyrimSE\skeleton.hkx")
-    hkx_anim = TTB.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.hkx")
-
-    bpy.context.scene.render.fps = 30
-
-    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel,
-                                      rename_bones=True,
-                                      blender_xf=False)
-
-    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
-    assert TT.is_true(arma.name.endswith(':ARMATURE'), f"SE armature name ends with :ARMATURE, got '{arma.name}'")
-    assert TT.is_eq(len(arma.data.bones), 99, "SE skeleton has 99 bones")
-    assert TT.is_eq(arma.get('PYN_HKX_GAME'), 'SKYRIM', "Game property is SKYRIM")
-    assert TT.is_eq(arma.get('PYN_HKX_PTR_SIZE'), 8, "Ptr size is 8 (SE)")
-
-    BD.ObjectSelect([arma], active=True)
-
-    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
-                                      rename_bones=True,
-                                      blender_xf=False)
-
-    assert arma.animation_data is not None, "Armature has animation data"
-    assert arma.animation_data.action is not None, "Armature has an action"
-
-    act = arma.animation_data.action
-    fcurves = list(BD.action_fcurves(act))
-    assert TT.is_gt(len(fcurves), 0, "Action has fcurves")
-
-    com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
-    assert TT.is_gt(len(com_curves), 0, "NPC COM bone is animated")
-
-    assert TT.is_eq(int(act.frame_end), 38, "Animation has 38 frames")
-
-    markers = bpy.context.scene.timeline_markers
-    assert TT.is_ge(len(markers), 3, "At least 3 annotation markers")
+    # Annotations must survive the export. Compared against what the first
+    # import produced, so a shift in either direction shows up.
+    reimported_markers = sorted((m.frame, m.name)
+                                for m in reimported.pose_markers)
+    assert TT.is_eq(reimported_markers, orig_markers,
+                    "Annotations preserved through export")
 
 
 @TT.category('SKYRIM', 'HKX')
 def TEST_SKYRIMSE_ANIM_EXPORT():
-    """Can export Skyrim SE HKX animation with 8-byte pointers and re-import."""
+    """Can import a Skyrim SE HKX animation (8-byte pointers), export it, and
+    re-import it unchanged."""
     hkx_skel = TTB.test_file(r"tests\SkyrimSE\skeleton.hkx")
     hkx_anim = TTB.test_file(r"tests\SkyrimSE\1hm_staggerbacksmallest.hkx")
     outfile = TTB.test_file(r"tests\Out\TEST_SKYRIMSE_ANIM_EXPORT.hkx")
@@ -2709,14 +2654,36 @@ def TEST_SKYRIMSE_ANIM_EXPORT():
                                       rename_bones=True,
                                       blender_xf=False)
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert TT.is_true(arma.name.endswith(':ARMATURE'), f"SE armature name ends with :ARMATURE, got '{arma.name}'")
+    assert TT.is_eq(len(arma.data.bones), 99, "SE skeleton has 99 bones")
+    assert 'PYN_HKX_BONES' in arma, "Armature has stored HKX bone list"
+    assert TT.is_eq(arma.get('PYN_HKX_GAME'), 'SKYRIM', "Game property is SKYRIM")
     assert TT.is_eq(arma.get('PYN_HKX_PTR_SIZE'), 8, "Ptr size is 8 before export")
+
     BD.ObjectSelect([arma], active=True)
     bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim,
                                       rename_bones=True,
                                       blender_xf=False)
 
+    assert arma.animation_data is not None, "Armature has animation data"
+    assert arma.animation_data.action is not None, "Armature has an action"
+
     orig_action = arma.animation_data.action
     orig_frame_end = int(orig_action.frame_end)
+    assert TT.is_eq(orig_frame_end, 38, "Animation has 38 frames")
+
+    orig_fcurves = list(BD.action_fcurves(orig_action))
+    assert TT.is_gt(len(orig_fcurves), 0, "Action has fcurves")
+    assert TT.is_gt(len([c for c in orig_fcurves if 'NPC COM' in c.data_path]), 0,
+                    "NPC COM bone is animated")
+
+    orig_markers = sorted((m.frame, m.name)
+                          for m in orig_action.pose_markers)
+    assert TT.is_eq(orig_markers,
+                    [(4, 'FootScuffRight'),
+                     (15, 'FootScuffLeft'),
+                     (22, 'FootScuffRight')],
+                    "SE annotation markers imported")
 
     # Export — should produce SE format (ptr_size=8)
     bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
@@ -2726,7 +2693,9 @@ def TEST_SKYRIMSE_ANIM_EXPORT():
         hdr = f.read(0x11)
     assert TT.is_eq(hdr[0x10], 8, "Exported file has ptr_size=8 (SE)")
 
-    # Clear and re-import to verify roundtrip
+    # Clear and re-import to verify roundtrip. Pose markers belong to the
+    # action, so removing the actions takes the annotations with them --
+    # nothing stale can satisfy the check below.
     bpy.ops.object.mode_set(mode='OBJECT')
     for a in bpy.data.actions:
         bpy.data.actions.remove(a)
@@ -2747,6 +2716,13 @@ def TEST_SKYRIMSE_ANIM_EXPORT():
 
     com_curves = [c for c in fcurves if 'NPC COM' in c.data_path]
     assert TT.is_gt(len(com_curves), 0, "NPC COM bone still animated after roundtrip")
+
+    # Annotations must survive the export. Compared against what the first
+    # import produced, so a shift in either direction shows up.
+    reimported_markers = sorted((m.frame, m.name)
+                                for m in reimported.pose_markers)
+    assert TT.is_eq(reimported_markers, orig_markers,
+                    "SE annotations preserved through export")
 
     # ── Binary format validation (catches CTD-causing bugs) ──
     import struct as _s

@@ -184,6 +184,31 @@ def TEST_FO4_ANIM_ROUNDTRIP():
                 assert err < scale_tol, \
                     f"Track {i} frame {f} scale[{j}]: err={err:.4f}"
 
+    # Annotations. Death1 carries five foot/ragdoll events; pin them so a
+    # writer that drops the annotation array can't pass by comparing zero
+    # against zero.
+    expected_annotations = [
+        (0.4333, 'FootRight'),
+        (0.8333, 'FootLeft'),
+        (1.1333, 'FootLeft'),
+        (1.5667, 'FootRight'),
+        (1.9667, 'Ragdoll'),
+    ]
+    assert TT.is_eq(len(orig.annotations), len(expected_annotations),
+                     "Death1 annotation count")
+    for i, (exp_time, exp_text) in enumerate(expected_annotations):
+        assert TT.is_eq(orig.annotations[i].text, exp_text,
+                         f"Death1 annotation {i} text")
+        assert TT.is_equiv(orig.annotations[i].time, exp_time,
+                            f"Death1 annotation {i} time", e=0.001)
+
+    assert TT.is_eq(len(reloaded.annotations), len(orig.annotations),
+                     "Roundtrip annotation count")
+    for i, (oa, ra) in enumerate(zip(orig.annotations, reloaded.annotations)):
+        assert TT.is_eq(ra.text, oa.text, f"Roundtrip annotation {i} text")
+        assert TT.is_equiv(ra.time, oa.time, f"Roundtrip annotation {i} time",
+                            e=0.001)
+
     print(f"    Max rotation error: {max_rot_err:.6f}")
     print(f"    Max translation error: {max_pos_err:.6f}")
 
@@ -202,12 +227,13 @@ def TEST_FO4_ANIM_ROUNDTRIP_VARIETY():
 
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # (file, tracks, frames, blocks, annotations)
     test_files = [
-        ("Death1.hkx",                          95,  81, 1),
-        ("SneakIdle.hkx",                        95, 286, 2),
-        ("CoughingAfterCryo.hkx",                94, 826, 4),
-        ("IdleSitChairLaserPistolCleaning.hkx",  94, 501, 2),
-        ("PoseA_Talk_L5.hkx",                    95, 207, 1),
+        ("Death1.hkx",                          95,  81, 1, 5),
+        ("SneakIdle.hkx",                        95, 286, 2, 0),
+        ("CoughingAfterCryo.hkx",                94, 826, 4, 0),
+        ("IdleSitChairLaserPistolCleaning.hkx",  94, 501, 2, 3),
+        ("PoseA_Talk_L5.hkx",                    95, 207, 1, 0),
     ]
 
     # Expected hk_2014 class hashes
@@ -222,13 +248,15 @@ def TEST_FO4_ANIM_ROUNDTRIP_VARIETY():
     rot_tol = 0.05
     pos_tol = 0.5
 
-    for filename, exp_tracks, exp_frames, exp_blocks in test_files:
+    for filename, exp_tracks, exp_frames, exp_blocks, exp_annotations in test_files:
         in_path = str(_FO4_ANIM_DIR / filename)
         out_path = str(_OUT_DIR / f"TEST_FO4_RT_{filename}")
 
         orig = anim_fo4.load_fo4_animation(in_path)
         assert TT.is_eq(orig.num_tracks, exp_tracks, f"{filename} track count")
         assert TT.is_eq(orig.num_frames, exp_frames, f"{filename} frame count")
+        assert TT.is_eq(len(orig.annotations), exp_annotations,
+                         f"{filename} annotation count")
 
         anim_fo4.write_fo4_animation(out_path, orig)
         reloaded = anim_fo4.load_fo4_animation(out_path)
@@ -262,6 +290,14 @@ def TEST_FO4_ANIM_ROUNDTRIP_VARIETY():
                               reloaded.tracks[i].translations[f][j])
                     assert err < pos_tol, \
                         f"{filename} track {i} frame {f} pos[{j}]: err={err:.4f}"
+
+        # ── Annotation roundtrip ──
+        assert TT.is_eq(len(reloaded.annotations), exp_annotations,
+                         f"{filename} roundtrip annotation count")
+        for ai, (oa, ra) in enumerate(zip(orig.annotations, reloaded.annotations)):
+            assert TT.is_eq(ra.text, oa.text, f"{filename} annotation {ai} text")
+            assert TT.is_equiv(ra.time, oa.time, f"{filename} annotation {ai} time",
+                                e=0.001)
 
         # ── Binary format checks ──
         with open(out_path, 'rb') as fh:
@@ -819,11 +855,11 @@ def TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY():
     _OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     test_files = [
-        ("sneakmtidle.hkx",                99, 333, 2),
-        ("sneak_1hmattackintro.hkx",        99,  10, 1),
-        ("chair_idlearmscrossedvar1.hkx",   99, 275, 2),
-        ("dialogueangrya.hkx",              99, 291, 2),
-        ("bow_drawlight.hkx",               99,  51, 1),
+        ("sneakmtidle.hkx",                99, 333, 2, 0),
+        ("sneak_1hmattackintro.hkx",        99,  10, 1, 0),
+        ("chair_idlearmscrossedvar1.hkx",   99, 275, 2, 0),
+        ("dialogueangrya.hkx",              99, 291, 2, 0),
+        ("bow_drawlight.hkx",               99,  51, 1, 4),
     ]
 
     EXPECTED_HASHES = {
@@ -838,13 +874,15 @@ def TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY():
     rot_tol = 0.05
     pos_tol = 0.5
 
-    for filename, exp_tracks, exp_frames, exp_blocks in test_files:
+    for filename, exp_tracks, exp_frames, exp_blocks, exp_annotations in test_files:
         in_path = str(_SKYRIMSE_DIR / filename)
         out_path = str(_OUT_DIR / f"TEST_SE_RT_{filename}")
 
         orig = anim_skyrim.load_skyrim_animation(in_path)
         assert TT.is_eq(orig.num_tracks, exp_tracks, f"{filename} track count")
         assert TT.is_eq(orig.num_frames, exp_frames, f"{filename} frame count")
+        assert TT.is_eq(len(orig.annotations), exp_annotations,
+                         f"{filename} annotation count")
 
         anim_skyrim.write_skyrim_animation(out_path, orig, ptr_size=8)
         reloaded = anim_skyrim.load_skyrim_animation(out_path)
@@ -880,8 +918,8 @@ def TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY():
                         f"{filename} track {i} frame {f} pos[{j}]: err={err:.4f}"
 
         # ── Annotation roundtrip ──
-        assert TT.is_eq(len(reloaded.annotations), len(orig.annotations),
-                         f"{filename} annotation count")
+        assert TT.is_eq(len(reloaded.annotations), exp_annotations,
+                         f"{filename} roundtrip annotation count")
         for ai, (oa, ra) in enumerate(zip(orig.annotations, reloaded.annotations)):
             assert TT.is_eq(ra.text, oa.text, f"{filename} annotation {ai} text")
             assert TT.is_equiv(ra.time, oa.time, f"{filename} annotation {ai} time", e=0.001)
