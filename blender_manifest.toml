@@ -1,0 +1,16 @@
+schema_version = "1.0.0"
+id = "pynifly"
+version = "28.1.0"
+name = "PyNifly"
+tagline = "Export/Import tools between Blender and the Nif format"
+description = "Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Supports Skyrim LE, Skyrim SE, Fallout 4, and Starfield."
+type = "add-on"
+tags = ["Import-Export"]
+blender_version_min = "4.2.0"
+maintainer = "BadDogSkyrim <https://github.com/BadDogSkyrim>"
+website = "https://github.com/BadDogSkyrim/PyNifly"
+license = [
+    "SPDX:GPL-3.0-only",
+]
+permissions = []
+custom_tags = []
