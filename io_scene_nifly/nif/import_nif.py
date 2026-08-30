@@ -2145,10 +2145,10 @@ class NifImporter():
                         self.settings.create_bones = saved_create_bones
                         self.group_bones(arma)
                     else:
-                        if self.settings.create_bones:
-                            bonenames = [n.name for n in self.nif.nodes.values()
-                                         if n.blockname == 'P.NiNode']
-                            self.add_bones_to_arma(arma, self.nif, bonenames)
+                        # No bulk add of the nif's NiNodes here. create_bones means "fill
+                        # in missing vanilla bones from the reference skeleton", which
+                        # connect_armature does; adding every NiNode in the file is a
+                        # different thing, and it lands every node in every armature.
                         self.connect_armature(arma)
                         self.group_bones(arma)
                         if self.controller_mgr:
@@ -2492,7 +2492,7 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
 
     import_pose: bpy.props.BoolProperty(
         name="Create armature from pose position",
-        description="Creates any armature from the bone P.NiNode (pose) position.",
+        description="Creates any armature from the bone NiNode (pose) position.",
         default=ImportSettings.__dataclass_fields__["import_pose"].default) # type: ignore
     
     mesh_only: bpy.props.BoolProperty(
