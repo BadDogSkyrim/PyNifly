@@ -4074,6 +4074,27 @@ def TEST_CONNECT_POINTS():
     assert "C-Receiver" in pcccheck, f"Have two conect points: {pcccheck}"
     assert "C-Reciever" in pcccheck, f"Have two conect points: {pcccheck}"
 
+    # A file with more than 100 connect points reads all of them. Al_Canopy2x3 has 128.
+    nifmany = NifFile(r"tests\FO4\Al_Canopy2x3.nif")
+    manycp = nifmany.connect_points_parent
+    assert TT.is_eq(len(manycp), 128, "Parent connect points read")
+    manynames = [cp.name.decode() for cp in manycp]
+    assert TT.is_eq(len([n for n in manynames if n == "P-SFrame01"]), 59, "P-SFrame01 connect points")
+    assert TT.is_eq(len([n for n in manynames if n == "P-WS-Origin"]), 1, "P-WS-Origin connect points")
+
+    manyout = NifFile()
+    manyout.initialize('FO4', r"tests\out\TEST_CONNECT_POINTS_MANY.nif")
+    _export_shape(nifmany.shapes[0], manyout)
+    manyout.connect_points_parent = manycp
+    manyout.connect_pt_child_skinned = False
+    manyout.connect_points_child = [f"C-Part{i:03}" for i in range(128)]
+    manyout.save()
+
+    manycheck = NifFile(r"tests\out\TEST_CONNECT_POINTS_MANY.nif")
+    assert TT.is_eq(len(manycheck.connect_points_parent), 128, "Parent connect points written")
+    assert TT.is_eq(len(manycheck.connect_points_child), 128, "Child connect points written")
+    assert TT.is_eq(manycheck.connect_points_child[127], "C-Part127", "Last child connect point")
+
 
 def TEST_SKIN_BONE_XF():
     """Can read and write the skin-bone transform"""

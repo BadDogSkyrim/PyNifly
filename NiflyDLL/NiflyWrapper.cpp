@@ -3137,6 +3137,49 @@ int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf) {
     return 0;
 }
 
+int getConnectPointParentCount(void* nifref) {
+    /* Return the number of parent connect points on the nif's root node. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiAVObject* source = nif->GetRootNode();
+
+    int c = 0;
+
+    for (auto& ed : source->extraDataRefs) {
+        BSConnectPointParents* cpl = hdr.GetBlock<BSConnectPointParents>(ed);
+        if (cpl) c += int(cpl->connectPoints.size());
+    };
+    return c;
+}
+
+int getConnectPointParents(void* nifref, int buflen, ConnectPointBuf* buf) {
+    /* Fill buf with up to buflen parent connect points. Returns the number written.
+       Call getConnectPointParentCount first to size the buffer. */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiAVObject* source = nif->GetRootNode();
+
+    int c = 0;
+
+    for (auto& ed : source->extraDataRefs) {
+        BSConnectPointParents* cpl = hdr.GetBlock<BSConnectPointParents>(ed);
+        if (cpl) {
+            for (auto& cp : cpl->connectPoints) {
+                if (c >= buflen) return c;
+                strncpy_s(buf[c].parent, cp.root.get().c_str(), 256);
+                buf[c].parent[255] = '\0';
+                strncpy_s(buf[c].name, cp.variableName.get().c_str(), 256);
+                buf[c].name[255] = '\0';
+                assignQ(buf[c].rotation, cp.rotation);
+                for (int i = 0; i < 3; i++) buf[c].translation[i] = cp.translation[i];
+                buf[c].scale = cp.scale;
+                c++;
+            };
+        };
+    };
+    return c;
+}
+
 void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf) {
     NifFile* nif = static_cast<NifFile*>(nifref);
 
@@ -3182,6 +3225,50 @@ int getConnectPointChild(void* nifref, int index, char* buf) {
         };
     };
     return 0;
+}
+
+int getConnectPointChildLen(void* nifref) {
+    /* Return the number of bytes needed to hold all child connect point names as a
+       null-separated list (each name including its terminator). */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiAVObject* source = nif->GetRootNode();
+
+    int len = 0;
+
+    for (auto& ed : source->extraDataRefs) {
+        BSConnectPointChildren* cpl = hdr.GetBlock<BSConnectPointChildren>(ed);
+        if (cpl) {
+            for (auto& cp : cpl->targets) len += int(cp.length()) + 1;
+        };
+    };
+    return len;
+}
+
+int getConnectPointChildren(void* nifref, int buflen, char* buf) {
+    /* Fill buf with the child connect point names, null-separated. Names that do not
+       fit in buflen are omitted.
+       returns 0: no children; -1: not skinned; 1: skinned */
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader hdr = nif->GetHeader();
+    NiAVObject* source = nif->GetRootNode();
+
+    int i = 0;
+    int found = 0;
+
+    for (auto& ed : source->extraDataRefs) {
+        BSConnectPointChildren* cpl = hdr.GetBlock<BSConnectPointChildren>(ed);
+        if (cpl) {
+            found = cpl->skinned ? 1 : -1;
+            for (auto& cp : cpl->targets) {
+                int n = int(cp.length()) + 1;
+                if (i + n > buflen) return found;
+                strncpy_s(&buf[i], size_t(buflen) - i, cp.get().c_str(), cp.length());
+                i += n;
+            };
+        };
+    };
+    return found;
 }
 
 void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf) {

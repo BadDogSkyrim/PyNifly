@@ -4024,6 +4024,34 @@ namespace NiflyDLLTests
 
 			saveNif(nifOut, (testRoot / "Out/readConnectPoints.nif").u8string().c_str());
 
+			// The bulk calls return everything in one shot.
+			Assert::AreEqual(5, getConnectPointParentCount(nif), L"Count of parent connect points");
+			ConnectPointBuf allParents[5];
+			Assert::AreEqual(5, getConnectPointParents(nif, 5, allParents), L"All parents returned");
+			Assert::IsTrue(strcmp(allParents[0].name, "P-Mag") == 0, L"Bulk parent 1 correct");
+			Assert::IsTrue(strcmp(allParents[1].parent, "CombatShotgunReceiver") == 0, L"Bulk parent 2 correct");
+
+			// A buffer smaller than the count fills what fits and no more.
+			Assert::AreEqual(2, getConnectPointParents(nif, 2, allParents), L"Short buffer is not overrun");
+
+			int childLen = getConnectPointChildLen(nif);
+			Assert::AreEqual(int(strlen("C-Receiver") + strlen("C-Reciever") + 2), childLen,
+				L"Length of child connect point names");
+			char allChildren[256];
+			Assert::AreEqual(-1, getConnectPointChildren(nif, childLen, allChildren), L"Children not skinned");
+			Assert::IsTrue(strcmp(&allChildren[0], "C-Receiver") == 0, L"Bulk child 1 correct");
+			Assert::IsTrue(strcmp(&allChildren[strlen("C-Receiver") + 1], "C-Reciever") == 0, L"Bulk child 2 correct");
+
+			// More than 100 connect points--all of them come back.
+			void* nifMany = load((testRoot / "FO4/Al_Canopy2x3.nif").u8string().c_str());
+			int manyCount = getConnectPointParentCount(nifMany);
+			Assert::AreEqual(128, manyCount, L"Count of connect points on Al_Canopy2x3");
+			ConnectPointBuf manyParents[128];
+			Assert::AreEqual(128, getConnectPointParents(nifMany, manyCount, manyParents),
+				L"All 128 connect points returned");
+			Assert::IsTrue(strcmp(manyParents[127].parent, "WorkshopConnectPoints") == 0,
+				L"Last connect point correct");
+			Assert::AreEqual(0, getConnectPointChildLen(nifMany), L"No child connect points");
 		};
 		bool IdInBlockList(void* nif, void** refs, int targetID) {
 			bool found = 0;

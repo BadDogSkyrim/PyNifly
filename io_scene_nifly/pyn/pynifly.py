@@ -5336,11 +5336,11 @@ class NifFile:
         if not self._connect_pt_par:
             self._connect_pt_par = []
             if self._handle and isinstance(self.rootNode, NiNode):
-                for i in range(0, 100):
-                    buf = ConnectPointBuf()
-                    if not nifly.getConnectPointParent(self._handle, i, buf):
-                        break
-                    self._connect_pt_par.append(buf)
+                cnt = nifly.getConnectPointParentCount(self._handle)
+                if cnt:
+                    bufs = (ConnectPointBuf * cnt)()
+                    cnt = nifly.getConnectPointParents(self._handle, cnt, bufs)
+                    self._connect_pt_par = list(bufs[0:cnt])
         return self._connect_pt_par
 
     @connect_points_parent.setter
@@ -5352,20 +5352,19 @@ class NifFile:
 
     @property
     def connect_points_child(self):
-        """Reads a nif's child connect point names as [name, name, ...]
-        where bool = skinned/not skinned
-        name = child connect point names, limited to 256 characters"""
+        """Reads a nif's child connect point names as [name, name, ...].
+        Sets connect_pt_child_skinned as a side effect."""
         if not self._connect_pt_child:
             self._connect_pt_child = []
             if self._handle and isinstance(self.rootNode, NiNode):
-                for i in range(0, 100):
-                    buf = (c_char * 256)() 
-                    is_skinned = c_char()
-                    v = nifly.getConnectPointChild(self._handle, i, buf)
-                    if v == 0:
-                        break
-                    self.connect_pt_child_skinned = (v > 0)
-                    self._connect_pt_child.append(buf.value.decode('utf-8'))
+                buflen = nifly.getConnectPointChildLen(self._handle)
+                if buflen:
+                    buf = (c_char * buflen)()
+                    v = nifly.getConnectPointChildren(self._handle, buflen, buf)
+                    if v:
+                        self.connect_pt_child_skinned = (v > 0)
+                        self._connect_pt_child = [
+                            n.decode('utf-8') for n in buf.raw.split(b'\0')[0:-1]]
         return self._connect_pt_child
 
     @connect_points_child.setter

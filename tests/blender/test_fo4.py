@@ -1168,31 +1168,37 @@ def TEST_CONNECT_IMPORT_MULT():
     
 
 @TT.category('FO4', 'CONNECTPOINT')
-def TEST_CONNECT_WORKSHOP():
+@TT.parameterize(("filename", "cp_count", "dup_name", "dup_count"),
+                 [("ShackPrefabMid01", 17, 'P-Floor', 4),
+                  # More than 100 connect points--they all have to survive the round trip.
+                  ("Al_Canopy2x3", 128, 'P-SFrame01', 59)])
+def TEST_CONNECT_WORKSHOP(filename, cp_count, dup_name, dup_count):
     """Test meshes with many connect points, some with the same names."""
 
-    testfile = TTB.test_file(r"tests\FO4\ShackPrefabMid01.nif")
-    outfile = TTB.test_file(r"tests\Out\TEST_CONNECT_WORKSHOP.nif")
-    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, 
+    testfile = TTB.test_file(os.path.join("tests", "FO4", filename + ".nif"))
+    outfile = TTB.test_file(os.path.join("tests", "Out",
+                                         "TEST_CONNECT_WORKSHOP_" + filename + ".nif"))
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False,
                                  create_bones=False, smart_editor_markers=False)
 
     ### Read ###
-    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
-                      if obj.name.startswith('BSConnectPointParents')]), 17), \
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects
+                      if obj.name.startswith('BSConnectPointParents')]), cp_count), \
         "Number of connect points"
-    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
-                      if obj.name.startswith('BSConnectPointParents::P-Floor')]), 4), \
-        "Number of floor connect points"
-    
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects
+                      if obj.name.startswith('BSConnectPointParents::' + dup_name)]), dup_count), \
+        "Number of connect points sharing a name"
+
     ### Write ###
-    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)    
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
     ### Check ###
     nif = pyn.NifFile(outfile)
-    assert TT.is_eq(len(nif.connect_points_parent), 17), "Number of connect points"
+    assert TT.is_eq(len(nif.connect_points_parent), cp_count), "Number of connect points"
     ccp_names = [c.name.decode('utf-8') for c in nif.connect_points_parent]
-    assert TT.is_eq(len([c for c in ccp_names if c == 'P-Floor']), 4), "Number of floor connect points"
+    assert TT.is_eq(len([c for c in ccp_names if c == dup_name]), dup_count), \
+        "Number of connect points sharing a name"
     assert TT.is_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1), "Number of origin connect points"
     
 
