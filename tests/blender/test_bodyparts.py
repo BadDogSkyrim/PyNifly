@@ -717,6 +717,7 @@ def TEST_DRAUGR_IMPORT_A():
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  create_bones=True,
+                                 rename_bones=False,
                                  import_pose=False)
 
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -727,8 +728,8 @@ def TEST_DRAUGR_IMPORT_A():
     assert hoodmaxz > bonemaxz, "Hood covers skeleton"
 
     # Pose position reflects the draugr skeleton, but bind position is the human position. 
-    bone1 = arma.data.bones['NPC Head']
-    pose1 = arma.pose.bones['NPC Head']
+    bone1 = arma.data.bones['NPC Head [Head]']
+    pose1 = arma.pose.bones['NPC Head [Head]']
     assert pose1.head.z > bone1.head.z+10, "Pose well above bind positions"
     
 
@@ -747,13 +748,14 @@ def TEST_DRAUGR_IMPORT_B():
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  create_bones=False,
+                                 rename_bones=False,
                                  import_pose=False)
 
     arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TTB.find_shape("Helmet")
     hood = TTB.find_shape("Hood")
-    bone1 = arma.data.bones['NPC UpperarmTwist1.R']
-    pose1 = arma.pose.bones['NPC UpperarmTwist1.R']
+    bone1 = arma.data.bones['NPC R UpperarmTwist1 [RUt1]']
+    pose1 = arma.pose.bones['NPC R UpperarmTwist1 [RUt1]']
 
     # Lots of bones in this nif are not used in the hood. Bones used in the hood have pose
     # and bind locations. The rest only have pose locations and are brought in as Empties.
@@ -772,12 +774,13 @@ def TEST_DRAUGR_IMPORT_C():
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  create_bones=False,
+                                 rename_bones=False,
                                  import_pose=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TTB.find_shape("Helmet")
-    bone1 = skel.data.bones['NPC Head']
-    pose1 = skel.pose.bones['NPC Head']
+    bone1 = skel.data.bones['NPC Head [Head]']
+    pose1 = skel.pose.bones['NPC Head [Head]']
 
     assert not NT.VNearEqual(bone1.matrix_local.translation, [-0.0003, -1.5475, 120.3436]), \
         f"Head bone not in vanilla bind position: {bone1.matrix_local.translation}"
@@ -797,14 +800,15 @@ def TEST_DRAUGR_IMPORT_D():
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  create_bones=True,
+                                 rename_bones=False,
                                  import_pose=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
     helm = TTB.find_shape("Helmet")
-    bone1 = skel.data.bones['NPC Head']
-    pose1 = skel.pose.bones['NPC Head']
-    bone2 = skel.data.bones['NPC Spine2']
-    pose2 = skel.pose.bones['NPC Spine2']
+    bone1 = skel.data.bones['NPC Head [Head]']
+    pose1 = skel.pose.bones['NPC Head [Head]']
+    bone2 = skel.data.bones['NPC Spine2 [Spn2]']
+    pose2 = skel.pose.bones['NPC Spine2 [Spn2]']
 
     assert NT.VNearEqual(bone1.matrix_local.translation, [-0.015854, -2.40295, 134.301]), \
         f"Head bone in vanilla bind position: {bone1.matrix_local.translation}"
@@ -816,7 +820,7 @@ def TEST_DRAUGR_IMPORT_D():
     assert NT.VNearEqual(pose2.matrix.translation, [0.0000, -5.8352, 102.3579]), \
         f"Spine bone posed in draugr position: {pose2.matrix.translation}"
     
-    assert bone2.parent.name == 'NPC Spine1', \
+    assert bone2.parent.name == 'NPC Spine1 [Spn1]', \
         f"Spine bone has correct parent: {bone2.parent.name}"
     
 
@@ -836,6 +840,7 @@ def TEST_DRAUGR_IMPORT_E():
 
     bpy.ops.import_scene.pynifly(filepath=testfile, reference_skel=skelfile, 
                                  create_bones=False,
+                                 rename_bones=False,
                                  import_pose=False)
 
     skel = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
@@ -874,8 +879,8 @@ def TEST_DRAUGR_IMPORT_E():
     TT.assert_equiv(min(v.co.z for v in hood.data.vertices), 
                       min(v[2] for v in importhood.verts), "hood min z")
     
-    headbone = skel.data.bones['NPC Head']
-    headpose = skel.pose.bones['NPC Head']
+    headbone = skel.data.bones['NPC Head [Head]']
+    headpose = skel.pose.bones['NPC Head [Head]']
 
     # Helm bounding box has to be contained within the hood's bounding box (in world space).
     helm_bb = TTB.get_obj_bbox(helm, worldspace=True)
@@ -894,11 +899,11 @@ def TEST_DRAUGR_IMPORT_E():
     assert arma_helm != arma_hood, f"Parents are different: {arma_helm} != {arma_hood}"
 
     # Not extending skeletons, so each armature just has the bones needed
-    assert arma_helm.data.bones.keys() == ["NPC Head"], f"Helm armature has correct bones: {helm.parent.data.bones.keys()}"
+    assert arma_helm.data.bones.keys() == ["NPC Head [Head]"], f"Helm armature has correct bones: {helm.parent.data.bones.keys()}"
 
     # Hood has pose location different from rest
-    bone1 = arma_hood.data.bones['NPC Head']
-    pose1 = arma_hood.pose.bones['NPC Head']
+    bone1 = arma_hood.data.bones['NPC Head [Head]']
+    pose1 = arma_hood.pose.bones['NPC Head [Head]']
 
     assert not NT.VNearEqual(bone1.matrix_local.translation, pose1.matrix.translation), \
         f"Pose and bind locaations differ: {bone1.matrix_local.translation} != {pose1.matrix.translation}"
