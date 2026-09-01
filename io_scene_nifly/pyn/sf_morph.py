@@ -160,6 +160,43 @@ def resolve_morph_output(stored, anchor):
     return os.path.normpath(os.path.join(data_root, stored.replace('/', os.sep)))
 
 
+# A morph.dat's filename is always 'morph.dat' and the shape name is an INTERIOR path segment, so
+# the directory-or-file rule that names a .mesh doesn't transfer. The segment's position isn't
+# fixed either -- vanilla and Felid put chargen/performance BEFORE the part
+# (meshes\morphs\Human\Male\Chargen\Head\morph.dat), we have been putting it after -- and the
+# engine takes the directory from the MRPH record's TCMP/TMPP rather than by convention, so both
+# are legal. A token works for any layout; appending a fixed tail could only express one.
+SHAPE_TOKEN = '{shape}'
+
+
+def substitute_shape(path, shape_name):
+    """Replace `SHAPE_TOKEN` in a stored morph path with `shape_name`, sanitized the same way a
+    .mesh filename is. A path with no token is returned unchanged -- that's the explicit case,
+    and it behaves exactly as it did before the token existed."""
+    if SHAPE_TOKEN not in (path or ''):
+        return path
+    from .sf_meshpath import sanitize_mesh_component
+    return path.replace(SHAPE_TOKEN, sanitize_mesh_component(shape_name))
+
+
+def unique_morph_path(path, used):
+    """`path`, or a variant with `_1` / `_2` / ... on its PARENT DIRECTORY if `used` (a path ->
+    owner mapping) already claims it. The parent, not the filename, because the filename is fixed
+    at 'morph.dat' -- `.../chargen/Head/morph.dat` becomes `.../chargen/Head_1/morph.dat`."""
+    if path not in used:
+        return path
+    sep = '\\' if '\\' in path else '/'
+    head, _, tail = path.rpartition(sep)
+    if not head:
+        return path
+    parent_head, _, parent = head.rpartition(sep)
+    prefix = parent_head + sep if parent_head else ''
+    n = 1
+    while f"{prefix}{parent}_{n}{sep}{tail}" in used:
+        n += 1
+    return f"{prefix}{parent}_{n}{sep}{tail}"
+
+
 def swap_morph_tree(path):
     """Swap a morph path between its 'chargen' and 'performance' sibling trees (either direction),
     or return '' if the path has neither segment."""

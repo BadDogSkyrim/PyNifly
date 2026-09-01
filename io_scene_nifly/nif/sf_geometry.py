@@ -8,12 +8,13 @@ Loose-file resolution reuses the same search PyNifly already does for textures/m
 
 import logging
 import os
-import re
 from pathlib import Path
 import bpy
 from .. import __package__ as base_package
 from .. import blender_defs as BD
 from ..pyn.niflytools import find_referenced_file, texture_path
+from ..pyn.sf_meshpath import (sanitize_mesh_component, resolve_mesh_name, mesh_name_error,
+                               unique_mesh_name)
 from ..gamefinder import find_game
 
 log = logging.getLogger("pynifly")
@@ -106,23 +107,12 @@ def sf_base_name(obj):
     return name
 
 
-# Characters illegal in a Windows filename. Note ':' in particular: Starfield block names are
-# 'Name:index' (e.g. 'MaleHead:0'), and writing a .mesh to a path containing ':' silently
-# creates an NTFS alternate data stream instead of a real file -- the geometry then loads
-# nowhere and the shape is invisible in-game/CK.
-_ILLEGAL_FILENAME_CHARS = '<>:"/\\|?*'
-
-
-def sanitize_mesh_component(name):
-    """Make `name` safe as a single .mesh path component: strip Blender's '.001'/'.002'
-    duplicate-name suffix, replace any character illegal in a Windows filename (notably ':'
-    from Starfield's 'Name:index' block names) with '_', and trim trailing dots/spaces. Never
-    returns empty (falls back to 'mesh')."""
-    name = re.sub(r'\.\d{3}$', '', name)  # Blender appends '.001' etc. to disambiguate names
-    cleaned = ''.join('_' if (c in _ILLEGAL_FILENAME_CHARS or ord(c) < 32) else c
-                      for c in name)
-    cleaned = cleaned.rstrip('. ')
-    return cleaned or 'mesh'
+def mesh_name_seed(exporter):
+    """What seeds a generated meshName: the .blend file's path, so the same shape keeps its
+    .mesh whether it's exported to a test folder or the real mod, and two mods that each contain
+    a 'Head' don't collide in the shared geometries\\ tree. An unsaved .blend has no path, so
+    fall back to the nif being written."""
+    return bpy.data.filepath or getattr(exporter.nif, 'filepath', '') or ''
 
 
 def resolve_mesh_output_path(nif_filepath, mesh_name):
@@ -157,27 +147,49 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
     if grp is not None:
         slot = grp.lod_slot
 
-    # External .mesh path: reuse the imported meshName verbatim (in-place replacer) or, for a
-    # newly-authored shape, autogenerate one under a mod prefix (kept short -- the BSGeometry
-    # meshName field is capped at ~46 chars).
-    mesh_name = grp.mesh_path if (grp and grp.mesh_path) else ''
-    if not mesh_name:
-        # No recorded meshName: this shape wasn't imported from a Starfield nif, so we generate
-        # the path ourselves from its block name. That name can carry characters illegal in a
-        # filename (Starfield's 'Name:index'), so sanitize before use -- an unsanitized ':'
-        # writes the .mesh to an NTFS alternate data stream and the shape is invisible in-game.
-        mesh_name = 'FSF\\' + sanitize_mesh_component(sf_base_name(obj))
-        # We only just recognized this as a Starfield export and the SF geometry props didn't
-        # exist for this shape. Create them now, recording the generated meshName, so the path
-        # is visible/editable in the SF Geometry panel and stable across re-exports.
+    # External .mesh path. The stored mesh_path names a directory (filename comes from the object)
+    # or a directory plus a filename (used verbatim, which is how an imported shape writes back to
+    # the .mesh it came from). Empty generates a vanilla-shaped <20hex>\<20hex>. See
+    # pyn/sf_meshpath.py for the rule and why it's one directory deep.
+    stored = grp.mesh_path if (grp and grp.mesh_path) else ''
+    try:
+        mesh_name = resolve_mesh_name(stored, obj.name, mesh_name_seed(exporter))
+    except ValueError as e:
+        log.error(f"{obj.name}: {e}")
+        raise
+    if not stored:
+        # Nothing was recorded -- either this shape wasn't imported from a Starfield nif, or we
+        # only just recognized this as a Starfield export and the SF geometry props didn't exist.
+        # Record the generated meshName so the path is visible/editable in the SF Geometry panel
+        # and pinned across re-exports (a later .blend rename then can't move the .mesh).
         from . import pyn_props
         pyn_props.set_group(obj, 'pyn_sf_geometry', mesh_path=mesh_name, lod_slot=slot)
     # The facebones companion nif needs its OWN .mesh: same positions, different skin (vanilla
-    # ships the pair as two distinct geometry files). Suffix the path we write with rather than
+    # ships the pair as two distinct geometry files). Suffix the name we write with rather than
     # the stored property, so the base path stays authoritative and round-trips unchanged.
-    # '_fb' not '_facebones' -- meshName is capped at ~46 chars.
+    # '_fb' not '_facebones': a generated name is 41 chars and the cap is 46, so '_fb' fits and
+    # '_facebones' would not.
     if getattr(exporter, 'file_suffix', '') == '_faceBones':
         mesh_name = mesh_name + '_fb'
+
+    # Two shapes writing one .mesh would give a nif that loads and renders the wrong geometry.
+    # Generated names can't collide, but explicit ones can -- the same path typed twice, or two
+    # objects that sanitize alike (Head / Head.001 both give 'Head').
+    if not hasattr(exporter, '_sf_mesh_names'):
+        exporter._sf_mesh_names = {}
+    used = exporter._sf_mesh_names
+    unique = unique_mesh_name(mesh_name, used)
+    if unique != mesh_name:
+        log.warning(f"'{obj.name}' and '{used[mesh_name]}' both export to .mesh path "
+                    f"'{mesh_name}'; writing '{obj.name}' to '{unique}' instead. Rename one of "
+                    f"them, or set distinct paths in the Starfield Geometry panel.")
+        mesh_name = unique
+    used[mesh_name] = obj.name
+
+    # Over the cap the shape is invisible in game, with nothing else to show for it.
+    if (err := mesh_name_error(mesh_name)):
+        log.warning(f"{obj.name}: {err}")
+
     new_shape.set_mesh_name(mesh_name, slot)
 
     # Vertex colors: SF meshes always carry them; default to white where Blender has none.

@@ -670,10 +670,17 @@ _register_handwired_group('PynConnectPointProps', 'pyn_connectpoint',
 # --- Starfield geometry (BSGeometry external .mesh round-trip) ----------------
 # The per-LOD .mesh path, LOD slot, and internal/external (0x200) flag are the round-trip
 # data that CANNOT be recovered from the Blender mesh — geometry alone can't say which .mesh
-# file it came from. On export we write geometry back to mesh_path (in-place replacer); a
-# newly-created shape with no recorded path falls back to prefix-autogen. Store meshName
-# verbatim (no 'geometries\' root, no '.mesh' ext) for byte-exact write-back. Greenfield —
-# no legacy custom-prop channel. Lives on each per-LOD mesh object (one group per LOD child).
+# file it came from. Stored without the 'geometries\' root and the '.mesh' extension, as the
+# nif's meshName field holds it. Greenfield — no legacy custom-prop channel. Lives on each
+# per-LOD mesh object (one group per LOD child).
+#
+# mesh_path names a DIRECTORY or a directory plus a FILENAME (Starfield .mesh paths are exactly
+# one directory deep — see pyn/sf_meshpath.py):
+#   ''             -> a generated vanilla-shaped <20hex>\<20hex>, written back here on export
+#   'FSF'          -> 'FSF\<this object's name>', so splitting a shape gives each part its own
+#                     .mesh with no path editing
+#   'FSF\WolfHead' -> verbatim; import records this form, which is what makes a re-export write
+#                     back to the .mesh the shape came from
 # weights_per_vertex caps how many bone influences per vertex the export writes (Starfield has
 # no fixed limit; vanilla body 6, hair 7). Import records the source .mesh's actual count; export
 # uses it as the cap (0 = auto: the shape's true max, bounded by SF_MAX_WEIGHTS_PER_VERTEX). Editable
@@ -692,6 +699,12 @@ _register_handwired_group('PynSFGeometryProps', 'pyn_sf_geometry',
 # import from the source morph.dat's path, so export re-homes the morph under a new nif's meshes
 # root (pyn.sf_morph.resolve_morph_output). An absolute value is an explicit override; empty = that
 # file isn't written (or is derived from the export dialog path).
+#
+# A path may contain the token '{shape}', replaced on export with the object's name — the way to
+# give each part of a split shape its own morph.dat without editing three paths. A token rather
+# than a directory rule because the shape name is an INTERIOR segment here (the filename is always
+# morph.dat) and its position varies: vanilla puts chargen/performance before the part,
+# meshes\morphs\Human\Male\Chargen\Head\morph.dat, while other layouts put it after.
 _register_handwired_group('PynSFMorphProps', 'pyn_sf_morph',
     {'chargen_path': bpy.props.StringProperty(name='chargen_path', default='', subtype='FILE_PATH'),
      'performance_path': bpy.props.StringProperty(name='performance_path', default='', subtype='FILE_PATH')},

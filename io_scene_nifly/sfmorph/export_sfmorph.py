@@ -19,7 +19,8 @@ from bpy_extras.io_utils import ExportHelper
 from .. import blender_defs as BD
 from .. import bl_info
 from ..pyn.sf_morph import (MorphFile, MAX_KEYS, is_expression_morph, morph_key_name,
-                            morph_relpath, resolve_morph_output, swap_morph_tree)
+                            morph_relpath, resolve_morph_output, swap_morph_tree,
+                            substitute_shape, unique_morph_path, SHAPE_TOKEN)
 
 log = logging.getLogger("pynifly")
 
@@ -112,13 +113,19 @@ def resolve_morph_paths(obj, dialog_path):
     """Return absolute (chargen_path, performance_path) for the export.
 
     The object's pyn_sf_morph group holds each path RELATIVE to 'meshes' (stashed on import). We
-    fill an unset sibling by swapping the chargen<->performance tree, seed from the export dialog
-    path if nothing is stored, then resolve each relative path to absolute against the dialog path
-    as the export anchor (its 'meshes' root -> the Data root). Either may be '' if undetermined.
+    substitute the '{shape}' token, fill an unset sibling by swapping the chargen<->performance
+    tree, seed from the export dialog path if nothing is stored, then resolve each relative path to
+    absolute against the dialog path as the export anchor (its 'meshes' root -> the Data root).
+    Either may be '' if undetermined.
     """
     grp = getattr(obj, 'pyn_sf_morph', None)
     cp = (getattr(grp, 'chargen_path', '') if grp else '') or ''
     pp = (getattr(grp, 'performance_path', '') if grp else '') or ''
+
+    # Substitute '{shape}' BEFORE deriving the sibling, so a path derived by swapping carries the
+    # shape's name too rather than a leftover token.
+    cp = substitute_shape(cp, obj.name)
+    pp = substitute_shape(pp, obj.name)
 
     # Derive the missing sibling from the other (swap chargen<->performance in the stored path).
     if cp and not pp:
@@ -146,14 +153,17 @@ def resolve_morph_paths(obj, dialog_path):
     return resolve_morph_output(cp, seed), resolve_morph_output(pp, seed)
 
 
-def write_sf_morphs(obj, anchor_path, morphdict=None):
+def write_sf_morphs(obj, anchor_path, morphdict=None, used_paths=None):
     """Build + write `obj`'s chargen/performance morph.dat files, anchored at `anchor_path` (the
     exported nif, or an explicit dialog path). Returns a list of "N which -> path" strings for
     what was written (empty if nothing).
 
     `morphdict` is the NIF export's split positions-per-render-vertex (incl 'Basis'); when given the
     morph is built 1:1 with the exported .mesh. Without it (the standalone-operator path, no mesh
-    export) the morph is built from the raw Blender shape keys."""
+    export) the morph is built from the raw Blender shape keys.
+
+    `used_paths` is the export's path -> owner map of morph.dat files already claimed by another
+    shape; a collision is suffixed and warned about rather than overwriting."""
     if obj.data.shape_keys is None:
         return []
     morphs = build_morphs_from_split(morphdict) if morphdict else build_morphs(obj)
@@ -175,12 +185,23 @@ def write_sf_morphs(obj, anchor_path, morphdict=None):
             log.warning(f"{len(mf.morph_names)} {which} morph(s) but no {which} output path "
                         f"(set {obj.name}.pyn_sf_morph.{which}_path)")
             continue
+        # Two shapes writing one morph.dat would leave the last one standing and silently drop the
+        # others' keys. Suffix the parent directory instead -- the filename is fixed at morph.dat.
+        if used_paths is not None:
+            unique = unique_morph_path(path, used_paths)
+            if unique != path:
+                log.warning(f"'{obj.name}' and '{used_paths[path]}' both export {which} morphs to "
+                            f"'{path}'; writing '{obj.name}' to '{unique}' instead. Rename one of "
+                            f"them, or use '{SHAPE_TOKEN}' in the path so each shape gets its own.")
+                path = unique
+            used_paths[path] = obj.name
         os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
         mf.to_file(path)
         wrote.append(f"{len(mf.morph_names)} {which} -> {path}")
         # Record the resolved path back on the group (relative-to-meshes, import's own
         # representation) so an author-created head shows editable morph paths in the panel.
-        # Only fill where the user hadn't set one, so we never stomp an explicit value.
+        # Only fill where the user hadn't set one, so we never stomp an explicit value -- which
+        # includes a path holding a '{shape}' token, since that reads as a value the user set.
         if not had[which]:
             materialize[f'{which}_path'] = morph_relpath(path)
     if wrote:

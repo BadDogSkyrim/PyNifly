@@ -957,6 +957,151 @@ def TEST_SF_MORPH_PATHS():
     assert swap_morph_tree(perf).endswith("chargen/head/morph.dat"), "swap is reversible"
 
 
+def TEST_SF_MESH_PATH_RULE():
+    """Starfield: a stored mesh_path names a directory or a directory plus a filename.
+
+    Starfield .mesh paths are exactly one directory deep -- all 364,377 vanilla meshes are
+    <20hex>\\<20hex>, and that's the only depth any tool has shipped. So the rule needs no
+    trailing-separator convention: a value with a separator is directory+filename and is used
+    verbatim, a value without one is a directory and the filename comes from the shape. A second
+    separator is rejected rather than written, because nothing has ever loaded such a path and the
+    failure mode is an invisible shape.
+    """
+    from pyn.sf_meshpath import resolve_mesh_name
+
+    seed = r"C:\Work\lykaios.blend"
+    # Bare directory -> filename derived from the object name.
+    assert resolve_mesh_name("FSF", "WolfHead", seed) == r"FSF\WolfHead"
+    # Directory + filename -> verbatim, the user owns keeping it distinct.
+    assert resolve_mesh_name(r"FSF\WolfHead", "Ignored", seed) == r"FSF\WolfHead"
+    # The vanilla import case round-trips untouched.
+    vanilla = r"022faa031bcfca93c813\0b3a78e1d720af51f83d"
+    assert resolve_mesh_name(vanilla, "MaleHead:0:LOD0", seed) == vanilla
+    # Forward slashes are accepted on input and normalized to the nif's separator.
+    assert resolve_mesh_name("FSF/WolfHead", "Ignored", seed) == r"FSF\WolfHead"
+    # The derived filename is sanitized: ':' from Starfield's 'Name:index' would otherwise make
+    # an NTFS alternate data stream, and Blender's '.001' is never part of the intended name.
+    assert resolve_mesh_name("FSF", "MaleHead:0", seed) == r"FSF\MaleHead_0"
+    assert resolve_mesh_name("FSF", "WolfHead.001", seed) == r"FSF\WolfHead"
+
+    # Two directory levels are rejected, not silently written.
+    try:
+        resolve_mesh_name(r"FSF\Lykaios\WolfHead", "WolfHead", seed)
+        assert False, "a second separator must be rejected"
+    except ValueError as e:
+        assert "one directory" in str(e).lower(), f"message explains the rule: {e}"
+
+
+def TEST_SF_MESH_NAME_GENERATE():
+    """Starfield: an empty mesh_path generates a vanilla-shaped <20hex>\\<20hex> name.
+
+    Seeded from the .blend path plus the object's RAW Blender name -- '.001' included. That is
+    what makes freshly split objects distinct before they're renamed: Head/Head.001/Head.002 are
+    three different shapes and must not share one .mesh. (Contrast the derived-filename path,
+    which sanitizes '.001' away on purpose.)
+    """
+    from pyn.sf_meshpath import resolve_mesh_name, generate_mesh_name, MESH_NAME_MAX
+
+    seed = r"C:\Work\lykaios.blend"
+    name = resolve_mesh_name("", "Head", seed)
+    assert name == generate_mesh_name(seed, "Head"), "empty mesh_path generates"
+
+    # Shaped exactly like a vanilla name: 20 hex + separator + 20 hex, 41 chars.
+    d, _, f = name.partition("\\")
+    assert len(name) == 41, f"vanilla-length name: {len(name)} ({name})"
+    assert len(d) == 20 and len(f) == 20, f"20/20 split: {name}"
+    assert all(c in "0123456789abcdef" for c in d + f), f"hex only: {name}"
+    # ...and still under the cap once the facebones companion adds its suffix.
+    assert len(name) + len("_fb") <= MESH_NAME_MAX, "leaves room for _fb"
+
+    # Stable: the same (blend, object) always generates the same name, so a re-export before the
+    # generated name is written back doesn't orphan the .mesh it already wrote.
+    assert generate_mesh_name(seed, "Head") == generate_mesh_name(seed, "Head"), "deterministic"
+    # Distinct per object -- including the .NNN duplicates a split leaves behind.
+    split = {generate_mesh_name(seed, n) for n in ("Head", "Head.001", "Head.002")}
+    assert len(split) == 3, f"split objects generate distinct names: {split}"
+    # Distinct per .blend, so two mods that both contain a 'Head' don't collide in geometries\.
+    assert generate_mesh_name(seed, "Head") != generate_mesh_name(r"C:\Other\felid.blend", "Head")
+    # An unsaved .blend has no path; the caller passes the nif path instead and it still works.
+    assert len(generate_mesh_name(r"D:\Mod\meshes\head.nif", "Head")) == 41
+
+
+def TEST_SF_MESH_NAME_LIMITS():
+    """Starfield: meshName over 46 characters makes the shape invisible in game -- flag it.
+
+    A documented hard limit (the ExoRace author's playable-race guide, recorded in the Bethesda
+    Library) that PyNifly has never checked, through an entire invisible-head saga. Never truncate
+    to fit: a truncated path resolves to nothing, which is the same invisible shape.
+    """
+    from pyn.sf_meshpath import mesh_name_error, MESH_NAME_MAX
+
+    assert MESH_NAME_MAX == 46
+    assert mesh_name_error(r"FSF\LykaiosMaleHead") is None, "a normal name is fine"
+    assert mesh_name_error("x" * MESH_NAME_MAX) is None, "the limit itself is allowed"
+    err = mesh_name_error("FSF\\" + "x" * MESH_NAME_MAX)
+    assert err and str(MESH_NAME_MAX) in err, f"over the limit is reported with the limit: {err}"
+
+
+def TEST_SF_MESH_NAME_UNIQUE():
+    """Starfield: two shapes landing on one .mesh get suffixed rather than overwriting.
+
+    Generated names can't collide (distinct objects digest differently), but explicit paths can --
+    the author typed the same one twice, or two objects sanitize alike. Last-one-wins would give a
+    nif that loads and renders the wrong geometry, so disambiguate and warn.
+    """
+    from pyn.sf_meshpath import unique_mesh_name
+
+    used = {}
+    assert unique_mesh_name(r"FSF\Head", used) == r"FSF\Head", "first claim is unsuffixed"
+    used[r"FSF\Head"] = "Head"
+    assert unique_mesh_name(r"FSF\Head", used) == r"FSF\Head_1", "second is suffixed"
+    used[r"FSF\Head_1"] = "Head.001"
+    assert unique_mesh_name(r"FSF\Head", used) == r"FSF\Head_2", "and the third"
+    # A name that doesn't collide is returned untouched even when others are in use.
+    assert unique_mesh_name(r"FSF\Tongue", used) == r"FSF\Tongue"
+
+
+def TEST_SF_MORPH_SHAPE_TOKEN():
+    """Starfield: '{shape}' in a morph path is replaced with the shape's name on export.
+
+    A morph.dat's filename is always 'morph.dat' and the shape name is an INTERIOR path segment,
+    so the directory-or-file rule that works for .mesh paths doesn't transfer. The segment's
+    position isn't fixed either -- vanilla puts chargen/performance before the part, we have been
+    putting it after -- so the token, which works for any layout, beats appending a fixed tail.
+    """
+    from pyn.sf_morph import substitute_shape, swap_morph_tree, unique_morph_path, SHAPE_TOKEN
+
+    assert SHAPE_TOKEN == "{shape}"
+    # Vanilla ordering: tree segment before the part.
+    van = "meshes/morphs/FSF/male/chargen/{shape}/morph.dat"
+    assert substitute_shape(van, "LykaiosMaleHead") == \
+        "meshes/morphs/FSF/male/chargen/LykaiosMaleHead/morph.dat"
+    # Part before tree -- the layout we've been authoring -- works from the same rule.
+    ours = "meshes/morphs/FSF/Lykaios/{shape}/chargen/morph.dat"
+    assert substitute_shape(ours, "LykaiosMaleHead") == \
+        "meshes/morphs/FSF/Lykaios/LykaiosMaleHead/chargen/morph.dat"
+    # The shape name is sanitized the same way the .mesh filename is.
+    assert substitute_shape(van, "MaleHead:0").endswith("chargen/MaleHead_0/morph.dat")
+    # A path with no token is used verbatim, exactly as before.
+    assert substitute_shape("meshes/morphs/Custom/chargen/morph.dat", "Head") == \
+        "meshes/morphs/Custom/chargen/morph.dat"
+
+    # Substitution happens BEFORE the chargen<->performance swap, so both siblings name the same
+    # shape rather than one of them keeping an unsubstituted token.
+    cp = substitute_shape(van, "Head")
+    pp = swap_morph_tree(cp)
+    assert pp == "meshes/morphs/FSF/male/performance/Head/morph.dat", pp
+    assert SHAPE_TOKEN not in pp, "the sibling carries no leftover token"
+
+    # Collisions suffix the PARENT DIRECTORY, since the filename is fixed at morph.dat.
+    used = {}
+    p = "meshes/morphs/FSF/male/chargen/Head/morph.dat"
+    assert unique_morph_path(p, used) == p, "first claim is unsuffixed"
+    used[p] = "Head"
+    assert unique_morph_path(p, used) == \
+        "meshes/morphs/FSF/male/chargen/Head_1/morph.dat", "second suffixes the parent dir"
+
+
 def TEST_SF_MAT_PARSE():
     """Starfield: parse a loose layered .mat, extracting texture slots by index.
 

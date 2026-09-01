@@ -904,7 +904,8 @@ class NifExporter:
         if obj.type != 'MESH' or obj.data.shape_keys is None:
             return
         from ..sfmorph.export_sfmorph import write_sf_morphs
-        wrote = write_sf_morphs(obj, self.nif.filepath, morphdict=morphdict)
+        wrote = write_sf_morphs(obj, self.nif.filepath, morphdict=morphdict,
+                                used_paths=self._sf_morph_paths)
         for w in wrote:
             log.info(f"Wrote Starfield morph: {w}")
 
@@ -2206,6 +2207,10 @@ class NifExporter:
         # Queued external .mesh/.mat writes are per-file; the base nif's are already on disk.
         self._sf_meshes = []
         self._sf_materials = []
+        # Output paths already claimed by a shape in THIS file, so a second shape landing on one
+        # gets suffixed and warned about instead of silently overwriting it.
+        self._sf_mesh_names = {}
+        self._sf_morph_paths = {}
 
         if self.objects:
             shape = next(iter(self.objects))
