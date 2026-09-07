@@ -446,6 +446,7 @@ def TEST_COLORS():
 
 
 @TT.category('FO4', 'SHADER')
+@TT.expect_errors( ("not the active color attribute",) )
 def TEST_COLORS2():
     """Can read & write vertex colors"""
     testfile = TTB.test_file(r"tests/FO4/HeadGear1.nif")
@@ -468,6 +469,39 @@ def TEST_COLORS2():
     nif2 = pyn.NifFile(testfileout)
     assert nif2.shapes[0].colors[0] == (1.0, 1.0, 1.0, 1.0), f"Color 0 not reread correctly: {nif2.shapes[0].colors[0]}"
     assert nif2.shapes[0].colors[561] == (0.0, 0.0, 0.0, 1.0), f"Color 561 not reread correctly: {nif2.shapes[0].colors[561]}"
+
+    # VERTEX_COLOR is the attribute we export, by name. A second color attribute--even
+    # the mesh's active color, which is what the user is painting--does not change that.
+    # Colors that aren't in VERTEX_COLOR don't ship, so export says so. (Issue #425: a
+    # user lost edits this way and had no way to tell.)
+    graymap = obj.data.color_attributes.new(
+        name="GRAYSCALE", type='FLOAT_COLOR', domain='POINT')
+    for d in graymap.data:
+        d.color = (0.25, 0.25, 0.25, 1.0)
+    obj.data.color_attributes.active_color = graymap
+
+    activefile = TTB.test_file(r"tests/Out/TEST_COLORS2_active.nif")
+    BD.ObjectSelect([obj], active=True)
+
+    warnings_seen = []
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            warnings_seen.append(record.getMessage())
+    cap = _Cap(level=logging.WARNING)
+    pyn_log = logging.getLogger("pynifly")
+    pyn_log.addHandler(cap)
+    try:
+        bpy.ops.export_scene.pynifly(filepath=activefile, target_game="FO4")
+    finally:
+        pyn_log.removeHandler(cap)
+
+    nif3 = pyn.NifFile(activefile)
+    assert TT.is_eq(nif3.shapes[0].colors[0][:], (1.0, 1.0, 1.0, 1.0),
+                    "Color 0 from VERTEX_COLOR, not the active attribute")
+    assert TT.is_eq(nif3.shapes[0].colors[561][:], (0.0, 0.0, 0.0, 1.0),
+                    "Color 561 from VERTEX_COLOR, not the active attribute")
+    assert TT.is_eq([w for w in warnings_seen if "GRAYSCALE" in w and "VERTEX_COLOR" in w] != [],
+                    True, "Warned that the active color attribute was not exported")
 
 
 @TT.category('FO4', 'SHADER')

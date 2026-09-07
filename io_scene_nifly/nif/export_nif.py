@@ -1404,6 +1404,15 @@ class NifExporter:
         if BD.COLOR_MAP_NAME in vc.keys():
             colormap = vc[BD.COLOR_MAP_NAME]
 
+        # Say so when that overrides what the user has selected. Colors edited in some
+        # other attribute are simply not exported, and without this the only symptom is
+        # the old colors coming back out (issue #425).
+        if (colormap and active_color and colormap.name != active_color.name
+                and not (alphamap and active_color.name == alphamap.name)):
+            self.warn(f"Exporting vertex colors from '{colormap.name}'"
+                      f", not the active color attribute '{active_color.name}'."
+                      f" Colors to export have to be in '{BD.COLOR_MAP_NAME}'.")
+
         return colormap, alphamap
 
 
