@@ -391,6 +391,7 @@ class ControllerHandler():
         self.parent = parent_handler
         self.path_name = None
         self.animation_target = None  
+        self.target_node = None  # nif node being animated, for interpolator defaults
         self.action_target = None # 
         self.accum_root = None
         self.given_scale_warning = False
@@ -661,6 +662,7 @@ class ControllerHandler():
             
         self.action_group = name
         self.bone_target = self.animation_target.pose.bones[name]
+        self.target_node = self.nif.nodes.get(bone_name)
         self.path_name = f'pose.bones["{name}"]'
         return True
 
@@ -698,6 +700,7 @@ class ControllerHandler():
         try:
             targ = self.objects_created.find_nifname(self.nif, target_name)
             self.animation_target = targ.blender_obj
+            self.target_node = self.nif.nodes.get(target_name)
             if property_type in ['BSEffectShaderProperty', 'BSLightingShaderProperty',
                                  'NiAlphaProperty']:
                 self.action_target = targ.blender_obj.active_material.node_tree
@@ -1618,6 +1621,13 @@ def _import_transform_data(td:NiTransformData,
                 pass
             else:
                 v = v - tiv
+                if importer.bone_target:
+                    # A pose bone's location is in the bone's OWN axes, but the nif's keys
+                    # are in its parent's. Rotate the delta into the bone's frame or it
+                    # goes off in the wrong direction--the power armor's COM carries the
+                    # whole rig, and left unrotated it lifted the frame 3.6 units off the
+                    # floor for the length of the animation.
+                    v = qinv @ v
             if pretty_R_inv_3x3:
                 v = pretty_R_inv_3x3 @ v
             k1 = curveLocX.keyframe_points.insert(k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1, v[0])
@@ -1700,23 +1710,96 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
     
     # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
     # for this animation. It matches the transform of the target being animated.
-    have_parent_rotation = False
-    if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
-        tiq = Quaternion()
-    else:
-        have_parent_rotation = True
-        tiq = Quaternion(ti.properties.rotation)
-    qinv = tiq.inverted()
-    tiv = Vector(ti.properties.translation)
+    #
+    # For a BONE the base is the bone's own rest transform relative to its parent, which
+    # is what a pose bone's location/rotation are deltas from -- and what export composes
+    # against (_export_transform_curves, via get_bone_xform). The nif's own idea of where
+    # the node sits is NOT usable: when the armature is built at the skin's bind position
+    # the two differ, and composing against the node leaves every animated bone off by
+    # that difference. On PowerArmorFurniture that was 21.7 degrees of rotation on
+    # RLeg_Foot for the length of the animation, and it made a symmetrical animation
+    # import lopsided.
+    #
+    # An object's location/rotation are its local transform outright, so objects keep the
+    # interpolator's own base (identity when it holds the FLT_MAX "no static value here"
+    # sentinel).
+    rest_rel = None
+    if importer.bone_target is not None:
+        rest_rel = BD.get_bone_xform(
+            importer.bone_target.id_data, importer.bone_target.name, importer.nif.game,
+            preserve_hierarchy=True, use_pose=False)
 
-    # Some interpolators have bogus translations. Dunno why.
-    if tiv[0] <= -1e+30 or tiv[0] >= 1e+30: tiv[0] = 0
-    if tiv[1] <= -1e+30 or tiv[1] >= 1e+30: tiv[1] = 0
-    if tiv[2] <= -1e+30 or tiv[2] >= 1e+30: tiv[2] = 0
+    have_parent_rotation = False
+    if rest_rel is not None:
+        tiq = rest_rel.to_quaternion()
+        tiv = rest_rel.translation.copy()
+        have_parent_rotation = True
+    else:
+        if max(ti.properties.rotation[:]) > 3e+38 or min(ti.properties.rotation[:]) < -3e+38:
+            tiq = Quaternion()
+        else:
+            have_parent_rotation = True
+            tiq = Quaternion(ti.properties.rotation)
+        tiv = Vector(ti.properties.translation)
+
+        # Some interpolators have bogus translations. Dunno why.
+        for i in range(3):
+            if tiv[i] <= -1e+30 or tiv[i] >= 1e+30:
+                tiv[i] = 0
+    qinv = tiq.inverted()
 
     ti.data.import_node(importer, have_parent_rotation, tiv, tiq)
 
+    if rest_rel is not None:
+        _add_static_bone_channels(importer, ti, ti.data, qinv, tiv)
+
 NiTransformInterpolator.import_node = _import_transform_interpolator
+
+
+def _add_static_bone_channels(importer, ti, td, qinv, tiv):
+    """
+    Give a bone a constant key for any channel the nif leaves static.
+
+    The fcurves hold deltas from the bone's rest position, and the rest is the skin's bind
+    position, which is not where the node sits. So "the nif has no keys here" does not
+    mean "no delta": a foot with rotation keys and a static translation has to be pulled
+    from its bind position to the node's, or it animates in the wrong place. Where rest
+    and node agree -- unskinned rigs, and anything imported with import_pose -- the delta
+    is zero and nothing is written.
+    """
+    static = (BD.transform_to_matrix(importer.target_node.transform)
+              if getattr(importer, 'target_node', None) is not None else Matrix.Identity(4))
+
+    r = ti.properties.rotation[:]
+    static_q = (static.to_quaternion() if (max(r) > 3e+38 or min(r) < -3e+38)
+                else Quaternion(r))
+    static_t = Vector(ti.properties.translation)
+    for i in range(3):
+        if static_t[i] <= -1e+30 or static_t[i] >= 1e+30:
+            static_t[i] = static.translation[i]
+
+    path_prefix = importer.path_name + "." if importer.path_name else ""
+
+    has_rotation = (len(td.qrotations) or len(td.xrotations)
+                    or len(td.yrotations) or len(td.zrotations))
+    if not has_rotation:
+        vq = qinv @ static_q
+        if abs(abs(vq.w) - 1.0) > 1e-6:
+            importer.bone_target.rotation_mode = "QUATERNION"
+            for i in range(4):
+                c = importer.action.fcurve_ensure_for_datablock(
+                    importer.action_target, path_prefix + "rotation_quaternion", index=i)
+                if i == 0: _add_actionslot(importer.action_target, c)
+                c.keyframe_points.insert(1, vq[i]).interpolation = 'LINEAR'
+
+    if not len(td.translations):
+        v = qinv @ (static_t - tiv)
+        if v.length > 1e-5:
+            for i in range(3):
+                c = importer.action.fcurve_ensure_for_datablock(
+                    importer.action_target, path_prefix + "location", index=i)
+                if i == 0: _add_actionslot(importer.action_target, c)
+                c.keyframe_points.insert(1, v[i]).interpolation = 'LINEAR'
 
 
 # #####################################
@@ -1754,6 +1837,7 @@ def _import_transform_controller(tc:NiTransformController,
             # has no pose.bones, so those fcurves are silently inert.
             importer.path_name = ""
             importer.bone_target = None
+            importer.target_node = tc.target
             importer.action_group = "Object Transforms"
             if not importer.action: importer._new_action()
             importer._new_slot()
@@ -2315,14 +2399,19 @@ def _next_keyframe_index(curve_list):
         yield kfindex, matches
 
 
-def _export_loc_curves(exporter, td, loc, targ_xf, R_3x3=None):
+def _export_loc_curves(exporter, td, loc, targ_xf, R_3x3=None, targ_q=None):
     """
     Export location fcurves.
 
     td = NiTransformData object
     loc = list of 3 fcurves containing location x/y/z values
     R_3x3 = pretty bone R rotation matrix (None if not pretty)
+    targ_q = rotation of the target bone's rest transform, if any. A pose bone's location
+        is in the bone's own axes and the nif's keys are in its parent's, so the delta
+        has to be rotated back out. Import does the matching conversion.
     """
+    def to_nif(v):
+        return (targ_q @ v if targ_q else v) + targ_xf.translation
     if exporter.export_each_frame:
         timesig = exporter.start_time
         timestep = 1/(exporter.fps * ANIMATION_TIME_ADJUST)
@@ -2333,8 +2422,7 @@ def _export_loc_curves(exporter, td, loc, targ_xf, R_3x3=None):
                             loc[2].evaluate(fr)])
             if R_3x3:
                 kv = R_3x3 @ kv
-            rv = kv + targ_xf.translation
-            td.add_translation_key(timesig, rv)
+            td.add_translation_key(timesig, to_nif(kv))
             timesig += timestep
 
     else:
@@ -2344,10 +2432,10 @@ def _export_loc_curves(exporter, td, loc, targ_xf, R_3x3=None):
                 # then add translation back.
                 keys = exporter._get_curve_quad_vector(loc)
                 for k in keys:
-                    v = R_3x3 @ Vector(k.value[:3])
-                    k.value[0] = v.x + targ_xf.translation.x
-                    k.value[1] = v.y + targ_xf.translation.y
-                    k.value[2] = v.z + targ_xf.translation.z
+                    v = to_nif(R_3x3 @ Vector(k.value[:3]))
+                    k.value[0] = v.x
+                    k.value[1] = v.y
+                    k.value[2] = v.z
                     if hasattr(k, 'forward'):
                         fwd = R_3x3 @ Vector(k.forward[:3])
                         k.forward[0], k.forward[1], k.forward[2] = fwd.x, fwd.y, fwd.z
@@ -2367,8 +2455,7 @@ def _export_loc_curves(exporter, td, loc, targ_xf, R_3x3=None):
                 kv = Vector([k0.co.y, k1.co.y, k2.co.y])
                 if R_3x3:
                     kv = R_3x3 @ kv
-                rv = kv + targ_xf.translation
-                td.add_translation_key(timesig, rv)
+                td.add_translation_key(timesig, to_nif(kv))
 
 
 def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=None):
@@ -2467,7 +2554,8 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
                                  export_R_q, export_R_q_inv)
 
         if len(loc) == 3:
-            _export_loc_curves(exporter, td, loc, targ_xf, export_R_3x3)
+            _export_loc_curves(exporter, td, loc, targ_xf, export_R_3x3,
+                               targ_q if targetname else None)
 
     return (targetname if targetname else targetobj.name), ti
 

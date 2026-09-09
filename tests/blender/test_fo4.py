@@ -1202,6 +1202,198 @@ def TEST_CONNECT_WORKSHOP(filename, cp_count, dup_name, dup_count):
     assert TT.is_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1), "Number of origin connect points"
     
 
+@TT.category('FO4', 'CONNECTPOINT', 'ANIMATION')
+def TEST_POWERARMOR_FURNITURE():
+    """Power armor furniture imports where the nif puts it, posed and animated."""
+    # PowerArmorFurniture has a C-BatteryMod child connect point AND a P-BatteryMod
+    # parent connect point. Both reduce to the key "BatteryMod", so the nif used to be
+    # constrained to its own parent point. Since the nif's root is parented to its child
+    # point, that closes a cycle--root -> child point -> (COPY_TRANSFORMS) parent point
+    # -> armature -> root. Blender evaluates a cycle with stale transforms, and the
+    # whole import ended up at (1681, -964, 6747) with a garbage rotation.
+    testfile = TTB.test_file(r"tests\FO4\PowerArmorFurniture.nif")
+
+    # Animations off: this rig's animation import poses it wrongly, which is a separate
+    # bug. Everything checked here is about placement, not animation.
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False,
+                                 import_animations=False)
+
+    child = TTB.find_object('BSConnectPointChildren::C-BatteryMod')
+    assert child, "Have the nif's child connect point"
+    assert TT.is_eq([c.target.name for c in child.constraints if c.target], [],
+                    "Constraints tying the nif to its own connect point")
+
+    # With the cycle gone, everything sits where the nif puts it.
+    arma = TTB.find_shape('PowerArmorFurniture.nif:ARMATURE', type='ARMATURE')
+    assert TT.is_equiv(arma.matrix_world.translation, Vector((0, 0, 0)),
+                       "Armature at the origin", e=0.01)
+    assert TT.is_equiv(arma.data.bones['Root'].matrix_local.translation, Vector((0, 0, 0)),
+                       "Root bone", e=0.01)
+    # HEAD isn't skinned, so it hangs off Neck at the offset the nif gives it rather than
+    # sitting at its own NiNode position: Neck's rest is the skin's bind position, and the
+    # two are 6.4 units apart on this rig.
+    assert TT.is_equiv(arma.data.bones['HEAD'].matrix_local.translation,
+                       Vector((-1.40, -7.16, 137.93)), "HEAD bone", e=0.01)
+
+    # Same rule, and the reason for it: the AnimObject nodes are the hands' grip points,
+    # bound to the hand bones with no offset at all. They used to be created as bones with
+    # no parent--the parenting pass has already run by the time they're made--so they sat
+    # at their NiNode positions while the hands animated away from them.
+    for cp, hand in (('AnimObjectL1', 'LArm_Hand'), ('AnimObjectR1', 'RArm_Hand')):
+        assert TT.is_eq(arma.data.bones[cp].parent.name, hand, f"{cp} parent")
+        assert TT.is_equiv(arma.data.bones[cp].matrix_local.translation,
+                           arma.data.bones[hand].matrix_local.translation,
+                           f"{cp} sits on {hand}", e=0.01)
+        assert TT.is_equiv(arma.pose.bones[cp].matrix.translation,
+                           arma.pose.bones[hand].matrix.translation,
+                           f"{cp} stays on {hand} when posed", e=0.01)
+
+    # Bones that rest at the skin's bind position and bones that have no bind position at
+    # all still have to make one consistent skeleton. COM and Pelvis are the same point in
+    # the nif, but COM carries no skin weights: resting it at its NiNode position while
+    # Pelvis rested at its bind left a 9.8-unit gap between two coincident bones, and the
+    # whole spine above it looked detached.
+    com = arma.data.bones['COM'].matrix_local.translation
+    pelvis = arma.data.bones['Pelvis'].matrix_local.translation
+    spine1 = arma.data.bones['SPINE1'].matrix_local.translation
+    assert TT.is_equiv(com, pelvis, "COM and Pelvis coincide, as they do in the nif", e=0.05)
+    assert TT.is_equiv((spine1 - pelvis).length, 5.75, "Pelvis to SPINE1 spacing", e=0.05)
+
+    # The frame stands on the floor at its nif size, rather than being flung into space.
+    # Skinned, so this has to be the evaluated placement--get_obj_bbox applies the
+    # armature modifier.
+    frame = TTB.find_shape('PAFrame01:0')
+    bbmin, bbmax = TTB.get_obj_bbox(frame, worldspace=True)
+    nifframe = pyn.NifFile(testfile).shapes[0]
+    assert TT.is_equiv(bbmin.z, min(v[2] for v in nifframe.verts), "Frame bottom", e=1.0)
+    assert TT.is_equiv(bbmax.z, max(v[2] for v in nifframe.verts), "Frame top", e=1.0)
+    assert TT.is_lt(max(abs(v) for v in bbmax), 200, "Frame is not flung into space")
+
+    ### Animated ###
+    # 96 of this nif's nodes carry a NiTransformController whose interpolator holds the
+    # FLT_MAX "no static transform" sentinel. Reading that as an identity base made every
+    # key a delta from the bone's rest instead of the node's own transform, so the frame
+    # came apart--toes 189 units out, the whole model floating 70 units up.
+    #
+    # The animation is composed against each bone's REST transform, which is what a pose
+    # bone's fcurves are deltas from and what export composes against. Composing against
+    # the bone NiNode instead only works when the two agree--and they don't when the
+    # armature is built at the skin's bind position, which is the default here. So this
+    # runs with the default: whatever rest the bones were built at, the animation has to
+    # put them where the nif says.
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
+    nif = pyn.NifFile(testfile)
+    arma = TTB.find_shape('PowerArmorFurniture.nif:ARMATURE', type='ARMATURE')
+    assert arma.animation_data and arma.animation_data.action, "Armature has an action"
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+
+    worst = 0
+    for b in arma.data.bones:
+        node = nif.nodes.get(b.name)
+        if not node:
+            continue
+        want = Vector(node.global_transform.translation)
+        got = (arma.matrix_world @ arma.pose.bones[b.name].matrix).translation
+        worst = max(worst, (got - want).length)
+    assert TT.is_lt(worst, 0.01, "Worst bone displacement at frame 1")
+
+    # End of motion is the key at t=4.0, which lands on frame 97. There the armor stands
+    # square: both feet flat on the floor, left and right mirrored. Expected values come
+    # from evaluating the nif's own keys at t=4.0, not from what we happened to produce.
+    #
+    # COM is the one bone here with translation keys, and it carries the whole rig. A pose
+    # bone's location is in its own axes while the nif's keys are in its parent's, so
+    # without rotating the delta into the bone's frame the armor floated 3.6 units off the
+    # floor for the length of the animation.
+    bpy.context.scene.frame_set(97)
+    bpy.context.view_layer.update()
+    lfoot = (arma.matrix_world @ arma.pose.bones['LLeg_Foot'].matrix).translation
+    rfoot = (arma.matrix_world @ arma.pose.bones['RLeg_Foot'].matrix).translation
+    # The 0.05 band is the independent evaluation's own slop: it interpolates ancestors
+    # linearly where the nif's key times don't line up exactly. The error it guards
+    # against is 3.6 units, not 0.03.
+    assert TT.is_equiv(lfoot, Vector((-19.54, -3.40, 8.14)), "Left foot at end of motion", e=0.05)
+    assert TT.is_equiv(rfoot, Vector((19.54, -3.40, 8.14)), "Right foot at end of motion", e=0.05)
+    assert TT.is_equiv(lfoot.z, rfoot.z, "Feet level with each other", e=0.001)
+
+    # Building the armature at the bone NiNode positions instead has to give the same
+    # animated result--the rest changes, the deltas change with it.
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False,
+                                 import_pose=True)
+    arma = TTB.find_shape('PowerArmorFurniture.nif:ARMATURE', type='ARMATURE')
+    bpy.context.scene.frame_set(97)
+    bpy.context.view_layer.update()
+    assert TT.is_equiv((arma.matrix_world @ arma.pose.bones['LLeg_Foot'].matrix).translation,
+                       lfoot, "Left foot lands the same however the bones were built", e=0.01)
+    assert TT.is_equiv((arma.matrix_world @ arma.pose.bones['RLeg_Foot'].matrix).translation,
+                       rfoot, "Right foot lands the same however the bones were built", e=0.01)
+
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+    frame = TTB.find_shape('PAFrame01:0')
+    bbmin, bbmax = TTB.get_obj_bbox(frame, worldspace=True)
+    assert TT.is_equiv(bbmin.z, min(v[2] for v in nifframe.verts), "Animated frame bottom", e=2.0)
+    assert TT.is_equiv(bbmax.z, max(v[2] for v in nifframe.verts), "Animated frame top", e=2.0)
+
+
+    ### Export ###
+    # Export the default (bind-position) import: that's what a user gets, and it's the
+    # harder case, since the bones' rest is not where the nif's nodes are.
+    outfile = TTB.test_file(r"tests\Out\TEST_POWERARMOR_FURNITURE.nif", output=True)
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
+    # Select everything, not just the root. The nif's child connect point is the ROOT's
+    # parent in Blender, not its child, so a root-only selection leaves it out of the
+    # export set and the exported nif loses it.
+    BD.ObjectSelect(list(bpy.context.scene.objects),
+                    active=next(o for o in bpy.context.scene.objects if 'pynRoot' in o))
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    assert os.path.exists(outfile), "Export file created"
+    nifcheck = pyn.NifFile(outfile)
+
+    shapecheck = nifcheck.shape_dict['PAFrame01:0']
+    assert TT.is_eq(len(shapecheck.verts), len(nifframe.verts), "Vertices exported")
+    assert TT.is_eq(len(shapecheck.bone_names), len(nifframe.bone_names), "Skin bones exported")
+    assert TT.is_eq(len(nifcheck.connect_points_parent), 7, "Parent connect points exported")
+    assert TT.is_eq(nifcheck.connect_points_child, ['C-BatteryMod'], "Child connect point exported")
+
+    # The animation comes back the way it went in. The keys are written relative to each
+    # bone's rest, which is where they were read from, so the values are the nif's own
+    # even though the bones sit at the bind position.
+    for bonename, keycount in (('RLeg_Foot', 55), ('Chest', 18), ('LLeg_Calf', 61)):
+        src_data = nif.nodes[bonename].controller.interpolator.data
+        out_data = nifcheck.nodes[bonename].controller.interpolator.data
+        srckeys = list(src_data.qrotations)
+        outkeys = list(out_data.qrotations)
+        assert TT.is_eq(len(outkeys), keycount, f"{bonename} rotation keys exported")
+        assert TT.is_eq(len(srckeys), keycount, f"{bonename} rotation keys in the source")
+        worstq = 0
+        for sk, ok in zip(srckeys, outkeys):
+            assert TT.is_equiv(ok.time, sk.time, f"{bonename} key time", e=0.0001)
+            d = Quaternion(sk.value).rotation_difference(Quaternion(ok.value)).angle
+            worstq = max(worstq, min(d, 2 * math.pi - d))
+        assert TT.is_lt(worstq * 180 / math.pi, 0.01, f"{bonename} worst rotation key error")
+
+    # A bone the nif animates in rotation only gets a translation channel it didn't have:
+    # its rest is the bind position, so holding still at the node position is a constant
+    # offset that has to be written down. One key, and it says where the node sits.
+    footloc = list(nifcheck.nodes['RLeg_Foot'].controller.interpolator.data.translations)
+    assert TT.is_eq(len(footloc), 1, "Constant translation channel written for RLeg_Foot")
+    assert TT.is_equiv(Vector(footloc[0].value),
+                       Vector(nif.nodes['RLeg_Foot'].transform.translation),
+                       "Constant translation is the node's own", e=0.01)
+
+    # KNOWN GAP, pre-existing and unrelated to the composition: 35 of the source's 96
+    # animated nodes never get fcurves on import, so they don't come back out. Pinned so
+    # it can't quietly get worse--if it gets better, raise the number.
+    assert TT.is_eq(len([n for n in nifcheck.nodes.values() if n.controller]), 61,
+                    "Animated nodes exported")
+
+
 @TT.category('FO4', 'CONNECTPOINT')
 def TEST_CONNECT_WORKSHOP2():
     """Connect point editor markers have smart handling."""

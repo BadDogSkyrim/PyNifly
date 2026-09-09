@@ -902,11 +902,40 @@ class NifImporter():
             # armature THEN create it as an armature bone even tho it's not used in the
             # shape
             arma = self.armature
+            blname = self.blender_name(ninode.name)
             BD.ObjectSelect([arma])
             bpy.ops.object.mode_set(mode = 'EDIT')
-            bn = self.add_bone_to_arma(arma, self.blender_name(ninode.name), ninode.name)
+            parent_editbone = None
+            if parent and type(parent) == bpy.types.Bone:
+                parent_editbone = arma.data.edit_bones.get(parent.name)
+
+            if parent_editbone is not None and blname not in arma.data.edit_bones:
+                # Place it relative to the parent bone rather than at its own position in
+                # the nif, so it keeps the offset the nif gives it whatever the parent's
+                # rest position is. The parent's rest is the skin's bind position, which
+                # is not where the bone NiNode sits: the power armor's AnimObject* nodes
+                # are meant to be in the palms of the hands, and placing them absolutely
+                # left them hanging a few units away.
+                R = BD.game_rotations[BD.game_axes[self.nif.game]][0]
+                node_local = BD.apply_scale_xf(
+                    BD.transform_to_matrix(ninode.transform), self.scale)
+                bn = BD.create_bone(arma.data, blname,
+                                    parent_editbone.matrix @ R.inverted() @ node_local,
+                                    self.nif.game, 1.0, 0)
+                self.nif_rest_bones.add(blname)
+            else:
+                bn = self.add_bone_to_arma(arma, blname, ninode.name)
+
+            # Parent it here. connect_armature, which does the parenting for everything
+            # else, has already run by the time these bones are created, so without this
+            # the bone floats free of the skeleton: it sits at a plausible rest position
+            # but doesn't follow its parent when the armature is posed or animated.
+            if bn is not None and parent_editbone is not None:
+                bn.parent = parent_editbone
             bpy.ops.object.mode_set(mode = 'OBJECT')
-            return bn
+            # Return the Bone, not the EditBone--that one goes invalid on leaving edit
+            # mode, and callers pass it back as the parent of the next node down.
+            return arma.data.bones.get(blname)
 
         # If not a known skeleton bone, just import as an EMPTY object.
         # Use the data API rather than bpy.ops.object.add — the operator triggers a
@@ -1614,7 +1643,7 @@ class NifImporter():
                     return arma, offset
         return None, None
 
-    def add_bone_to_arma(self, arma, bone_name:str, nifname:str):
+    def add_bone_to_arma(self, arma, bone_name:str, nifname:str, relative_to=None):
         """Add bone to armature. Bone may come from nif or reference skeleton.
         Bind position is set to vanilla bind position if we're extending the skeleton.
         Otherwise set to the position in the nif. Pose position is not set--do that with
@@ -1623,6 +1652,10 @@ class NifImporter():
 
         *   bone_name = name to use for the bone in blender 
         *   nifname = name the bone has in the nif returns new bone
+        *   relative_to = (edit bone, its nif name) of a CHILD already in the armature. If
+            given, the new bone is placed so that child keeps the offset the nif gives it,
+            rather than at its own position in the nif. Those differ whenever the child
+            rests at the skin's bind position.
         """
         armdata = arma.data
 
@@ -1637,13 +1670,35 @@ class NifImporter():
             bone = BD.create_bone(armdata, bone_name, bone_xform, 
                                self.nif.game, self.scale, 0)
         else:
-            xf = self.nif.get_node_xform_to_global(nifname)
-            bone_xform = BD.transform_to_matrix(xf)
+            bone_xform = None
+            # The relative transform is built from the child's bone matrix, which is
+            # already in Blender space and scaled, so it needs no further scaling.
+            scale_factor = 1.0
+            # A top-level node anchors the skeleton to the file's origin, so it keeps its
+            # own position. Deriving it from a child that rests at the bind position drags
+            # it away from the origin -- and the child's rotation amplifies the offset, so
+            # the power armor's Root ended up 19 units out.
+            thisnode = self.nif.nodes.get(nifname)
+            at_top = (thisnode is None or thisnode.parent is None
+                      or thisnode.parent.name == self.nif.rootName)
+            if relative_to and not at_top:
+                child_bone, child_nifname = relative_to
+                child_node = self.nif.nodes.get(child_nifname)
+                if child_node is not None and child_bone is not None:
+                    R = BD.game_rotations[BD.game_axes[self.nif.game]][0]
+                    child_local = BD.apply_scale_xf(
+                        BD.transform_to_matrix(child_node.transform), self.scale)
+                    # child_rest = parent_rest @ child_local, so run that backwards.
+                    bone_xform = (child_bone.matrix @ R.inverted()) @ child_local.inverted()
+            if bone_xform is None:
+                bone_xform = BD.transform_to_matrix(
+                    self.nif.get_node_xform_to_global(nifname))
+                scale_factor = self.scale
             # We have the world position of the bone, so we don't need the armature's
             # skin transform. (We might need the armature object's Blender transform.
             # But that's always the identity.)
             bone = BD.create_bone(armdata, bone_name, bone_xform,
-                               self.nif.game, self.scale, 0)
+                               self.nif.game, scale_factor, 0)
             self.nif_rest_bones.add(bone_name)
 
         return bone
@@ -1673,12 +1728,17 @@ class NifImporter():
                 nif_bone = nif.nodes[bn]
                 if isinstance(nif_bone, P.NiNode) and nif_bone.name != nif.rootName:
                     if blname in self.nif_rest_bones:
-                        # Rest position already matches NIF, but edit bones
-                        # can't store scale. Apply non-unit scale to the pose.
+                        # Rest position matches the NIF, but edit bones can't store scale.
+                        # Apply non-unit scale to the pose.
                         nif_scale = nif_bone.transform.scale
                         if abs(nif_scale - 1.0) > 0.0001:
                             arma.pose.bones[blname].scale = Vector((nif_scale,)*3)
-                        continue
+                        # Fall through and pose it anyway. A bone whose rest matches the
+                        # nif still doesn't END UP at the nif position if an ancestor is
+                        # posed away from ITS rest -- which is the case for anything
+                        # hanging off a skinned bone, since those rest at the bind
+                        # position. The power armor's collarbones sat 7 units out and
+                        # carried the whole arm with them.
 
                     if self.is_skinned_tree and not self.settings.import_pose:
                         # Tree bone: rest is the skin bind position. Keep pose == rest
@@ -1773,7 +1833,16 @@ class NifImporter():
                 # (creating the parent bone if needed)
                 if parentname:
                     if parentname not in arm_data.edit_bones:
-                        new_parent = self.add_bone_to_arma(arma, parentname, parentnifname)
+                        new_parent = self.add_bone_to_arma(
+                            arma, parentname, parentnifname,
+                            # Place it so the child keeps the offset the nif gives it.
+                            # The child may rest at the skin's bind position, which is not
+                            # where its NiNode sits, and putting the parent at its own
+                            # NiNode position then tears the two apart -- the power armor's
+                            # COM and Pelvis are the same point in the nif and ended up
+                            # 9.8 units apart. Falls back to the absolute position when
+                            # there's nothing to measure from.
+                            relative_to=(arma_bone, nifname))
                         bones_to_parent.append(parentname)
                         arm_data.edit_bones[bonename].parent = new_parent
                         new_bones.append((parentnifname, parentname))

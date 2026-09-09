@@ -126,9 +126,10 @@ def connectpoint_type(obj):
 
 
 class ConnectPointParent():
-    def __init__(self, name, reprobj):
+    def __init__(self, name, reprobj, nif=None):
         self.name = name
         self.obj = reprobj
+        self.nif = nif
 
     @property
     def blender_obj(self):
@@ -207,7 +208,7 @@ class ConnectPointParent():
 
         BD.link_to_collection(blendroot.users_collection[0], pcp)
 
-        return ConnectPointParent(cpname, ro)
+        return ConnectPointParent(cpname, ro, nif=nif)
 
 
 class ConnectPointChild():
@@ -340,8 +341,16 @@ class ConnectPointCollection():
             for n in cp.names:
                 k = connection_name_root(n)
                 if k in self.keys:
-                    if len(self.keys[k][0]) > 0:
-                        p = self.keys[k][0][0]
+                    # Never attach a nif to its own parent connect point. A nif that has
+                    # both ends of the same connection--PowerArmorFurniture has C-BatteryMod
+                    # and P-BatteryMod--would be constrained to itself, and since the nif's
+                    # root is parented to the child point, that closes a dependency cycle
+                    # through the armature. Blender resolves the cycle with stale
+                    # transforms and the whole import walks off into space.
+                    candidates = [x for x in self.keys[k][0]
+                                  if cp.nif is None or x.nif is not cp.nif]
+                    if candidates:
+                        p = candidates[0]
                 if p: break
             if p:
                 constr = cp.blender_obj.constraints.new(type='COPY_TRANSFORMS')
