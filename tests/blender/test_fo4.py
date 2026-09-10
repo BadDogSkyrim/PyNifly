@@ -1233,7 +1233,34 @@ def TEST_POWERARMOR_FURNITURE():
     # sitting at its own NiNode position: Neck's rest is the skin's bind position, and the
     # two are 6.4 units apart on this rig.
     assert TT.is_equiv(arma.data.bones['HEAD'].matrix_local.translation,
-                       Vector((-1.40, -7.16, 137.93)), "HEAD bone", e=0.01)
+                       Vector((-0.33, -3.76, 138.34)), "HEAD bone", e=0.01)
+
+    # The rest position IS the shape's bind position -- that is what the armature is built
+    # from, so it has to come back exactly. It didn't: FO4 stores no global-to-skin
+    # transform, so one gets derived as the median over the bones of (node global @
+    # skin-to-bone) inverted, which only means anything when the bones are at their bind
+    # position. Posed, these 63 bones disagree about it by 126 units and 92 degrees, and
+    # the median came out a 12 degree yaw laid over the whole rig and mesh.
+    shp = pyn.NifFile(testfile).shapes[0]
+    worstbind = (0, None)
+    for bn in shp.bone_names:
+        if bn not in arma.data.bones:
+            continue
+        rest = (arma.matrix_world @ arma.data.bones[bn].matrix_local).translation
+        d = (rest - BD.bind_position(shp, bn).translation).length
+        if d > worstbind[0]:
+            worstbind = (d, bn)
+    assert TT.is_lt(worstbind[0], 0.01, f"Rest is the bind position ({worstbind[1]})")
+
+    # And the bind is symmetric, so the rest position is too. This is the assertion that
+    # would have caught the yaw: it survives any change of frame that is actually a frame,
+    # and fails the moment something rotates the rig off-axis.
+    for left, right in (('LLeg_Foot', 'RLeg_Foot'), ('LArm_Hand', 'RArm_Hand'),
+                        ('LLeg_Toe1', 'RLeg_Toe1')):
+        lv = arma.data.bones[left].matrix_local.translation
+        rv = arma.data.bones[right].matrix_local.translation
+        assert TT.is_equiv(Vector((-lv.x, lv.y, lv.z)), rv,
+                           f"{left}/{right} rest positions mirror", e=0.01)
 
     # Same rule, and the reason for it: the AnimObject nodes are the hands' grip points,
     # bound to the hand bones with no offset at all. They used to be created as bones with
@@ -1268,6 +1295,20 @@ def TEST_POWERARMOR_FURNITURE():
     assert TT.is_equiv(bbmin.z, min(v[2] for v in nifframe.verts), "Frame bottom", e=1.0)
     assert TT.is_equiv(bbmax.z, max(v[2] for v in nifframe.verts), "Frame top", e=1.0)
     assert TT.is_lt(max(abs(v) for v in bbmax), 200, "Frame is not flung into space")
+
+    # In its REST position the mesh is the nif's own vertex data, untouched. FO4 stores no
+    # global-to-skin transform, so PyNifly derives one as the median over the bones of
+    # (bone node global @ skin-to-bone) inverted -- which is only meaningful when the bones
+    # are in bind position. Here they are posed, the 63 bones disagree about it by 126
+    # units and 92 degrees, and the median came out a 12-degree yaw that got applied to the
+    # whole mesh. The boot soles are flat and symmetric in the file; they came in tilted,
+    # one side by -0.11 and the other by -0.77.
+    nifverts = [Vector(v) for v in nifframe.verts]
+    blockxf = BD.transform_to_matrix(nifframe.transform)
+    worstvert = 0
+    for bv, nv in zip(frame.data.vertices, nifverts):
+        worstvert = max(worstvert, ((frame.matrix_world @ bv.co) - (blockxf @ nv)).length)
+    assert TT.is_lt(worstvert, 0.01, "Rest mesh is the nif's own vertex data")
 
     ### Animated ###
     # 96 of this nif's nodes carry a NiTransformController whose interpolator holds the
@@ -1345,6 +1386,17 @@ def TEST_POWERARMOR_FURNITURE():
     outfile = TTB.test_file(r"tests\Out\TEST_POWERARMOR_FURNITURE.nif", output=True)
     TTB.clear_all()
     bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False, create_bones=False)
+
+    # This nif carries its own skeleton, so it needs three settings the export defaults
+    # don't give it. The import works out which and records them, so the user gets a
+    # faithful re-export without knowing to look for them.
+    arma = TTB.find_shape('PowerArmorFurniture.nif:ARMATURE', type='ARMATURE')
+    root = next(o for o in bpy.context.scene.objects if 'pynRoot' in o)
+    sticky = pyn_props.read_export_settings(root, arma)
+    assert TT.is_true(sticky.get('preserve_hierarchy'), "Hierarchy export recorded on import")
+    assert TT.is_true(sticky.get('export_pose'), "Pose export recorded on import")
+    assert TT.is_true(sticky.get('export_all_bones'), "All-bones export recorded on import")
+
     # Select everything, not just the root. The nif's child connect point is the ROOT's
     # parent in Blender, not its child, so a root-only selection leaves it out of the
     # export set and the exported nif loses it.
@@ -1358,8 +1410,32 @@ def TEST_POWERARMOR_FURNITURE():
     shapecheck = nifcheck.shape_dict['PAFrame01:0']
     assert TT.is_eq(len(shapecheck.verts), len(nifframe.verts), "Vertices exported")
     assert TT.is_eq(len(shapecheck.bone_names), len(nifframe.bone_names), "Skin bones exported")
+
+    # The shape's own block transform round trips as the identity the source has. It used
+    # to come back (-1.815, -16.041, -0.173): the import had folded the bogus derived
+    # global-to-skin into the object's placement, and the export wrote that placement out.
+    assert TT.is_equiv(Vector(shapecheck.transform.translation),
+                       Vector(nifframe.transform.translation),
+                       "Shape block transform round trips", e=0.001)
     assert TT.is_eq(len(nifcheck.connect_points_parent), 7, "Parent connect points exported")
     assert TT.is_eq(nifcheck.connect_points_child, ['C-BatteryMod'], "Child connect point exported")
+
+    # Every node comes back, in the same place and with the same parent. Nodes nothing is
+    # skinned to or animating -- the weapon and camera mounts, the AnimObject markers, the
+    # head of the neck chain -- only survive because the import asked for all bones.
+    assert TT.is_eq(sorted(set(nif.nodes) - set(nifcheck.nodes)), [], "No nodes lost")
+    worstnode = (0, None)
+    for name, srcnode in nif.nodes.items():
+        outnode = nifcheck.nodes[name]
+        assert TT.is_eq(outnode.parent.name if outnode.parent else None,
+                        srcnode.parent.name if srcnode.parent else None,
+                        f"{name} keeps its parent")
+        d = (Vector(srcnode.global_transform.translation)
+             - Vector(outnode.global_transform.translation)).length
+        if d > worstnode[0]:
+            worstnode = (d, name)
+    assert TT.is_lt(worstnode[0], 0.01,
+                    f"Worst node placement error ({worstnode[1]})")
 
     # The animation comes back the way it went in. The keys are written relative to each
     # bone's rest, which is where they were read from, so the values are the nif's own
@@ -1387,11 +1463,16 @@ def TEST_POWERARMOR_FURNITURE():
                        Vector(nif.nodes['RLeg_Foot'].transform.translation),
                        "Constant translation is the node's own", e=0.01)
 
-    # KNOWN GAP, pre-existing and unrelated to the composition: 35 of the source's 96
-    # animated nodes never get fcurves on import, so they don't come back out. Pinned so
-    # it can't quietly get worse--if it gets better, raise the number.
-    assert TT.is_eq(len([n for n in nifcheck.nodes.values() if n.controller]), 61,
+    # KNOWN GAP: 34 of the source's 96 controllers don't come back. All 34 have no
+    # NiTransformData at all -- they hold a single static value, and that value is the
+    # node's own transform, which the export writes anyway. So the nif behaves the same;
+    # it just says so with a node instead of a controller. Pinned so it can't quietly get
+    # worse--if it gets better, raise the number.
+    assert TT.is_eq(len([n for n in nifcheck.nodes.values() if n.controller]), 62,
                     "Animated nodes exported")
+    nodata = [n for n, v in nif.nodes.items()
+              if v.controller and v.controller.interpolator.data is None]
+    assert TT.is_eq(len(nodata), 30, "Source controllers holding a static value")
 
 
 @TT.category('FO4', 'CONNECTPOINT')

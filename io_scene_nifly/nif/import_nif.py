@@ -344,6 +344,22 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
         log.exception(f"Could not read colors on shape {shape.name}")
 
 
+# How far a bone's node can sit from where the shape binds it before the nif counts as
+# posed. Vanilla bodies and armor measure at most 0.024 (BTMaleBody's RLeg_Toe1; HeadGear1
+# and Skyrim's test.nif are exact); PowerArmorFurniture, authored sitting down, measures
+# 25.8. Only decides whether to record export_pose, where guessing wrong is cheap.
+POSED_BONE_THRESHOLD = 0.1
+
+# How far the bones of a skeleton-owning nif may disagree about where the skin is before we
+# stop deriving a global-to-skin at all -- see skin_space_is_nif_space. This one re-places
+# the whole rig, so it wants a wide margin, and the data gives one. Across the 126 skinned
+# test fixtures the nifs that own their skeleton either agree exactly (Baby, TorsoRoboBrain,
+# WorkstationArmorB01, treeaspen03 and six more) or disagree hugely: 85 for the power armor,
+# 95-114 for the animatrons, 601 for a skinned tree, 778 for VltGearDoor01. The lone
+# in-between case is loincloth_1 at 4.1, which is not posed and must not be caught.
+POSED_SKELETON_THRESHOLD = 20.0
+
+
 class NifImporter():
     """
     Does the work of importing a nif, independent of Blender's operator interface.
@@ -395,6 +411,8 @@ class NifImporter():
         # Pre-existing bones (e.g. from HKX skeleton import) are included so
         # set_bone_poses won't overwrite their pose.
         self.nif_rest_bones = set()
+        # skin_space_is_nif_space() is a property of the whole nif, asked once per shape.
+        self._skin_space_cache = {}
         if self.armature and self.armature.data.bones:
             self.nif_rest_bones = {b.name for b in self.armature.data.bones}
         self.objects_created = ReprObjectCollection() # Dictionary of objects created, indexed by node handle
@@ -512,6 +530,13 @@ class NifImporter():
             # itself into place. 
             xform = BD.transform_to_matrix(the_shape.global_to_skin)
             xf = (xform_shape @ xform @ xform_calc).inverted()
+        elif self.skin_space_is_nif_space():
+            # Nothing stored, and nothing to derive one from -- xform_calc is the median of
+            # transforms that disagree, not a position anything is actually at. Leave the
+            # mesh in the skin space the file stores it in, which is what NifSkope draws
+            # with skinning off. The rest bones come from this same transform, so mesh and
+            # bones move together and the posed result is untouched.
+            xf = xform_shape
         else:
             xf = xform_calc.inverted()
             
@@ -1767,6 +1792,144 @@ class NifImporter():
                     bpy.context.view_layer.update()
 
 
+    def _global_to_skin_candidates(self, shape):
+        """Each bone's answer to "where is the skin, in the nif's global space?"
+
+        A bone answers with (its node's global transform @ its skin-to-bone) inverted.
+        Every bone should give the same answer, because the skin is in one place.
+        """
+        out = []
+        for b in getattr(shape, 'bone_names', []):
+            node = self.nif.nodes.get(b)
+            if node is None:
+                continue
+            out.append((BD.transform_to_matrix(node.global_transform)
+                        @ BD.transform_to_matrix(shape.get_shape_skin_to_bone(b))).inverted())
+        return out
+
+    def bone_disagreement(self, shape):
+        """How far apart the bones' answers are. Zero when the shape is at its bind position."""
+        cands = self._global_to_skin_candidates(shape)
+        if len(cands) < 2:
+            return 0.0
+        first = cands[0].translation
+        return max((c.translation - first).length for c in cands[1:])
+
+    def skin_space_is_nif_space(self):
+        """True if this nif's skin space is the only space it has, so nothing relates them.
+
+        FO4 stores no global-to-skin transform. PyNifly derives one by asking every bone
+        where the skin is and taking the median (calcShapeGlobalToSkin, whose own comment
+        notes it "assumes the bone nodes are in vanilla position"). For a shape fitted to an
+        external skeleton that is exactly right, and it is the only thing tying the mesh to
+        that skeleton's space -- a bathrobe or a facegen head needs it and must keep it.
+
+        A nif that carries its own skeleton AND holds it in a pose has no such external
+        space, and its bones no longer agree: PowerArmorFurniture's 63 bones differ by 126
+        units and 92 degrees. The median of that is a transform belonging to no bone --
+        here a 12 degree yaw, which came out as the whole mesh sitting crooked and the boot
+        soles tilting off the floor they are flat on in the file. For those, skin space is
+        simply where the nif keeps its geometry, and there is nothing to convert it to.
+
+        Decided per nif, not per shape: bathrobe's body and robe disagree by different
+        amounts, and answering this separately for each put them in different frames.
+        """
+        cached = self._skin_space_cache.get(id(self.nif))
+        if cached is not None:
+            return cached
+
+        shapes = list(getattr(self.nif, 'shapes', []))
+        skinned = set()
+        for sh in shapes:
+            skinned.update(getattr(sh, 'bone_names', []))
+        owns_skeleton = any(n.name in skinned and n.parent is not None
+                            and n.parent.name in skinned
+                            for n in self.nif.nodes.values())
+        result = bool(owns_skeleton and shapes
+                      and max(self.bone_disagreement(sh) for sh in shapes)
+                      > POSED_SKELETON_THRESHOLD)
+        self._skin_space_cache[id(self.nif)] = result
+        return result
+
+    def shape_is_posed(self, shape):
+        """True if the shape's bone nodes sit away from where the shape binds them.
+
+        Both are legitimate: the node transform says where the bone is, the skin-to-bone
+        transform says where it was when the mesh was weighted. Armor authored against a
+        skeleton keeps the two together. A nif holding its own pose -- furniture, a
+        creature caught mid-animation -- separates them, and then only one of the two can
+        be the armature's rest position.
+        """
+        bones = list(getattr(shape, 'bone_names', []))
+        if not bones:
+            return False
+        skin_to_global = BD.transform_to_matrix(shape.global_to_skin).inverted()
+        for b in bones:
+            node = self.nif.nodes.get(b)
+            if node is None:
+                continue
+            node_loc = BD.transform_to_matrix(node.global_transform).translation
+            bind_loc = (skin_to_global @ BD.bind_position(shape, b)).translation
+            if (node_loc - bind_loc).length > POSED_BONE_THRESHOLD:
+                return True
+        return False
+
+
+    def record_export_settings(self, arma):
+        """Record on the armature the export settings this mesh needs to export identically.
+
+        The export defaults suit a nif that leans on an external skeleton: bones written
+        flat, at the bind position, and only the ones a shape is skinned to. A nif that
+        carries its own skeleton breaks all three assumptions, and exported with the
+        defaults it comes back flattened, in the bind pose, missing every node nothing is
+        weighted to. Recording what the file needs means re-exporting it reproduces it.
+
+        These are sticky settings like rename_bones, so they show up in the export dialog
+        and on the armature's panel, and the user can turn any of them off.
+        """
+        bone_nodes = {}
+        for b in arma.data.bones:
+            node = self.nif.nodes.get(self.nif_name(b.name))
+            if node is not None:
+                bone_nodes[b.name] = node
+        if not bone_nodes:
+            return
+
+        shapes = list(getattr(self.nif, 'shapes', []))
+        skinned = set()
+        for s in shapes:
+            skinned.update(getattr(s, 'bone_names', []))
+
+        needed = {}
+
+        # The nif carries its own skeleton when its skin bones nest inside one another
+        # instead of lying flat under the root. A file leaning on an external skeleton can
+        # still hold a stray nested node -- BaseFemaleHead_faceBones has exactly one,
+        # skin_bone_C_MasterEyebrow under HEAD -- and one node is not a skeleton, so
+        # asking about the skin's own bones is what separates the two.
+        owns_skeleton = any(n.name in skinned and n.parent is not None
+                            and n.parent.name in skinned
+                            for n in bone_nodes.values())
+        if owns_skeleton:
+            # Exported flat the hierarchy would be lost, and the animation keys are written
+            # parent-relative whatever the setting says.
+            needed['preserve_hierarchy'] = True
+
+            # Bones the nif placed itself that no shape is skinned to: attachment points,
+            # animation markers, the head of a chain nothing is weighted to. Bones added
+            # from a reference skeleton don't count -- they belong to the skeleton, not to
+            # this file.
+            if any(nm in self.nif_rest_bones and n.name not in skinned
+                   for nm, n in bone_nodes.items()):
+                needed['export_all_bones'] = True
+
+        if any(self.shape_is_posed(s) for s in shapes):
+            needed['export_pose'] = True
+
+        for field, value in needed.items():
+            setattr(arma.pyn_export_skel, field, value)
+
+
     def set_all_bone_poses(self, arma, nif:P.NifFile):
         """Set all bone pose transforms based on the nif. No reason not to do it once at
         the end.
@@ -1947,6 +2110,16 @@ class NifImporter():
         arma[PYN_RENAME_BONES_PROP] = self.settings.rename_bones
         arma[PYN_ROTATE_BONES_PRETTY_PROP] = self.settings.rotate_bones_pretty
         arma[PYN_RENAME_BONES_NIFTOOLS_PROP] = self.settings.rename_bones_niftools
+
+        # Those are the legacy form. Several code paths read them straight off the object,
+        # but they only reach the export dialog and the armature's panel through a one-time
+        # migration that nothing triggers until an export runs -- so until then the panel
+        # draws the property's default, and rename_bones reads "on" after an import that
+        # turned it off. Record the same decisions on the typed group, which is what the UI
+        # actually shows.
+        arma.pyn_export_skel.rename_bones = self.settings.rename_bones
+        arma.pyn_export_skel.rename_bones_niftools = self.settings.rename_bones_niftools
+        arma.pyn_export_skel.rotate_bones_pretty = self.settings.rotate_bones_pretty
 
         return arma
 
@@ -2400,6 +2573,7 @@ class NifImporter():
 
         for arma in self.target_armatures:
             self.set_all_bone_poses(arma, self.nif)
+            self.record_export_settings(arma)
 
         # Enable influence on standard bone collision constraints so the collision
         # drives the bone. Only bhkCollisionObject drives the bone; blend, SP, and

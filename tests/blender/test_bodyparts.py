@@ -727,6 +727,14 @@ def TEST_DRAUGR_IMPORT_A():
     hoodmaxz = max(v.co.z for v in hood.data.vertices)
     assert hoodmaxz > bonemaxz, "Hood covers skeleton"
 
+    # The armature's panel shows how the bones were actually built. It reads the typed
+    # property group, so recording the import's choice only as a custom property left the
+    # panel drawing the property default -- "rename bones" on, after an import with it off.
+    assert TT.is_eq(arma.pyn_export_skel.rename_bones, False,
+                    "Armature records that bones were not renamed")
+    assert TT.is_true(arma.pyn_export_skel.is_property_set('rename_bones'),
+                      "Bone naming is recorded, not left at the default")
+
     # Pose position reflects the draugr skeleton, but bind position is the human position. 
     bone1 = arma.data.bones['NPC Head [Head]']
     pose1 = arma.pose.bones['NPC Head [Head]']

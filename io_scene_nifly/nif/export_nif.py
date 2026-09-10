@@ -459,6 +459,7 @@ class NifExporter:
         if self.settings.rename_bones: flags.append("RENAME_BONES")
         if self.settings.rename_bones_niftools: flags.append("RENAME_BONES_NIFTOOLS")
         if self.settings.preserve_hierarchy: flags.append("PRESERVE_HIERARCHY")
+        if self.settings.export_all_bones: flags.append("EXPORT_ALL_BONES")
         if self.settings.write_bodytri: flags.append("WRITE_BODYTRI")
         if self.settings.export_pose: flags.append("EXPORT_POSE")
         if self.settings.export_modifiers: flags.append("EXPORT_MODIFIERS")
@@ -1753,7 +1754,8 @@ class NifExporter:
         if bone_name in self.shape_bones:
             return self.shape_bones[bone_name]
 
-        if bone_name not in bones_to_write and not self.settings.preserve_hierarchy:
+        if (bone_name not in bones_to_write and not self.settings.preserve_hierarchy
+                and not self.settings.export_all_bones):
             return None
 
         nifname = self.nif_name(bone_name)
@@ -1772,7 +1774,9 @@ class NifExporter:
         if bone_name in bones_to_write and shape:
             shape.add_bone(nifname, tb,
                            (parname if self.settings.preserve_hierarchy else None))
-        elif bone_name not in self.writtenbones and (self.settings.preserve_hierarchy or not shape):
+        elif bone_name not in self.writtenbones and (self.settings.preserve_hierarchy
+                                                     or self.settings.export_all_bones
+                                                     or not shape):
             # NIF node transforms are parent-relative. When preserve_hierarchy
             # is off, get_bone_xform returns the global transform; convert it
             # to local so add_node stores the correct parent-relative values.
@@ -1787,6 +1791,21 @@ class NifExporter:
         self.writtenbones[bone_name] = nifname
         
         return nifname
+
+
+    def write_all_bones(self, arma):
+        """Write every bone in the armature as a node, whether or not anything uses it.
+
+        The normal rule is that a bone earns a node by being skinned to or animated. That
+        suits armor, where an external skeleton supplies everything else. A nif that
+        carries its own skeleton also owns nodes that exist purely to be positioned --
+        weapon and camera attachment points, animation-object markers, the head of a
+        chain nothing is weighted to -- and those vanish under the normal rule. Passing
+        shape=None takes write_bone's node branch, so nothing is added to a skin.
+        """
+        bones = arma.data.bones.keys()
+        for bone_name in bones:
+            self.write_bone(None, arma, bone_name, bones)
 
 
     def write_bone_hierarchy(self, shape:pynifly.NiShape, arma, used_bones:list):
@@ -2269,6 +2288,10 @@ class NifExporter:
             # Just export the skeleton
             self.export_armature(self.armature)
 
+        if self.settings.export_all_bones and self.objects and self.armature:
+            # export_armature already writes every bone on the skeleton-only path.
+            self.write_all_bones(self.armature)
+
         # Make sure any grouping nodes get exported, even if they're empty.
         for obj in self.grouping_nodes:
             if 'pynRoot' not in obj and not self.objs_written.find_blend(obj):
@@ -2477,6 +2500,11 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
         description="Preserve bone hierarchy in exported nif.",
         default=ExportSettings.__dataclass_fields__["preserve_hierarchy"].default) # type: ignore
 
+    export_all_bones: bpy.props.BoolProperty(
+        name="Export All Bones",
+        description="Write every bone in the armature, not just the ones a shape is skinned to. Needed by nifs that carry their own skeleton and use bones as attachment points.",
+        default=ExportSettings.__dataclass_fields__["export_all_bones"].default) # type: ignore
+
     write_bodytri: bpy.props.BoolProperty(
         name="Export BODYTRI Extra Data",
         description="Write an extra data node pointing to the BODYTRI file, if there are any bodytri shape keys. Not needed if exporting for Bodyslide, because they write their own.",
@@ -2666,6 +2694,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                                                   prefs.rotate_bones_pretty)
         self.write_bodytri = sticky.get('write_bodytri', prefs.write_bodytri)
         self.preserve_hierarchy = sticky.get('preserve_hierarchy', dfld["preserve_hierarchy"].default)
+        self.export_all_bones = sticky.get('export_all_bones', dfld["export_all_bones"].default)
         self.export_pose = sticky.get('export_pose', dfld["export_pose"].default)
         self.chargen_ext = sticky.get('chargen_extension', dfld["chargen_extension"].default)
         # These weren't sticky before; consolidating makes them so (keep operator default if unset).
@@ -2686,6 +2715,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 f"rename_bones_niftools={self.rename_bones_niftools}, "
                 f"rotate_bones_pretty={self.rotate_bones_pretty}, "
                 f"preserve_hierarchy={self.preserve_hierarchy}, "
+                f"export_all_bones={self.export_all_bones}, "
                 f"write_bodytri={self.write_bodytri}, "
                 f"export_pose={self.export_pose}, "
                 f"export_modifiers={self.export_modifiers}, "

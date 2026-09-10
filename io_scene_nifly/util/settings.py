@@ -99,6 +99,11 @@ class ExportSettings:
     # be sticky. Export only.
     preserve_hierarchy: bool = False
 
+    # Write every bone in the armature, not just those a shape is skinned to or an
+    # animation drives. Needed by nifs that carry their own skeleton, where nodes like
+    # weapon and camera attachment points exist only to be positioned. Export only.
+    export_all_bones: bool = False
+
     # Extension to add to chargen tri files. Export only.
     chargen_extension: str = "chargen"
 
@@ -146,5 +151,6 @@ PYN_RENAME_BONES_PROP = "PYN_RENAME_BONES"
 PYN_ROTATE_BONES_PRETTY_PROP = "PYN_ROTATE_BONES_PRETTY"
 PYN_WRITE_BODYTRI_ED_PROP = "PYN_WRITE_BODYTRI_ED"
 PYN_EXPORT_POSE_PROP = "PYN_EXPORT_POSE"
+PYN_EXPORT_ALL_BONES_PROP = "PYN_EXPORT_ALL_BONES"
 PYN_CHARGEN_EXT_PROP = "PYN_CHARGEN_EXT"
 

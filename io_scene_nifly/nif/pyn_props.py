@@ -760,7 +760,8 @@ class PYN_PT_block(bpy.types.Panel):
 from ..util.settings import (
     ExportSettings, PYN_BLENDER_XF_PROP, PYN_PRESERVE_HIERARCHY_PROP,
     PYN_RENAME_BONES_NIFTOOLS_PROP, PYN_RENAME_BONES_PROP, PYN_ROTATE_BONES_PRETTY_PROP,
-    PYN_WRITE_BODYTRI_ED_PROP, PYN_EXPORT_POSE_PROP, PYN_CHARGEN_EXT_PROP)
+    PYN_WRITE_BODYTRI_ED_PROP, PYN_EXPORT_POSE_PROP, PYN_CHARGEN_EXT_PROP,
+    PYN_EXPORT_ALL_BONES_PROP)
 
 # `game` stays on its legacy PYN_GAME custom prop — it's inferred by multi-object discovery
 # (_discover_game), not a pure sticky preference, so it's not part of this consolidation.
@@ -768,7 +769,7 @@ _EXPORT_ROOT_FIELDS = ['blender_xf', 'write_bodytri', 'write_tris', 'write_sf_ma
                        'export_modifiers', 'export_animations', 'export_colors',
                        'export_recenter_half_precision', 'export_full_precision', 'chargen_extension']
 _EXPORT_SKEL_FIELDS = ['rename_bones', 'rename_bones_niftools', 'rotate_bones_pretty',
-                       'export_pose', 'preserve_hierarchy']
+                       'export_pose', 'preserve_hierarchy', 'export_all_bones']
 
 # field -> legacy scattered custom prop, for one-time migration of old .blend files.
 _EXPORT_LEGACY = {
@@ -777,6 +778,7 @@ _EXPORT_LEGACY = {
     'rename_bones': PYN_RENAME_BONES_PROP, 'rename_bones_niftools': PYN_RENAME_BONES_NIFTOOLS_PROP,
     'rotate_bones_pretty': PYN_ROTATE_BONES_PRETTY_PROP, 'export_pose': PYN_EXPORT_POSE_PROP,
     'preserve_hierarchy': PYN_PRESERVE_HIERARCHY_PROP,
+    'export_all_bones': PYN_EXPORT_ALL_BONES_PROP,
 }
 _EXPORT_MIG_KEY = 'pyn_export_migrated'  # guard: legacy props already scanned for this object
 
