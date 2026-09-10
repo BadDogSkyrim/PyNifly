@@ -1,3 +1,57 @@
+# PyNifly 28.3.0 Release Notes
+
+Fixes to **Fallout 4 nifs that include a posed skeleton** -- power armor furniture,
+animatronics, animated doors. Some imported crooked and re-exported wrong. Re-import any
+you have in a .blend; an old .blend keeps the old placement.
+
+## Fallout 4 rigs
+
+- Fixes to **Fallout 4 nifs that include a posed skeleton** -- power armor furniture,
+  animatronics, animated doors. Some imported crooked and re-exported wrong. Re-import any
+  you have in a .blend; an old .blend keeps the old placement.
+
+- **Embedded animations play back correctly.** Attachment points stood still
+  while the bones they belong to moved.
+
+- **They export correctly.** Re-exporting resulted in a flattened skeleton stuck in
+  the bind pose with unweighted bones missing. PyNifly now detects that a nif needs bones in a hierarchy on import, and remembers that setting for export.
+
+- **New export option, "Export All Bones"** (armature ▸ PyNifly Skeleton Export). Writes
+  every bone in an armature, not only the ones a shape is skinned to -- needed by files
+  that use bones as weapon or camera mounts. Set for you on import when the nif needs it.
+
+- **A nif holding both a `C-` and a `P-` connect point of the same name** no longer
+  confuses the import.
+
+## General
+
+- **A nif with more than 100 connect points imports all of them.** Everything past the
+  hundredth was dropped silently, so a round trip through Blender truncated the file.
+  Large ones also read far faster. NOTE: It's not clear the game engine handles more than
+  100 connect points, so caveat modder.
+
+- **Import sets flags in the armature's export panel.** "Rename Bones", "Export Bone
+  Hierarchy" and "Export All Bones" are all set appropriately on import for convenience.
+
+- **Warning when vertex colors come from an attribute that isn't active.** PyNifly exports
+  the color attribute named `VERTEX_COLOR`, not whichever is active -- so painting into a
+  new attribute and making it active exports your old colors. The warning names both.
+
+- **Starfield `.mesh` and `morph.dat` files can be named after the shape** instead of by
+  hash.
+
+## Known limitations
+
+- 34 of the 96 animation controllers in the power armor furniture file don't survive a
+  round trip. Each holds one fixed value matching its node's position, which is written
+  anyway, so the exported file behaves the same.
+
+- Exporting with only the root object selected still loses a child connect point. Select
+  the whole scene.
+
+- **"Create Bones" against a non-human skeleton** silently substitutes vanilla human bone
+  positions. Turn it off for creature and machine rigs.
+
 # PyNifly 28.2.0 Release Notes
 
 Fixes to **HKX animation export**. If you have exported animations with an earlier
