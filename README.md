@@ -7,7 +7,7 @@ Full documentation in the wiki.
 
 **Features**
 
-* Supports Skyrim LE, Skyrim SE, and FO4. Starfield is experimental.
+* Supports Skyrim LE, Skyrim SE, and FO4. Starfield support is a WIP.
 * Handles tris and base mesh in one step. No need to separate UV seams or triangulate before exporting
 * Handles expression and chargen tri files for Skyrim and FO4
 * Import tris into an existing mesh or on their own
