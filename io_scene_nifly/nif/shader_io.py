@@ -297,8 +297,15 @@ def _reconstruct_normal_rgb(tree, color_out, loc):
 
     sep = n.new('ShaderNodeSeparateColor'); sep.location = (x, y)
     L.new(color_out, sep.inputs['Color'])
+    # Starfield normals are DirectX-convention (green = -Y); Blender is OpenGL (+Y). Flip green
+    # the moment it comes off the file, so everything downstream -- the Z reconstruct, the RNM
+    # detail blend, the Normal Map node -- works in Blender's convention. Measured rather than
+    # assumed: a real normal map's slope field must be curl-free, and both a shipped SF normal
+    # and the Creation Kit's own FaceGen bake have ~2x less curl residual with green flipped.
+    # Nothing to undo on export -- SF export writes the .mat's texture paths, never pixels.
+    green = math('SUBTRACT', 1.0, sep.outputs['Green'], None, 0, -250).outputs['Value']
     rx = math('MULTIPLY_ADD', sep.outputs['Red'], 2.0, -1.0, 200, 100)
-    ry = math('MULTIPLY_ADD', sep.outputs['Green'], 2.0, -1.0, 200, -100)
+    ry = math('MULTIPLY_ADD', green, 2.0, -1.0, 200, -100)
     rx2 = math('MULTIPLY', rx.outputs['Value'], rx.outputs['Value'], None, 400, 100)
     ry2 = math('MULTIPLY', ry.outputs['Value'], ry.outputs['Value'], None, 400, -100)
     ssum = math('ADD', rx2.outputs['Value'], ry2.outputs['Value'], None, 600, 0)
@@ -308,7 +315,7 @@ def _reconstruct_normal_rgb(tree, color_out, loc):
     bcol = math('MULTIPLY_ADD', nz.outputs['Value'], 0.5, 0.5, 1400, 0)
     comb = n.new('ShaderNodeCombineColor'); comb.location = (x + 1600, y)
     L.new(sep.outputs['Red'], comb.inputs['Red'])
-    L.new(sep.outputs['Green'], comb.inputs['Green'])
+    L.new(green, comb.inputs['Green'])
     L.new(bcol.outputs['Value'], comb.inputs['Blue'])
     return comb.outputs['Color']
 
@@ -2243,38 +2250,12 @@ class ShaderImporter:
     def _sf_normal_rgb(self, image_node, x, y):
         """SF normals are BC5, storing X/Y only. Reconstruct Z = sqrt(1 - x^2 - y^2) and recombine
         into a full [0,1] tangent-space normal color. Returns the CombineColor output (RGB) -- feed
-        a Normal Map node for a single layer, or the SF Normal Blend group for a detail blend."""
-        nt = self.material.node_tree
-        def math(op, v0=None, v1=None, v2=None, loc=(0, 0)):
-            m = self.nodes.new('ShaderNodeMath')
-            m.operation = op
-            m.location = loc
-            for i, v in enumerate((v0, v1, v2)):
-                if v is None:
-                    continue
-                if hasattr(v, 'node'):
-                    nt.links.new(v, m.inputs[i])
-                else:
-                    m.inputs[i].default_value = v
-            return m
-        sep = self.nodes.new('ShaderNodeSeparateColor')
-        sep.location = (x, y)
-        nt.links.new(image_node.outputs['Color'], sep.inputs['Color'])
-        rx = math('MULTIPLY_ADD', sep.outputs['Red'], 2.0, -1.0, (x + 200, y + 100))
-        ry = math('MULTIPLY_ADD', sep.outputs['Green'], 2.0, -1.0, (x + 200, y - 100))
-        rx2 = math('MULTIPLY', rx.outputs['Value'], rx.outputs['Value'], None, (x + 400, y + 100))
-        ry2 = math('MULTIPLY', ry.outputs['Value'], ry.outputs['Value'], None, (x + 400, y - 100))
-        ssum = math('ADD', rx2.outputs['Value'], ry2.outputs['Value'], None, (x + 600, y))
-        inv = math('SUBTRACT', 1.0, ssum.outputs['Value'], None, (x + 800, y))
-        clamp = math('MAXIMUM', inv.outputs['Value'], 0.0, None, (x + 1000, y))
-        nz = math('SQRT', clamp.outputs['Value'], None, None, (x + 1200, y))
-        bcol = math('MULTIPLY_ADD', nz.outputs['Value'], 0.5, 0.5, (x + 1400, y))
-        comb = self.nodes.new('ShaderNodeCombineColor')
-        comb.location = (x + 1600, y)
-        nt.links.new(sep.outputs['Red'], comb.inputs['Red'])
-        nt.links.new(sep.outputs['Green'], comb.inputs['Green'])
-        nt.links.new(bcol.outputs['Value'], comb.inputs['Blue'])
-        return comb.outputs['Color']
+        a Normal Map node for a single layer, or the SF Normal Blend group for a detail blend.
+
+        Shares `_reconstruct_normal_rgb` with the SF Layer group: this was a second copy of the
+        same math, so the DirectX green flip had to be got right in two places at once."""
+        return _reconstruct_normal_rgb(self.material.node_tree,
+                                       image_node.outputs['Color'], (x, y))
 
     def _sf_normalmap(self, rgb_socket, x, y):
         """Wrap a reconstructed normal RGB in a Normal Map node -> a Normal vector."""

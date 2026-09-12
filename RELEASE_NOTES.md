@@ -40,6 +40,11 @@ you have in a .blend; an old .blend keeps the old placement.
 - **Starfield `.mesh` and `morph.dat` files can be named after the shape** instead of by
   hash.
 
+- **Starfield normal maps light correctly.** Starfield uses the opposite green-channel
+  convention from Blender, so imported normals were flipped top-to-bottom -- bumps read as
+  dents under side lighting. Re-import to fix a .blend you already have. If you bake your
+  own Starfield normals, invert green on the way out.
+
 ## Known limitations
 
 - 34 of the 96 animation controllers in the power armor furniture file don't survive a

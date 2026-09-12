@@ -226,6 +226,86 @@ def TEST_SF_MATERIAL():
     assert any(n.type == 'NORMAL_MAP' for n in nt.nodes), "Normal reconstructed via Normal Map"
 
 
+def eval_normal_socket(socket, want):
+    """Evaluate one channel of a reconstructed-normal RGB socket by walking the node graph
+    backwards. Handles only the node types the reconstruct builds (RGB constant, SeparateColor,
+    CombineColor, Math), so it tests what the graph COMPUTES rather than how it is laid out."""
+    def value(sock):
+        n = sock.node
+        if n.type == 'RGB':
+            return n.outputs['Color'].default_value[:3]
+        if n.type == 'SEPARATE_COLOR':
+            rgb = inp(n.inputs['Color'])
+            return rgb['RGB'.index(sock.name[0])]
+        if n.type == 'COMBINE_COLOR':
+            return [inp(n.inputs[c]) for c in ('Red', 'Green', 'Blue')]
+        if n.type == 'MATH':
+            a, b, c = (inp(i) for i in n.inputs[:3])
+            op = n.operation
+            if op == 'MULTIPLY_ADD':
+                return a * b + c
+            if op == 'MULTIPLY':
+                return a * b
+            if op == 'ADD':
+                return a + b
+            if op == 'SUBTRACT':
+                return a - b
+            if op == 'MAXIMUM':
+                return max(a, b)
+            if op == 'SQRT':
+                return math.sqrt(max(a, 0.0))
+            raise AssertionError(f"evaluator does not know Math op {op!r}")
+        raise AssertionError(f"evaluator does not know node type {n.type!r}")
+
+    def inp(socket_in):
+        if socket_in.is_linked:
+            return value(socket_in.links[0].from_socket)
+        v = socket_in.default_value
+        return v[:3] if hasattr(v, '__len__') else v
+
+    return value(socket)['RGB'.index(want[0])]
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_NORMAL_GREEN():
+    """Starfield normal maps are DirectX-convention (green = -Y); Blender is OpenGL (+Y), so
+    the BC5 reconstruct must INVERT green on the way in.
+
+    Measured, not assumed: a real normal map's slope field must be curl-free, and for both
+    `male_default_normal.dds` and the Creation Kit's own FaceGen bake the curl residual is
+    ~2x smaller with green flipped. The importer used to pass green straight through, which
+    lights every Starfield normal backwards in Y. Export writes only the .mat's texture paths
+    -- never pixels -- so there is nothing to re-invert on the way out.
+
+    Red must pass through untouched (X is the same in both conventions) and blue is the
+    reconstructed Z, which squares Y and so is a control: it must not move.
+    """
+    from io_scene_nifly.nif.shader_io import _reconstruct_normal_rgb
+
+    mat = bpy.data.materials.new("pyn_normal_green")
+    mat.use_nodes = True
+    nt = mat.node_tree
+
+    # A file-space normal tilted +Y: UNORM green 0.75 -> y = +0.5. Red 0.5 -> x = 0.
+    src = nt.nodes.new('ShaderNodeRGB')
+    src.outputs['Color'].default_value = (0.5, 0.75, 0.0, 1.0)
+    out = _reconstruct_normal_rgb(nt, src.outputs['Color'], (0, 0))
+
+    green = eval_normal_socket(out, 'Green')
+    assert TT.is_eq(round(green, 4), 0.25,
+                    "Green inverted: DirectX -Y in the file is +Y (0.25) in Blender")
+
+    red = eval_normal_socket(out, 'Red')
+    assert TT.is_eq(round(red, 4), 0.5, "Red passes through unchanged")
+
+    # z = sqrt(1 - 0^2 - 0.5^2) = 0.8660 -> encoded 0.5*z + 0.5.
+    blue = eval_normal_socket(out, 'Blue')
+    assert TT.is_eq(round(blue, 4), round(0.5 * math.sqrt(0.75) + 0.5, 4),
+                    "Blue is the reconstructed Z, unaffected by the green flip")
+
+    bpy.data.materials.remove(mat)
+
+
 @TT.category('STARFIELD', 'SHADER')
 def TEST_SF_PARAMS():
     """Starfield: the .mat's non-texture settings land on PER-COMPONENT value-holder group nodes
