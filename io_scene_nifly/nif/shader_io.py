@@ -692,15 +692,61 @@ def _put_if(d, key, value):
         d[key] = value
 
 
+def _nodes_reaching_output(nt):
+    """The nodes that feed the active Material Output, walking links backwards from it.
+
+    What isn't wired isn't in the material: a layer whose group node can't reach the output plays
+    no part in what the user sees, so it plays no part in what we export. Returns None when the
+    tree has no active output node at all -- then connectivity says nothing and every node counts.
+    """
+    out = next((n for n in nt.nodes
+                if n.type == 'OUTPUT_MATERIAL' and getattr(n, 'is_active_output', False)), None)
+    if out is None:
+        out = next((n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL'), None)
+    if out is None:
+        return None
+    seen, stack = set(), [out]
+    while stack:
+        node = stack.pop()
+        if node is None or node.name in seen:
+            continue
+        seen.add(node.name)
+        for inp in node.inputs:
+            for link in inp.links:
+                stack.append(link.from_node)
+    return seen
+
+
 def recover_sf_material(material):
     """Walk a material's shader graph back into a normalised dict (as parse_mat returns), so it can
     be written out with sf_materials.write_mat. Sources: the SF Parameters node (settings), the SF
     Layer / SF Blend marker nodes (structure + UV/mode), and the image nodes' assigned textures
-    (with the stamped pyn_sf_path as a fallback). Returns None if the material has no node tree."""
+    (with the stamped pyn_sf_path as a fallback). Returns None if the material has no node tree.
+
+    A layer or blender whose group node cannot reach the Material Output is NOT recovered: what
+    isn't wired isn't part of the material, so it has no business in the .mat (see
+    _nodes_reaching_output). The test is applied to the GROUP node, and everything stamped with
+    that layer's or blender's index then follows it. Judging each satellite node on its own
+    connectivity looks tidier but is wrong: a layer with no textures still carries a Mapping node
+    that feeds nothing, and dropping it silently reset five vanilla materials' UV tiling to 1:1.
+    The settings nodes are exempt for the same reason -- they are knobs read off a node, not part
+    of the shading path."""
     nt = getattr(material, 'node_tree', None)
     if nt is None:
         return None
-    nodes = nt.nodes
+    wired = _nodes_reaching_output(nt)
+
+    def is_wired(node):
+        return wired is None or node.name in wired
+
+    live_layers = {n[PYN_SF_LAYER] for n in nt.nodes
+                   if _is_group(n, SF_LAYER_GROUP) and PYN_SF_LAYER in n and is_wired(n)}
+    live_blends = {n[PYN_SF_BLEND] for n in nt.nodes
+                   if _is_group(n, SF_BLEND_GROUP) and PYN_SF_BLEND in n and is_wired(n)}
+    nodes = [n for n in nt.nodes
+             if (n.get(PYN_SF_LAYER) in live_layers if PYN_SF_LAYER in n
+                 else n.get(PYN_SF_BLEND) in live_blends if PYN_SF_BLEND in n
+                 else True)]
 
     # Texture paths per layer: the assigned image wins (graph is the source of truth); the import
     # stamp is the fallback for images that can't be resolved under a 'textures' tree.

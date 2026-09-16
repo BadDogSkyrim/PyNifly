@@ -569,6 +569,58 @@ def TEST_SF_MAT_ROUNDTRIP():
     assert back_c['settings'] == data_c['settings'], f"settings round-trip: {back_c['settings']}"
 
 
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_UNWIRED_LAYER_DROPPED():
+    """Starfield: a layer that can't reach the Material Output is NOT exported.
+
+    The node tree is the material, so what isn't wired isn't in it. Bad Dog simplified a head
+    material by feeding layer 0 straight into the Principled BSDF, orphaning the blend chain --
+    and the exported .mat still carried all 6 layers, because recovery collected every stamped
+    node regardless of connectivity. Here: build 2 layers + 1 blender, rewire layer 0 direct,
+    and only layer 0 should survive recovery."""
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material, _is_group,
+                                              SF_LAYER_GROUP, SF_BLEND_GROUP, PYN_SF_LAYER,
+                                              PYN_SF_PATH)
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_Unwired_Test")
+    mat.use_nodes = True
+    si.material = mat
+    mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Body.mat'
+    A = (tex, r'Textures\Skin\color.dds'); N = (tex, r'Textures\Skin\normal.dds')
+    D = (tex, r'Textures\Skin\detail.dds'); M = (tex, r'Textures\Skin\mask.dds')
+    layers_resolved = [
+        {'textures': {'Albedo': A, 'Normal': N}, 'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0)},
+        {'textures': {'Normal': D}, 'uv_scale': (50.0, 50.0), 'uv_offset': (0.0, 0.0)}]
+    si._build_sf_nodes({'Albedo': A, 'Normal': N}, {}, layers_resolved, [{'mode': 'Skin', 'mask': M}])
+    for n in mat.node_tree.nodes:
+        if n.type == 'TEX_IMAGE' and PYN_SF_PATH in n:
+            img = bpy.data.images.new(os.path.basename(n[PYN_SF_PATH]), 8, 8)
+            img.filepath = r"C:\Game\Data" + "\\" + n[PYN_SF_PATH]
+            n.image = img
+
+    # Both layers are wired as built, so both export.
+    assert len(recover_sf_material(mat)['layers']) == 2, "both layers recovered while wired"
+
+    # Bypass the blend chain: layer 0 straight into the BSDF, blend outputs cut.
+    nt = mat.node_tree
+    bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    layer0 = next(n for n in nt.nodes
+                  if _is_group(n, SF_LAYER_GROUP) and n.get(PYN_SF_LAYER) == 0)
+    blend = next(n for n in nt.nodes if _is_group(n, SF_BLEND_GROUP))
+    for link in [lk for lk in nt.links if lk.from_node == blend]:
+        nt.links.remove(link)
+    nt.links.new(layer0.outputs['Base Color'], bsdf.inputs['Base Color'])
+
+    data = recover_sf_material(mat)
+    assert len(data['layers']) == 1, \
+        f"only the wired layer exports: {len(data['layers'])} layers"
+    assert data['layers'][0]['textures'].get('Albedo') == r'Textures\Skin\color.dds', \
+        f"the surviving layer is layer 0: {data['layers'][0]['textures']}"
+    assert data['blenders'] == [], f"the orphaned blender is dropped: {data['blenders']}"
+
+
 @TT.category('STARFIELD')
 def TEST_SF_ANIMATION_FLAG_ROUNDTRIP():
     """Starfield: AnimationFlagExtra survives import and export.
