@@ -4,12 +4,18 @@
     python scripts/sf_texconv.py TREE --dry-run
     python scripts/sf_texconv.py TREE --color-format BC3_UNORM --force
 
-    *_derm_color.png -> R8G8B8A8_UNORM_SRGB, one mip (uncompressed; the game insists)
     *_color.png      -> BC7_UNORM_SRGB  (change with --color-format)
     *_normal.png     -> BC5_SNORM
     *_ao.png         -> BC4_UNORM
     *_rough.png      -> BC4_UNORM
     *_mask.png       -> BC4_UNORM
+    *_derm_color.png -> R8G8B8A8_UNORM_SRGB, one mip (uncompressed; the game insists)
+
+Under a `postblenddetails` folder the face-customization layers are uncompressed, as vanilla's
+are, and their headers are rewritten to match Bethesda's:
+
+    *_color.png      -> R8G8B8A8_UNORM_SRGB, one mip
+    *_mask.png       -> R8_UNORM, one mip, legacy (non-DX10) header
 
 Suffixes match regardless of case. Each .dds is written next to its .png, which is left alone.
 Other PNGs are ignored. A .dds that is already newer than its .png is skipped unless --force.
@@ -37,26 +43,41 @@ import sys
 DEFAULT_COLOR_FORMAT = 'BC7_UNORM_SRGB'
 
 # How one kind of texture is made: the DDS format (None means "the colour format", which the user
-# can choose), the extra texconv arguments it needs, and whether its header is rewritten to
-# Bethesda's conventions afterwards.
-Spec = collections.namedtuple('Spec', 'format args vanilla_header')
-Spec.__new__.__defaults__ = ([], False)
+# can choose), the extra texconv arguments it needs, whether its header is rewritten to Bethesda's
+# conventions afterwards, and whether it gets a DX10 header at all.
+Spec = collections.namedtuple('Spec', 'format args vanilla_header dx10')
+Spec.__new__.__defaults__ = ([], False, True)
 
 # Filename suffix -> Spec. Longer suffixes come first: '_derm_color' also ends with '_color',
 # and the first match wins.
 SUFFIX_FORMATS = {
     # Dermaesthetic skin-tone overlays are the one face texture Starfield will not take
-    # compressed. All 84 vanilla files under
-    # textures\actors\human\faces\chargen\postblenddetails\dermaesthetic are UNCOMPRESSED
-    # R8G8B8A8_UNORM_SRGB, 1024x1024, with a single mip -- no exceptions, no BC7. So this
-    # suffix ignores --color-format, and '-m 1' stops texconv building the mip chain it
-    # generates by default.
+    # compressed, wherever they live. (Under postblenddetails the folder rule below says the
+    # same thing; this catches a derm texture kept anywhere else.)
     '_derm_color': Spec('R8G8B8A8_UNORM_SRGB', ['-m', '1'], vanilla_header=True),
     '_color': Spec(None),
     '_normal': Spec('BC5_SNORM'),
     '_ao': Spec('BC4_UNORM'),
     '_rough': Spec('BC4_UNORM'),
     '_mask': Spec('BC4_UNORM'),
+}
+
+# Face-customization layers are authored uncompressed: nothing under postblenddetails is a BCn
+# texture in vanilla. Census of the 448 vanilla files under
+# textures\actors\human\faces\chargen\postblenddetails, all 1024x1024 with a single mip:
+#   _color  145  DX10 R8G8B8A8_UNORM_SRGB          (4,194,452 bytes)
+#   _mask   179  LEGACY header, uncompressed 8bpp  (1,048,704 bytes) -- R8 by another name
+#   _ao      40  the same legacy 8bpp
+#   _rough   39  the same legacy 8bpp
+#   _normal  40  legacy uncompressed 32bpp SIGNED
+# Only _color and _mask are claimed here: _ao/_rough/_normal keep the general BCn rules until
+# someone says the game rejects those too.
+POSTBLEND_DIR = 'postblenddetails'
+POSTBLEND_FORMATS = {
+    '_color': Spec('R8G8B8A8_UNORM_SRGB', ['-m', '1'], vanilla_header=True),
+    # Vanilla masks carry a LEGACY header, so no -dx10: texconv writes DDPF_LUMINANCE where
+    # vanilla writes DDPF_RGB, and match_vanilla_header settles that difference too.
+    '_mask': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
 }
 
 # --- Bethesda's DDS header conventions ---------------------------------------------------------
@@ -69,8 +90,10 @@ VANILLA_FLAGS = 0xA1007        # CAPS|HEIGHT|WIDTH|PIXELFORMAT|MIPMAPCOUNT|LINEA
 VANILLA_CAPS = 0x401008        # COMPLEX|TEXTURE|MIPMAP                                [0x1000]
 VANILLA_DEPTH = 0              # [1]
 VANILLA_ALPHA_MODE = 0         # DDS_ALPHA_MODE_UNKNOWN                                [1, straight]
+DDPF_RGB = 0x40                # vanilla's 8bpp masks say RGB where texconv says LUMINANCE (0x20000)
 OFF_FLAGS, OFF_HEIGHT, OFF_WIDTH, OFF_LINEAR, OFF_DEPTH = 8, 12, 16, 20, 24
-OFF_FOURCC, OFF_CAPS, OFF_DXGI, OFF_ALPHA_MODE = 84, 108, 128, 144
+OFF_PF_FLAGS, OFF_FOURCC, OFF_BITCOUNT, OFF_RMASK = 80, 84, 88, 92
+OFF_CAPS, OFF_DXGI, OFF_ALPHA_MODE = 108, 128, 144
 DXGI_R8G8B8A8_UNORM_SRGB = 29
 
 FALLBACK_TEXCONV = [
@@ -110,15 +133,20 @@ def png_size(path):
     return struct.unpack('>II', head[16:24])
 
 
-def texture_format(filename, color_format):
-    """(DDS format, Spec) for a PNG by its suffix, or None if it isn't one we convert."""
+def texture_format(path, color_format):
+    """(DDS format, Spec) for a PNG by its suffix and where it lives, or None if it isn't one we
+    convert. A postblenddetails folder anywhere in the path picks the uncompressed rules."""
+    folder, filename = os.path.split(path)
     stem, ext = os.path.splitext(filename)
     if ext.lower() != '.png':
         return None
     stem = stem.lower()
-    for suffix, spec in SUFFIX_FORMATS.items():
-        if stem.endswith(suffix):
-            return (spec.format or color_format, spec)
+    parts = folder.lower().replace('\\', '/').split('/')
+    tables = ([POSTBLEND_FORMATS] if POSTBLEND_DIR in parts else []) + [SUFFIX_FORMATS]
+    for table in tables:
+        for suffix, spec in table.items():
+            if stem.endswith(suffix):
+                return (spec.format or color_format, spec)
     return None
 
 
@@ -128,24 +156,35 @@ def match_vanilla_header(path):
 
     Only the header's DESCRIPTION of the texture changes -- not one pixel moves. The size field
     becomes the whole image (Bethesda writes a linear size where texconv writes one row's pitch),
-    and the caps say COMPLEX|MIPMAP as vanilla does even for a single-mip texture."""
+    and the caps say COMPLEX|MIPMAP as vanilla does even for a single-mip texture.
+
+    Two shapes are handled, both measured against vanilla: a DX10 R8G8B8A8_UNORM_SRGB colour
+    layer (4 bytes a pixel), and a legacy-header 8bpp mask (1 byte a pixel), whose pixel-format
+    flags also move from texconv's LUMINANCE to vanilla's RGB. Anything else is left alone --
+    the byte layout below is only right for a format it has been checked against."""
     with open(path, 'r+b') as f:
         head = bytearray(f.read(148))
         if len(head) < 148 or head[:4] != DDS_MAGIC:
             return "not a DDS"
-        if bytes(head[OFF_FOURCC:OFF_FOURCC + 4]) != b'DX10':
-            return "not a DX10 header"
-        dxgi = struct.unpack_from('<I', head, OFF_DXGI)[0]
-        if dxgi != DXGI_R8G8B8A8_UNORM_SRGB:
-            # Guard the arithmetic below: the whole-image size is only 4 bytes a pixel for this
-            # one format, and it is the only format this fixup was measured against.
-            return f"unexpected DXGI format {dxgi}"
         height, width = struct.unpack_from('<2I', head, OFF_HEIGHT)
+        pf_flags, = struct.unpack_from('<I', head, OFF_PF_FLAGS)
+        fourcc = bytes(head[OFF_FOURCC:OFF_FOURCC + 4])
+        bitcount, rmask = struct.unpack_from('<2I', head, OFF_BITCOUNT)
+        if fourcc == b'DX10':
+            dxgi, = struct.unpack_from('<I', head, OFF_DXGI)
+            if dxgi != DXGI_R8G8B8A8_UNORM_SRGB:
+                return f"unexpected DXGI format {dxgi}"
+            bpp = 4
+            struct.pack_into('<I', head, OFF_ALPHA_MODE, VANILLA_ALPHA_MODE)
+        elif fourcc == b'\0\0\0\0' and bitcount == 8 and rmask == 0xFF:
+            bpp = 1
+            struct.pack_into('<I', head, OFF_PF_FLAGS, DDPF_RGB)
+        else:
+            return f"unhandled pixel format (fourcc {fourcc!r}, {bitcount}bpp, flags {pf_flags:#x})"
         struct.pack_into('<I', head, OFF_FLAGS, VANILLA_FLAGS)
-        struct.pack_into('<I', head, OFF_LINEAR, width * height * 4)
+        struct.pack_into('<I', head, OFF_LINEAR, width * height * bpp)
         struct.pack_into('<I', head, OFF_DEPTH, VANILLA_DEPTH)
         struct.pack_into('<I', head, OFF_CAPS, VANILLA_CAPS)
-        struct.pack_into('<I', head, OFF_ALPHA_MODE, VANILLA_ALPHA_MODE)
         f.seek(0)
         f.write(head)
     return None
@@ -158,11 +197,11 @@ def plan(root, color_format, force):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames.sort()
         for name in sorted(filenames):
-            found = texture_format(name, color_format)
+            png = os.path.join(dirpath, name)
+            found = texture_format(png, color_format)
             if not found:
                 continue
             fmt, spec = found
-            png = os.path.join(dirpath, name)
             dds = os.path.splitext(png)[0] + '.dds'
             size = png_size(png)
             if size is None:
@@ -185,10 +224,10 @@ def convert(texconv, jobs):
     groups = {}
     for job in jobs:
         png, _, fmt, spec = job
-        groups.setdefault((os.path.dirname(png), fmt, tuple(spec.args)), []).append(job)
+        groups.setdefault((os.path.dirname(png), fmt, tuple(spec.args), spec.dx10), []).append(job)
 
     failed = []
-    for (folder, fmt, extra), group in groups.items():
+    for (folder, fmt, extra, dx10), group in groups.items():
         for i in range(0, len(group), BATCH):
             batch = group[i:i + BATCH]
             before = {dds: os.path.getmtime(dds) if os.path.exists(dds) else None
@@ -196,8 +235,10 @@ def convert(texconv, jobs):
             # -srgb marks input and output alike as sRGB, so texconv does no gamma conversion
             # in either direction. Without it texconv honours a PNG's sRGB chunk: a tagged
             # grey 128 became 55 in BC4, and an untagged 128 became 189 in an _SRGB format.
-            # -dx10 matches vanilla; texconv otherwise writes legacy FourCCs ('BC5S').
-            cmd = [texconv, '-nologo', '-y', '-dx10', '-srgb', '-f', fmt, *extra, '-o', folder]
+            # -dx10 matches vanilla for everything except the uncompressed 8bpp masks, which
+            # vanilla writes with a legacy header; texconv otherwise writes legacy FourCCs ('BC5S').
+            cmd = [texconv, '-nologo', '-y', *(['-dx10'] if dx10 else []),
+                   '-srgb', '-f', fmt, *extra, '-o', folder]
             cmd += [png for png, _, _, _ in batch]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
