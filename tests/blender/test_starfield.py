@@ -89,6 +89,39 @@ def TEST_SF_IMPORT():
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+def TEST_SF_EXPORT_DEFAULT_FLAGS():
+    """A BSGeometry made from a plain Blender mesh gets flags 14, what vanilla uses.
+
+    Across 2,548 vanilla shapes only two flag values exist: 14 for a shape with an external
+    .mesh, and 526 (14 | SAVE_EXT_GEOM_DATA) for embedded geometry. Export always writes an
+    external .mesh, so 14 is right. Flags come from pynNodeFlags, which only an imported shape
+    has, so a mesh the user modelled used to get whatever the block defaulted to. Explicit
+    pynNodeFlags still win."""
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_EXPORT_DEFAULT_FLAGS\meshes\cubes.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    bpy.ops.mesh.primitive_cube_add()
+    plain = bpy.context.object
+    plain.name = "PlainCube"
+    bpy.ops.mesh.primitive_cube_add(location=(3, 0, 0))
+    flagged = bpy.context.object
+    flagged.name = "FlaggedCube"
+    flagged['pynNodeFlags'] = NiAVFlags(NiAVFlags.HIDDEN | NiAVFlags.SELECTIVE_UPDATE).fullname
+
+    # intuit_defaults=False, as the export dialog does: otherwise the game is guessed from the
+    # objects, and plain cubes say Skyrim.
+    BD.ObjectSelect([plain, flagged], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", intuit_defaults=False)
+
+    shapes = {s.name: s for s in pyn.NifFile(outfile).shapes}
+    assert TT.is_eq(set(shapes), {"PlainCube", "FlaggedCube"}, "Both cubes exported")
+    assert all(s.blockname == 'BSGeometry' for s in shapes.values()), "Exported as Starfield"
+    assert TT.is_eq(shapes["PlainCube"].flags, 14, "Modelled mesh gets vanilla BSGeometry flags")
+    assert TT.is_eq(shapes["FlaggedCube"].flags,
+                    NiAVFlags.HIDDEN | NiAVFlags.SELECTIVE_UPDATE, "Explicit pynNodeFlags kept")
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
 @TT.expect_errors(("Could not find material",))  # the .mat lives in the mod's BA2, not loose
 def TEST_SF_INTERNAL_GEOMETRY():
     """A shape with internal (embedded) geometry imports without an external .mesh.

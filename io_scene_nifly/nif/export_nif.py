@@ -18,6 +18,11 @@ from ..tri.tripfile import TripFile
 from ..pyn.niflytools import (NearEqual, MatNearEqual, mesh_split_by_uv, fo4FaceDict, 
                               truncate_filename)
 from ..pyn.nifdefs import (BSXFlagsValues, NiAVFlags, VertexFlags, NO_SHADER_REF)
+
+# Flags on a vanilla Starfield BSGeometry with external geometry: 2,490 of 2,548 shapes. The
+# other 58 add SAVE_EXT_GEOM_DATA (526), meaning the geometry is embedded in the nif.
+BSGEOMETRY_FLAGS = (NiAVFlags.SELECTIVE_UPDATE | NiAVFlags.SELECTIVE_UPDATE_TRANSF
+                    | NiAVFlags.SELECTIVE_UPDATE_CONTR)
 from .. import blender_defs as BD
 from ..blender_defs import ObjectSelect, ObjectActive
 from ..util.settings import (ExportSettings,
@@ -2071,6 +2076,10 @@ class NifExporter:
                     new_shape.flags = NiAVFlags.parse(obj['pynNodeFlags']).value
                 except Exception as e:
                     log.warning(f"Error setting pynNodeFlags for {obj.name}: pynNodeFlags={obj['pynNodeFlags']}")
+            elif new_shape.blockname == 'BSGeometry':
+                # A modelled mesh has no recorded flags. Give it what every vanilla Starfield
+                # shape with an external .mesh carries -- and export always writes one.
+                new_shape.flags = BSGEOMETRY_FLAGS
             if "pynVertexDesc" in obj and obj["pynVertexDesc"]:
                 try:
                     new_shape.properties.vertexDesc = VertexFlags.parse(obj['pynVertexDesc']).value
