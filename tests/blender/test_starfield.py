@@ -4,6 +4,42 @@ from .common import *
 
 
 @TT.category('STARFIELD')
+# The vanilla skeleton carries the Havok ragdoll rig, which we don't read. Nothing to do
+# with bone units, and out of scope here.
+@TT.expect_errors(('Unknown block type: bhkRagdollSystem',
+                   'bhkPhysicsSystem decode failed'))
+def TEST_SF_SKELETON_IMPORT():
+    """Starfield's own skeleton.nif imports as one coherent armature, not two half-scales.
+
+    It is the one vanilla file that carries bone NiNode transforms AND carries them in Havok
+    metres; 348 of the 354 vanilla human nifs carry no positioned bone nodes at all. With
+    'create bones' on, rest comes from our reference skeleton (game units) while pose comes
+    from the file, so the two used to disagree by ~70x: rest looked right and every bone
+    posed into a 1.7-unit ball at the origin.
+
+    Positions are pinned against the reference skeleton in absolute terms -- a uniform
+    rescale is invisible to a check that only compares the armature with itself.
+    """
+    testfile = os.path.join(
+        TT.SF_ASSETS, r"meshes\actors\human\characterassets\skeleton.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    arma = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
+    assert TT.is_eq(len(arma.data.bones), 114, "bone count")
+
+    # Pose sits on rest: an unposed skeleton must import with nothing displaced.
+    off = [b.name for b in arma.data.bones
+           if ((arma.matrix_world @ arma.pose.bones[b.name].head)
+               - (arma.matrix_world @ b.head_local)).length > 0.01]
+    assert TT.is_eq(len(off), 0, f"bones posed away from rest ({off[:4]})")
+
+    # And in the right units -- the reference skeleton's, which is what the .mesh geometry
+    # and skin binds of every other SF nif are in. In the file's own metres this is 1.63.
+    head = arma.matrix_world @ arma.data.bones['Head.C'].head_local
+    assert TT.is_equiv(head.z, 114.2446, "Head.C rests at game-unit height", e=0.01)
+
+
+@TT.category('STARFIELD')
 def TEST_SF_IMPORT():
     """Starfield: import a BSGeometry body, resolving + reading its external .mesh."""
     testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")

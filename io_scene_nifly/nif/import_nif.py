@@ -391,6 +391,9 @@ class NifImporter():
         self.animation_name = animation_name
         self.anim_warn = anim_warn
         self.scale = scale
+        # Converts this nif's node transforms into the reference skeleton's units. Set
+        # per file as it is loaded; 1.0 unless the two disagree (see node_unit_scale).
+        self.node_scale = 1.0
 
         self.armature = None # Armature used for current shape import
         if target_armatures: self.armature = next(iter(target_armatures))
@@ -1712,13 +1715,15 @@ class NifImporter():
                 if child_node is not None and child_bone is not None:
                     R = BD.game_rotations[BD.game_axes[self.nif.game]][0]
                     child_local = BD.apply_scale_xf(
-                        BD.transform_to_matrix(child_node.transform), self.scale)
+                        BD.transform_to_matrix(child_node.transform),
+                        self.scale * self.node_scale)
                     # child_rest = parent_rest @ child_local, so run that backwards.
                     bone_xform = (child_bone.matrix @ R.inverted()) @ child_local.inverted()
             if bone_xform is None:
                 bone_xform = BD.transform_to_matrix(
                     self.nif.get_node_xform_to_global(nifname))
-                scale_factor = self.scale
+                # Straight from the file, so it carries the file's units.
+                scale_factor = self.scale * self.node_scale
             # We have the world position of the bone, so we don't need the armature's
             # skin transform. (We might need the armature object's Blender transform.
             # But that's always the identity.)
@@ -1787,7 +1792,10 @@ class NifImporter():
                             log.exception(f"Error handling facegen bone rotations {bn}")
 
                     pose_bone = arma.pose.bones[blname]
-                    pbmx = BD.get_pose_blender_xf(bone_xf, self.nif.game, self.scale)
+                    # bone_xf came out of the nif, so it needs the same unit conversion
+                    # the rest position got when it was built.
+                    pbmx = BD.get_pose_blender_xf(bone_xf, self.nif.game,
+                                                  self.scale * self.node_scale)
                     pose_bone.matrix = pbmx
                     bpy.context.view_layer.update()
 
@@ -2527,6 +2535,16 @@ class NifImporter():
                 ValueError("Import file of unknown type.")
             if not self.reference_skel:
                 self.reference_skel = self.nif.reference_skel
+
+            # Bone REST comes from the reference skeleton but bone POSE comes from this
+            # file, so the two have to be in the same units. Starfield's skeleton nifs are
+            # the one vanilla case where they aren't -- they hold Havok metres where the
+            # reference (and every .mesh and skin bind) is in game units. Measured once
+            # here; 1.0 for everything that needs no conversion, including a posed rig.
+            self.node_scale = P.node_unit_scale(self.nif, self.reference_skel)
+            if self.node_scale != 1.0:
+                log.info(f"Node transforms are in other units than the reference "
+                         f"skeleton; scaling them by {self.node_scale:.5f}")
 
             # Push texture/material search paths from Blender prefs onto every shader
             # *before* anything touches shape.shader.properties (which triggers the

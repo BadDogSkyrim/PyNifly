@@ -22,7 +22,7 @@ log = logging.getLogger("pynifly")
 # every Skyrim texture lookup fell through to nothing.
 SKYRIM_ASSETS = os.path.join('C:' + os.sep, 'Modding', 'SkyrimSE', '00 Vanilla Assets')
 FO4_ASSETS    = os.path.join('C:' + os.sep, 'Modding', 'FalloutAssets', '00 FO4 Assets')
-SF_ASSETS     = os.path.join('C:' + os.sep, 'Modding', 'Starfield', '00 Starfield Assets')
+SF_ASSETS     = os.path.join('C:' + os.sep, 'Modding', 'Starfield', '00StarfieldAssets')
 
 PYNIFLY_TEXTURES_SKYRIM = SKYRIM_ASSETS
 PYNIFLY_TEXTURES_FO4 = FO4_ASSETS

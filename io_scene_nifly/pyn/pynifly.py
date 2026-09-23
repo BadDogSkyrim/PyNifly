@@ -4070,6 +4070,61 @@ NIF_MAX_U16 = 65535
 _TRI_16BIT_BLOCKTYPES = frozenset({
     'NiTriShape', 'NiTriShapeData', 'NiTriStrips', 'NiTriStripsData'})
 
+# A unit factor is only believed when it is the same ratio for this many bone axes, to
+# this relative tolerance. Both are loose enough for half-precision node transforms and
+# far tighter than the spread a genuinely posed rig produces.
+_UNIT_SCALE_MIN_SAMPLES = 30
+_UNIT_SCALE_TOLERANCE = 0.002
+
+
+def node_unit_scale(nif, reference):
+    """How many of `reference`'s units one of `nif`'s node-transform units is.
+
+    Starfield is the one game that mixes unit systems: it ships skeleton.nif and
+    skeleton_facebones.nif with their NiNode transforms in Havok metres, while the .mesh
+    geometry those bones skin, the BSSkinBoneData binds, and our own reference skeletons
+    are all in Bethesda game units. Importing such a file without converting puts its
+    bones ~70x too close to the origin.
+
+    The factor is measured, not assumed, because "Starfield nifs are in metres" is false --
+    statics and weapons carry ordinary game-unit node transforms, and only the skeleton
+    files are the odd ones out. So compare this nif's node positions against the reference
+    skeleton's, bone by bone, and accept the ratio only when every shared bone agrees on
+    it. A nif that is simply POSED differs from the reference per bone rather than by one
+    scale, so its ratios scatter and we decline -- which is what keeps FO4 posed rigs
+    (power armor) out of this.
+
+    Returns 1.0 whenever there is nothing to convert or nothing to measure against.
+    """
+    if reference is None or nif is None:
+        return 1.0
+
+    ratios = []
+    for name, node in nif.nodes.items():
+        ref = reference.nodes.get(name)
+        if ref is None:
+            continue
+        a = node.global_transform.translation
+        b = ref.global_transform.translation
+        for i in range(3):
+            # Skip axes sitting near zero: their ratio is dominated by rounding.
+            if abs(b[i]) > 0.05 and abs(a[i]) > 1e-6:
+                ratios.append(b[i] / a[i])
+
+    if len(ratios) < _UNIT_SCALE_MIN_SAMPLES:
+        return 1.0
+
+    lo, hi = min(ratios), max(ratios)
+    if lo <= 0 or (hi - lo) / hi > _UNIT_SCALE_TOLERANCE:
+        # Not one uniform scale, so not a unit difference. Posed rig, different skeleton,
+        # or a nif that only incidentally shares bone names.
+        return 1.0
+
+    scale = sum(ratios) / len(ratios)
+    # Close enough to 1 to be measurement noise rather than a different unit system.
+    return 1.0 if abs(scale - 1.0) < _UNIT_SCALE_TOLERANCE else scale
+
+
 def shape_size_error(nverts, ntris, blocktype):
     """Return an error message if a shape of the given block type would exceed the
     nif format's hard 16-bit limits, else None. `blocktype` is the block name the
