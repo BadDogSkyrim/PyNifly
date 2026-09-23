@@ -12,15 +12,20 @@
     *_mask.png       -> BC4_UNORM
     *_derm_color.png -> R8G8B8A8_UNORM_SRGB, one mip (uncompressed; the game insists)
 
-Under a `postblenddetails` folder the face-customization layers are uncompressed, as vanilla's
-are, and their headers are rewritten to match Bethesda's:
+Under a `chargen` or `postblenddetails` folder the face-customization textures are
+uncompressed, as all 748 vanilla ones are, and their headers are rewritten to match Bethesda's:
 
     *_color.png      -> R8G8B8A8_UNORM_SRGB, one mip
-    *_mask.png       -> R8_UNORM, one mip, legacy (non-DX10) header
+    *_normal.png     -> R8G8B8A8_SNORM, one mip, legacy (non-DX10) header
+    *_ao/_rough/_mask.png -> R8_UNORM, one mip, legacy header
+
+A face normal must not be BC5 there: BC5 keeps only X and Y and has the shader rebuild Z, so
+any part of the map where x^2+y^2 > 1 loses Z and flattens. Vanilla's signed format stores it.
 
 Suffixes match regardless of case. Each .dds is written next to its .png, which is left alone.
 Other PNGs are ignored. A .dds that is already newer than its .png is skipped unless --force,
-or unless --size asks for dimensions it doesn't have.
+unless --size asks for dimensions it doesn't have, or unless it was written in a format these
+rules no longer choose.
 
 --size caps the longest side of the output at 512, 1k, 2k or 4k. It only ever shrinks: a source
 already within the cap is converted at its own size. Aspect ratio is preserved.
@@ -70,21 +75,35 @@ SUFFIX_FORMATS = {
     '_mask': Spec('BC4_UNORM'),
 }
 
-# Face-customization layers are authored uncompressed: nothing under postblenddetails is a BCn
-# texture in vanilla. Census of the 448 vanilla files under
-# textures\actors\human\faces\chargen\postblenddetails, all 1024x1024 with a single mip:
-#   _color  145  DX10 R8G8B8A8_UNORM_SRGB          (4,194,452 bytes)
-#   _mask   179  LEGACY header, uncompressed 8bpp  (1,048,704 bytes) -- R8 by another name
-#   _ao      40  the same legacy 8bpp
-#   _rough   39  the same legacy 8bpp
-#   _normal  40  legacy uncompressed 32bpp SIGNED
-# Only _color and _mask are claimed here: _ao/_rough/_normal keep the general BCn rules until
-# someone says the game rejects those too.
-POSTBLEND_DIR = 'postblenddetails'
-POSTBLEND_FORMATS = {
+# Face-customization textures are authored uncompressed, and that holds for the WHOLE chargen
+# face tree, not just postblenddetails. Census of all 748 vanilla .dds under
+# textures\actors\human\faces\chargen, every one 1024x1024 with a single mip:
+#
+#                        chargen/    postblenddetails/
+#   _color                    198                   61   DX10 R8G8B8A8_UNORM_SRGB
+#   _derm_color                 -                   84   the same
+#   _normal                    22                   40   LEGACY 32bpp, DDPF_BUMPDUDV (signed)
+#   _ao                        22                   40   LEGACY 8bpp, DDPF_RGB -- R8 by another name
+#   _rough                     22                   39   the same legacy 8bpp
+#   _mask                      10                  179   the same legacy 8bpp
+#   *_mask_1                    -                    5   DX10 BC4_UNORM, the only compressed files
+#
+# _normal is the one that bites. BC5 stores X and Y only and makes the shader rebuild Z as
+# sqrt(1-x^2-y^2), so a map whose x^2+y^2 exceeds 1 anywhere loses Z there and the normal
+# flattens into the tangent plane. Vanilla's signed 32bpp format stores Z outright and doesn't
+# care. We shipped BC5 here until 2026-09-23.
+FACE_DIRS = ('chargen', 'postblenddetails')
+FACE_FORMATS = {
+    # Longest first: '_derm_color' also ends with '_color'. Both land on the same spec here,
+    # but the ordering is load-bearing in SUFFIX_FORMATS and worth keeping consistent.
+    '_derm_color': Spec('R8G8B8A8_UNORM_SRGB', ['-m', '1'], vanilla_header=True),
     '_color': Spec('R8G8B8A8_UNORM_SRGB', ['-m', '1'], vanilla_header=True),
-    # Vanilla masks carry a LEGACY header, so no -dx10: texconv writes DDPF_LUMINANCE where
-    # vanilla writes DDPF_RGB, and match_vanilla_header settles that difference too.
+    # Vanilla writes these with a LEGACY header, so no -dx10. texconv's own legacy output
+    # already carries the right pixel format and channel masks for both; what differs is the
+    # size/caps bookkeeping, which match_vanilla_header settles.
+    '_normal': Spec('R8G8B8A8_SNORM', ['-m', '1'], vanilla_header=True, dx10=False),
+    '_ao': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
+    '_rough': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
     '_mask': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
 }
 
@@ -99,6 +118,7 @@ VANILLA_CAPS = 0x401008        # COMPLEX|TEXTURE|MIPMAP                         
 VANILLA_DEPTH = 0              # [1]
 VANILLA_ALPHA_MODE = 0         # DDS_ALPHA_MODE_UNKNOWN                                [1, straight]
 DDPF_RGB = 0x40                # vanilla's 8bpp masks say RGB where texconv says LUMINANCE (0x20000)
+DDPF_BUMPDUDV = 0x80000        # the legacy "these channels are signed" flag, on face normals
 OFF_FLAGS, OFF_HEIGHT, OFF_WIDTH, OFF_LINEAR, OFF_DEPTH = 8, 12, 16, 20, 24
 OFF_PF_FLAGS, OFF_FOURCC, OFF_BITCOUNT, OFF_RMASK = 80, 84, 88, 92
 OFF_CAPS, OFF_DXGI, OFF_ALPHA_MODE = 108, 128, 144
@@ -154,6 +174,40 @@ def dds_size(path):
     return width, height
 
 
+# Enough to recognise what an existing .dds was written as. Only used to notice that the
+# rules have changed under a file; a format not listed here simply isn't checked.
+DXGI_BY_NAME = {
+    'R8G8B8A8_UNORM': 28, 'R8G8B8A8_UNORM_SRGB': 29, 'R8G8B8A8_SNORM': 31,
+    'R8_UNORM': 61, 'BC1_UNORM': 71, 'BC3_UNORM': 77, 'BC4_UNORM': 80,
+    'BC5_SNORM': 84, 'BC7_UNORM': 98, 'BC7_UNORM_SRGB': 99,
+}
+LEGACY_BITS = {'R8_UNORM': 8, 'R8G8B8A8_SNORM': 32}
+
+
+def dds_encoding(path):
+    """('dx10', dxgi) or ('legacy', bits) for an existing DDS, or None if it can't be read."""
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(148)
+    except OSError:
+        return None
+    if len(head) < 148 or head[:4] != DDS_MAGIC:
+        return None
+    if bytes(head[OFF_FOURCC:OFF_FOURCC + 4]) == b'DX10':
+        return ('dx10', struct.unpack_from('<I', head, OFF_DXGI)[0])
+    return ('legacy', struct.unpack_from('<I', head, OFF_BITCOUNT)[0])
+
+
+def wanted_encoding(fmt, spec):
+    """What dds_encoding should report for a file we are about to write, or None when we
+    can't say -- an arbitrary --color-format, for instance."""
+    if spec.dx10:
+        dxgi = DXGI_BY_NAME.get(fmt)
+        return ('dx10', dxgi) if dxgi is not None else None
+    bits = LEGACY_BITS.get(fmt)
+    return ('legacy', bits) if bits is not None else None
+
+
 def capped_size(size, limit):
     """`size` with its longest side brought down to `limit`, or `size` unchanged when it already
     fits (or when there is no limit). Aspect ratio is preserved, and each side is rounded down to
@@ -166,14 +220,16 @@ def capped_size(size, limit):
 
 def texture_format(path, color_format):
     """(DDS format, Spec) for a PNG by its suffix and where it lives, or None if it isn't one we
-    convert. A postblenddetails folder anywhere in the path picks the uncompressed rules."""
+    convert. A chargen or postblenddetails folder anywhere in the path picks the uncompressed
+    face rules; everything else gets the general BCn ones."""
     folder, filename = os.path.split(path)
     stem, ext = os.path.splitext(filename)
     if ext.lower() != '.png':
         return None
     stem = stem.lower()
     parts = folder.lower().replace('\\', '/').split('/')
-    tables = ([POSTBLEND_FORMATS] if POSTBLEND_DIR in parts else []) + [SUFFIX_FORMATS]
+    in_face_tree = any(d in parts for d in FACE_DIRS)
+    tables = ([FACE_FORMATS] if in_face_tree else []) + [SUFFIX_FORMATS]
     for table in tables:
         for suffix, spec in table.items():
             if stem.endswith(suffix):
@@ -210,6 +266,13 @@ def match_vanilla_header(path):
         elif fourcc == b'\0\0\0\0' and bitcount == 8 and rmask == 0xFF:
             bpp = 1
             struct.pack_into('<I', head, OFF_PF_FLAGS, DDPF_RGB)
+        elif fourcc == b'\0\0\0\0' and bitcount == 32 and rmask == 0xFF \
+                and pf_flags == DDPF_BUMPDUDV:
+            # A face normal: legacy 32bpp signed. texconv already writes DDPF_BUMPDUDV and the
+            # same channel masks vanilla does, so unlike the 8bpp masks the pixel format is
+            # left exactly as it is -- rewriting it to DDPF_RGB would discard the one flag
+            # saying these values are signed.
+            bpp = 4
         else:
             return f"unhandled pixel format (fourcc {fourcc!r}, {bitcount}bpp, flags {pf_flags:#x})"
         struct.pack_into('<I', head, OFF_FLAGS, VANILLA_FLAGS)
@@ -243,10 +306,14 @@ def plan(root, color_format, force, limit=None):
                 skipped.append((png, f"{out_size[0]}x{out_size[1]} is not a multiple of 4"))
                 continue
             # A .dds that predates its .png is stale, and so is one that --size no longer asks
-            # for; an unreadable one is left to the mtime alone, as it always was.
+            # for, and so is one written in a format we no longer choose -- otherwise a rule
+            # change here silently leaves every existing texture alone. An unreadable one, or
+            # a format we can't name, is left to the mtime alone as it always was.
+            want_enc = wanted_encoding(fmt, spec)
             if not force and os.path.exists(dds) \
                     and os.path.getmtime(dds) >= os.path.getmtime(png) \
-                    and dds_size(dds) in (None, out_size):
+                    and dds_size(dds) in (None, out_size) \
+                    and (want_enc is None or dds_encoding(dds) in (None, want_enc)):
                 skipped.append((png, "up to date"))
                 continue
             args = list(spec.args)

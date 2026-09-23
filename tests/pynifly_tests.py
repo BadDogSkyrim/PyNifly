@@ -955,6 +955,116 @@ def TEST_NODE_UNIT_SCALE():
     assert TT.is_eq(node_unit_scale(sf_vanilla, None), 1.0, "no reference skeleton")
 
 
+def TEST_SF_TEXCONV_FACE_FORMATS():
+    """sf_texconv writes face-customization textures the way vanilla writes them.
+
+    Starfield authors everything under a face `chargen` tree uncompressed, top level and
+    postblenddetails alike -- measured over all 748 vanilla .dds under
+    textures/actors/human/faces/chargen, every one 1024x1024 with a single mip:
+
+        _color / _derm_color  259   DX10 R8G8B8A8_UNORM_SRGB
+        _normal                62   LEGACY 32bpp, DDPF_BUMPDUDV (signed)
+        _ao / _rough / _mask  312   LEGACY 8bpp, DDPF_RGB
+        *_mask_1                5   DX10 BC4_UNORM -- the only compressed files there
+
+    We used to claim only `_color` and `_mask`, and only under postblenddetails, so a face
+    normal went out as BC5_SNORM. BC5 drops Z and makes the shader reconstruct it, which an
+    over-driven map cannot survive; vanilla's uncompressed signed format stores Z outright.
+
+    Outside a face tree the ordinary BCn rules still apply -- that is the control, since the
+    two tables are chosen by folder and it would be easy to make the face rule swallow
+    everything.
+    """
+    import struct
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_texconv
+
+    def spec_for(path):
+        fmt, spec = sf_texconv.texture_format(path, 'BC7_UNORM_SRGB')
+        return fmt, tuple(spec.args), spec.vanilla_header, spec.dx10
+
+    FACE = r'Data\Textures\Actors\FSFCanine\faces\chargen'
+    PBD = FACE + r'\postblenddetails\dermaesthetic'
+    LOOSE = r'Data\Textures\Actors\FSFCanine\body'
+
+    one_mip = ('-m', '1')
+    # (path, expected format, legacy-or-dx10) -- the whole chargen tree behaves alike.
+    for folder in (FACE, PBD):
+        assert TT.is_eq(spec_for(folder + r'\x_normal.png'),
+                        ('R8G8B8A8_SNORM', one_mip, True, False),
+                        f"face normal in {os.path.basename(folder)}")
+        assert TT.is_eq(spec_for(folder + r'\x_color.png'),
+                        ('R8G8B8A8_UNORM_SRGB', one_mip, True, True),
+                        f"face colour in {os.path.basename(folder)}")
+        for suffix in ('_ao', '_rough', '_mask'):
+            assert TT.is_eq(spec_for(folder + rf'\x{suffix}.png'),
+                            ('R8_UNORM', one_mip, True, False),
+                            f"face {suffix} in {os.path.basename(folder)}")
+
+    # CONTROL: the same suffixes outside a face tree keep the compressed rules.
+    assert TT.is_eq(spec_for(LOOSE + r'\x_normal.png'),
+                    ('BC5_SNORM', (), False, True), "body normal stays BC5")
+    assert TT.is_eq(spec_for(LOOSE + r'\x_ao.png'),
+                    ('BC4_UNORM', (), False, True), "body ao stays BC4")
+    assert TT.is_eq(spec_for(LOOSE + r'\x_color.png'),
+                    ('BC7_UNORM_SRGB', (), False, True), "body colour uses --color-format")
+    # A dermaesthetic layer kept outside a face tree is still uncompressed: the game
+    # insists on that one wherever it lives.
+    assert TT.is_eq(spec_for(LOOSE + r'\x_derm_color.png'),
+                    ('R8G8B8A8_UNORM_SRGB', one_mip, True, True), "loose derm stays raw")
+
+    # --- the header rewrite for the signed 32bpp face normal --------------------------
+    # texconv already writes DDPF_BUMPDUDV and the right channel masks; what differs from
+    # vanilla is the same four fields the other formats need fixing.
+    head = bytearray(148)
+    head[0:4] = b'DDS '
+    struct.pack_into('<I', head, 4, 124)
+    struct.pack_into('<I', head, 8, 0x2100F)      # texconv's dwFlags
+    struct.pack_into('<2I', head, 12, 256, 256)   # height, width
+    struct.pack_into('<I', head, 20, 1024)        # texconv writes one row's pitch
+    struct.pack_into('<I', head, 24, 1)           # depth
+    struct.pack_into('<I', head, 28, 1)           # mipCount
+    struct.pack_into('<I', head, 76, 32)          # pixelformat size
+    struct.pack_into('<I', head, 80, 0x80000)     # DDPF_BUMPDUDV
+    struct.pack_into('<I', head, 88, 32)          # bit count
+    struct.pack_into('<4I', head, 92, 0xFF, 0xFF00, 0xFF0000, 0xFF000000)
+    struct.pack_into('<I', head, 108, 0x1000)     # texconv's caps
+
+    with tempfile.TemporaryDirectory() as d:
+        p = os.path.join(d, 'probe.dds')
+        with open(p, 'wb') as f:
+            f.write(head)
+            f.write(b'\0' * (256 * 256 * 4))
+        assert TT.is_eq(sf_texconv.match_vanilla_header(p), None,
+                        "signed 32bpp header is handled, not skipped")
+        got = open(p, 'rb').read(148)
+
+    assert TT.is_eq(struct.unpack_from('<I', got, 8)[0], 0xA1007, "dwFlags becomes vanilla's")
+    assert TT.is_eq(struct.unpack_from('<I', got, 20)[0], 256 * 256 * 4,
+                    "size field becomes the whole image")
+    assert TT.is_eq(struct.unpack_from('<I', got, 24)[0], 0, "depth becomes 0")
+    assert TT.is_eq(struct.unpack_from('<I', got, 108)[0], 0x401008, "caps become vanilla's")
+    # The pixel format must NOT be rewritten to DDPF_RGB the way the 8bpp masks are --
+    # that would throw away the "these values are signed" marker.
+    assert TT.is_eq(struct.unpack_from('<I', got, 80)[0], 0x80000, "DDPF_BUMPDUDV is kept")
+
+    # --- a rule change has to invalidate the cache ------------------------------------
+    # Without this the fix above lands on nothing: every existing face texture is newer
+    # than its .png, so a mtime-only check skips them all and they stay BC5 forever.
+    assert TT.is_eq(
+        sf_texconv.wanted_encoding('BC5_SNORM', sf_texconv.SUFFIX_FORMATS['_normal']),
+        ('dx10', 84), "what the old BC5 normal looks like on disk")
+    assert TT.is_eq(
+        sf_texconv.wanted_encoding('R8G8B8A8_SNORM', sf_texconv.FACE_FORMATS['_normal']),
+        ('legacy', 32), "what a face normal should look like instead")
+    # An arbitrary --color-format we can't name falls back to the mtime test rather than
+    # re-converting the world on every run.
+    assert TT.is_eq(
+        sf_texconv.wanted_encoding('SOME_FUTURE_FORMAT', sf_texconv.SUFFIX_FORMATS['_color']),
+        None, "an unknown format is not second-guessed")
+
+
 def TEST_SF_MORPH_ROUNDTRIP():
     """Starfield: read/write a vanilla morph.dat byte-exact; positions-only rebuild round-trips.
 
