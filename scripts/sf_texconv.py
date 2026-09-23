@@ -3,6 +3,7 @@
     python scripts/sf_texconv.py "C:\\...\\textures\\actors\\FSFCanine"
     python scripts/sf_texconv.py TREE --dry-run
     python scripts/sf_texconv.py TREE --color-format BC3_UNORM --force
+    python scripts/sf_texconv.py TREE --size 1k
 
     *_color.png      -> BC7_UNORM_SRGB  (change with --color-format)
     *_normal.png     -> BC5_SNORM
@@ -18,7 +19,11 @@ are, and their headers are rewritten to match Bethesda's:
     *_mask.png       -> R8_UNORM, one mip, legacy (non-DX10) header
 
 Suffixes match regardless of case. Each .dds is written next to its .png, which is left alone.
-Other PNGs are ignored. A .dds that is already newer than its .png is skipped unless --force.
+Other PNGs are ignored. A .dds that is already newer than its .png is skipped unless --force,
+or unless --size asks for dimensions it doesn't have.
+
+--size caps the longest side of the output at 512, 1k, 2k or 4k. It only ever shrinks: a source
+already within the cap is converted at its own size. Aspect ratio is preserved.
 
 Pixel values go through unchanged -- the texture author is responsible for getting them right
 for the game. In particular normal maps are NOT green-flipped: Starfield wants DirectX (-Y)
@@ -41,6 +46,9 @@ import subprocess
 import sys
 
 DEFAULT_COLOR_FORMAT = 'BC7_UNORM_SRGB'
+
+# --size takes the names a texture artist uses, not pixel counts.
+SIZES = {'512': 512, '1k': 1024, '2k': 2048, '4k': 4096}
 
 # How one kind of texture is made: the DDS format (None means "the colour format", which the user
 # can choose), the extra texconv arguments it needs, whether its header is rewritten to Bethesda's
@@ -133,6 +141,29 @@ def png_size(path):
     return struct.unpack('>II', head[16:24])
 
 
+def dds_size(path):
+    """(width, height) from a DDS header, or None if it can't be read as one."""
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(20)
+    except OSError:
+        return None
+    if len(head) < 20 or head[:4] != DDS_MAGIC:
+        return None
+    height, width = struct.unpack_from('<2I', head, OFF_HEIGHT)
+    return width, height
+
+
+def capped_size(size, limit):
+    """`size` with its longest side brought down to `limit`, or `size` unchanged when it already
+    fits (or when there is no limit). Aspect ratio is preserved, and each side is rounded down to
+    a multiple of 4 so a block-compressed format still gets whole blocks."""
+    if limit is None or max(size) <= limit:
+        return size
+    scale = limit / max(size)
+    return tuple(max(4, round(n * scale) // 4 * 4) for n in size)
+
+
 def texture_format(path, color_format):
     """(DDS format, Spec) for a PNG by its suffix and where it lives, or None if it isn't one we
     convert. A postblenddetails folder anywhere in the path picks the uncompressed rules."""
@@ -190,9 +221,9 @@ def match_vanilla_header(path):
     return None
 
 
-def plan(root, color_format, force):
-    """Walk the tree. Returns (jobs, skipped): jobs are (png, dds, format, spec); skipped are
-    (png, reason)."""
+def plan(root, color_format, force, limit=None):
+    """Walk the tree. Returns (jobs, skipped): jobs are (png, dds, format, spec, args); skipped
+    are (png, reason)."""
     jobs, skipped = [], []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames.sort()
@@ -207,14 +238,21 @@ def plan(root, color_format, force):
             if size is None:
                 skipped.append((png, "not a valid PNG"))
                 continue
-            if size[0] % 4 or size[1] % 4:
-                skipped.append((png, f"{size[0]}x{size[1]} is not a multiple of 4"))
+            out_size = capped_size(size, limit)
+            if out_size[0] % 4 or out_size[1] % 4:
+                skipped.append((png, f"{out_size[0]}x{out_size[1]} is not a multiple of 4"))
                 continue
+            # A .dds that predates its .png is stale, and so is one that --size no longer asks
+            # for; an unreadable one is left to the mtime alone, as it always was.
             if not force and os.path.exists(dds) \
-                    and os.path.getmtime(dds) >= os.path.getmtime(png):
+                    and os.path.getmtime(dds) >= os.path.getmtime(png) \
+                    and dds_size(dds) in (None, out_size):
                 skipped.append((png, "up to date"))
                 continue
-            jobs.append((png, dds, fmt, spec))
+            args = list(spec.args)
+            if out_size != size:
+                args += ['-w', str(out_size[0]), '-h', str(out_size[1])]
+            jobs.append((png, dds, fmt, spec, args))
     return jobs, skipped
 
 
@@ -223,15 +261,15 @@ def convert(texconv, jobs):
     failed jobs."""
     groups = {}
     for job in jobs:
-        png, _, fmt, spec = job
-        groups.setdefault((os.path.dirname(png), fmt, tuple(spec.args), spec.dx10), []).append(job)
+        png, _, fmt, spec, args = job
+        groups.setdefault((os.path.dirname(png), fmt, tuple(args), spec.dx10), []).append(job)
 
     failed = []
     for (folder, fmt, extra, dx10), group in groups.items():
         for i in range(0, len(group), BATCH):
             batch = group[i:i + BATCH]
             before = {dds: os.path.getmtime(dds) if os.path.exists(dds) else None
-                      for _, dds, _, _ in batch}
+                      for _, dds, _, _, _ in batch}
             # -srgb marks input and output alike as sRGB, so texconv does no gamma conversion
             # in either direction. Without it texconv honours a PNG's sRGB chunk: a tagged
             # grey 128 became 55 in BC4, and an untagged 128 became 189 in an _SRGB format.
@@ -239,13 +277,13 @@ def convert(texconv, jobs):
             # vanilla writes with a legacy header; texconv otherwise writes legacy FourCCs ('BC5S').
             cmd = [texconv, '-nologo', '-y', *(['-dx10'] if dx10 else []),
                    '-srgb', '-f', fmt, *extra, '-o', folder]
-            cmd += [png for png, _, _, _ in batch]
+            cmd += [png for png, _, _, _, _ in batch]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             # Judge by what landed on disk, not the exit code: one bad file in a batch
             # shouldn't hide the others.
             for job in batch:
-                _, dds, _, spec = job
+                _, dds, _, spec, _ = job
                 if os.path.exists(dds) and os.path.getmtime(dds) != before[dds]:
                     note = ''
                     if spec.vanilla_header:
@@ -266,6 +304,9 @@ def main(argv=None):
     ap.add_argument('--color-format', default=DEFAULT_COLOR_FORMAT, metavar='FORMAT',
                     help=f"texconv format for *_color (default {DEFAULT_COLOR_FORMAT}; "
                          f"e.g. BC3_UNORM or BC1_UNORM for Skyrim)")
+    ap.add_argument('--size', type=str.lower, choices=list(SIZES), metavar='SIZE',
+                    help=f"cap the longest side of the output at {', '.join(SIZES)} "
+                         f"(shrinks only; aspect ratio preserved)")
     ap.add_argument('--force', action='store_true',
                     help="convert even when the .dds is newer than the .png")
     ap.add_argument('--dry-run', action='store_true', help="list what would be converted")
@@ -280,15 +321,15 @@ def main(argv=None):
     # like a/b/x.png with -o lands in <o>\a/b/x.dds. abspath normalises the separators.
     args.root = os.path.abspath(args.root)
 
-    jobs, skipped = plan(args.root, args.color_format, args.force)
+    jobs, skipped = plan(args.root, args.color_format, args.force, SIZES.get(args.size))
     for png, reason in skipped:
         if reason != "up to date":
             print(f"  skip  {shown(png)}: {reason}", file=sys.stderr)
     n_current = sum(1 for _, reason in skipped if reason == "up to date")
 
     if args.dry_run:
-        for png, dds, fmt, spec in jobs:
-            extras = list(spec.args) + (['vanilla header'] if spec.vanilla_header else [])
+        for png, dds, fmt, spec, job_args in jobs:
+            extras = list(job_args) + (['vanilla header'] if spec.vanilla_header else [])
             print(f"  {fmt:<20} {shown(png)}{'  ' + ' '.join(extras) if extras else ''}")
         print(f"{len(jobs)} to convert, {n_current} up to date, "
               f"{len(skipped) - n_current} skipped")
@@ -305,7 +346,7 @@ def main(argv=None):
         return 2
 
     failed = convert(texconv, jobs)
-    for png, _, fmt, _ in failed:
+    for png, _, fmt, _, _ in failed:
         print(f"  FAILED {fmt} {shown(png)}", file=sys.stderr)
     print(f"{len(jobs) - len(failed)} converted, {len(failed)} failed, {n_current} up to date, "
           f"{len(skipped) - n_current} skipped")
