@@ -34,6 +34,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 
 import esplib.plugin
 from esplib import LoadOrder, Plugin, PluginSet
+from pyn import sf_matchain
 from pyn.sf_morph import MorphFile
 from pyn.sf_materials import material_id
 
@@ -406,8 +407,46 @@ def split_by_sex(race):
     return out
 
 
-def check_head_parts(rep, data, mod, race, nif_reader, per_sex, sexes=SEXES):
-    """The race's own head parts and the NIFs behind them.
+def valid_for_race(hdpt, race, plugins):
+    """Does this head part's RNAM Valid Races form-list include the race?
+
+    RNAM points at an FLST, not at a RACE, so membership is one hop further than it looks.
+    A head part that names no list is valid for everything and counts as a match."""
+    sr = hdpt.get_subrecord('RNAM')
+    if sr is None or sr.get_form_id().value == 0:
+        return True
+    flst = plugins.resolve_form_id(sr.get_form_id(), hdpt.plugin)
+    if flst is None:
+        return False
+    # Compare the resolved records, not raw formIDs: the same race reached from two plugins
+    # has two different local formIDs, and resolving both lands on the one winning record.
+    target = plugins.resolve_form_id(race.form_id, race.plugin) or race
+    for entry in flst.get_subrecords('LNAM'):
+        if plugins.resolve_form_id(entry.get_form_id(), flst.plugin) is target:
+            return True
+    return False
+
+
+def race_head_parts(mod, race, plugins):
+    """Every head part this plugin defines that is valid for the race.
+
+    The race's own HEAD list holds only its *defaults* -- one per slot. Everything else the
+    mod ships for this race (the alternate eyes, hair, ears, the parts the creator offers)
+    is reachable only through each HDPT's RNAM Valid Races list, so a check driven by the
+    HEAD list alone silently skips most of the mod's head parts."""
+    out = []
+    for hdpt in mod.get_records_by_signature('HDPT'):
+        if valid_for_race(hdpt, race, plugins):
+            out.append(hdpt)
+    return out
+
+
+def check_head_parts(rep, data, mod, race, nif_reader, per_sex, plugins, sexes=SEXES):
+    """The race's head parts and the NIFs behind them.
+
+    Two sources, because either alone leaves a hole: the race's per-sex HEAD list (its
+    defaults, which is what the game falls back to) and every head part the plugin defines
+    whose RNAM Valid Races list includes the race (which is what the creator offers).
 
     Only parts this plugin defines are inspected. A part inherited from a master is vanilla
     and its assets live in a BA2 we cannot read, so following it would produce nothing but
@@ -417,6 +456,7 @@ def check_head_parts(rep, data, mod, race, nif_reader, per_sex, sexes=SEXES):
     own gets the race's."""
     parts = {sx: per_sex[sx]['parts'] for sx in per_sex}
     own_face = {}
+    seen = set()
     for sx in sexes:
         if not parts[sx]:
             rep.warn('head parts', f"{sx.lower()}: race lists no head parts")
@@ -429,6 +469,17 @@ def check_head_parts(rep, data, mod, race, nif_reader, per_sex, sexes=SEXES):
             pnam = hdpt.get_subrecord('PNAM')
             if pnam is not None and pnam.get_uint32() == HDPT_FACE:
                 own_face[sx] = hdpt
+            seen.add(hdpt.form_id.value)
+            check_head_nif(rep, data, hdpt, nif_reader)
+
+    # The rest of the mod's parts for this race -- the ones the race doesn't default to.
+    extra = [h for h in race_head_parts(mod, race, plugins)
+             if h.form_id.value not in seen]
+    if extra:
+        rep.ok('head parts', f"{len(extra)} more head part(s) valid for this race but not "
+                             f"among its defaults",
+               sorted(h.editor_id or '?' for h in extra)[:8])
+        for hdpt in extra:
             check_head_nif(rep, data, hdpt, nif_reader)
 
     if not own_face:
@@ -483,6 +534,51 @@ def check_head_nif(rep, data, hdpt, nif_reader):
         nif_reader(rep, data, data_path(data, 'meshes', rel), rel)
 
 
+# A few shader models are driven by a settings component that carries their whole reason to
+# exist -- Eye1Layer reads the iris parallax depths from EyeSettingsComponent. Omit it and the
+# material still parses, still resolves every texture, and still previews correctly in the CK,
+# but the part is invisible in game.
+#
+# Measured over all 10,530 vanilla materials: these three models appear on 21 materials, always
+# on the root object, and every one carries its component. No other shader model ever carries
+# one of these, so the pairing is exceptionless in both directions.
+SHADER_MODEL_SETTINGS = {
+    'Eye1Layer':   'EyeSettingsComponent',      # 8/8 vanilla
+    '1LayerMouth': 'MouthSettingsComponent',    # 2/2
+    'Hair1Layer':  'HairSettingsComponent',     # 11/11
+}
+
+
+def check_shader_settings(rep, data, mat_rel, path):
+    """A shader model that needs a settings component and didn't get one.
+
+    Asked of the material's whole INHERITANCE CHAIN, not of the file alone. A `.mat` is
+    normally a derivation, and only 0.3% of vanilla materials name their own shader model --
+    the rest inherit it, along with its settings component, from the template they import.
+    Reading the local file only would miss the model on almost every real material, and
+    would then fail a derived material that correctly inherits both.
+    """
+    search = [os.path.join(d, 'materials') for d in data
+              if os.path.isdir(os.path.join(d, 'materials'))]
+    try:
+        chain = sf_matchain.resolve_material(path, search=search or None)
+    except Exception as e:
+        rep.warn('materials', f"{mat_rel}: could not resolve its Import chain: {e}",
+                 "The shader-model/settings check is skipped for it.")
+        return
+
+    want = SHADER_MODEL_SETTINGS.get(chain.shader_model)
+    if not want or chain.root.component('BSMaterial::' + want) is not None:
+        return
+    rep.fail('materials',
+             f"{mat_rel}: shader model '{chain.shader_model}' has no {want}",
+             [f"{chain.shader_model} is driven by that component; without it the part is "
+              f"INVISIBLE in game while the Creation Kit preview looks correct.",
+              "Every vanilla material using this shader model carries it, on the template "
+              "if not on the material itself.",
+              f"Chain searched: {' -> '.join(os.path.basename(p) for p in chain.paths)}"])
+
+
 def check_material(rep, data, mat_rel, own_root, seen):
     """A shape's `.mat`: does it resolve, is it game-valid, do its textures exist?
 
@@ -520,6 +616,8 @@ def check_material(rep, data, mat_rel, own_root, seen):
                  placeholder[:4])
     if len(set(ids)) != len(ids):
         rep.fail('materials', f"{mat_rel}: duplicate res: IDs")
+
+    check_shader_settings(rep, data, mat_rel, path)
 
     missing_own, missing_other, not_dds = [], [], []
     for o in objects:
@@ -1367,7 +1465,8 @@ def run(args, out):
 
     check_race_misc(rep, race)
     own_face = check_head_parts(rep, data=args.data, mod=mod, race=race,
-                                nif_reader=nif_reader, per_sex=per_sex, sexes=sexes)
+                                nif_reader=nif_reader, per_sex=per_sex, plugins=plugins,
+                                sexes=sexes)
     check_body(rep, args.data, race, plugins, nif_reader, own_root, sexes)
     check_npcs(rep, race, npcs)
     check_record_texture_paths(rep, mod, npcs)
