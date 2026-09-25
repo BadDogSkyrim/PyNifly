@@ -1,0 +1,1559 @@
+{
+	"Import" : [ "res:00000000:00000000:6E617274" ],
+	"Objects" : 
+	[
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:55E9A33F:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::BlenderID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:3665E465:0005E530:A23A50C9"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::BlenderID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:6D980B8A:0005B105:A06346EA"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::LayerID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:56ECE6EC:0005C45A:A23A50C9"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::LayerID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:3665E44D:0005E530:A23A50C9"
+					},
+					"Index" : 2,
+					"Type" : "BSMaterial::LayerID"
+				},
+				{
+					"Data" : 
+					{
+						"FileName" : "Eye1Layer"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::ShaderModelComponent"
+				},
+				{
+					"Data" : 
+					{
+						"AdaptiveEmittance" : "false",
+						"EmissiveClipThreshold" : "0",
+						"EnableAdaptiveLimits" : "false",
+						"Enabled" : "false",
+						"ExposureOffset" : "0",
+						"FirstBlenderIndex" : "BLEND_LAYER_0",
+						"FirstBlenderMode" : "Lerp",
+						"FirstLayerIndex" : "MATERIAL_LAYER_0",
+						"FirstLayerMaskIndex" : "None",
+						"FirstLayerTint" : 
+						{
+							"Data" : 
+							{
+								"Value" : 
+								{
+									"Data" : 
+									{
+										"w" : "1",
+										"x" : "1",
+										"y" : "1",
+										"z" : "1"
+									},
+									"Type" : "XMFLOAT4"
+								}
+							},
+							"Type" : "BSMaterial::Color",
+							"Version" : 1
+						},
+						"LuminousEmittance" : "432",
+						"MaxOffsetEmittance" : "1",
+						"MinOffsetEmittance" : "0",
+						"SecondBlenderIndex" : "BLEND_LAYER_1",
+						"SecondBlenderMode" : "Lerp",
+						"SecondLayerActive" : "false",
+						"SecondLayerIndex" : "MATERIAL_LAYER_1",
+						"SecondLayerMaskIndex" : "None",
+						"SecondLayerTint" : 
+						{
+							"Data" : 
+							{
+								"Value" : 
+								{
+									"Data" : 
+									{
+										"w" : "1",
+										"x" : "1",
+										"y" : "1",
+										"z" : "1"
+									},
+									"Type" : "XMFLOAT4"
+								}
+							},
+							"Type" : "BSMaterial::Color",
+							"Version" : 1
+						},
+						"ThirdLayerActive" : "false",
+						"ThirdLayerIndex" : "MATERIAL_LAYER_2",
+						"ThirdLayerMaskIndex" : "None",
+						"ThirdLayerTint" : 
+						{
+							"Data" : 
+							{
+								"Value" : 
+								{
+									"Data" : 
+									{
+										"w" : "1",
+										"x" : "1",
+										"y" : "1",
+										"z" : "1"
+									},
+									"Type" : "XMFLOAT4"
+								}
+							},
+							"Type" : "BSMaterial::Color",
+							"Version" : 1
+						}
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::LayeredEmissivityComponent",
+					"Version" : 2
+				},
+				{
+					"Data" : 
+					{
+						"Enabled" : "false",
+						"Type" : "Invalid"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::StarmapBodyEffectComponent"
+				},
+				{
+					"Data" : 
+					{
+						"Enabled" : "true"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::EyeSettingsComponent"
+				},
+				{
+					"Data" : 
+					{
+						"CustomPorosity" : "0",
+						"Enabled" : "false"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::PorosityComponent"
+				},
+				{
+					"Data" : 
+					{
+						"ActiveLayersMask" : "0",
+						"FalloffStartAngles" : 
+						{
+							"Data" : [ "0", "0", "0" ],
+							"ElementType" : "float",
+							"Type" : "<collection>"
+						},
+						"FalloffStartOpacities" : 
+						{
+							"Data" : [ "0", "0", "0" ],
+							"ElementType" : "float",
+							"Type" : "<collection>"
+						},
+						"FalloffStopAngles" : 
+						{
+							"Data" : [ "0", "0", "0" ],
+							"ElementType" : "float",
+							"Type" : "<collection>"
+						},
+						"FalloffStopOpacities" : 
+						{
+							"Data" : [ "0", "0", "0" ],
+							"ElementType" : "float",
+							"Type" : "<collection>"
+						},
+						"UseRGBFallOff" : "false"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::LayeredEdgeFalloffComponent"
+				}
+			],
+			"Parent" : "Data\\Materials\\Layered\\Root\\LayeredMaterials.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Layer3"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:3665E46B:0005E530:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:3665E468:0005E530:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::UVStreamID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:3665E44D:0005E530:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Layers.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Blender2"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:3665E465:0005E530:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Blenders.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_UVStreamC"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:3665E44D:0005E530:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:3665E468:0005E530:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\UVStreams.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Material3"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:3665E46D:0005E530:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::TextureSetID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:3665E44D:0005E530:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:3665E46B:0005E530:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Materials.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_TextureSet3"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:3665E46B:0005E530:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:3665E46D:0005E530:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\TextureSets.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Blender1"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : ""
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::UVStreamID"
+				},
+				{
+					"Data" : 
+					{
+						"Value" : "false"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::ParamBool"
+				},
+				{
+					"Data" : 
+					{
+						"Value" : "false"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::ParamBool"
+				},
+				{
+					"Data" : 
+					{
+						"Value" : "false"
+					},
+					"Index" : 2,
+					"Type" : "BSMaterial::ParamBool"
+				},
+				{
+					"Data" : 
+					{
+						"Value" : "false"
+					},
+					"Index" : 6,
+					"Type" : "BSMaterial::ParamBool"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:55E9A33F:0005C45A:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Blenders.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Layer2"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:5769BA39:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:572B4E6B:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::UVStreamID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:56ECE6EC:0005C45A:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Layers.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_UVStreamB"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:56ECE6EC:0005C45A:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:572B4E6B:0005C45A:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\UVStreams.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Material2"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:57CFB2FF:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::TextureSetID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:56ECE6EC:0005C45A:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:5769BA39:0005C45A:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Materials.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_TextureSet2"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:5769BA39:0005C45A:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:57CFB2FF:0005C45A:A23A50C9",
+			"Parent" : "Data\\Materials\\Layered\\Root\\TextureSets.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Layer1"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:6D980DF7:0005B105:A06346EA"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:6D980CE1:0005B105:A06346EA"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::UVStreamID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:6D980B8A:0005B105:A06346EA",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Layers.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_UVStreamA"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:6D980B8A:0005B105:A06346EA",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:6D980CE1:0005B105:A06346EA",
+			"Parent" : "Data\\Materials\\Layered\\Root\\UVStreams.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_Material1"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:6D980FFC:0005B105:A06346EA"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::TextureSetID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:6D980B8A:0005B105:A06346EA",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:6D980DF7:0005B105:A06346EA",
+			"Parent" : "Data\\Materials\\Layered\\Root\\Materials.mat"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "Eye1Layer_TextureSet1"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"Enabled" : "true"
+					},
+					"Index" : 2,
+					"Type" : "BSMaterial::TextureReplacement"
+				},
+				{
+					"Data" : 
+					{
+						"Enabled" : "true"
+					},
+					"Index" : 4,
+					"Type" : "BSMaterial::TextureReplacement"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:6D980DF7:0005B105:A06346EA",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:6D980FFC:0005B105:A06346EA",
+			"Parent" : "Data\\Materials\\Layered\\Root\\TextureSets.mat"
+		}
+	],
+	"Summary" : 
+	{
+		"Layer1" : 
+		{
+			"Parent" : "res:00000000:00000000:6E617274",
+			"Textures" : 
+			{
+				"Albedo" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"AmbientOcclusion" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Curvature" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"DepthOffset" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Emissive" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Flow" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Frost" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"HairID" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Height" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Mask" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Metalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : true
+				},
+				"Normal" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Opacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : true
+				},
+				"OverlayColor" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"OverlayMetalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"OverlayRoughness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Roughness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"ScatteringDirections" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"ScatteringForwardAlpha" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"SecondaryOpacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Transmissive" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				}
+			},
+			"Tint" : 
+			{
+				"w" : 0,
+				"x" : 1,
+				"y" : 1,
+				"z" : 1
+			},
+			"UVStream" : 
+			{
+				"Channel" : 0,
+				"Offset" : 
+				{
+					"x" : 0,
+					"y" : 0
+				},
+				"Scale" : 
+				{
+					"x" : 1,
+					"y" : 1
+				}
+			},
+			"UseVertexColorAsTint" : false
+		},
+		"Layer2" : 
+		{
+			"Blender" : 
+			{
+				"BlendMask" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"BlendMode" : "Linear",
+				"BlendTextureAdditiveNormal" : true,
+				"BlendTextureAlbedo" : false,
+				"BlendTextureAo" : false,
+				"BlendTextureMetal" : false,
+				"BlendTextureNormal" : true,
+				"BlendTextureRoughness" : false,
+				"MaskIntensity" : 1,
+				"VertexAlpha" : false,
+				"VertexColorChannel" : "Red"
+			},
+			"Parent" : "res:00000000:00000000:6E617274",
+			"Textures" : 
+			{
+				"Albedo" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"AmbientOcclusion" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Curvature" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"DepthOffset" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Emissive" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Flow" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Frost" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"HairID" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Height" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Mask" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Metalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Normal" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Opacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"OverlayColor" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"OverlayMetalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"OverlayRoughness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Roughness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"ScatteringDirections" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"ScatteringForwardAlpha" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"SecondaryOpacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Transmissive" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				}
+			},
+			"Tint" : 
+			{
+				"w" : 0,
+				"x" : 1,
+				"y" : 1,
+				"z" : 1
+			},
+			"UVStream" : 
+			{
+				"Channel" : 0,
+				"Offset" : 
+				{
+					"x" : 0,
+					"y" : 0
+				},
+				"Scale" : 
+				{
+					"x" : 1,
+					"y" : 1
+				}
+			},
+			"UseVertexColorAsTint" : false
+		},
+		"Layer3" : 
+		{
+			"Blender" : 
+			{
+				"BlendMask" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"BlendMode" : "Linear",
+				"BlendTextureAdditiveNormal" : true,
+				"BlendTextureAlbedo" : true,
+				"BlendTextureAo" : true,
+				"BlendTextureMetal" : true,
+				"BlendTextureNormal" : true,
+				"BlendTextureRoughness" : true,
+				"MaskIntensity" : 1,
+				"VertexAlpha" : false,
+				"VertexColorChannel" : "Red"
+			},
+			"Parent" : "res:00000000:00000000:6E617274",
+			"Textures" : 
+			{
+				"Albedo" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"AmbientOcclusion" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Curvature" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"DepthOffset" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Emissive" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Flow" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Frost" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"HairID" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Height" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Mask" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Metalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Normal" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Opacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"OverlayColor" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"OverlayMetalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"OverlayRoughness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 0.5
+					},
+					"UseReplacement" : false
+				},
+				"Roughness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"ScatteringDirections" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"ScatteringForwardAlpha" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"SecondaryOpacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"Transmissive" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				}
+			},
+			"Tint" : 
+			{
+				"w" : 0,
+				"x" : 1,
+				"y" : 1,
+				"z" : 1
+			},
+			"UVStream" : 
+			{
+				"Channel" : 0,
+				"Offset" : 
+				{
+					"x" : 0,
+					"y" : 0
+				},
+				"Scale" : 
+				{
+					"x" : 1,
+					"y" : 1
+				}
+			},
+			"UseVertexColorAsTint" : false
+		}
+	},
+	"Version" : 1
+}

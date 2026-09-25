@@ -1065,6 +1065,538 @@ def TEST_SF_TEXCONV_FACE_FORMATS():
         None, "an unknown format is not second-guessed")
 
 
+def TEST_SF_MATCHAIN_RESOLVE():
+    """A Starfield .mat inherits: resolving its Import chain is what makes it readable.
+
+    An authored `.mat` is a DERIVATION -- it names a parent with `Import` and overrides
+    selected components of the parent's objects. 99.5% of vanilla materials are built this
+    way, and only 0.3% carry a `ShaderModelComponent`, because the shader model belongs to
+    the template they derive from. So anything that reads a material without walking the
+    chain is reading 0.3% of the truth.
+
+    Fixtures are the real authored tree (TT.SF_ASSETS is now the CK source drop, not the
+    flattened CDB dump it used to be). `left_eye.mat` is the good case: it declares no
+    shader model and no eye settings, and inherits both from `Eye1Layer.mat`, while
+    overriding one texture of its own.
+    """
+    import json
+    from pyn.sf_matchain import resolve_material
+
+    mats = os.path.join(TT.SF_ASSETS, 'materials')
+    eye = os.path.join(mats, 'Actors', 'Human', 'Faces', 'left_eye.mat')
+    assert TT.is_eq(os.path.exists(eye), True, f"authored fixture is there: {eye}")
+
+    chain = resolve_material(eye, search=[mats])
+
+    # --- the chain itself -------------------------------------------------------------
+    assert TT.is_eq(len(chain.paths) >= 2, True,
+                    f"left_eye.mat resolves through at least one parent: {chain.paths}")
+    assert TT.is_eq(os.path.samefile(chain.paths[0], eye), True, "the local file is first")
+    assert TT.is_eq('eye1layer' in chain.paths[1].lower(), True,
+                    f"its parent is the Eye1Layer template: {chain.paths[1]}")
+
+    # --- what the local file does NOT say, and the chain does -------------------------
+    local = json.load(open(eye, encoding='utf-8'))
+    assert TT.is_eq(
+        any(c['Type'].endswith('ShaderModelComponent')
+            for c in local['Objects'][0].get('Components', [])),
+        False, "the local file declares no shader model (that is the point)")
+    assert TT.is_eq(chain.shader_model, 'Eye1Layer', "the chain supplies the shader model")
+    model = chain.root.component('BSMaterial::ShaderModelComponent')
+    assert TT.is_eq('eye1layer' in model.origin.lower(), True,
+                    f"and origin names the material that set it: {model.origin}")
+
+    # A component is merged FIELD BY FIELD, not replaced. The authored file restates only
+    # the six iris numbers; `Enabled` shows through from the Eye1Layer template underneath.
+    # Replacing the payload wholesale loses exactly the fields the author chose not to
+    # restate -- and the result still looks like a complete component, which is what makes
+    # that failure mode dangerous.
+    eyeset = chain.root.component('BSMaterial::EyeSettingsComponent')
+    assert eyeset is not None, "EyeSettingsComponent resolves"
+    assert TT.is_eq(eyeset.data.get('IrisDepthPosition'), '0.0944',
+                    "the local file's iris depth wins")
+    assert TT.is_eq(eyeset.data.get('Enabled'), 'true',
+                    "and Enabled survives from the template it did not restate")
+    # Provenance is per FIELD, which is what an override-aware exporter needs.
+    assert TT.is_eq('eye1layer' in eyeset.origin_of('Enabled').lower(), True,
+                    f"Enabled came from the template: {eyeset.origin_of('Enabled')}")
+    assert TT.is_eq(os.path.samefile(eyeset.origin_of('IrisDepthPosition'), eye), True,
+                    "the iris numbers came from the local file")
+
+    # --- a local override beats the inherited value ------------------------------------
+    ts = chain.object_named('left_eye_TextureSet1')
+    assert ts is not None, "the locally-overridden texture set is in the effective material"
+    albedo = ts.component('BSMaterial::MRTextureFile', index=0)
+    assert albedo is not None, "its albedo resolves"
+    assert TT.is_eq('iris_brown' in albedo.data.get('FileName', '').lower(), True,
+                    f"the LOCAL iris wins: {albedo.data.get('FileName')}")
+    assert TT.is_eq(os.path.samefile(albedo.origin, eye), True,
+                    "and its origin is the local file")
+
+    # --- a different shader model, so the answer isn't hardcoded ----------------------
+    teeth = os.path.join(mats, 'Actors', 'Human', 'Faces', 'Teeth', 'NNTeeth.mat')
+    tchain = resolve_material(teeth, search=[mats])
+    assert TT.is_eq(tchain.shader_model, '1LayerMouth', "teeth inherit 1LayerMouth")
+    assert tchain.root.component('BSMaterial::MouthSettingsComponent') is not None, \
+        "and the mouth settings that come with it"
+
+    # --- the chain ends in the CDB, and that is reported rather than hidden ------------
+    # Layered\Root\*.mat exists in no loose tree anywhere, so a file-only search must say
+    # so. Silently treating an unresolvable parent as "nothing to inherit" is how a
+    # material ends up looking complete and rendering wrong.
+    assert TT.is_eq(isinstance(tchain.unresolved, list), True, "unresolved refs are listed")
+    assert TT.is_eq(any('root' in u.lower() for u in tchain.unresolved), True,
+                    f"the Root template is reported unresolved: {tchain.unresolved}")
+
+
+def TEST_SF_MATCHAIN_CDB():
+    """The chain ends in the compiled database, so the resolver has to reach it.
+
+    `Materials\\Layered\\Root\\*.mat` exists in no loose tree anywhere -- the six Root
+    templates live only inside `materialsbeta.cdb`. A file-only walk therefore stops one
+    level short and returns a material that looks complete and isn't: authored
+    `left_eye.mat` sets six eye-settings numbers and leaves `Enabled` to the Root template,
+    so file-only resolution loses it. (The flattened CDB dump showed `Enabled: true` only
+    because the database had already merged it in -- which is exactly the illusion that
+    started all this.)
+
+    TEST_SF_MATCHAIN_RESOLVE pins the file-only behaviour, including that gap. This pins the
+    gap closing when the database is supplied.
+    """
+    from pyn.sf_matchain import resolve_material
+
+    mats = os.path.join(TT.SF_ASSETS, 'materials')
+    cdb = os.path.join(mats, 'materialsbeta.cdb')
+    eye = os.path.join(mats, 'Actors', 'Human', 'Faces', 'left_eye.mat')
+    assert TT.is_eq(os.path.exists(cdb), True, f"the database is there: {cdb}")
+
+    before = resolve_material(eye, search=[mats])
+    after = resolve_material(eye, search=[mats], cdb=cdb)
+
+    # The chain got longer, and what it gained is the Root template.
+    assert TT.is_eq(len(after.paths) > len(before.paths), True,
+                    f"the database extends the chain: {before.paths} -> {after.paths}")
+    assert TT.is_eq(any('root' in p.lower() for p in after.paths), True,
+                    f"with a Root template in it: {after.paths}")
+
+    assert TT.is_eq(len(after.unresolved) < len(before.unresolved), True,
+                    f"fewer dangling refs: {before.unresolved} -> {after.unresolved}")
+
+    # Reaching the database must not disturb what the files already said. The template's
+    # Enabled and the local file's iris numbers survive, with their origins intact.
+    now = after.root.component('BSMaterial::EyeSettingsComponent')
+    assert TT.is_eq(now.data.get('Enabled'), 'true', "Enabled still resolves")
+    assert TT.is_eq(now.data.get('IrisDepthPosition'), '0.0944', "local values still win")
+    assert TT.is_eq(os.path.samefile(now.origin_of('IrisDepthPosition'), eye), True,
+                    "and still name the file that set them")
+
+
+def TEST_SF_MATCHAIN_EFFECTIVE_DOC():
+    """The resolved material agrees with the one the engine itself composes.
+
+    `Chain.to_doc()` emits the effective material in `.mat` shape so the existing parser can
+    consume it unchanged. The check that it is *right* is the compiled database: the CDB
+    stores each material already composed against its parents, so it is the engine's own
+    answer to "what does this material actually say".
+
+    Reading the authored file alone is the control, and it is not a near miss -- it has no
+    shader model at all, because the shader model belongs to the template.
+    """
+    from pyn import sf_cdb, sf_materials
+    from pyn.sf_matchain import resolve_material
+
+    mats = os.path.join(TT.SF_ASSETS, 'materials')
+    db = sf_cdb.load_cdb(os.path.join(mats, 'materialsbeta.cdb'))
+
+    CASES = [
+        (os.path.join('Actors', 'Human', 'Faces', 'left_eye.mat'), 'Eye1Layer'),
+        (os.path.join('Actors', 'Human', 'Faces', 'Teeth', 'NNTeeth.mat'), '1LayerMouth'),
+        (os.path.join('Actors', 'Human', 'Faces', 'male_default.mat'), 'Skin5Layer'),
+    ]
+
+    def close(a, b):
+        """Authored files store rounded decimals where the database stores full float32
+        text, so 0.58 and 0.5799999833106995 are the same number written twice."""
+        if isinstance(a, float) and isinstance(b, float):
+            return abs(a - b) < 1e-5
+        if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+            return len(a) == len(b) and all(close(x, y) for x, y in zip(a, b))
+        if isinstance(a, dict) and isinstance(b, dict):
+            return set(a) == set(b) and all(close(a[k], b[k]) for k in a)
+        return a == b
+
+    for rel, model in CASES:
+        path = os.path.join(mats, rel)
+        assert TT.is_eq(os.path.exists(path), True, f"authored fixture is there: {rel}")
+
+        ours = sf_materials.parse_mat_doc(resolve_material(path, search=[mats]).to_doc())
+        theirs = sf_materials.parse_mat_doc(db.get_material(os.path.join('Materials', rel)))
+        raw = sf_materials.parse_mat(open(path, encoding='utf-8').read())
+
+        # CONTROL: what reading the file alone gets you.
+        assert TT.is_eq(raw['settings'].get('shader_model'), None,
+                        f"{rel}: the authored file names no shader model")
+        assert TT.is_eq(ours['settings'].get('shader_model'), model,
+                        f"{rel}: resolving supplies it")
+        assert TT.is_eq(theirs['settings'].get('shader_model'), model,
+                        f"{rel}: and it is what the database says")
+
+        # The same settings blocks arrive, not merely the one we went looking for.
+        assert TT.is_eq(sorted(ours['settings']), sorted(theirs['settings']),
+                        f"{rel}: same settings blocks as the database")
+
+        # Structure and textures agree exactly.
+        assert TT.is_eq(len(ours['layers']), len(theirs['layers']), f"{rel}: layer count")
+        assert TT.is_eq(len(ours['blenders']), len(theirs['blenders']),
+                        f"{rel}: blender count")
+        differing = [k for k in set(ours['textures']) | set(theirs['textures'])
+                     if ours['textures'].get(k, '').lower()
+                     != theirs['textures'].get(k, '').lower()]
+        assert TT.is_eq(differing, [], f"{rel}: every texture slot matches the database")
+
+        # Settings values agree too, allowing for how the two sources write floats. `node`
+        # is excluded: it records the immediate parent, where the database records the root
+        # template -- both true, different levels of the same chain.
+        for key in sorted(set(ours['settings']) - {'node'}):
+            assert close(ours['settings'][key], theirs['settings'].get(key)), \
+                f"{rel}: settings[{key}] differs: {ours['settings'][key]} vs " \
+                f"{theirs['settings'].get(key)}"
+
+
+def TEST_SF_MATCHAIN_ORIGINS():
+    """Every resolved object and field knows which material in the chain set it.
+
+    The node tree shows what RENDERS -- the effective material -- so on its own it cannot
+    answer "is this mine or did I inherit it?", and that is the question export has to get
+    right: writing an inherited value back as if it were local is how a derivation turns
+    into the flat file that renders nowhere. `origin_map()` is the answer, in the shape the
+    Blender side stamps onto its nodes: one entry per object, keyed by its `res:` id, with
+    only the fields that came from somewhere OTHER than the object's own material called
+    out -- so a wholly-inherited object collapses to a single string.
+    """
+    from pyn.sf_matchain import LOCAL, material_label, resolve_material
+
+    mats = os.path.join(TT.SF_ASSETS, 'materials')
+    eye = os.path.join(mats, 'Actors', 'Human', 'Faces', 'left_eye.mat')
+
+    # A label names a material the way the format does, from a full path or a database
+    # reference, so the two sources of a chain read alike.
+    assert TT.is_eq(material_label(os.path.join(mats, 'Layered', 'Root', 'X.mat')),
+                    os.path.join('Materials', 'Layered', 'Root', 'X.mat'),
+                    "a filesystem path is labelled from its materials root")
+    assert TT.is_eq(material_label(r'Materials\Layered\Root\X.mat'),
+                    os.path.join('Materials', 'Layered', 'Root', 'X.mat'),
+                    "and a database reference is already in that form")
+
+    chain = resolve_material(eye, search=[mats])
+    origins = chain.origin_map()
+
+    # What the file DECLARES it derives from, kept apart from where resolution went: the
+    # chain reaches the Root templates through the template's own parent, which this
+    # material never named and must not claim to.
+    assert TT.is_eq(chain.imports, ['materials/layered/shadermodels/eye1layer.mat'],
+                    f"the declared Import list is kept verbatim: {chain.imports}")
+
+    # The root is keyed '' -- the root object is Objects[0] whether or not it has an id, and
+    # that is the key the parsed node meta carries for it.
+    assert '' in origins, f"the root has an entry: {sorted(origins)[:4]}"
+    assert TT.is_eq(origins['']['origin'], LOCAL,
+                    "the root object's record is declared by the local file")
+
+    # The interesting part is the fields. left_eye.mat restates six iris numbers and leaves
+    # the rest of EyeSettingsComponent -- and the shader model itself -- to the template.
+    fields = origins[''].get('fields', {})
+    model = 'BSMaterial::ShaderModelComponent[0].FileName'
+    assert model in fields, f"the shader model is flagged as inherited: {sorted(fields)[:6]}"
+    assert TT.is_eq('eye1layer' in fields[model].lower(), True,
+                    f"and names the template that set it: {fields[model]}")
+    assert TT.is_eq('BSMaterial::EyeSettingsComponent[0].Enabled' in fields, True,
+                    "a field the local file did not restate is inherited")
+    assert TT.is_eq('BSMaterial::EyeSettingsComponent[0].IrisDepthPosition' in fields, False,
+                    "a field it DID restate is not -- it matches the object's own origin")
+
+    # An object the local file overrides is local; one it merely inherits names the parent.
+    ts = chain.object_named('left_eye_TextureSet1')
+    assert TT.is_eq(origins[ts.id]['origin'], LOCAL,
+                    "the locally-overridden texture set is this file's")
+    inherited = [k for k, v in origins.items() if v['origin'] != LOCAL]
+    assert TT.is_eq(len(inherited) > 0, True, "and the rest of the chain is not")
+    assert TT.is_eq(all('.mat' in origins[k]['origin'].lower() for k in inherited), True,
+                    "every inherited object names a real material")
+
+    # A settings component is asked for on its own, because the object-level origin cannot
+    # answer for it: the root's RECORD is local while most of what hangs off it is not.
+    eye = chain.component_origin(chain.root, 'BSMaterial::EyeSettingsComponent')
+    assert TT.is_eq(eye['origin'], LOCAL,
+                    "this file does touch the eye settings -- it restates six numbers")
+    assert TT.is_eq('eye1layer' in eye['fields']['Enabled'].lower(), True,
+                    f"and the fields it left alone say so: {eye['fields']}")
+    assert 'IrisDepthPosition' not in eye['fields'], "the ones it set are not called out"
+
+    # A component nothing in the chain sets has no entry at all -- distinct from one that
+    # resolves to a default, which is what a flattened read would hand back.
+    assert TT.is_eq(chain.component_origin(chain.root, 'BSMaterial::HairSettingsComponent'),
+                    None, "an eye has no hair settings anywhere in its chain")
+
+
+def TEST_SF_MATCHAIN_LAYER_LIST():
+    """A material that declares its layer list has DELETED the layers it left out.
+
+    Every other component accumulates down the chain. The root's `LayerID`/`BlenderID` list
+    does not: stating it states the whole stack, and that is the only way a derived material
+    can remove a layer -- it declares a shorter list and never mentions the rest. Merge the
+    list instead and the deleted layer comes back, in a material that still looks perfectly
+    well formed. Nothing about the result says it is wrong.
+
+    The oracle is `materialsbeta.cdb`, which stores each material already composed -- the
+    engine's own answer. `PlasticPlainSmooth03_Red01.mat` declares `LayerID[0]` alone over a
+    chain carrying three layers and two blenders, and the engine composes exactly one layer
+    and no blenders.
+    """
+    import json
+    from pyn import sf_cdb, sf_materials
+    from pyn.sf_matchain import resolve_material
+
+    mats = os.path.join(TT.SF_ASSETS, 'materials')
+    rel = os.path.join('Architecture', 'Outpost', 'OutpostColony', 'Interior',
+                       'PlasticPlainSmooth03_Red01.mat')
+    path = os.path.join(mats, rel)
+    assert TT.is_eq(os.path.exists(path), True, f"authored fixture is there: {rel}")
+
+    local = json.load(open(path, encoding='utf-8'))
+    declared = [c for c in local['Objects'][0]['Components']
+                if c['Type'] in ('BSMaterial::LayerID', 'BSMaterial::BlenderID')]
+    assert TT.is_eq(len(declared), 1, f"the file declares exactly one reference: {declared}")
+
+    chain = resolve_material(path, search=[mats])
+    ours = sf_materials.parse_mat_doc(chain.to_doc())
+
+    # CONTROL: the chain underneath really does declare more, so this is not a material
+    # that would come out right however the list were treated. (The parent's own RESOLVED
+    # count is no control -- it declares a list of its own, so the same rule applies to it.)
+    deeper = 0
+    for ancestor in chain.paths[1:]:
+        if not os.path.exists(ancestor):
+            continue
+        doc = json.load(open(ancestor, encoding='utf-8'))
+        deeper = max(deeper, sum(1 for c in doc['Objects'][0].get('Components') or ()
+                                 if c['Type'] == 'BSMaterial::LayerID'))
+    assert TT.is_eq(deeper > 1, True,
+                    f"an ancestor declares more layers than the leaf: {deeper}")
+
+    db = sf_cdb.load_cdb(os.path.join(mats, 'materialsbeta.cdb'))
+    theirs = sf_materials.parse_mat_doc(db.get_material(os.path.join('Materials', rel)))
+    assert TT.is_eq(len(theirs['layers']), 1, "the engine composes one layer")
+    assert TT.is_eq(len(theirs['blenders']), 0, "and no blenders")
+    assert TT.is_eq(len(ours['layers']), len(theirs['layers']),
+                    f"so do we: {len(ours['layers'])} layers")
+    assert TT.is_eq(len(ours['blenders']), len(theirs['blenders']),
+                    f"and blenders: {len(ours['blenders'])}")
+
+    # Layers and blenders are ONE declaration, not two: 47 vanilla materials declare
+    # `LayerID[0]` AND `BlenderID[0]` over a chain with more, and keep exactly their own.
+    # Treating the two types independently would inherit blenders into the material above.
+    keeps = os.path.join('Architecture', 'City', 'NewAtlantis', 'Signage',
+                         'NAGlow_EnhanceBlue01.mat')
+    kp = os.path.join(mats, keeps)
+    if os.path.exists(kp):
+        mine = sf_materials.parse_mat_doc(resolve_material(kp, search=[mats]).to_doc())
+        engine = sf_materials.parse_mat_doc(db.get_material(os.path.join('Materials', keeps)))
+        assert TT.is_eq((len(mine['layers']), len(mine['blenders'])),
+                        (len(engine['layers']), len(engine['blenders'])),
+                        "a material that declares its own blender keeps it")
+
+
+def TEST_SF_MATCHAIN_DERIVE():
+    """A material written as a DERIVATION resolves back to the material we started with.
+
+    This is the whole of Phase 3 stated as a test. Export holds a complete material -- the
+    node tree is effective, not partial -- and has to put back on disk something that says
+    only what this file changes. The check that it did so correctly is not textual: it is
+    that resolving the derived document produces the same effective material as resolving
+    the authored one. Anything diffed away that mattered shows up as a difference here.
+
+    The control is the complete document itself. It parses, the CK accepts it, and in game
+    it renders nothing -- which is why "it round-trips" was never enough.
+    """
+    import copy
+    from pyn import sf_materials
+    from pyn.sf_matchain import derive, resolve_material
+
+    mats = os.path.join(TT.SF_ASSETS, 'materials')
+    eye = os.path.join(mats, 'Actors', 'Human', 'Faces', 'left_eye.mat')
+
+    source = resolve_material(eye, search=[mats])
+    complete = source.to_doc()                 # everything that reaches the material
+    parents = resolve_material(source.paths[1], search=[mats])
+
+    derived = derive(complete, parents, imports=source.imports)
+    back = resolve_material(eye, search=[mats], doc=copy.deepcopy(derived))
+
+    # --- it is genuinely a derivation, not a copy ---------------------------------------
+    n_complete = sum(len(o.get('Components') or ()) for o in complete['Objects'])
+    n_derived = sum(len(o.get('Components') or ()) for o in derived['Objects'])
+    assert TT.is_eq(n_derived < n_complete, True,
+                    f"the derived form says less than the complete one: "
+                    f"{n_derived} components vs {n_complete}")
+    assert TT.is_eq(derived.get('Import'), source.imports,
+                    f"and declares what it derives from: {derived.get('Import')}")
+
+    # --- ids are never re-minted ---------------------------------------------------------
+    # Inventing a namespace is what made the eyes invisible in game, and it is invisible to
+    # every check except running the game -- so it is pinned here instead.
+    src_ids = [o.get('ID') for o in complete['Objects'] if o.get('ID')]
+    out_ids = [o.get('ID') for o in derived['Objects'] if o.get('ID')]
+    assert TT.is_eq(out_ids, src_ids, "every id survives verbatim, in order")
+
+    # --- containment is emitted ----------------------------------------------------------
+    edged = [o for o in derived['Objects'][1:] if o.get('Edges')]
+    assert TT.is_eq(len(edged), len(derived['Objects']) - 1,
+                    "every object but the root declares its container")
+    assert TT.is_eq(derived['Objects'][0].get('Edges'), None,
+                    "and the root declares none -- nothing contains the material")
+
+    # --- THE test: same material after resolution ----------------------------------------
+    want = sf_materials.parse_mat_doc(complete)
+    got = sf_materials.parse_mat_doc(back.to_doc())
+
+    assert TT.is_eq(got['settings'].get('shader_model'), want['settings'].get('shader_model'),
+                    "the shader model still resolves")
+    assert TT.is_eq(len(got['layers']), len(want['layers']), "same layer count")
+    assert TT.is_eq(len(got['blenders']), len(want['blenders']), "same blender count")
+    for i, (g, w) in enumerate(zip(got['layers'], want['layers'])):
+        assert TT.is_eq(g['textures'], w['textures'], f"layer {i}: same textures")
+        for key in ('uv_scale', 'uv_offset', 'override_color', 'param_bools', 'mat_params',
+                    'tex_replace', 'color', 'mip_bias', 'tex_resolution'):
+            assert TT.is_eq(g.get(key), w.get(key), f"layer {i}: same {key}")
+    for key in sorted(set(want['settings']) | set(got['settings'])):
+        if key == 'node':      # identity, not content -- compared by id above
+            continue
+        assert TT.is_eq(got['settings'].get(key), want['settings'].get(key),
+                        f"settings[{key}] survives the round trip")
+
+    # The root's reference list is authoritative, never inherited: a material drops a layer
+    # by declaring a shorter list, so a derived root that omits it silently gets its parent's
+    # layers back.
+    refs = [c for c in derived['Objects'][0]['Components']
+            if c['Type'] in ('BSMaterial::LayerID', 'BSMaterial::BlenderID')]
+    assert TT.is_eq(len(refs), len(want['layers']) + len(want['blenders']),
+                    f"the root writes its whole reference list: {len(refs)}")
+
+    # --- claiming an object writes it whole ----------------------------------------------
+    # The one case a diff cannot see: a value deliberately set to what the parent happens to
+    # say. It is indistinguishable from never having touched it, so it has to be declared,
+    # and then nothing about that object is diffed away.
+    bare = next(o for o in derived['Objects'][1:] if not o.get('Components'))
+    oid = bare['ID']
+    claimed = derive(complete, parents, imports=source.imports, keep=[oid])
+    now = next(o for o in claimed['Objects'] if o.get('ID') == oid)
+    assert TT.is_eq(len(now.get('Components') or []) > 0, True,
+                    f"a claimed object keeps what it would otherwise inherit: {oid}")
+    src_obj = next(o for o in complete['Objects'] if o.get('ID') == oid)
+    assert TT.is_eq(len(now['Components']), len(src_obj['Components']),
+                    "all of it, not some of it")
+
+    # Everything else is untouched by the claim, and the material still means the same.
+    others = {o.get('ID'): len(o.get('Components') or []) for o in claimed['Objects']
+              if o.get('ID') != oid}
+    before = {o.get('ID'): len(o.get('Components') or []) for o in derived['Objects']
+              if o.get('ID') != oid}
+    assert TT.is_eq(others, before, "claiming one object changes no other")
+    again = sf_materials.parse_mat_doc(
+        resolve_material(eye, search=[mats], doc=copy.deepcopy(claimed)).to_doc())
+    assert TT.is_eq(len(again['layers']), len(want['layers']),
+                    "and the claimed form still resolves to the same material")
+
+
+def TEST_SF_RACECHECK_SHADER_SETTINGS():
+    """sf_racecheck catches a shader model whose settings component is missing -- through
+    the material's INHERITANCE CHAIN, not from the file alone.
+
+    A few shader models are driven by a settings component that carries their whole reason
+    to exist: `Eye1Layer` gets the iris parallax depths from `EyeSettingsComponent`. Without
+    it the material still parses, still resolves every texture, and still previews correctly
+    in the Creation Kit, but the part is invisible in game. That cost a full debugging
+    session on the fox eyes.
+
+    The pairings are measured over every vanilla `.mat` and each is exceptionless:
+
+        Eye1Layer   -> EyeSettingsComponent     8/8
+        1LayerMouth -> MouthSettingsComponent   2/2
+        Hair1Layer  -> HairSettingsComponent   11/11
+
+    The check has to follow inheritance or it is worse than useless: only 0.3% of authored
+    materials name their own shader model, so reading the local file alone misses the model
+    on nearly everything -- and would then condemn a derived material that correctly
+    inherits both halves. Both directions are asserted here:
+
+      * vanilla `left_eye.mat` inherits Eye1Layer from its template and must stay SILENT,
+        even though the word `Eye1Layer` appears nowhere in it;
+      * a FLAT material naming Eye1Layer with no settings -- exactly the shape PyNifly used
+        to export -- must FAIL.
+    """
+    import json
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+
+    faces = os.path.join(TT.SF_ASSETS, 'materials', 'Actors', 'Human', 'Faces')
+    CASES = [
+        (os.path.join(faces, 'left_eye.mat'), 'Eye1Layer', 'EyeSettingsComponent'),
+        (os.path.join(faces, 'Teeth', 'NNTeeth.mat'), '1LayerMouth', 'MouthSettingsComponent'),
+    ]
+
+    def findings(mat_rel, data_dir):
+        rep = sf_racecheck.Report()
+        sf_racecheck.check_material(rep, [data_dir], mat_rel, None, set())
+        return rep
+
+    def said(rep, level, word):
+        return [m for lv, _area, m, _d in rep.findings if lv == level and word in m]
+
+    for src, model, comp in CASES:
+        assert TT.is_eq(os.path.exists(src), True, f"authored fixture is there: {src}")
+        doc = json.load(open(src, encoding='utf-8'))
+
+        # The authored file does NOT name its shader model -- the template does. This is
+        # what the flattened CDB dump used to hide.
+        assert TT.is_eq(
+            any(c['Type'].endswith('ShaderModelComponent')
+                for c in doc['Objects'][0].get('Components', [])),
+            False, f"{os.path.basename(src)} inherits its shader model")
+
+        # CONTROL: the real material in its real tree, where the chain resolves.
+        rel = os.path.relpath(src, TT.SF_ASSETS)
+        assert TT.is_eq(said(findings(rel, TT.SF_ASSETS), sf_racecheck.FAIL, comp), [],
+                        f"a correct {model} material is not flagged")
+
+        # The failure case: flat, self-declared model, settings dropped.
+        with tempfile.TemporaryDirectory() as d:
+            probe = os.path.join('materials', 'probe.mat')
+            os.makedirs(os.path.join(d, 'materials'))
+            flat = {"Version": 1, "Objects": [{"Components": [
+                {"Type": "BSComponentDB::CTName", "Index": 0, "Data": {"Name": "probe"}},
+                {"Type": "BSMaterial::ShaderModelComponent", "Index": 0,
+                 "Data": {"FileName": model}}]}]}
+            with open(os.path.join(d, probe), 'w', encoding='utf-8') as f:
+                json.dump(flat, f)
+            hits = said(findings(probe, d), sf_racecheck.FAIL, comp)
+            assert TT.is_eq(len(hits), 1, f"flat {model} with no {comp} is a FAIL")
+            assert TT.is_eq(model in hits[0], True, "the message names the shader model")
+
+    # CONTROL: a model that needs no settings block is never flagged, or every ordinary
+    # material in the mod turns into a failure.
+    with tempfile.TemporaryDirectory() as d:
+        probe = os.path.join('materials', 'plain.mat')
+        os.makedirs(os.path.join(d, 'materials'))
+        with open(os.path.join(d, probe), 'w', encoding='utf-8') as f:
+            json.dump({"Version": 1, "Objects": [{"Components": [
+                {"Type": "BSMaterial::ShaderModelComponent",
+                 "Index": 0, "Data": {"FileName": "BaseMaterial"}}]}]}, f)
+        assert TT.is_eq(said(findings(probe, d), sf_racecheck.FAIL, 'SettingsComponent'), [],
+                        "a model with no required settings block is left alone")
+
+
 def TEST_SF_MORPH_ROUNDTRIP():
     """Starfield: read/write a vanilla morph.dat byte-exact; positions-only rebuild round-trips.
 
@@ -1512,16 +2044,27 @@ def TEST_SF_MAT_WRITE():
 
 
 def TEST_SF_MAT_PRESERVES_TEMPLATE():
-    """Writing a .mat over an existing one preserves everything PyNifly doesn't model.
+    """Writing a .mat preserves everything PyNifly doesn't model -- and every object id.
 
-    write_mat built the document from scratch, so every component outside PyNifly's normalised
-    dict was destroyed: vanilla male_default.mat has 18 ParamBool, 4 MaterialParamFloat and 2
-    TextureReplacement, and a regenerated file had none of them. That silently clobbered Bad
-    Dog's hand-built Lykaios material and broke the head in the CK.
+    Two regressions in one test, because they have the same cause: a writer that rebuilds a
+    material from what it understands rather than from what it was given.
 
-    Given a template document, write_mat now PATCHES it -- updating the values it does model and
-    leaving the rest alone -- while still re-namespacing the object ids so a material derived
-    from a vanilla one doesn't collide with it in the material database.
+    **Content.** Vanilla `male_default.mat` carries 18 `ParamBool`, 4 `MaterialParamFloat`
+    and 2 `TextureReplacement`. A writer that emitted only PyNifly's normalised dict had none
+    of them, which silently clobbered Bad Dog's hand-built Lykaios material and broke the head
+    in the CK. The fix was not a template to patch -- it is that each node CARRIES the
+    identity and components of the object it came from, so the document can be rebuilt from
+    the node tree alone. `template` is accepted and ignored.
+
+    **Ids.** Every object id must survive verbatim. The writer used to re-namespace them, on
+    the theory that a material derived from a vanilla one would otherwise collide with it in
+    the game's material database. That theory is wrong and the practice is fatal: a
+    byte-for-byte copy of a vanilla material at a new path renders perfectly in game, and the
+    same file with its ids moved to an invented namespace renders NOTHING (proven in game
+    2026-09-24 -- see docs/plan_sf_material_inheritance.md, Phase 0). A `res:` id lives in a
+    registered space, and inventing one puts the material outside what the database knows.
+
+    Nothing short of running the game catches that, which is why it is asserted here.
     """
     import json
     from pyn.sf_materials import parse_mat, write_mat
@@ -1548,7 +2091,7 @@ def TEST_SF_MAT_PRESERVES_TEMPLATE():
     NEW_ALBEDO = r"Textures\FSF\Lykaios\LykaiosMaleHead_col.dds"
     data['layers'][0]['textures']['Albedo'] = NEW_ALBEDO
 
-    out = write_mat(data, filename=r"Materials\FSF\Lykaios\MaleHead.mat", template=template)
+    out = write_mat(data, filename=r"Materials\FSF\Lykaios\MaleHead.mat")
     doc = json.loads(out)
     after = census(doc)
 
@@ -1565,16 +2108,22 @@ def TEST_SF_MAT_PRESERVES_TEMPLATE():
     assert TT.is_eq(reparsed['filename'], r"Materials\FSF\Lykaios\MaleHead.mat",
                     "Filename updated to the new material")
 
-    # Ids are re-namespaced (no vanilla id survives) and every reference still resolves.
+    # Ids survive verbatim, under a different material name, and every reference resolves.
     old_ids = {o['ID'] for o in template['Objects'] if 'ID' in o}
     new_ids = {o['ID'] for o in doc['Objects'] if 'ID' in o}
-    assert TT.is_eq(len(old_ids & new_ids), 0, "no vanilla object id survives into the copy")
-    assert TT.is_eq(len(new_ids), len(old_ids), "same number of distinct ids")
+    assert TT.is_eq(new_ids, old_ids,
+                    f"every id kept: {len(old_ids & new_ids)} of {len(old_ids)}, "
+                    f"{len(new_ids - old_ids)} invented")
     for o in doc['Objects']:
         for comp in o.get('Components', []):
             ref = (comp.get('Data') or {}).get('ID')
             if isinstance(ref, str) and ref.startswith('res:'):
                 assert ref in new_ids, f"reference {ref} resolves within the file"
+
+    # A template is accepted for old callers and changes nothing.
+    assert TT.is_eq(json.loads(write_mat(data, filename=reparsed['filename'],
+                                         template=template)), doc,
+                    "passing a template makes no difference")
 
 
 def TEST_SF_ANIMATION_FLAG_EXTRA():

@@ -13,7 +13,9 @@ See docs/property_architecture.md.
 """
 
 import bpy
+import json
 import logging
+import os
 from ctypes import c_float, c_uint8, c_uint16, c_uint32, c_char, c_int
 from ..pyn.nifdefs import (NiShaderBuf, bhkRigidBodyProps,
                            BSValueNodeBuf, NiSwitchNodeBuf, BSMultiBoundNodeBuf)
@@ -927,13 +929,153 @@ class PYN_PT_export_skel(bpy.types.Panel):
 
 
 # ---------------------------------------------------------------------------
+# Starfield material provenance (node editor sidebar)
+# ---------------------------------------------------------------------------
+# A Starfield `.mat` is a DERIVATION: it names a parent and restates only what it changes,
+# and import resolves that chain so the node tree shows the material the engine would
+# assemble. The cost of showing the truth is that the tree can no longer say, by itself,
+# which of those values this file owns -- and writing an inherited value back as though it
+# were local is exactly what produces a material that renders nothing in game.
+#
+# Import stamps the answer on every node (see shader_io.PYN_SF_ORIGIN). This panel reads it.
+
+class PYN_PT_sf_provenance(bpy.types.Panel):
+    bl_idname = "PYN_PT_sf_provenance"
+    bl_label = "PyNifly Material Chain"
+    bl_space_type = 'NODE_EDITOR'
+    bl_region_type = 'UI'
+    bl_category = "Item"
+
+    @classmethod
+    def poll(cls, context):
+        from .shader_io import PYN_SF_CHAIN
+        mat = _panel_material(context)
+        return mat is not None and PYN_SF_CHAIN in mat.keys()
+
+    def draw(self, context):
+        from ..pyn.sf_matchain import LOCAL
+        from .shader_io import (PYN_SF_BASE, PYN_SF_CHAIN, PYN_SF_IMPORT, PYN_SF_ORIGIN,
+                                PYN_SF_OVERRIDE)
+        layout = self.layout
+        mat = _panel_material(context)
+
+        box = layout.box()
+        box.label(text="Inherits from", icon='LINKED')
+        chain = _json_prop(mat, PYN_SF_CHAIN) or []
+        declared = _json_prop(mat, PYN_SF_IMPORT) or []
+        if not declared:
+            box.label(text="nothing -- written complete", icon='ERROR')
+            box.label(text="Complete materials do not render in game.")
+        for i, step in enumerate(chain[1:], start=1):
+            row = box.row()
+            row.label(text=("    " * (i - 1)) + step,
+                      icon='FILE' if i == 1 else 'DOT')
+
+        node = getattr(context, 'active_node', None)
+        if node is None:
+            layout.label(text="Select a node to see where its values came from.")
+            return
+
+        if node.get(PYN_SF_BASE):
+            note = layout.box()
+            note.label(text=f"Inherited from {node[PYN_SF_BASE]}", icon='INFO')
+            note.label(text="A view of what this material inherits.")
+            note.label(text="Rebuilt on import; never exported. Editing")
+            note.label(text="inside changes the view for every material")
+            note.label(text="that shares it, and changes no output.")
+            return
+
+        origin = _json_prop(node, PYN_SF_ORIGIN)
+        if origin is None:
+            layout.label(text="(this node carries no chain information)")
+            return
+
+        box = layout.box()
+        box.label(text=f"Node: {node.label or node.name}", icon='NODE')
+        entries = ({'node': origin} if 'origin' in origin else origin)
+        for kind, entry in sorted(entries.items()):
+            src = entry.get('origin', '?')
+            row = box.row()
+            row.label(text=f"{kind}: " + ("this material" if src == LOCAL else src),
+                      icon='FILE_BLANK' if src == LOCAL else 'LINKED')
+            inherited = entry.get('fields') or {}
+            if inherited:
+                col = box.column(align=True)
+                col.enabled = False        # inherited: shown, not editable here
+                for field, where in sorted(inherited.items()):
+                    col.label(text=f"    {_short_field(field)} <- {os.path.basename(where)}")
+
+        # The one thing about ownership that has to be STORED. Everything else is worked
+        # out at write time by comparing against the chain.
+        row = layout.row()
+        if PYN_SF_OVERRIDE in node.keys():
+            row.prop(node, f'["{PYN_SF_OVERRIDE}"]', toggle=True,
+                     text="Claimed by this material")
+        else:
+            row.operator("pynifly.sf_claim_node", icon='DECORATE_OVERRIDE')
+
+
+class PYN_OT_sf_claim_node(bpy.types.Operator):
+    """Write this node's values into the material even where they match what it inherits.
+
+    Export decides what a material owns by comparing it against the material it derives
+    from, so a value equal to the parent's reads as inherited and is left out. That is right
+    almost always, and wrong exactly when you set it to that value on purpose and want it to
+    stay put if the parent ever changes. Nothing else can express that -- by construction it
+    looks identical to never having touched it."""
+    bl_idname = "pynifly.sf_claim_node"
+    bl_label = "Claim for this material"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return getattr(context, 'active_node', None) is not None
+
+    def execute(self, context):
+        from .shader_io import PYN_SF_OVERRIDE
+        context.active_node[PYN_SF_OVERRIDE] = True
+        return {'FINISHED'}
+
+
+def _panel_material(context):
+    """The material whose nodes are on screen -- `context.material` in the properties editor,
+    and the node editor's own id when the shader editor is what is open."""
+    mat = getattr(context, 'material', None)
+    if mat is not None:
+        return mat
+    space = getattr(context, 'space_data', None)
+    target = getattr(space, 'id', None)
+    return target if isinstance(target, bpy.types.Material) else None
+
+
+def _json_prop(owner, key):
+    raw = owner.get(key)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def _short_field(field):
+    """'BSMaterial::EyeSettingsComponent[0].Enabled' -> 'EyeSettings.Enabled'."""
+    name, _, tail = field.partition('.')
+    name = name.split('::')[-1]
+    if name.endswith(']'):
+        name = name[:name.rindex('[')]
+    return f"{name.replace('Component', '')}.{tail}" if tail else name
+
+
+# ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
 
 _classes = (PynShaderProps, PYN_PT_shader, *_child_panels,
             *[s['grp'] for s in _block_specs],
             *[s['grp'] for s in _handwired_specs], PYN_PT_block,
-            PynExportProps, PynExportSkelProps, PYN_PT_export, PYN_PT_export_skel)
+            PynExportProps, PynExportSkelProps, PYN_PT_export, PYN_PT_export_skel,
+            PYN_OT_sf_claim_node, PYN_PT_sf_provenance)
 
 
 def register():

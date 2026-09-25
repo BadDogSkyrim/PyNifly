@@ -192,6 +192,13 @@ _COMPONENT_SPECS = [
 ]
 
 
+# {settings key: the `.mat` component it stands for}, for callers that hold a parsed
+# material and need to ask the source document about one of its components -- provenance,
+# most immediately: the node built from `settings['eye']` has to be able to say which
+# material in the chain supplied each of its values.
+COMPONENT_TYPES = {key: ctype for key, ctype, _nest, _fields in _COMPONENT_SPECS}
+
+
 def _components_of(obj, ctype):
     return [c for c in obj.get('Components', []) if c.get('Type') == ctype]
 
@@ -1002,8 +1009,16 @@ def build_mat_doc(data, filename=None):
     are MERGED over those carried components, so an unmodelled component survives whole and an
     unmodelled FIELD of a modelled component survives too. A node with no such entry is new (added
     in Blender, or the whole material authored from scratch) and gets a fresh id and the shipped
-    Root template for its kind as its Parent. Ids are then re-namespaced for `filename`, so a
-    material derived from a vanilla one can't collide with it in the game's material database.
+    Root template for its kind as its Parent.
+
+    Ids are NOT re-namespaced. They used to be, on the theory that a material derived from a
+    vanilla one would otherwise collide with it in the game's material database. The theory is
+    wrong and the practice is fatal: a byte-for-byte copy of a vanilla material at a new path
+    renders perfectly, and the same file with its ids moved to an invented namespace renders
+    nothing at all (proven in game, 2026-09-24). An id's namespace is a registered space --
+    field B is `0005xxxx` or `0006xxxx` in 99.99% of vanilla ids and field C has 118 distinct
+    values game-wide -- and inventing one puts the whole material outside what the database
+    recognises. See `docs/plan_sf_material_inheritance.md`, Phase 0.
     """
     fn = filename or data.get('filename') or ''
     base = _mat_basename(fn)
@@ -1129,10 +1144,11 @@ def build_mat_doc(data, filename=None):
     objects.insert(0, root)
 
     doc = {"Version": 1, "Objects": objects}
+    if data.get('imports'):
+        doc["Import"] = list(data['imports'])
     if fn:
         doc["Filename"] = fn
         _rename_ctnames(doc, base, root_meta.get('name'))
-        _renamespace(doc, fn)
     return doc
 
 
@@ -1154,20 +1170,25 @@ def _meta_has(meta, ctype):
     return any(c.get('Type') == ctype for c in (meta or {}).get('components') or [])
 
 
-def write_mat(data, filename=None, template=None):
+def write_mat(data, filename=None, template=None, parents=None):
     """Serialize a normalised material dict (as parse_mat returns) to a GAME-VALID loose `.mat`.
 
-    The document is built from the dict -- see build_mat_doc. `template` is accepted for callers
-    that still pass the source document, but it is no longer needed: the identity, parenting and
-    unmodelled components a template used to supply now travel with the material itself, and a
-    template can only describe the material as it was BEFORE the user edited the node tree."""
-    if template is not None and not (data.get('settings') or {}).get('node'):
-        # A dict with no carried node identity never came from an import, so a template is the
-        # only source of the scaffolding. (Materials authored in Blender have nothing to preserve.)
-        patched = patch_mat_doc(template, data, filename)
-        if patched is not None:
-            return json.dumps(patched, indent=2)
-    return json.dumps(build_mat_doc(data, filename), indent=2)
+    The document is built from the dict -- see build_mat_doc -- and then, when `parents` is a
+    resolved chain of what the material derives from, reduced to a DERIVATION of it: only what
+    this material has to say for itself. That is the form the game reads. The complete document
+    parses, and the Creation Kit accepts it, and in game it renders nothing.
+
+    `template` is accepted for callers that still pass the source document, but it is no longer
+    used: the identity, parenting and unmodelled components a template used to supply now travel
+    with the material itself, and a template can only describe the material as it was BEFORE the
+    user edited the node tree.
+    """
+    doc = build_mat_doc(data, filename)
+    if parents is not None:
+        from . import sf_matchain
+        doc = sf_matchain.derive(doc, parents, imports=data.get('imports'),
+                                 keep=data.get('overrides') or ())
+    return json.dumps(doc, indent=2)
 
 
 _cdb_cache = {}   # cdb path -> CdbFile (or False if it failed to load)

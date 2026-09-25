@@ -854,6 +854,268 @@ def TEST_SF_VERTEX_COLOR_OVERRIDE_NO_COLORS():
 
 
 @TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_PROVENANCE():
+    """Starfield: an imported material knows what it inherited and from where.
+
+    A `.mat` is a DERIVATION -- authored `left_eye.mat` names `Eye1Layer.mat` with `Import`
+    and restates only what it changes, leaving the shader model, the eye settings' `Enabled`
+    and most of its layers to the template. Import resolves that chain, so the node tree
+    shows the EFFECTIVE material: correct to render from, and on its own unable to say which
+    of those values this file actually owns. Writing an inherited value back as if it were
+    local is how a derivation becomes the flat file that renders nowhere, so the answer is
+    stamped as the tree is built.
+
+    The fixtures are the authored vanilla files, both of them -- the point of the test is a
+    real chain, and a flattened copy has no chain to find. Textures are left unresolved;
+    this is about provenance, not pixels.
+    """
+    import json
+    from io_scene_nifly.nif.shader_io import ShaderImporter, PYN_SF_IMPORT, PYN_SF_ORIGIN
+    from pyn.sf_matchain import LOCAL
+
+    path = TTB.test_file(r"tests\SF\materials\Actors\Human\Faces\left_eye.mat")
+    local = json.load(open(path, encoding='utf-8-sig'))
+    assert TT.is_eq(local.get('Import'), ['materials/layered/shadermodels/eye1layer.mat'],
+                    "the fixture is the authored file, and it derives from the template")
+
+    si = ShaderImporter()
+    si.material = bpy.data.materials.new("SF_Provenance")
+    si.material.use_nodes = True
+    si._sf_altpaths = []
+    parsed = si._sf_read_material(path)
+    assert parsed is not None, "the material read"
+
+    # CONTROL: what the local file says on its own, versus what arrived.
+    assert TT.is_eq(
+        any(c['Type'].endswith('ShaderModelComponent')
+            for c in local['Objects'][0].get('Components', [])),
+        False, "the authored file names no shader model")
+    assert TT.is_eq(parsed['settings'].get('shader_model'), 'Eye1Layer',
+                    "and the template's arrived through the chain")
+    # The chain is recorded on the material. Its tail depends on whether a material
+    # database is configured -- the Root templates ship only inside one -- so what is
+    # pinned here is the part that always resolves: this file, then the template it names.
+    chain = json.loads(si.material['pyn_sf_chain'])
+    assert TT.is_eq(chain[0], 'left_eye.mat', f"the chain starts with the material: {chain}")
+    assert TT.is_eq('eye1layer' in chain[1].lower(), True,
+                    f"and continues into the template it imports: {chain}")
+    # What it DECLARES is kept separately and verbatim -- that is what export writes back.
+    assert TT.is_eq(json.loads(si.material[PYN_SF_IMPORT]), local['Import'],
+                    f"the Import list survives as written: {si.material.get(PYN_SF_IMPORT)}")
+
+    stripped = [dict(ly, textures={}) for ly in parsed['layers']]
+    blends = [dict(b, mask=None) for b in parsed['blenders']]
+    si._build_sf_nodes({}, parsed['settings'], stripped, blends)
+
+    def origin(owner):
+        raw = owner.get(PYN_SF_ORIGIN)
+        return json.loads(raw) if raw else None
+
+    # The material stands for the root object, whose RECORD is local however much of what
+    # hangs off it is not -- so the fields carry the real answer.
+    root = origin(si.material)
+    assert root is not None, "the material carries provenance"
+    assert TT.is_eq(root['origin'], LOCAL, "the root object is this file's")
+    inherited = root.get('fields', {})
+    model = 'BSMaterial::ShaderModelComponent[0].FileName'
+    assert model in inherited, f"the shader model is marked inherited: {sorted(inherited)[:6]}"
+    assert TT.is_eq('eye1layer' in inherited[model].lower(), True,
+                    f"and names the template: {inherited[model]}")
+
+    nodes = si.material.node_tree.nodes
+    # The eye settings node: the six iris numbers are this file's, `Enabled` is not. Per
+    # FIELD, because a component merges field by field -- the whole reason a wholesale
+    # replace loses exactly what the author chose not to restate.
+    eye = next((n for n in nodes if 'EyeSettings' in (n.node_tree.name if n.type == 'GROUP'
+                                                      else '')), None)
+    assert eye is not None, "the material built an eye settings node"
+    eo = origin(eye)
+    assert eo is not None, "which carries provenance of its own"
+    assert TT.is_eq(eo['origin'], LOCAL, "this file does set the eye settings")
+    assert TT.is_eq('eye1layer' in eo['fields']['Enabled'].lower(), True,
+                    f"but not Enabled: {eo['fields']}")
+    assert 'IrisDepthPosition' not in eo.get('fields', {}),         "the iris numbers it did restate are its own"
+
+    # The eye's two blenders declare no blend mode ANYWHERE in the chain -- Eye1Layer.mat
+    # has none, where Skin5Layer.mat gives all five of the head's blenders one. That is the
+    # material saying nothing, not us failing to read it, so the graph says Default rather
+    # than Unknown; Unknown is reserved for a mode we were given and don't implement.
+    blends = [n for n in nodes if n.get('pyn_sf_blend') is not None]
+    assert TT.is_eq(len(blends), 2, f"two blend nodes: {len(blends)}")
+    assert TT.is_eq([n.get('pyn_sf_mode') for n in blends], ['', ''],
+                    "and neither carries a mode")
+    assert TT.is_eq(all('Default' in n.node_tree.name for n in blends), True,
+                    f"so they read as Default: {[n.node_tree.name for n in blends]}")
+
+    # A layer stands for up to four .mat objects, so its provenance is keyed by which.
+    layers = [n for n in nodes if n.get('pyn_sf_layer') is not None and n.type == 'GROUP']
+    assert len(layers) > 0, "the material built layer nodes"
+    keyed = [origin(n) for n in layers]
+    assert all(k for k in keyed), f"every layer node carries provenance: {keyed}"
+    assert TT.is_eq(all(set(k) <= {'layer', 'material', 'textureset', 'uvstream'} for k in keyed),
+                    True, f"keyed by which object it stands for: {[sorted(k) for k in keyed]}")
+
+    # And the substance. This eye declares all three of its layers itself, so every object
+    # is local -- but their components are not: each layer object PARENTS to one of the
+    # template's, and fields it does not restate show through. That is the case the
+    # object-level origin cannot express and the one export has to get right.
+    assert TT.is_eq(all(e['origin'] == LOCAL for k in keyed for e in k.values()), True,
+                    "left_eye.mat declares its own layer objects")
+    from_template = {f: src for k in keyed for e in k.values()
+                     for f, src in e.get('fields', {}).items()}
+    assert TT.is_eq(len(from_template) > 0, True,
+                    "yet fields on them still come from the template it parents into")
+    assert TT.is_eq(all('eye1layer' in src.lower() for src in from_template.values()), True,
+                    f"and they name it: {sorted(set(from_template.values()))}")
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_BASE_GROUPS():
+    """Starfield: what a material inherits is VISIBLE in the graph, one group per level.
+
+    Provenance stamps answer "where did this value come from" one node at a time, which you
+    have to think to ask. `SF Base` groups answer "what is under me" by being in the graph:
+    one node group per inherited material, named for it, each containing the next level down
+    and the layers, blends and settings that level actually supplies.
+
+    They are a view and never a source. The material's own tree is what export reads, so the
+    test that matters is the last one: adding them changes nothing about what comes out.
+    """
+    import json
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, SF_BASE_GROUP, PYN_SF_BASE,
+                                              recover_sf_material, _is_group,
+                                              SF_LAYER_GROUP)
+
+    mats = TTB.test_file(r"tests\SF\materials")
+    src = os.path.join(mats, r"Actors\Human\Faces\left_eye.mat")
+
+    si = ShaderImporter()
+    si.material = bpy.data.materials.new("SF_BaseGroups")
+    si.material.use_nodes = True
+    si._sf_altpaths = []
+    parsed = si._sf_read_material(src)
+    stripped = [dict(ly, textures={}) for ly in parsed['layers']]
+    blends = [dict(b, mask=None) for b in parsed['blenders']]
+    si._build_sf_nodes({}, parsed['settings'], stripped, blends)
+
+    before = recover_sf_material(si.material)
+    node = si._build_sf_base_chain(si._sf_chain)
+    assert node is not None, "the eye inherits, so it gets a base group"
+
+    # Named for the material it stands for, and it is the parent -- not this material.
+    assert TT.is_eq(node.node_tree.name.startswith(SF_BASE_GROUP + ':'), True,
+                    f"named as a base group: {node.node_tree.name}")
+    assert TT.is_eq('eye1layer' in node[PYN_SF_BASE].lower(), True,
+                    f"and stands for the template it derives from: {node[PYN_SF_BASE]}")
+
+    # It holds the template's own content -- this is the point of it being a group rather
+    # than a label. Eye1Layer supplies the layer skeleton and the eye settings.
+    contents = list(node.node_tree.nodes)
+    assert TT.is_eq(any(_is_group(n, SF_LAYER_GROUP) for n in contents), True,
+                    f"the template's layers are inside it: {[n.name for n in contents]}")
+    assert TT.is_eq(any(n.type == 'GROUP' and n.node_tree
+                        and 'EyeSettings' in n.node_tree.name for n in contents), True,
+                    "as are the eye settings it supplies")
+
+    # A chain of three nests two deep. The tail (the Root template) resolves only when a
+    # material database is configured, so the nesting is asserted only when it is there.
+    chain = json.loads(si.material['pyn_sf_chain'])
+    nested = [n for n in contents if n.type == 'GROUP' and n.node_tree
+              and n.node_tree.name.startswith(SF_BASE_GROUP + ':')]
+    assert TT.is_eq(len(nested), 1 if len(chain) > 2 else 0,
+                    f"one group per level of the chain {chain}: {[n.node_tree.name for n in nested]}")
+
+    # A view, not a stage: it is wired to nothing.
+    links = [ln for ln in si.material.node_tree.links
+             if ln.from_node is node or ln.to_node is node]
+    assert TT.is_eq(links, [], "the base group is not wired into the shading path")
+
+    # THE test: the material exports exactly as it did before the view existed.
+    after = recover_sf_material(si.material)
+    assert TT.is_eq(len(after['layers']), len(before['layers']), "same layers recovered")
+    assert TT.is_eq(len(after['blenders']), len(before['blenders']), "same blenders recovered")
+    assert TT.is_eq(after['settings'], before['settings'], "same settings recovered")
+    assert TT.is_eq(after['imports'], before['imports'], "same Import list recovered")
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_MAT_DERIVED_EXPORT():
+    """Starfield: a material imported from a derivation is EXPORTED as one.
+
+    The node tree holds the effective material -- everything that reaches it, inherited and
+    owned alike. Writing that back out produces a file that parses, that the Creation Kit
+    accepts, and that renders nothing in game. What has to go on disk is the delta, with
+    every inherited id verbatim.
+
+    So this drives the real path: import the authored eye through the resolver, build the
+    node tree, recover it, write it, and then check the FILE -- that it declares what it
+    derives from, that it says less than the complete material, that its ids are the ones it
+    came in with, and that resolving it gives the material back.
+    """
+    import json
+    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from pyn import sf_materials
+    from pyn.sf_matchain import resolve_material, resolve_parents
+
+    mats = TTB.test_file(r"tests\SF\materials")
+    src = os.path.join(mats, r"Actors\Human\Faces\left_eye.mat")
+    authored = json.load(open(src, encoding='utf-8-sig'))
+
+    si = ShaderImporter()
+    si.material = bpy.data.materials.new("SF_DerivedExport")
+    si.material.use_nodes = True
+    si._sf_altpaths = []
+    parsed = si._sf_read_material(src)
+    stripped = [dict(ly, textures={}) for ly in parsed['layers']]
+    blends = [dict(b, mask=None) for b in parsed['blenders']]
+    si._build_sf_nodes({}, parsed['settings'], stripped, blends)
+
+    data = recover_sf_material(si.material)
+    assert TT.is_eq(data['imports'], authored['Import'],
+                    f"the recovered material still knows what it derives from: {data['imports']}")
+
+    parents = resolve_parents(data['imports'], src, search=[mats])
+    written = json.loads(sf_materials.write_mat(data, filename=data['filename'],
+                                                parents=parents))
+    complete = json.loads(sf_materials.write_mat(data, filename=data['filename']))
+
+    # It is a derivation, and it says so.
+    assert TT.is_eq(written.get('Import'), authored['Import'],
+                    f"the written file declares its parent: {written.get('Import')}")
+    n_written = sum(len(o.get('Components') or ()) for o in written['Objects'])
+    n_complete = sum(len(o.get('Components') or ()) for o in complete['Objects'])
+    assert TT.is_eq(n_written < n_complete, True,
+                    f"and says less than the complete form: {n_written} vs {n_complete}")
+
+    # THE bug this whole exercise was about: ids must be the ones the material came in with.
+    # A material whose ids have been moved to an invented namespace parses, loads in the CK
+    # and renders NOTHING in game, and no check short of running the game catches it.
+    authored_ids = {o['ID'] for o in authored['Objects'] if o.get('ID')}
+    written_ids = {o['ID'] for o in written['Objects'] if o.get('ID')}
+    assert TT.is_eq(written_ids, authored_ids,
+                    f"every id survives: {len(written_ids & authored_ids)} of "
+                    f"{len(authored_ids)} kept, {len(written_ids - authored_ids)} invented")
+
+    # And it still means the same thing: resolving what we wrote gives the material back.
+    back = resolve_material(src, search=[mats], doc=written)
+    got = sf_materials.parse_mat_doc(back.to_doc())
+    assert TT.is_eq(got['settings'].get('shader_model'), 'Eye1Layer',
+                    "the shader model still resolves through the chain")
+    assert TT.is_eq(len(got['layers']), len(parsed['layers']), "same layer count")
+    assert TT.is_eq(len(got['blenders']), len(parsed['blenders']), "same blender count")
+    # Field for field, within float32: the values made a round trip through Blender's
+    # sockets, so 0.58 comes back as 0.5799999833106995. What matters is that all seven are
+    # there and unchanged in value -- including `Enabled`, which this material does not own
+    # and which therefore has to have been read from the template and written back to it.
+    ours, want = got['settings'].get('eye'), parsed['settings'].get('eye')
+    assert TT.is_eq(sorted(ours), sorted(want), "the same eye settings fields come back")
+    for k in want:
+        same = (abs(ours[k] - want[k]) < 1e-5 if isinstance(want[k], float)
+                else ours[k] == want[k])
+        assert same, f"eye settings {k}: {ours[k]} vs {want[k]}"
+
+
+@TT.category('STARFIELD', 'SHADER')
 def TEST_SF_MAT_COMPONENT_ROUNDTRIP():
     """Starfield: every component family a human bodypart material uses survives the node tree.
 

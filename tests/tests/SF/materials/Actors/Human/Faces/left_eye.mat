@@ -1,0 +1,676 @@
+{
+	"Filename" : "materials/actors/human/faces/left_eye.mat",
+	"Import" : [ "materials/layered/shadermodels/eye1layer.mat" ],
+	"Objects" : 
+	[
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "left_eye"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:55E9CF96:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::BlenderID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:8989A601:0005E580:A23A50C9"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::BlenderID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:5621D275:0005C07E:A2A909D2"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::LayerID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:56ED4977:0005C45A:A23A50C9"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::LayerID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:8989A614:0005E580:A23A50C9"
+					},
+					"Index" : 2,
+					"Type" : "BSMaterial::LayerID"
+				},
+				{
+					"Data" : 
+					{
+						"Settings" : 
+						{
+							"Data" : 
+							{
+								"SpecLobe0RoughnessScale" : "0.09125",
+								"SpecLobe1RoughnessScale" : "0.05375",
+								"TransmissiveScale" : "0.07125"
+							},
+							"Type" : "BSMaterial::TranslucencySettings"
+						}
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::TranslucencySettingsComponent"
+				},
+				{
+					"Data" : 
+					{
+						"IrisDepthPosition" : "0.0944",
+						"IrisDepthTransitionRatio" : "0.16",
+						"IrisTotalDepth" : "0.0029",
+						"LightingPower" : "0.6",
+						"LightingWrap" : "0.18",
+						"ScleraEyeRoughness" : "0.58"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::EyeSettingsComponent"
+				},
+				{
+					"Data" : 
+					{
+						"Value" : "false"
+					},
+					"Index" : 3,
+					"Type" : "BSMaterial::ParamBool"
+				}
+			],
+			"Parent" : "materials/layered/shadermodels/eye1layer.mat"
+		},
+		{
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:55E9CF96:0005C45A:A23A50C9",
+			"Parent" : "res:55E9A33F:0005C45A:A23A50C9"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "left_eye_Layer1"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:5621DA1B:0005C07E:A2A909D2"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:5621E297:0005C07E:A2A909D2"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::UVStreamID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:5621D275:0005C07E:A2A909D2",
+			"Parent" : "res:6D980B8A:0005B105:A06346EA"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "left_eye_Material1"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:5621DE1A:0005C07E:A2A909D2"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::TextureSetID",
+					"Version" : 3
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:5621D275:0005C07E:A2A909D2",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:5621DA1B:0005C07E:A2A909D2",
+			"Parent" : "res:6D980DF7:0005B105:A06346EA"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "left_eye_TextureSet1"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				},
+				{
+					"Data" : 
+					{
+						"FileName" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\Iris_Brown_color.dds"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MRTextureFile",
+					"Version" : 2
+				},
+				{
+					"Data" : 
+					{
+						"FileName" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\left_eye_normal.dds"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::MRTextureFile",
+					"Version" : 2
+				},
+				{
+					"Data" : 
+					{
+						"FileName" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\left_eye_rough.dds"
+					},
+					"Index" : 3,
+					"Type" : "BSMaterial::MRTextureFile",
+					"Version" : 2
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:5621DA1B:0005C07E:A2A909D2",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:5621DE1A:0005C07E:A2A909D2",
+			"Parent" : "res:6D980FFC:0005B105:A06346EA"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Name" : "left_eye_UVStreamA"
+					},
+					"Index" : 0,
+					"Type" : "BSComponentDB::CTName"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:5621D275:0005C07E:A2A909D2",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:5621E297:0005C07E:A2A909D2",
+			"Parent" : "res:6D980CE1:0005B105:A06346EA"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"ID" : "res:576A3512:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:572BBD14:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::UVStreamID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:56ED4977:0005C45A:A23A50C9",
+			"Parent" : "res:56ECE6EC:0005C45A:A23A50C9"
+		},
+		{
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:56ED4977:0005C45A:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:572BBD14:0005C45A:A23A50C9",
+			"Parent" : "res:572B4E6B:0005C45A:A23A50C9"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"ID" : "res:57D02CDE:0005C45A:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::TextureSetID",
+					"Version" : 3
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:56ED4977:0005C45A:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:576A3512:0005C45A:A23A50C9",
+			"Parent" : "res:5769BA39:0005C45A:A23A50C9"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"FileName" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\ScleraBlank_sk1_color.dds"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MRTextureFile",
+					"Version" : 2
+				},
+				{
+					"Data" : 
+					{
+						"FileName" : "Data\\Textures\\Actors\\human\\faces\\peter\\eyedetail_normal.dds"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::MRTextureFile",
+					"Version" : 2
+				},
+				{
+					"Data" : 
+					{
+						"Value" : "0.25"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialParamFloat"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:576A3512:0005C45A:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:57D02CDE:0005C45A:A23A50C9",
+			"Parent" : "res:57CFB2FF:0005C45A:A23A50C9"
+		},
+		{
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:8989A601:0005E580:A23A50C9",
+			"Parent" : "res:3665E465:0005E530:A23A50C9"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"ID" : "res:8989A616:0005E580:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialID"
+				},
+				{
+					"Data" : 
+					{
+						"ID" : "res:8989A619:0005E580:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::UVStreamID"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "<this>",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:8989A614:0005E580:A23A50C9",
+			"Parent" : "res:3665E44D:0005E530:A23A50C9"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"ID" : "res:8989A617:0005E580:A23A50C9"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::TextureSetID",
+					"Version" : 3
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:8989A614:0005E580:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:8989A616:0005E580:A23A50C9",
+			"Parent" : "res:3665E46B:0005E530:A23A50C9"
+		},
+		{
+			"Components" : 
+			[
+				{
+					"Data" : 
+					{
+						"Enabled" : "true"
+					},
+					"Index" : 1,
+					"Type" : "BSMaterial::TextureReplacement"
+				},
+				{
+					"Data" : 
+					{
+						"Value" : "0"
+					},
+					"Index" : 0,
+					"Type" : "BSMaterial::MaterialParamFloat"
+				}
+			],
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:8989A616:0005E580:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:8989A617:0005E580:A23A50C9",
+			"Parent" : "res:3665E46D:0005E530:A23A50C9"
+		},
+		{
+			"Edges" : 
+			[
+				{
+					"EdgeIndex" : 0,
+					"To" : "res:8989A614:0005E580:A23A50C9",
+					"Type" : "BSComponentDB2::OuterEdge"
+				}
+			],
+			"ID" : "res:8989A619:0005E580:A23A50C9",
+			"Parent" : "res:3665E468:0005E530:A23A50C9"
+		}
+	],
+	"Summary" : 
+	{
+		"Layer1" : 
+		{
+			"Parent" : "materials/layered/shadermodels/eye1layer.mat",
+			"Textures" : 
+			{
+				"Albedo" : 
+				{
+					"File" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\Iris_Brown_color.dds",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"TextureResolutionHint" : "Tiling",
+					"UseReplacement" : false
+				},
+				"Normal" : 
+				{
+					"File" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\left_eye_normal.dds",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 1
+					},
+					"TextureResolutionHint" : "Tiling",
+					"UseReplacement" : false
+				},
+				"Roughness" : 
+				{
+					"File" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\left_eye_rough.dds",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"TextureResolutionHint" : "Tiling",
+					"UseReplacement" : false
+				}
+			},
+			"UseVertexColorAsTint" : false
+		},
+		"Layer2" : 
+		{
+			"Blender" : 
+			{
+				"BlendMask" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"BlendMode" : "Linear",
+				"BlendTextureAdditiveNormal" : true,
+				"BlendTextureAlbedo" : false,
+				"BlendTextureAo" : false,
+				"BlendTextureMetal" : false,
+				"BlendTextureNormal" : true,
+				"BlendTextureRoughness" : false,
+				"MaskIntensity" : 1,
+				"VertexAlpha" : false,
+				"VertexColorChannel" : "Red"
+			},
+			"Parent" : "materials/layered/shadermodels/eye1layer.mat",
+			"Textures" : 
+			{
+				"Albedo" : 
+				{
+					"File" : "Data\\Textures\\Actors\\human\\faces\\Eyes\\ScleraBlank_sk1_color.dds",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"TextureResolutionHint" : "Tiling",
+					"UseReplacement" : false
+				},
+				"Metalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Normal" : 
+				{
+					"File" : "Data\\Textures\\Actors\\human\\faces\\peter\\eyedetail_normal.dds",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 1
+					},
+					"TextureResolutionHint" : "Tiling",
+					"UseReplacement" : false
+				},
+				"Opacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				}
+			},
+			"UseVertexColorAsTint" : false
+		},
+		"Layer3" : 
+		{
+			"Blender" : 
+			{
+				"BlendMask" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				},
+				"BlendMode" : "Linear",
+				"BlendTextureAdditiveNormal" : true,
+				"BlendTextureAlbedo" : true,
+				"BlendTextureAo" : true,
+				"BlendTextureMetal" : true,
+				"BlendTextureNormal" : true,
+				"BlendTextureRoughness" : true,
+				"MaskIntensity" : 1,
+				"VertexAlpha" : false,
+				"VertexColorChannel" : "Red"
+			},
+			"Parent" : "materials/layered/shadermodels/eye1layer.mat",
+			"Textures" : 
+			{
+				"Metalness" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0,
+						"y" : 0,
+						"z" : 0
+					},
+					"UseReplacement" : false
+				},
+				"Normal" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 0.5,
+						"y" : 0.5,
+						"z" : 1
+					},
+					"UseReplacement" : true
+				},
+				"Opacity" : 
+				{
+					"File" : "",
+					"Replacement" : 
+					{
+						"w" : 1,
+						"x" : 1,
+						"y" : 1,
+						"z" : 1
+					},
+					"UseReplacement" : false
+				}
+			},
+			"UseVertexColorAsTint" : false
+		}
+	},
+	"Version" : 1
+}

@@ -465,6 +465,34 @@ PYN_SF_REPLACE_SLOT = 'pyn_sf_replace_slot'  # on an RGB node: which slot it sta
 PYN_SF_NODES = 'pyn_sf_nodes'   # on an SF Layer node: {kind: meta}
 PYN_SF_NODE = 'pyn_sf_node'     # on an SF Blend node and on the material: one meta
 
+# Where each of those objects -- and each FIELD of each of its components -- came from in
+# the material's Import chain: `{'origin': <material>, 'fields': {<field>: <material>}}`,
+# or that keyed by node kind where a node stands for several objects. The tree shows the
+# EFFECTIVE material, so it cannot otherwise say which of the values on it this file owns
+# and which it inherited, and writing an inherited value back as though it were local is
+# how a derivation turns into the flat file that renders nowhere.
+#
+# Display and diagnosis only. The export decision compares against the resolved chain at
+# write time rather than trusting these -- a stamp records what the parent said when the
+# material was imported, which is not the same claim.
+PYN_SF_ORIGIN = 'pyn_sf_origin'
+PYN_SF_IMPORT = 'pyn_sf_import'   # on the material: its `Import` list, verbatim
+PYN_SF_CHAIN = 'pyn_sf_chain'     # on the material: the resolved chain, for display
+PYN_SF_OVERRIDE = 'pyn_sf_override'  # on a node: treat everything on it as this file's
+PYN_SF_BASE = 'pyn_sf_base'       # on an SF Base group node: which material it stands for
+
+# One node group per inherited material, named for it and SHARED by everything deriving from
+# it, nested one level per step up the chain:
+#
+#   material node tree                      <- this .mat: the objects it owns
+#     |_ SF Base: layered/shadermodels/eye1layer
+#         |_ SF Base: layered/root/layeredmaterials
+#
+# A view, never a source: rebuilt from the resolver on every import and never read back.
+# Export walks the material's own tree only, so editing inside one cannot corrupt a written
+# file -- it can only make the view wrong, for every material sharing the datablock.
+SF_BASE_GROUP = 'SF Base'
+
 
 def _stamp_json(owner, key, value):
     """Store carried .mat state as JSON. A custom property could hold the dict directly, but it
@@ -521,6 +549,7 @@ SF_LAYER_GAP = 60               # vertical gap between one layer's bottom and th
 SF_MASK_GAP = 40                # X gap from a layer node to its blend's mask node
 SF_COMP_BASE_Y = 400            # bottom-most settings-component Y (sits above the blend row)
 SF_COMP_DY = 350                # vertical gap between stacked settings-component nodes
+SF_BASE_Y = 1400                # the SF Base group node, clear above everything else
 
 
 def _versioned(name, version):
@@ -584,6 +613,22 @@ def ensure_sf_layer_group():
     return ng
 
 
+def _ensure_sf_base_group(label):
+    """The shared node group standing for one inherited material, emptied for rebuilding.
+
+    Shared on purpose: open `SF Base: layered/shadermodels/eye1layer` from any eye material
+    and it is the same datablock. Rebuilt rather than reused because it is a view of what the
+    resolver just read, and a stale view of a template is a stale view for every material
+    that derives from it.
+    """
+    name = f"{SF_BASE_GROUP}: {label}"
+    ng = bpy.data.node_groups.get(name)
+    if ng is None:
+        ng = bpy.data.node_groups.new(name, 'ShaderNodeTree')
+    ng.use_fake_user = True
+    return ng
+
+
 def _ensure_sf_blend_group(suffix):
     """Build (or fetch) an SF Blend group named "SF Blend <suffix>". All modes currently share one
     body: pass every channel through from A, except Normal = RNM(A.Normal, B.Normal, Mask). The
@@ -623,18 +668,30 @@ def ensure_sf_blend_skin_group():
 
 
 def sf_blend_group_for(mode):
-    """The SF Blend group for a blend mode. Only `Skin` is implemented; every other mode maps to a
-    distinct `SF Blend Unknown` group -- same body as Skin for now, but its own name so the graph
-    signals that this blend mode wasn't really processed. The true mode still rides on PYN_SF_MODE
-    for recovery, so export round-trips it regardless."""
-    return ensure_sf_blend_skin_group() if mode == 'Skin' else _ensure_sf_blend_group("Unknown")
+    """The SF Blend group for a blend mode.
+
+    Only `Skin` is implemented. The other two names are different claims and are kept apart:
+
+    * **Default** -- the material declares no `BlendModeComponent` anywhere in its chain, so
+      the shader model decides. Vanilla eyes are like this: both of `left_eye.mat`'s blenders
+      carry a name and four `ParamBool`s and nothing else, where `male_default.mat` gives all
+      five of its blenders a mode and a mask texture. Nothing is missing; the material really
+      does say nothing.
+    * **Unknown** -- the material names a mode we do not implement. Something IS missing.
+
+    Both share the Skin body for now. The true mode rides on PYN_SF_MODE either way, so export
+    round-trips it regardless of which group the graph shows.
+    """
+    if mode == 'Skin':
+        return ensure_sf_blend_skin_group()
+    return _ensure_sf_blend_group("Default" if not mode else "Unknown")
 
 
 def _is_group(node, group_name):
     """Is this node an instance of `group_name` (at any version, and of any variant)?
 
     Matched on the base name with the ' vN' suffix stripped, either exactly or followed by a
-    space -- so 'SF Blend' finds 'SF Blend Skin v5' and 'SF Blend Unknown v4', while 'SF Layer'
+    space -- so 'SF Blend' finds 'SF Blend Skin v5' and 'SF Blend Default v4', while 'SF Layer'
     finds 'SF Layer v5' but NOT 'SF LayeredEmissivityComponent v1'. A plain startswith matched
     that last one, which is why layer counts had to be taken from recovery rather than by name."""
     if getattr(node, 'type', '') != 'GROUP' or node.node_tree is None:
@@ -715,6 +772,73 @@ def _nodes_reaching_output(nt):
             for link in inp.links:
                 stack.append(link.from_node)
     return seen
+
+
+def sf_cdb_path():
+    """The configured Starfield `materialsbeta.cdb` (expanded), or None if unset or absent.
+
+    The six `Materials\\Layered\\Root` templates ship only inside it, so without it the tail
+    of every chain goes unresolved -- on import that loses whatever they supply, and on export
+    it turns inherited values into owned ones and writes them out.
+    """
+    try:
+        raw = bpy.context.preferences.addons[base_package].preferences.sf_cdb_path
+    except Exception:
+        return None
+    if not raw:
+        return None
+    p = bpy.path.abspath(raw)
+    return p if os.path.isfile(p) else None
+
+
+def sf_material_search(matpath, altpaths=None, extra=()):
+    """Materials-tree roots to resolve a material's `Import` chain against: the tree the
+    material itself sits in, plus any alternate asset roots that have one.
+
+    Import and export ask the same question and must get the same answer -- export resolves
+    the chain to work out what NOT to write, so a parent it cannot find there but could find
+    on import would silently turn inherited values into owned ones.
+    """
+    from ..pyn import sf_matchain
+    roots = [sf_matchain.tree_root(matpath)]
+    for p in extra:
+        if p:
+            r = sf_matchain.tree_root(p)
+            if r not in roots:
+                roots.append(r)
+    for alt in (altpaths or []):
+        cand = os.path.join(alt, 'materials')
+        if os.path.isdir(cand) and cand not in roots:
+            roots.append(cand)
+    return roots
+
+
+def _recover_sf_overrides(material, nodes):
+    """Object ids the user has claimed for this material, whatever the parent says.
+
+    Export decides what a material owns by diffing against its parents, which reads a value
+    equal to the parent's as inherited. That is right almost always and unsayable exactly
+    once: "I set this deliberately, and it must not follow the parent if the parent changes."
+    The Override flag on a node says it, and it is the only thing about ownership that has to
+    be stored -- everything else is computed at write time from the chain itself.
+    """
+    ids = []
+    if material.get(PYN_SF_OVERRIDE):
+        meta = _recover_json(material, PYN_SF_NODE) or {}
+        ids.append(meta.get('id', ''))
+    for n in nodes:
+        if not n.get(PYN_SF_OVERRIDE):
+            continue
+        metas = _recover_json(n, PYN_SF_NODES)
+        if metas is None:
+            one = _recover_json(n, PYN_SF_NODE)
+            metas = {'node': one} if one else {}
+        for meta in metas.values():
+            if isinstance(meta, dict) and meta.get('id'):
+                ids.append(meta['id'])
+            if isinstance(meta, dict) and isinstance(meta.get('uvstream'), dict):
+                ids.append(meta['uvstream'].get('id', ''))
+    return [i for i in ids if i is not None]
 
 
 def recover_sf_material(material):
@@ -836,7 +960,12 @@ def recover_sf_material(material):
 
     return {'filename': material.get('BSLSP_Shader_Name', ''),
             'textures': textures, 'settings': _recover_sf_settings(material),
-            'layers': layers, 'blenders': blenders}
+            'layers': layers, 'blenders': blenders,
+            # What this material derives from, as it declared it. Export writes it back and
+            # resolves against it; a material with none is written complete, which is legal
+            # to parse and renders nothing, so it is the from-scratch author's problem.
+            'imports': _recover_json(material, PYN_SF_IMPORT) or [],
+            'overrides': _recover_sf_overrides(material, nodes)}
 
 
 GLOSS_SCALE = 100
@@ -1665,6 +1794,8 @@ class ShaderImporter:
         """
         self.material = None
         self.shape = None
+        self._sf_chain = None      # the resolved Import chain of the material being read
+        self._sf_origins = {}      # {object id: provenance entry} from that chain
         self.colormap = None
         self.alphamap = None
         self.vertex_alpha = None
@@ -1888,14 +2019,91 @@ class ShaderImporter:
 
     def _sf_cdb_path(self):
         """The configured Starfield materialsbeta.cdb path (expanded), or None if unset/absent."""
+        return sf_cdb_path()
+
+
+    def _sf_material_search(self, matpath):
+        """Materials-tree roots to resolve this material's Import chain against."""
+        return sf_material_search(matpath, self._sf_altpaths)
+
+
+    def _sf_read_material(self, matpath):
+        """The EFFECTIVE material at `matpath` -- what it says plus what it inherits.
+
+        A Starfield `.mat` is normally a derivation: 99.5% of vanilla materials name a
+        parent with `Import` and restate only what they change, and only 0.3% name their own
+        shader model. Reading the file alone therefore gets a fragment -- no shader model, no
+        settings the template supplies, and components missing whichever fields the author
+        did not repeat. The chain is resolved first so the node tree is built from the
+        material the engine would actually assemble.
+        """
+        from ..pyn import sf_matchain, sf_materials
         try:
-            raw = bpy.context.preferences.addons[base_package].preferences.sf_cdb_path
-        except Exception:
+            chain = sf_matchain.resolve_material(
+                matpath, search=self._sf_material_search(matpath),
+                cdb=self._sf_cdb_path())
+        except Exception as e:
+            self.warn(f"Could not resolve the Import chain for '{matpath}': {e}")
+            try:
+                with open(matpath, 'r', encoding='utf-8-sig') as f:
+                    return sf_materials.parse_mat(f.read())
+            except OSError as e2:
+                self.warn(f"Could not read material '{matpath}': {e2}")
+                return None
+
+        # A declared parent we could not find means real content is missing, and the result
+        # would look complete anyway -- so say which one. An unresolved tail in
+        # Materials\Layered\Root is normal: those ship only inside the .cdb.
+        missing = [r for r in chain.unresolved
+                   if not r.startswith('res:') and 'layered' not in r.lower()]
+        if missing:
+            self.warn(f"Material '{os.path.basename(matpath)}' inherits from "
+                      f"{', '.join(missing)}, which could not be found; values it supplies "
+                      f"are missing.")
+
+        # Two different facts, both needed. The chain is where resolution WENT, for
+        # diagnosis; the imports are what this file DECLARES, and export writes them back
+        # verbatim rather than re-deriving them from where values ended up coming from.
+        self.material[PYN_SF_CHAIN] = json.dumps(
+            [os.path.basename(p) for p in chain.paths])
+        self.material[PYN_SF_IMPORT] = json.dumps(chain.imports)
+        self._sf_chain = chain
+        self._sf_origins = chain.origin_map()
+        return sf_materials.parse_mat_doc(chain.to_doc())
+
+
+    def _sf_origin_of(self, meta):
+        """Provenance for the one `.mat` object a carried node meta stands for, or None.
+
+        The root is keyed by the empty id: it is `Objects[0]` whether or not it carries
+        one, which is exactly what the meta records for it.
+        """
+        if not meta or not self._sf_origins:
             return None
-        if not raw:
+        return self._sf_origins.get(meta.get('id', ''))
+
+    def _sf_origins_for(self, metas):
+        """The same, for a node that stands for several objects: `{kind: entry}`."""
+        out = {}
+        for kind, meta in (metas or {}).items():
+            entry = self._sf_origin_of(meta) if isinstance(meta, dict) else None
+            if entry:
+                out[kind] = entry
+        return out
+
+    def _sf_component_origin(self, key):
+        """Provenance for one root settings component, per field.
+
+        Asked of the chain rather than read off the object's entry because the two answer
+        different questions: the root's RECORD is always local, while the component on it
+        may be wholly inherited -- which is the case for 99.7% of vanilla materials'
+        shader model and most of what comes with it.
+        """
+        from ..pyn import sf_materials
+        ctype = sf_materials.COMPONENT_TYPES.get(key)
+        if not (ctype and self._sf_chain):
             return None
-        p = bpy.path.abspath(raw)
-        return p if os.path.isfile(p) else None
+        return self._sf_chain.component_origin(self._sf_chain.root, ctype)
 
 
     def find_textures(self, shape:NiShape):
@@ -2160,17 +2368,15 @@ class ShaderImporter:
         altpaths = self._build_alt_pathlist()
         self._sf_nifpath = shape.file.filepath
         self._sf_altpaths = altpaths
+        self._sf_chain = None
+        self._sf_origins = {}
         mat_ref = shape.shader.name  # 'Materials\...\x.mat'
         parsed = None
         if mat_ref:
             matpath = find_referenced_file(mat_ref, nifpath=shape.file.filepath,
                                            root='materials', alt_suffix=None, alt_pathlist=altpaths)
             if matpath:
-                try:
-                    with open(matpath, 'r', encoding='utf-8-sig') as f:
-                        parsed = sf_materials.parse_mat(f.read())
-                except OSError as e:
-                    self.warn(f"Could not read material '{matpath}': {e}")
+                parsed = self._sf_read_material(matpath)
             else:
                 # No loose .mat -> read straight from the material database if configured.
                 cdb_path = self._sf_cdb_path()
@@ -2205,6 +2411,7 @@ class ShaderImporter:
                       and COLOR_MAP_NAME in obj.data.color_attributes)
         self._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved,
                              has_vertex_colors=has_colors)
+        self._build_sf_base_chain(self._sf_chain)
         obj.active_material = self.material
 
     def _resolve_sf_texset(self, texdict):
@@ -2354,6 +2561,7 @@ class ShaderImporter:
         node.label = f"{SF_LAYER_GROUP} {index}"
         node[PYN_SF_LAYER] = index
         _stamp_json(node, PYN_SF_NODES, layer.get('nodes'))
+        _stamp_json(node, PYN_SF_ORIGIN, self._sf_origins_for(layer.get('nodes')))
         # What this layer's Material and TextureSet carry besides their textures.
         _stamp_indexed(node, PYN_SF_PARAM_BOOL, layer.get('param_bools'))
         _stamp_indexed(node, PYN_SF_PARAM_FLOAT, layer.get('mat_params'))
@@ -2484,6 +2692,11 @@ class ShaderImporter:
         node[PYN_SF_BLEND] = index
         node[PYN_SF_MODE] = blender.get('mode', '')
         _stamp_json(node, PYN_SF_NODE, blender.get('node'))
+        # A blender's UV stream hangs off its own meta, so provenance for the pair is
+        # keyed the way a layer's is.
+        _stamp_json(node, PYN_SF_ORIGIN, self._sf_origins_for(
+            {'node': blender.get('node'),
+             'uvstream': (blender.get('node') or {}).get('uvstream')}))
         _stamp_indexed(node, PYN_SF_PARAM_BOOL, blender.get('param_bools'))
         _stamp_indexed(node, PYN_SF_PARAM_FLOAT, blender.get('mat_params'))
         for chan in _SF_BUNDLE_NAMES:
@@ -2530,6 +2743,7 @@ class ShaderImporter:
         _stamp_indexed(self.material, PYN_SF_PARAM_BOOL, settings.get('param_bools'))
         _stamp_indexed(self.material, PYN_SF_LOD_MATERIAL, settings.get('lod_materials'))
         _stamp_json(self.material, PYN_SF_NODE, settings.get('node'))
+        _stamp_json(self.material, PYN_SF_ORIGIN, self._sf_origin_of(settings.get('node')))
         comp_nodes = {}
         y = SF_COMP_BASE_Y
         for key in _SF_COMPONENTS:
@@ -2537,6 +2751,7 @@ class ShaderImporter:
             if block is not None:
                 node = add_sf_component_node(nt, key, block, (anchor_x, y))
                 node.width = SF_BLEND_WIDTH
+                _stamp_json(node, PYN_SF_ORIGIN, self._sf_component_origin(key))
                 comp_nodes[key] = node
                 y += SF_COMP_DY
         return comp_nodes
@@ -2587,6 +2802,88 @@ class ShaderImporter:
                 nt.links.new(hr.outputs['Sheen Weight'], bsdf.inputs['Sheen Weight'])
             if 'Sheen Roughness' in bsdf.inputs:
                 nt.links.new(hr.outputs['Sheen Roughness'], bsdf.inputs['Sheen Roughness'])
+
+    def _build_sf_base_chain(self, chain):
+        """Nested `SF Base` group nodes for everything this material inherits from.
+
+        Provenance stamps answer "where did this value come from" one node at a time, which
+        you have to think to ask. This answers "what is under me" by being visible in the
+        graph: one group per level of the chain, each containing the next, each holding the
+        layers, blends and settings that level actually supplies.
+
+        Returns the outermost group node, or None when nothing is inherited.
+        """
+        if chain is None or len(chain.paths) < 2:
+            return None
+        from ..pyn import sf_matchain, sf_materials
+
+        saved_nodes = self.nodes
+        inner = None
+        try:
+            # Innermost (the root template) first, so each level can hold the one below it.
+            for path in reversed(chain.paths[1:]):
+                label = sf_matchain.material_label(path)
+                group = _ensure_sf_base_group(label)
+                self.nodes = group.nodes
+                try:
+                    level = sf_matchain.resolve_level(
+                        path, search=self._sf_material_search(chain.paths[0]),
+                        cdb=self._sf_cdb_path())
+                    parsed = (sf_materials.parse_mat_doc(level.to_doc()) if level
+                              else {'layers': [], 'blenders': [], 'settings': {}})
+                except Exception as e:
+                    self.warn(f"Could not read the inherited material '{label}': {e}")
+                    parsed = {'layers': [], 'blenders': [], 'settings': {}}
+                self._fill_sf_base_group(group, parsed, inner)
+                inner = group
+        finally:
+            self.nodes = saved_nodes
+
+        node = self.material.node_tree.nodes.new('ShaderNodeGroup')
+        node.node_tree = inner
+        node.location = (SF_X_LAYER, SF_BASE_Y)
+        node.width = SF_BLEND_WIDTH
+        node.label = _group_base(inner.name)
+        node[PYN_SF_BASE] = sf_matchain.material_label(chain.paths[1])
+        return node
+
+    def _fill_sf_base_group(self, group, parsed, inner):
+        """One level of the chain drawn inside its own group: what THIS material supplies."""
+        group.nodes.clear()
+        nt = group
+        if inner is not None:
+            child = nt.nodes.new('ShaderNodeGroup')
+            child.node_tree = inner
+            child.location = (SF_X_LAYER, SF_BASE_Y)
+            child.width = SF_BLEND_WIDTH
+            child.label = _group_base(inner.name)
+
+        settings = parsed.get('settings') or {}
+        n_blend = min(len(parsed.get('blenders') or []),
+                      max(0, len(parsed.get('layers') or []) - 1))
+        y = SF_COMP_BASE_Y
+        for key in _SF_COMPONENTS:
+            block = settings.get(key)
+            if block is not None:
+                comp = add_sf_component_node(
+                    nt, key, block,
+                    (SF_X_BLEND0 + max(0, n_blend - 1) * SF_BLEND_DX, y))
+                comp.width = SF_BLEND_WIDTH
+                y += SF_COMP_DY
+
+        layer_nodes = []
+        next_top = SF_LAYER_TOP_Y
+        for i, ly in enumerate(self._resolve_sf_layers(parsed.get('layers') or [])):
+            node, bottom = self._build_sf_layer(nt, i, ly, SF_X_LAYER, next_top)
+            layer_nodes.append(node)
+            next_top = bottom - SF_LAYER_GAP
+
+        prev, bx = (layer_nodes[0] if layer_nodes else None), SF_X_BLEND0
+        for i, b in enumerate(self._resolve_sf_blenders(parsed.get('blenders') or [])):
+            if prev is None or i + 1 >= len(layer_nodes):
+                break
+            prev = self._build_sf_blend(nt, i, b, prev, layer_nodes[i + 1], bx, SF_BLEND_Y)
+            bx += SF_BLEND_DX
 
     def _build_sf_nodes(self, resolved, settings=None, layers_resolved=None,
                         blenders_resolved=None, has_vertex_colors=True):

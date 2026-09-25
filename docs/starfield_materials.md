@@ -56,7 +56,9 @@ represent the layered structure. Each node is stamped with special-purpose custo
 | Image texture | one per texture slot | `pyn_sf_layer`, `pyn_sf_slot`, `pyn_sf_path` |
 | Mapping | per-layer UV scale/offset (absent = 1:1) | `pyn_sf_layer` |
 
-An unrecognised blend mode becomes `SF Blend Unknown` rather than being dropped, so the mode
+A blend mode the material never declares becomes `SF Blend Default` (the shader model
+decides -- vanilla eyes are like this); one we don't implement becomes `SF Blend Unknown`.
+Neither is dropped, so the mode
 still round-trips.
 
 The mesh's vertex colour layer is named `VERTEX_COLOR` in Blender. It matters: vanilla

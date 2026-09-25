@@ -336,33 +336,44 @@ def write_sf_materials(exporter):
         # The material is built from the shader graph. Each node carries the identity, parenting
         # and components it was imported with, so nothing needs reading off disk -- and a layer
         # added in Blender is written like any other, which patching the old file could not do.
-        # A template is still passed for a material whose nodes carry nothing (imported before
-        # PyNifly recorded it), where the file being overwritten is the only source of structure.
-        template = _material_template(out_path, mat_ref, exporter.nif.filepath)
+        # Whatever is already at the path is replaced outright.
+        parents = _parent_chain(data, out_path, mat_ref, exporter)
         with open(out_path, 'w', encoding='utf-8') as f:
-            f.write(sf_materials.write_mat(data, filename=mat_ref, template=template))
+            f.write(sf_materials.write_mat(data, filename=mat_ref, parents=parents))
         log.info(f"Wrote loose .mat: {out_path}")
 
 
-def _material_template(out_path, mat_ref, nif_filepath):
-    """The .mat document to patch on export: the file being overwritten if there is one, else the
-    material the shader names (so a material derived from a vanilla one keeps its structure).
-    None when neither resolves -- a material authored from scratch has nothing to preserve."""
-    import json
-    candidates = [out_path]
-    src = find_referenced_file(mat_ref, nifpath=nif_filepath, root='materials',
+def _parent_chain(data, out_path, mat_ref, exporter):
+    """What this material inherits, resolved -- or None when it inherits nothing.
+
+    Export has to resolve the chain for the same reason import does, and then some: it is the
+    only way to know which of the values on the node tree this material owns. Without it every
+    inherited value is written out as if it were local, which is the flat form that parses,
+    passes the Creation Kit and renders nothing in game.
+
+    A material that declares no `Import` gets None and is written complete. That is either a
+    material authored from scratch in Blender or one imported before PyNifly recorded the
+    chain; both are the caller's problem to know about, and writing a partial file for them
+    would be worse.
+    """
+    from . import shader_io
+    imports = data.get('imports')
+    if not imports:
+        return None
+    src = find_referenced_file(mat_ref, nifpath=exporter.nif.filepath, root='materials',
                                alt_pathlist=mesh_search_paths())
-    if src:
-        candidates.append(src)
-    for p in candidates:
-        if not p or not os.path.exists(p):
-            continue
-        try:
-            with open(p, encoding='utf-8-sig') as f:
-                doc = json.load(f)
-        except (OSError, ValueError) as e:
-            log.warning(f"Could not read material template {p}: {e}")
-            continue
-        if isinstance(doc, dict) and doc.get('Objects'):
-            return doc
-    return None
+    search = shader_io.sf_material_search(out_path, mesh_search_paths(), extra=[src])
+    try:
+        from ..pyn import sf_matchain
+        chain = sf_matchain.resolve_parents(imports, out_path, search=search,
+                                            cdb=shader_io.sf_cdb_path())
+    except Exception as e:
+        exporter.warn(f"Could not resolve what '{mat_ref}' derives from ({e}); writing it "
+                      f"complete rather than as a derivation.")
+        return None
+    missing = [r for r in chain.unresolved
+               if not r.startswith('res:') and 'layered' not in r.lower()]
+    if missing:
+        exporter.warn(f"'{mat_ref}' derives from {', '.join(missing)}, which could not be "
+                      f"found; values they supply will be written into this material.")
+    return chain
