@@ -44,6 +44,30 @@ extracting a material means already knowing its path.
 The "could not find material" warning is also normal — and harmless — for a mod whose materials
 are inside its BA2.
 
+### A `.mat` is a derivation, and the chain is resolved first
+
+A Starfield material normally states only what it CHANGES about another one. It names a
+parent with `Import` and overrides selected components of that parent's objects. Of the
+48,505 authored vanilla materials, **99.5% carry `Import`** and only **0.3% carry a
+`ShaderModelComponent`** — the shader model belongs to the template they derive from.
+
+So reading the file alone reads almost none of the material. PyNifly resolves the whole chain
+(loose files, then the mod's own BA2 tree, then `materialsbeta.cdb`) and builds the node tree
+from the **effective** material: what the engine would assemble. A chain normally ends in
+`Materials\Layered\Root\*.mat`, which ships only inside the database — one more reason to set
+the **Starfield .cdb path** preference.
+
+A parent that cannot be found is reported, never silently skipped: "nothing to inherit" and
+"could not look it up" produce very different materials and only one of them is right.
+
+Two things follow, and they are what the rest of this page is about:
+
+- The graph shows the material that renders, so on its own it cannot say which of those
+  values this file owns. PyNifly stamps that on every node — see
+  [Where a value came from](#where-a-value-came-from).
+- Export must write the delta back, not the whole thing. See
+  [Export](#the-material-is-written-as-a-derivation).
+
 ### The Blender graph
 
 For Starfield, PyNifly writes a native **Principled BSDF** node, fed by group nodes that
@@ -55,11 +79,41 @@ represent the layered structure. Each node is stamped with special-purpose custo
 | `SF Blend <Mode>` | one per blender — `SF Blend Skin`, `SF Blend Lerp`, … | `pyn_sf_blend` |
 | Image texture | one per texture slot | `pyn_sf_layer`, `pyn_sf_slot`, `pyn_sf_path` |
 | Mapping | per-layer UV scale/offset (absent = 1:1) | `pyn_sf_layer` |
+| `SF Base: <material>` | one per inherited material, nested one per level of the chain | `pyn_sf_base` |
 
 A blend mode the material never declares becomes `SF Blend Default` (the shader model
 decides -- vanilla eyes are like this); one we don't implement becomes `SF Blend Unknown`.
 Neither is dropped, so the mode
 still round-trips.
+
+### Where a value came from
+
+The graph shows the effective material, so "is this mine or did I inherit it?" has to be
+recorded separately. Two places show it:
+
+**`SF Base` group nodes.** One shared node group per inherited material, named for it, nested
+one level per step up the chain:
+
+```
+material node tree                              <- this .mat: the objects it owns
+  |_ SF Base: layered/shadermodels/eye1layer    <- the shader model: layers, blenders,
+      |                                            ShaderModelComponent, EyeSettingsComponent
+      |_ SF Base: layered/root/layeredmaterials <- the root template: defaults for the rest
+```
+
+Tab into one to see what that level supplies. They are a **view**: rebuilt from the resolver
+on every import and never read back, so editing inside one cannot change what gets written —
+it can only make the view wrong, and it is a shared datablock, so wrong for every material
+that derives from the same parent.
+
+**The PyNifly Material Chain panel** (shader editor sidebar > Item). For the selected node it
+lists which material set each field, inherited values greyed. It also carries **Claim for this
+material**, which forces a node's values to be written even where they match the parent. That
+is the one case a diff cannot see: a value deliberately set to what the parent happens to say
+is, by construction, indistinguishable from never having touched it.
+
+Inherited values cannot be greyed in the graph itself — node sockets draw themselves and
+Blender has no way to make one read-only. That is why there is a panel.
 
 The mesh's vertex colour layer is named `VERTEX_COLOR` in Blender. It matters: vanilla
 head materials set `MaterialOverrideColorTypeComponent = Multiply` on a layer, which
@@ -103,7 +157,34 @@ appropriate shipped Root template as its `Parent`.
 Earlier versions rebuilt the file from only what PyNifly modelled, and destroyed everything else
 on every export. The version after that patched the original document in place, which preserved
 the unmodelled parts but could not express anything new. The current behaviour is meant to give
-both.
+both — and because every node carries what it needs, **whatever is already at the output path is
+replaced outright**. Nothing is read off disk, so nothing in the old file can survive by accident.
+
+### The material is written as a derivation
+
+The node tree holds the *effective* material — everything that reaches it, inherited and owned
+alike. Writing that back out produces a file that parses, that the Creation Kit accepts, and
+that renders **nothing** in game. What goes on disk is the delta.
+
+So export resolves the chain again, at write time, and removes everything the parents already
+say. Resolving rather than remembering is deliberate: export needs the chain anyway (for the
+parents' object ids), and a value stashed at import can go stale, while the live parent cannot.
+The consequence is what-you-see-is-what-you-get — a material does not change under you because
+Bethesda patched a template — at the cost that a stale import pins values it did not mean to.
+Re-import to pick up a changed parent.
+
+Three rules here are load-bearing, and each can produce a file that parses and renders nowhere:
+
+- **Ids are kept verbatim.** See [Material identity](#material-identity).
+- **`Edges` come from the resolved chain**, not from what the file references locally: 1,138 of
+  21,302 sampled objects are contained by something they never reference.
+- **The root's `LayerID`/`BlenderID` list is written in full.** It is authoritative, not
+  additive — declaring a shorter list is how a material deletes a layer. Inherit it and the
+  deleted layer comes back.
+
+A material with no `Import` — one authored from scratch in Blender — is written complete, which
+is the form that does not render. If you are building a Starfield material from nothing, derive
+it from a vanilla one instead.
 
 ### What still isn't editable
 
@@ -112,80 +193,60 @@ along untouched, but there is no way to *change* them from Blender — you get w
 material had. Materials authored entirely in Blender can only contain what PyNifly models.
 
 Closing that gap — modelling each remaining component on the Blender node it came from — is the
-subject of [the material I/O plan](plan_starfield_material_io.md).
+subject of [the material I/O plan](plan_starfield_material_io.md), continued in
+[the inheritance plan](plan_sf_material_inheritance.md).
 
 ## Material identity
 
-Two separate identifiers are derived from **the material's path**, and both are why a `.mat`
-cannot simply be moved.
+Two identifiers, and only one of them is derived from the material's path.
 
 | Identifier | Where it lives | Derived from |
 |---|---|---|
-| `res:` ID namespace | words 2–3 of every object ID in the `.mat` | hash of the material path |
 | `MaterialID` | `NiIntegerExtraData` on the shape's `BSGeometry` | CRC-32 of the lowercased material path |
+| `res:` ID | words 1–3 of every object ID in the `.mat` | **nothing you can compute** — see below |
 
-### You can't move or rename a `.mat` by hand
+### `res:` IDs are a registered space, not a hash
 
-Renaming the file, or moving it to a new folder, breaks both:
+PyNifly used to treat an object id's namespace (words 2–3) as a hash of the material path, and
+re-namespaced every id on export so a material derived from a vanilla one "could not collide"
+with it. That was invented, and it is fatal.
 
-- The shape's `MaterialID` still hashes the **old** path, so the geometry no longer resolves to
-  the material.
-- The object IDs still sit in the old path's namespace.
+Measured across vanilla: word 2's top half is `0005` (74.8%) or `0006` (25.2%) — 99.99%
+together — and word 3 has **118 distinct values game-wide**. A hashed namespace lands nowhere
+near that space, and a material outside it is not in the database the engine looks in.
 
-**Re-export instead.** PyNifly recomputes `MaterialID` from the shader's material path and
-re-namespaces the IDs to match, so the two stay consistent. This bites hardest when relocating a
-mod out of vanilla paths into its own tree: move the files and the plugin paths, then re-export
-the NIF so the shape's `MaterialID` follows.
+Proven in game, with a ladder of variants at one eye's path:
 
-### ⚠️ Known issue: re-saving to the same path rewrites the `res:` IDs
+| | change from vanilla's authored `left_eye.mat` | in game |
+|---|---|---|
+| v0 | byte for byte | renders |
+| v1 | + the iris texture repointed | renders |
+| v2 | + its `res:` ids moved to a new namespace | **FAILS** |
+| v3 | + only the ids' *first* field changed, namespace kept | renders |
 
-Writing a material back to **the path it came from** currently gives every object a fresh `res:`
-ID anyway. That is wrong, and it can crash the Creation Kit.
+v0 also disposes of the collision theory it was built on: a byte-for-byte duplicate of a
+vanilla material, at a different path, renders perfectly.
 
-A `res:` ID is an object's identity in the game's global material database, and other assets
-reference those objects by ID. Overriding a vanilla material with a loose file that has all-new
-IDs orphans every one of those references. Observed on a vanilla male head round-tripped to
-`materials\Actors\Human\Faces\male_default.mat`:
+**So ids are never re-minted.** An imported object keeps its id exactly; a genuinely new object
+gets an unused first word inside a namespace the material already uses. Nothing short of
+running the game catches getting this wrong — the file parses, the CK loads it, and the mesh is
+simply invisible.
 
-| | object IDs | namespaces | shared with vanilla |
-|---|---|---|---|
-| vanilla (from the `.cdb`) | 33 | 5 | — |
-| PyNifly's loose override | 33 | 1 | **0** |
+### You can still not move or rename a `.mat` by hand
 
-The CK log showed 9 × `Bad path res:…:0074616D` (that last word is `"mat"` little-endian — so
-unresolvable *material* references), followed by an access violation on the null result. Those
-lines appear in no earlier crash log.
+The shape's `MaterialID` hashes the material path, so renaming or moving the file leaves the
+geometry pointing at a hash of the old one. **Re-export instead** — PyNifly recomputes
+`MaterialID` from the shader's material path. (The `res:` ids do not care where the file lives.)
 
-Note that vanilla materials legitimately span **several** namespaces in one file: nodes owned by
-a shader-model template live in the template's namespace, not the material's. "One namespace per
-material" was never the real convention.
+### ✅ Resolved: re-saving to the same path no longer rewrites the ids
 
-**Why it happens.** The per-node identity is carried correctly all the way through the build —
-each node still knows its original ID — and is then overwritten wholesale by a final
-re-namespacing pass over the finished document. The information needed to do better is already
-there; it is being discarded at the last step.
+An earlier version gave every object a fresh `res:` ID when writing a material back to the path
+it came from, which orphaned every external reference to those objects and could crash the
+Creation Kit (`Bad path res:…:0074616D` — that last word is `"mat"` little-endian — followed by
+an access violation on the null result).
 
-**Open design question — not yet resolved.** The tension is real in both directions:
-
-- Writing to the **same** path means *overriding* that material. IDs must be preserved, or
-  external references break.
-- Writing to a **new** path means *creating* a material. IDs must change, or the copy collides
-  with its source in the database and silently overrides it everywhere.
-
-So the rule wants to be "identity follows the path" — re-namespace only on a path change. What
-makes that harder than it sounds is deciding what the source path *is*:
-
-- The material may have been read from `materialsbeta.cdb`, where there is no loose file it
-  "came from" — but overriding it still means keeping its IDs.
-- The material path can be retargeted in Blender, so the shader's current name may not be where
-  the nodes were imported from.
-- A material may carry nodes from more than one namespace, so "the" source path may be
-  ambiguous at the document level even when it's clear per node.
-
-A per-node rule (keep a carried ID, mint only for new nodes) handles the multi-namespace case
-naturally, but on its own it makes a save-as into a colliding duplicate. Whether the right answer
-is a path comparison, a per-node rule, an explicit "override vanilla" export choice, or some
-combination is still open.
+The open design question that went with it — how to tell "overriding this material" from
+"creating a copy of it" — turned out not to need answering. Neither case wants new ids.
 
 ### Writing materials at all is optional
 
@@ -209,18 +270,23 @@ Two Starfield-specific behaviours on the NIF side, both about materials:
 
 ## Gotchas
 
-- **Moved or renamed a `.mat` and the shape lost its material** — both the `MaterialID` on the
-  shape and the `res:` ID namespace are derived from the material's path. Re-export rather than
-  moving the file by hand. See [Material identity](#material-identity).
-- **CK crashes after overriding a vanilla material** — re-saving to the same path currently
-  rewrites the `res:` IDs, orphaning external references. Known issue, documented above.
+- **Moved or renamed a `.mat` and the shape lost its material** — the `MaterialID` on the shape
+  is a hash of the material's path. Re-export rather than moving the file by hand. (The `res:`
+  ids are unaffected; they are not derived from the path.) See
+  [Material identity](#material-identity).
+- **Head part invisible in game but fine in the Creation Kit** — the classic symptom of a
+  material whose `res:` ids are outside the registered space, or of a flat material written
+  where a derivation was wanted. Both are fixed; if you see it with a current build, check
+  first that the `.mat` really does carry an `Import`.
 - **Swapped texture ignored on export** — the image datablock still points at the old file, or
   sits outside a `textures` tree so the stamp fallback wins.
 - **Black face** — a layer with `MaterialOverrideColorTypeComponent = Multiply` over missing or
   black vertex colours. Check the mesh's `VERTEX_COLOR` layer before suspecting the material.
-- **Magenta in game but fine in NifSkope** — the `.mat` isn't game-valid (missing `Parent`
-  links, `CTName`s, or unique `res:` IDs). NifSkope's renderer and PyNifly's reader are both
-  lenient about this; the game is not. See
+- **Magenta in game but fine in NifSkope** — the `.mat` isn't game-valid. NifSkope's renderer
+  and PyNifly's reader are both lenient about this; the game is not. Note that the old rule of
+  thumb here — "every node needs a `Parent` into a Root template, a `CTName` and a unique
+  `res:` ID" — is wrong: 94.4% of vanilla child objects parent to a `res:` id rather than a
+  template, and 67,234 objects carry no `CTName` at all. See
   [Starfield Materials & Textures](https://baddogskyrim.github.io/BethesdaLibrary/game-specific/starfield/materials/)
   for the requirements.
 - **Import warns "could not find material"** — expected when the material is inside a BA2 or
