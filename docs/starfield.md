@@ -64,8 +64,9 @@ Things established while working on PyNifly that belong in the format docs, not 
   init `0`, no final XOR) of the material path lowercased with backslashes, including the
   `Materials\` prefix and `.mat` extension. Needs distinguishing from the unrelated
   `BSMaterial::MaterialID` component inside a `.mat`.
-- **`AnimationFlagExtra`** — a `NiIntegersExtraData` on the shape, one value; hair/beards `31`,
-  eyes/teeth/tongue/brows/lashes `255`, male head `32`. Not yet implemented in PyNifly.
+- **`AnimationFlagExtra`** — a `NiIntegersExtraData` on the shape, one value; hair `31`,
+  beards `47`, eyes/teeth/tongue/brows/tears `255`, male head `32`. **Eyelashes carry none** —
+  they are the only part in `human\characterassets` without the block, so absence is legal.
 - **No `BSShaderTextureSet` in Starfield NIFs** — 0 of 438 sampled.
 - **Shape flags are only ever `14` or `526`** — `526` is `14 | 0x200`, and `0x200` is the
   internal-geometry bit. The correlation with internal geometry was exact across 2548 shapes.

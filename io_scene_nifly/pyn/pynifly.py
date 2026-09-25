@@ -2921,9 +2921,10 @@ class NiIntegersExtraData(NiExtraData):
     """PLURAL -- a different block type from NiIntegerExtraData, holding an ARRAY of uint32.
 
     Starfield stores 'AnimationFlagExtra' this way: 273 of 373 vanilla shape nifs carry one, on the
-    BSGeometry block. Values seen are hair/beards 31, eyes/teeth/tongue/eyebrows/eyelashes/tears
-    255, male head 32, and a cluster at 47. It is authored data, not derived, so it round-trips
-    verbatim rather than being recomputed on export."""
+    BSGeometry block. Values seen are hair 31, beards 47, eyes/teeth/tongue/eyebrows/tears 255,
+    male head 32. Eyelashes carry no block at all -- the only part in human\\characterassets that
+    doesn't -- so absence is legal and must not be "corrected" on export. It is authored data, not
+    derived, so it round-trips verbatim rather than being recomputed on export."""
     buffer_type = PynBufferTypes.NiIntegersExtraDataBufType
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
