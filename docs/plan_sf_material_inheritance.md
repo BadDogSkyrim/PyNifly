@@ -1,7 +1,7 @@
 # Plan: Starfield material inheritance
 
-**Status:** Phases 0-4 COMPLETE, 2026-09-24; Phase 3 verified in game. Phase 5 (docs)
-remains. Successor to
+**Status:** COMPLETE, 2026-09-24. All five phases done, and the derived-export path
+verified in game. Successor to
 [plan_starfield_material_io.md](plan_starfield_material_io.md), whose open question 1 —
 "what actually makes a `.mat` valid?" — this answers.
 
@@ -455,10 +455,24 @@ the honest cure until that mapping exists.
 draw themselves and cannot be made read-only. The panel is where provenance can be shown,
 which is why it is a panel.
 
-**Phase 5 — docs.** Correct `starfield_materials.md` (its "every node needs a Parent into a
-Root template" rule is wrong for 99.5% of materials), and push the format facts to the
-Bethesda Library: `Import`, the `Edges` ownership rule, the shader-model-on-template fact,
-and that `00StarfieldAssets` is a flattened dump.
+**Phase 5 — docs. ✅ DONE 2026-09-24.**
+
+`docs/starfield_materials.md`: the inheritance story, where a value came from (`SF Base`
+groups and the panel), derived export, and a rewritten **Material identity** section. The
+"known issue: re-saving rewrites the `res:` ids" section and the open design question that
+went with it are gone — neither case wants new ids, so there was nothing to decide. The
+"every node needs a `Parent` into a Root template, a `CTName` and a unique `res:` ID" rule of
+thumb is corrected in place: 94.4% of vanilla child objects parent to a `res:` id, and 67,234
+objects carry no `CTName`.
+
+Bethesda Library, `game-specific/starfield/materials.md`: inheritance and the three merge
+rules, resource ids as a registered space with the in-game ladder, `Edges` as containment,
+and component versions. It had said a complete loose graph works; it does not. Also noted
+there that NifSkope's exporter mints fresh resource ids, which is the same failure by another
+route.
+
+(The fourth item once listed here — that `00StarfieldAssets` is a flattened dump — stopped
+being true when Bad Dog replaced that tree with the authored one.)
 
 ## Tests
 
