@@ -870,7 +870,7 @@ def TEST_SF_MAT_PROVENANCE():
     this is about provenance, not pixels.
     """
     import json
-    from io_scene_nifly.nif.shader_io import ShaderImporter, PYN_SF_IMPORT, PYN_SF_ORIGIN
+    from io_scene_nifly.nif.shader_io import ShaderImporter, PYN_SF_IMPORT, PYN_SF_ORIGIN, _group_base
     from pyn.sf_matchain import LOCAL
 
     path = TTB.test_file(r"tests\SF\materials\Actors\Human\Faces\left_eye.mat")
@@ -939,13 +939,16 @@ def TEST_SF_MAT_PROVENANCE():
     # The eye's two blenders declare no blend mode ANYWHERE in the chain -- Eye1Layer.mat
     # has none, where Skin5Layer.mat gives all five of the head's blenders one. That is the
     # material saying nothing, not us failing to read it, so the graph says Default rather
-    # than Unknown; Unknown is reserved for a mode we were given and don't implement.
-    blends = [n for n in nodes if n.get('pyn_sf_blend') is not None]
+    # than Unknown; Unknown is reserved for a mode we were given and don't implement. The first
+    # is the iris/sclera blend, which the eye shader cuts by UV radius, so it previews as Eye
+    # (TEST_SF_EYE_IRIS_PREVIEW) -- still with no mode of its own.
+    blends = sorted((n for n in nodes if n.get('pyn_sf_blend') is not None),
+                    key=lambda n: n['pyn_sf_blend'])
     assert TT.is_eq(len(blends), 2, f"two blend nodes: {len(blends)}")
     assert TT.is_eq([n.get('pyn_sf_mode') for n in blends], ['', ''],
                     "and neither carries a mode")
-    assert TT.is_eq(all('Default' in n.node_tree.name for n in blends), True,
-                    f"so they read as Default: {[n.node_tree.name for n in blends]}")
+    assert TT.is_eq([_group_base(n.node_tree.name) for n in blends],
+                    ['SF Blend Eye', 'SF Blend Default'], "iris/sclera as Eye, the other Default")
 
     # A layer stands for up to four .mat objects, so its provenance is keyed by which.
     layers = [n for n in nodes if n.get('pyn_sf_layer') is not None and n.type == 'GROUP']
@@ -967,6 +970,156 @@ def TEST_SF_MAT_PROVENANCE():
                     "yet fields on them still come from the template it parents into")
     assert TT.is_eq(all('eye1layer' in src.lower() for src in from_template.values()), True,
                     f"and they name it: {sorted(set(from_template.values()))}")
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_SF_EYE_IRIS_PREVIEW():
+    """Starfield functional: an eye previews with the sclera outside the iris, as in game.
+
+    Eye1Layer has an iris layer and a sclera layer and a blender between them with no mode
+    and no mask -- nothing in any file says where one stops. The shader decides: the iris
+    shows out to a UV RADIUS of `IrisDepthTransitionRatio` from the texture centre, the
+    sclera beyond it. Measured in game 2026-09-25: a test mesh with its UVs scaled 2x showed a
+    half-size iris and none of the rings painted outside it, which a depth-based cut would
+    have shown.
+
+    So this renders the material's Base Color on a UV plane and samples it either side of the
+    cut, against the real textures (64x64 fixtures from the game). The cut must also follow
+    the settings node: raising the radius there has to move it, or the preview disagrees
+    with the game the moment someone edits the value.
+    """
+    import numpy as np
+    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+
+    path = TTB.test_file(r"tests\SF\materials\Actors\Human\Faces\left_eye.mat")
+    texdir = TTB.test_file(r"tests\SF\textures\Actors\human\faces\Eyes")
+
+    si = ShaderImporter()
+    si.material = bpy.data.materials.new("SF_EyePreview")
+    si.material.use_nodes = True
+    si._sf_altpaths = []
+    parsed = si._sf_read_material(path)
+    assert TT.is_equiv(parsed['settings']['eye']['iris_depth_transition_ratio'], 0.16,
+                       "vanilla cuts the iris at UV radius 0.16", e=1e-4)
+
+    # Albedo and normal: the two colours that meet at the cut, and the two normals that would.
+    faces = os.path.dirname(texdir)
+
+    def fixtures_only(ly):
+        keep = {}
+        for slot in ('Albedo', 'Normal'):
+            mp = ly.get('textures', {}).get(slot)
+            if mp:
+                rel = mp.replace('\\', '/').lower().split('/faces/')[1][:-4] + '.png'
+                keep[slot] = (next(os.path.join(dp, f) for dp, _, fs in os.walk(faces)
+                                   for f in fs if os.path.join(dp, f).replace('\\', '/').lower()
+                                   .endswith(rel)), mp)
+        return dict(ly, textures=keep)
+    layers = [fixtures_only(ly) for ly in parsed['layers']]
+    iris_png, sclera_png = layers[0]['textures']['Albedo'][0], layers[1]['textures']['Albedo'][0]
+    assert TT.is_eq(sorted(layers[1]['textures']), ['Albedo', 'Normal'],
+                    "the sclera layer brings a normal of its own")
+    si._build_sf_nodes({}, parsed['settings'], layers,
+                       [dict(b, mask=None) for b in parsed['blenders']],
+                       has_vertex_colors=False)
+    mat = si.material
+    nt = mat.node_tree
+
+    # The cut is computed inside the blend node; all the material feeds it is the radius.
+    blend = next(n for n in nt.nodes if n.get('pyn_sf_blend') == 0)
+
+    def layers_node(i):
+        return next(n for n in nt.nodes if n.type == 'GROUP' and n.get('pyn_sf_layer') == i)
+    assert TT.is_eq('Mask' in blend.inputs, False, "the eye blend takes no mask")
+    radius_from = blend.inputs['Iris Radius'].links[0].from_node
+    assert TT.is_eq('EyeSettings' in radius_from.node_tree.name, True,
+                    "its radius comes from the eye settings node")
+    assert TT.is_eq(any(n.type in ('TEX_COORD', 'VECT_MATH') for n in nt.nodes), False,
+                    "and the mask arithmetic is not out in the material")
+
+    # Render a socket through an emission shader so nothing else in the BSDF (metalness,
+    # roughness) changes what the bake sees.
+    out = next(n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL')
+    emit = nt.nodes.new('ShaderNodeEmission')
+    nt.links.new(emit.outputs['Emission'], out.inputs['Surface'])
+
+    def show(socket):
+        nt.links.new(socket, emit.inputs['Color'])
+    target = nt.nodes.new('ShaderNodeTexImage')
+    target.image = bpy.data.images.new("SF_EyeBake", 64, 64, float_buffer=True)
+    nt.nodes.active = target
+
+    bpy.ops.mesh.primitive_plane_add()
+    plane = bpy.context.object
+    plane.data.materials.append(mat)
+    scene = bpy.context.scene
+    scene.render.engine = 'CYCLES'
+    scene.cycles.samples = 1
+
+    def texel(img, u, v):
+        w, h = img.size
+        px = np.array(img.pixels[:]).reshape(h, w, 4)
+        return px[min(h - 1, int(v * h)), min(w - 1, int(u * w)), :3]
+
+    def fixture(png, u, v):
+        img = bpy.data.images.load(png, check_existing=True)
+        c = texel(img, u, v)   # stored sRGB; the shader sees it linear
+        return np.where(c <= 0.04045, c / 12.92, ((c + 0.055) / 1.055) ** 2.4)
+
+    def bake(socket, r):
+        show(socket)
+        bpy.ops.object.bake(type='EMIT', use_clear=True)
+        return texel(target.image, 0.5 + r, 0.5)
+
+    def shows(r):
+        """Which texture the preview's Base Color shows at UV radius r: 'iris', 'sclera', or
+        'mix' when it is measurably neither."""
+        u, v = 0.5 + r, 0.5
+        got = bake(blend.outputs['Base Color'], r)
+        d_iris = np.linalg.norm(got - fixture(iris_png, u, v))
+        d_sclera = np.linalg.norm(got - fixture(sclera_png, u, v))
+        apart = np.linalg.norm(fixture(iris_png, u, v) - fixture(sclera_png, u, v))
+        log.debug(f"r={r}: got {got}, iris {d_iris:.4f}, sclera {d_sclera:.4f}")
+        if min(d_iris, d_sclera) > 0.1 * apart:
+            return 'mix'
+        return 'iris' if d_iris < d_sclera else 'sclera'
+
+    assert TT.is_eq(shows(0.1), 'iris', "inside the radius the iris shows")
+    assert TT.is_eq(shows(0.3), 'sclera', "outside it the sclera does")
+    # The edge is soft: the iris fades out over the last 0.035 inside the radius.
+    assert TT.is_equiv(blend.inputs['Iris Feather'].default_value, 0.035,
+                       "fading over 0.035 of UV radius", e=1e-6)
+    assert TT.is_eq(shows(0.1425), 'mix', "inside the fade the two textures mix")
+
+    # The cut follows the settings node, live.
+    eye = next(n for n in nt.nodes if n.type == 'GROUP' and n.node_tree
+               and 'EyeSettings' in n.node_tree.name)
+    eye.inputs['Iris Depth Transition'].default_value = 0.35
+    assert TT.is_eq(shows(0.3), 'iris', "a larger radius on the settings node widens the iris")
+    assert TT.is_eq(shows(0.1), 'iris', "and the centre is still iris")
+
+    # The normal is the iris layer's, straight through: a hard-masked blend of the sclera's
+    # detail normal cut a visible seam at the iris edge. CONTROL: out on the sclera the two
+    # layers' normals really do differ, so passing the base through is a choice made there.
+    eye.inputs['Iris Depth Transition'].default_value = 0.16
+    base_n = bake(layers_node(0).outputs['Normal'], 0.3)
+    sclera_n = bake(layers_node(1).outputs['Normal'], 0.3)
+    assert TT.is_gt(float(np.linalg.norm(base_n - sclera_n)), 0.01,
+                    "the sclera's normal differs from the iris layer's")
+    for r in (0.1, 0.3):
+        assert TT.is_equiv(float(np.linalg.norm(bake(blend.outputs['Normal'], r)
+                                                - bake(layers_node(0).outputs['Normal'], r))),
+                           0.0, f"the blend passes the iris layer's normal through at r={r}",
+                           e=1e-4)
+
+    # Only the preview changed: the blender still exports as the material declared it.
+    # Recovery reads what the output reaches, so the BSDF goes back on first.
+    bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    nt.links.new(bsdf.outputs['BSDF'], out.inputs['Surface'])
+    blender = recover_sf_material(mat)['blenders'][0]
+    assert TT.is_eq(blender['mode'], '', "the blender still has no mode")
+    assert TT.is_eq(blender['mask'], '', "nor a mask texture")
+    assert TT.is_eq(blender['channel'], '', "nor a mask channel")
 
 
 @TT.category('STARFIELD', 'SHADER')

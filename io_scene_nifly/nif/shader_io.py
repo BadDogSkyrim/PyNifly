@@ -76,7 +76,7 @@ def _wire_alpha(gin, gout, ng):
 
 
 def _wire_none(gin, gout, ng):
-    """A value-holder with nothing to drive. The eye/mouth/effect/LOD components configure engine
+    """A value-holder with nothing to drive. The mouth/effect/LOD components configure engine
     behaviour PyNifly's preview doesn't reproduce, so their group node carries the values (visible,
     editable, round-tripped) without pretending to render them."""
 
@@ -88,7 +88,15 @@ def _wire_hair(gin, gout, ng):
     ng.links.new(gin.outputs["Roughness"], gout.inputs["Sheen Roughness"])
 
 
-_SF_COMPONENT_VERSION = 1
+def _wire_eye(gin, gout, ng):
+    """The iris radius, passed out so the eye blend's mask can read it live. Measured in game:
+    `IrisDepthTransitionRatio` is the UV radius, from the texture centre, out to which the iris
+    layer shows; the sclera layer shows beyond it. The other eye settings drive refraction and
+    lighting the preview does not reproduce."""
+    ng.links.new(gin.outputs["Iris Depth Transition"], gout.inputs["Iris Radius"])
+
+
+_SF_COMPONENT_VERSION = 2   # 2: the eye settings output their iris radius
 _SF_COMPONENTS = {
     'translucency': {
         'group': 'SF TranslucencySettings',
@@ -153,8 +161,8 @@ _SF_COMPONENTS = {
             ("Lighting Wrap",             'NodeSocketFloat', 0.0,   'lighting_wrap'),
             ("Lighting Power",            'NodeSocketFloat', 0.0,   'lighting_power'),
         ],
-        'outputs': [],
-        'wire': _wire_none,
+        'outputs': [("Iris Radius", 'NodeSocketFloat')],
+        'wire': _wire_eye,
     },
     'mouth': {
         'group': 'SF MouthSettingsComponent',
@@ -687,6 +695,69 @@ def sf_blend_group_for(mode):
     return _ensure_sf_blend_group("Default" if not mode else "Unknown")
 
 
+_SF_BLEND_EYE_VERSION = 2   # own count, apart from the other groups. 2: soft edge (Iris Feather)
+
+
+def ensure_sf_blend_eye_group():
+    """The iris/sclera blend of an Eye1Layer material, mask and all.
+
+    The material gives this blender no mode and no mask; the eye shader makes the cut itself.
+    Measured in game, 2026-09-25: the iris layer (A) shows out to a UV radius of
+    `IrisDepthTransitionRatio` from the texture centre, the sclera layer (B) beyond it. (A mesh
+    with its UVs scaled 2x showed a half-size iris; a cut by depth would have kept it full size.)
+
+    So the group takes an `Iris Radius` in place of a Mask and computes the cut inside, from
+    the UV. Base Color fades from A to B over `Iris Feather` inside the radius -- a preview
+    choice, not a .mat field: a hard cut looked wrong, and 0.035 matched vanilla's brown iris
+    by eye (Bad Dog, 2026-09-25). Normal is A's alone: hard-masking in B's detail normal cut a
+    visible seam at the iris edge. Everything else is A's, as in every other blend."""
+    ng, fresh = _ensure_group(SF_BLEND_GROUP + " Eye", version=_SF_BLEND_EYE_VERSION)
+    if not fresh:
+        return ng
+    iface = ng.interface
+    for prefix in ("A ", "B "):
+        for chan, stype in _SF_BUNDLE:
+            _sf_new_socket(iface, prefix + chan, 'INPUT', stype)
+    s = _sf_new_socket(iface, "Iris Radius", 'INPUT', 'NodeSocketFloat')
+    s.default_value = 0.16   # vanilla's
+    s = _sf_new_socket(iface, "Iris Feather", 'INPUT', 'NodeSocketFloat')
+    s.default_value = 0.035
+    for chan, stype in _SF_BUNDLE:
+        _sf_new_socket(iface, chan, 'OUTPUT', stype)
+
+    gin = ng.nodes.new('NodeGroupInput'); gin.location = (-900, 0)
+    gout = ng.nodes.new('NodeGroupOutput'); gout.location = (300, 0)
+    L = ng.links
+    for chan, _stype in _SF_BUNDLE:
+        if chan != "Base Color":
+            L.new(gin.outputs["A " + chan], gout.inputs[chan])
+
+    # Mask: 0 inside the iris, 1 outside -- UV distance from the centre against the radius,
+    # rising smoothly over the feather just inside it.
+    tc = ng.nodes.new('ShaderNodeTexCoord'); tc.location = (-900, 400)
+    off = ng.nodes.new('ShaderNodeVectorMath'); off.operation = 'SUBTRACT'
+    off.location = (-700, 400)
+    off.inputs[1].default_value = (0.5, 0.5, 0.0)
+    dist = ng.nodes.new('ShaderNodeVectorMath'); dist.operation = 'LENGTH'
+    dist.location = (-500, 400)
+    start = ng.nodes.new('ShaderNodeMath'); start.operation = 'SUBTRACT'
+    start.location = (-500, 600)
+    cut = ng.nodes.new('ShaderNodeMapRange'); cut.interpolation_type = 'SMOOTHSTEP'
+    cut.location = (-300, 400)
+    cut.label = "Iris Mask"
+    L.new(tc.outputs['UV'], off.inputs[0])
+    L.new(off.outputs['Vector'], dist.inputs[0])
+    L.new(gin.outputs["Iris Radius"], start.inputs[0])
+    L.new(gin.outputs["Iris Feather"], start.inputs[1])
+    L.new(dist.outputs['Value'], cut.inputs['Value'])
+    L.new(start.outputs['Value'], cut.inputs['From Min'])
+    L.new(gin.outputs["Iris Radius"], cut.inputs['From Max'])
+    make_mixnode(ng, gin.outputs["A Base Color"], gin.outputs["B Base Color"],
+                 output=gout.inputs["Base Color"], factor=cut.outputs['Result'],
+                 blend_type='MIX', location=(-100, 200))
+    return ng
+
+
 def _is_group(node, group_name):
     """Is this node an instance of `group_name` (at any version, and of any variant)?
 
@@ -943,8 +1014,9 @@ def recover_sf_material(material):
         # a separator's Red/Green/Blue or the mask texture's own Alpha. A direct texture 'Color' link
         # means no channel. The graph is the source of truth.
         channel = ''
-        if m.inputs['Mask'].is_linked:
-            sock = m.inputs['Mask'].links[0].from_socket.name
+        mask_in = m.inputs.get('Mask')   # the eye blend has none: it computes its own
+        if mask_in is not None and mask_in.is_linked:
+            sock = mask_in.links[0].from_socket.name
             channel = {SEPARATOR_OUT1: 'Red', SEPARATOR_OUT2: 'Green', SEPARATOR_OUT3: 'Blue',
                        'Alpha': 'Alpha'}.get(sock, '')
         entry = {'mode': m.get(PYN_SF_MODE, ''), 'mask': mask, 'channel': channel}
@@ -2682,10 +2754,15 @@ class ShaderImporter:
                 return override
         return node.outputs[chan]
 
-    def _build_sf_blend(self, nt, index, blender, bundle_a, bundle_b, x, y):
-        """Composite two bundles via an SF Blend group (chosen by mode). Returns the group node."""
+    def _build_sf_blend(self, nt, index, blender, bundle_a, bundle_b, x, y, iris_radius=None):
+        """Composite two bundles via an SF Blend group (chosen by mode). Returns the group node.
+
+        `iris_radius` (a socket) makes this the iris/sclera blend of an eye, which computes its
+        own mask from it (ensure_sf_blend_eye_group). Only the material's own graph passes it;
+        the inherited-template views stay as the files describe them."""
         node = nt.nodes.new('ShaderNodeGroup')
-        node.node_tree = sf_blend_group_for(blender.get('mode', ''))
+        node.node_tree = (ensure_sf_blend_eye_group() if iris_radius is not None
+                          else sf_blend_group_for(blender.get('mode', '')))
         node.location = (x, y)
         node.width = SF_BLEND_WIDTH   # blends are wide (many bundle sockets) -- give them room
         node.label = _group_base(node.node_tree.name)   # the version is noise in the graph
@@ -2727,6 +2804,8 @@ class ShaderImporter:
                              node.inputs['Mask'])
             else:
                 nt.links.new(mnode.outputs['Color'], node.inputs['Mask'])
+        elif iris_radius is not None:
+            nt.links.new(iris_radius, node.inputs['Iris Radius'])
         return node
 
     def _add_sf_component_nodes(self, nt, settings, anchor_x):
@@ -2936,10 +3015,19 @@ class ShaderImporter:
         if layer_nodes:
             final = layer_nodes[0]
             bx = SF_X_BLEND0
+            # An eye's first blender joins iris and sclera and says nothing about how; the
+            # shader cuts by UV radius, so that is what the preview does -- unless the
+            # material gives the blender a mode or mask of its own, which then wins.
+            eye = comp_nodes.get('eye')
+            is_eye = (eye is not None and (settings or {}).get('shader_model') == 'Eye1Layer')
             for i, b in enumerate(blenders_resolved or []):
                 if i + 1 >= len(layer_nodes):
                     break
-                final = self._build_sf_blend(nt, i, b, final, layer_nodes[i + 1], bx, SF_BLEND_Y)
+                iris = (eye.outputs['Iris Radius']
+                        if is_eye and i == 0 and not b.get('mode') and not b.get('mask')
+                        else None)
+                final = self._build_sf_blend(nt, i, b, final, layer_nodes[i + 1], bx, SF_BLEND_Y,
+                                             iris_radius=iris)
                 last_x = bx
                 bx += SF_BLEND_DX
 
