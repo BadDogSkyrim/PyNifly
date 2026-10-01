@@ -10,6 +10,7 @@ import re
 import logging
 from ctypes import *
 from typing import ValuesView, List 
+from types import MappingProxyType
 import xml.etree.ElementTree as xml
 from pathlib import Path
 from .niflytools import *
@@ -3525,6 +3526,14 @@ class NiShader(NiProperty):
 
     @property
     def textures(self):
+        """
+        The texture slots for this shader, as a read-only mapping.
+
+        To change a texture, use set_texture(slot, path). Assigning into the
+        returned mapping has no effect on the file - it would only mutate a
+        local cache, while reading the mapping back on the same object would
+        appear to confirm the change.
+        """
         if self._textures is None:
             self._textures = {}
             if self.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
@@ -3580,7 +3589,7 @@ class NiShader(NiProperty):
                 self._textures['EnvMapMask'] = self.properties.envMaskTexture.decode()
                 self._textures['EmitGradient'] = self.properties.emitGradientTexture.decode()
 
-        return self._textures
+        return MappingProxyType(self._textures)
 
     def set_texture(self, slot:str, texturepath):
         """Set texture in the named slot to the given string."""
