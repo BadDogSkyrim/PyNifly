@@ -5,20 +5,25 @@ renders black, renders invisible, or crashes the Creation Kit during FaceGen, an
 pair of hands that simply never appear. Most of them are silent in the CK -- the whole point
 of this tool is to make them loud.
 
-    python scripts/sf_racecheck.py --data "C:\\...\\Starfield\\Data" --plugin FSF.esp
-    python scripts/sf_racecheck.py --data ... --plugin FSF.esp --race FSFCanineRace
-    python scripts/sf_racecheck.py --data ... --plugin FSF.esp -v -o report   # -> report.txt
-    python scripts/sf_racecheck.py --data ... --plugin FSF.esp --sex male
+    python scripts/sf_racecheck.py --data "C:\\...\\Starfield\\Data"           # whole load order
+    python scripts/sf_racecheck.py --data ... --race FSFFoxRace
+    python scripts/sf_racecheck.py --data ... --plugin FSFPlayer_FOX.esm      # + its masters
+    python scripts/sf_racecheck.py --data ... -v -o report   # -> report.txt
+    python scripts/sf_racecheck.py --data ... --sex male
     python scripts/sf_racecheck.py --data "C:\\...\\Starfield\\Data,C:\\...\\Starfield Assets" ...
 
 --data takes a comma-separated list of folders, searched in order for every file: give the game's
 Data folder first and a folder of unpacked vanilla assets after it, and loose mod files win over
-vanilla the way they do in game. Plugins are loaded from the first folder that holds the plugin.
+vanilla the way they do in game. Plugins are loaded from the first folder.
 
-The race is auto-detected when the plugin defines exactly one. Plugins are read with
-esplib, which also pulls the record types we follow out of the masters so a reference into
-Starfield.esm resolves. NIF checks need PyNifly's NiflyDLL and are skipped with a note if it
-can't be loaded.
+What gets loaded: with --plugin, that plugin and all its masters, recursively. Without it, the
+game's active load order -- Starfield.esm and the official masters, then whatever Plugins.txt
+marks active, in order. Every lookup, --race included, then takes the winning override across
+everything loaded, the way the game does. The race is auto-detected when the mods (anything
+outside the game's own plugins) define exactly one.
+
+Plugins are read with esplib. NIF checks need PyNifly's NiflyDLL and are skipped with a note if
+it can't be loaded.
 
 Exit code is 1 if anything FAILed, so it can gate a build.
 """
@@ -427,30 +432,27 @@ def valid_for_race(hdpt, race, plugins):
     return False
 
 
-def race_head_parts(mod, race, plugins):
-    """Every head part this plugin defines that is valid for the race.
+def race_head_parts(race, plugins, official):
+    """Every head part outside the game's own plugins that is valid for the race.
 
     The race's own HEAD list holds only its *defaults* -- one per slot. Everything else the
-    mod ships for this race (the alternate eyes, hair, ears, the parts the creator offers)
+    mods ship for this race (the alternate eyes, hair, ears, the parts the creator offers)
     is reachable only through each HDPT's RNAM Valid Races list, so a check driven by the
-    HEAD list alone silently skips most of the mod's head parts."""
-    out = []
-    for hdpt in mod.get_records_by_signature('HDPT'):
-        if valid_for_race(hdpt, race, plugins):
-            out.append(hdpt)
-    return out
+    HEAD list alone silently skips most of a mod's head parts."""
+    return [h for h in winning_records(plugins, 'HDPT')
+            if plugin_name(h) not in official and valid_for_race(h, race, plugins)]
 
 
-def check_head_parts(rep, data, mod, race, nif_reader, per_sex, plugins, sexes=SEXES):
+def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, sexes=SEXES):
     """The race's head parts and the NIFs behind them.
 
     Two sources, because either alone leaves a hole: the race's per-sex HEAD list (its
-    defaults, which is what the game falls back to) and every head part the plugin defines
+    defaults, which is what the game falls back to) and every head part in the load order
     whose RNAM Valid Races list includes the race (which is what the creator offers).
 
-    Only parts this plugin defines are inspected. A part inherited from a master is vanilla
-    and its assets live in a BA2 we cannot read, so following it would produce nothing but
-    noise.
+    Only parts whose winning copy lives outside the game's own plugins are inspected. A part
+    the game itself defines has its assets in a BA2 we cannot read, so following it would
+    produce nothing but noise.
 
     Whether an NPC lists the race's face part is not checked: an NPC with no face part of its
     own gets the race's."""
@@ -463,18 +465,18 @@ def check_head_parts(rep, data, mod, race, nif_reader, per_sex, plugins, sexes=S
             continue
         rep.ok('head parts', f"{sx.lower()}: {len(parts[sx])} head parts")
         for _i, fid in parts[sx]:
-            hdpt = mod.get_record_by_form_id(fid.value)
-            if hdpt is None:
-                continue                      # lives in a master; can't inspect it here
+            hdpt = plugins.resolve_form_id(fid, race.plugin)
+            if hdpt is None or plugin_name(hdpt) in official:
+                continue                      # the game's own part; assets are in a BA2
             pnam = hdpt.get_subrecord('PNAM')
             if pnam is not None and pnam.get_uint32() == HDPT_FACE:
                 own_face[sx] = hdpt
-            seen.add(hdpt.form_id.value)
+            seen.add(id(hdpt))
             check_head_nif(rep, data, hdpt, nif_reader)
 
     # The rest of the mod's parts for this race -- the ones the race doesn't default to.
-    extra = [h for h in race_head_parts(mod, race, plugins)
-             if h.form_id.value not in seen]
+    extra = [h for h in race_head_parts(race, plugins, official)
+             if id(h) not in seen]
     if extra:
         rep.ok('head parts', f"{len(extra)} more head part(s) valid for this race but not "
                              f"among its defaults",
@@ -966,8 +968,10 @@ def check_face_textures(rep, data, race, phenotypes, regions):
                   "building the kit."])
 
 
-def check_skin_tones(rep, data, race, avmd_by_tnam, own_prefix, sexes=SEXES):
-    """RACE -> AVMD chain. Two different lookup rules, and getting either wrong is silent."""
+def check_skin_tones(rep, data, race, avm, own_prefix, sexes=SEXES):
+    """RACE -> AVMD chain. Two different lookup rules, and getting either wrong is silent.
+
+    `avm` is avm_index(): every group in the load order by (kind, TNAM), latest winning."""
     phenotypes = set()
 
     fstt = text(race, 'FSTT')
@@ -975,16 +979,15 @@ def check_skin_tones(rep, data, race, avmd_by_tnam, own_prefix, sexes=SEXES):
         rep.warn('skin tones', "Race has no FSTT (face skin tones)")
         return phenotypes
 
-    cg = avmd_by_tnam.get(fstt)
+    cg = avm.get((AVM_COMPLEX, fstt))
     if cg is None:
-        rep.fail('skin tones', f"FSTT {fstt!r} matches no AVMD",
-                 "RACE->AVMD matches the target's bare TNAM.")
-        return phenotypes
-    mnam = cg.get_subrecord('MNAM')
-    if mnam is None or mnam.get_uint32() != 2:
-        rep.fail('skin tones', f"FSTT {fstt!r} is not a ComplexGroup (MNAM 2)",
-                 "FSTT must go through a kind-2 ComplexGroup; there is no direct "
-                 "race->SimpleGroup path.")
+        if any(t == fstt for _k, t in avm):
+            rep.fail('skin tones', f"FSTT {fstt!r} is not a ComplexGroup (MNAM 2)",
+                     "FSTT must go through a kind-2 ComplexGroup; there is no direct "
+                     "race->SimpleGroup path.")
+        else:
+            rep.fail('skin tones', f"FSTT {fstt!r} matches no AVMD in the load order",
+                     "RACE->AVMD matches the target's bare TNAM.")
         return phenotypes
     rep.ok('skin tones', f"FSTT -> ComplexGroup {cg.editor_id!r}")
 
@@ -1004,10 +1007,11 @@ def check_skin_tones(rep, data, race, avmd_by_tnam, own_prefix, sexes=SEXES):
                 rep.fail('skin tones', f"{key}: VNAM {target!r} has no <Kind>_ prefix",
                          "Must be 'SimpleGroup_' + the target's TNAM.")
                 continue
-            child = avmd_by_tnam.get(rest)
+            child = avm.get((AVM_PREFIX[head], rest))
             if child is None:
-                # May legitimately live in a master.
-                rep.info('skin tones', f"{key}: -> {target} (not in this plugin)")
+                rep.fail('skin tones', f"{key}: -> {target} matches no group in the load order",
+                         f"A ComplexGroup entry names its target as '<Kind>_' + TNAM; no "
+                         f"{head} has TNAM {rest!r}.")
                 continue
             check_simplegroup_textures(rep, data, child, key, own_prefix)
 
@@ -1269,15 +1273,15 @@ def check_npcs(rep, race, npcs):
             rep.warn('npcs', f"{npc.editor_id!r} has no skin tone (STON)")
 
 
-def check_record_texture_paths(rep, mod, npcs):
-    """Texture paths stored in the plugin's own records must name a .dds: every AVMD Simple
-    group entry (skin tones, tint options), and every tint layer on this race's NPCs.
+def check_record_texture_paths(rep, avmds, npcs):
+    """Texture paths stored in mod records must name a .dds: every AVMD Simple group entry
+    the mods win with (skin tones, tint options), and every tint layer on this race's NPCs.
 
     The NPC's copy matters on its own -- the FaceGen bake uses the path stored on the tint
     entry, not the group's -- so fixing the group does not fix an NPC saved against it."""
     area = 'texture paths'
     bad, n = [], 0
-    for rec in mod.get_records_by_signature('AVMD'):
+    for rec in avmds:
         kind = rec.get_subrecord('MNAM')
         if kind is None or kind.size != 4 or kind.get_uint32() != AVM_SIMPLE:
             continue                            # Complex VNAMs name groups, not textures
@@ -1300,7 +1304,7 @@ def check_record_texture_paths(rep, mod, npcs):
             prev = sr.signature
 
     if bad:
-        rep.fail(area, f"{len(bad)} texture path(s) in the plugin's records are not .dds",
+        rep.fail(area, f"{len(bad)} texture path(s) in mod records are not .dds",
                  bad[:8] + ([f"(+{len(bad) - 8} more)"] if len(bad) > 8 else [])
                  + [NOT_DDS_ADVICE])
     elif n:
@@ -1324,39 +1328,153 @@ def check_race_misc(rep, race):
 
 # Top-level groups to parse. Skipping the rest turns reading Starfield.esm from a minute
 # into a second, and every record type we follow by formID is here: the vanilla body morphs
-# an armor addon points at, and armor or head records a race reuses wholesale.
-GROUPS = {'RACE', 'ARMO', 'ARMA', 'MRPH', 'HDPT', 'AVMD', 'NPC_'}
+# an armor addon points at, armor or head records a race reuses wholesale, and the form lists
+# a head part's Valid Races goes through.
+GROUPS = {'RACE', 'ARMO', 'ARMA', 'MRPH', 'HDPT', 'AVMD', 'NPC_', 'FLST'}
+
+# What the game loads before anything in Plugins.txt, in this order, whether or not it is
+# listed there. Starfield.esm, then the official masters -- xEdit's wbOfficialDLC in
+# wbDefinitionsSF1.pas, which is the authority here; Bethesda documents no such list.
+IMPLICIT_MASTERS = ['Starfield.esm']
+OFFICIAL_MASTERS = ['ShatteredSpace.esm', 'Constellation.esm', 'OldMars.esm', 'SFBGS003.esm',
+                    'SFBGS004.esm', 'SFBGS006.esm', 'SFBGS007.esm', 'SFBGS008.esm',
+                    'BlueprintShips-Starfield.esm']
 
 
-def load_plugins(rep, data, plugin_path):
-    """The plugin and its masters, as an esplib PluginSet.
-
-    The set is what makes a reference into a master resolvable: esplib maps the file-index
-    byte of a formID through the plugin's own master list, and picks the winning override
-    when more than one file defines a record.
-    """
+def _no_string_tables():
     # Starfield.esm is flagged localized, so esplib goes looking for its string tables and
     # dies in the BA2 reader -- Starfield's archive header is not the Fallout 4 one esplib
     # knows. No check here reads a localized string, so skip the step entirely rather than
     # lose the master. Belongs in esplib as "failing to load strings is not fatal".
     esplib.plugin.Plugin._load_string_tables = lambda self: None
 
-    # Header only, purely for the master list -- the real parse happens through the set.
-    name = os.path.basename(plugin_path)
-    order = list(Plugin.load(plugin_path, only_signatures=set()).header.masters) + [name]
-    plugins = PluginSet(LoadOrder.from_list(
-        order, data_dir=os.path.dirname(os.path.abspath(data_path(data, name))), game_id='sf1',
-        fallback_dir=os.path.dirname(os.path.abspath(plugin_path))))
 
+def plugin_masters(data, name):
+    """A plugin's own master list, from its header alone. [] if the file can't be found."""
+    path = name if os.path.isabs(name) else data_path(data, name)
+    if not os.path.exists(path):
+        return []
+    return list(Plugin.load(path, only_signatures=set()).header.masters)
+
+
+def load_order_names(data, plugin=None, plugins_txt=None, ccc_file=None):
+    """The plugins to load, in load order.
+
+    With `plugin`: that plugin and every master it needs, recursively, masters first -- a
+    patch whose only master is a mod still needs the mod's own masters, or nothing the mod
+    overrides resolves.
+
+    Without it: the game's active load order. The implicit and official masters first (only
+    those actually present), then the Creation Club list if the game has one, then the
+    entries Plugins.txt marks active ('*'), in its order. `plugins_txt` and `ccc_file`
+    default to the ones the installed game uses.
+    """
+    _no_string_tables()
+    if plugin:
+        order, seen = [], set()
+
+        def gather(name):
+            key = os.path.basename(name).lower()
+            if key in seen:
+                return
+            seen.add(key)
+            for m in plugin_masters(data, name):
+                gather(m)
+            order.append(os.path.basename(name))
+        gather(plugin)
+        return order
+
+    if plugins_txt is None:
+        from esplib.game_discovery import find_game
+        game = find_game('sf1')
+        plugins_txt = game.plugins_txt() if game else None
+        if ccc_file is None and game is not None:
+            ccc_file = game.ccc_file()
+    if plugins_txt is None or not os.path.exists(plugins_txt):
+        raise FileNotFoundError("Starfield's Plugins.txt was not found; name a plugin with "
+                                "--plugin instead")
+
+    order = list(IMPLICIT_MASTERS)
+    have = {n.lower() for n in order}
+
+    def add(name):
+        if name and name.lower() not in have:
+            order.append(name)
+            have.add(name.lower())
+
+    for name in OFFICIAL_MASTERS:
+        if os.path.exists(data_path(data, name)):
+            add(name)
+    if ccc_file and os.path.exists(ccc_file):
+        with open(ccc_file, encoding='utf-8', errors='replace') as f:
+            for line in f:
+                if os.path.exists(data_path(data, line.strip())):
+                    add(line.strip())
+    with open(plugins_txt, encoding='utf-8', errors='replace') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('*'):
+                add(line[1:].strip())
+    return order
+
+
+def official_plugins(order):
+    """The names in `order` that are the game's own: their assets live in BA2s we cannot read,
+    so a check that finds one of their records there has nothing to inspect."""
+    official = {n.lower() for n in IMPLICIT_MASTERS + OFFICIAL_MASTERS}
+    return {n.lower() for n in order if n.lower() in official}
+
+
+def plugin_name(rec):
+    """The file a record came from, lowercased."""
+    p = rec.plugin
+    return p.file_path.name.lower() if p is not None and p.file_path else ''
+
+
+def load_plugins(rep, data, order, plugin_dir=None):
+    """Every plugin in `order`, as an esplib PluginSet.
+
+    The set is what makes a reference resolvable: esplib maps the file-index byte of a
+    formID through the plugin's own master list, and picks the winning override when more
+    than one file defines a record. Only the record types we follow are parsed, in every
+    plugin alike -- any of them may be the one that wins.
+    """
+    _no_string_tables()
+    data_dir = next((d for d in data if os.path.isdir(d)), None)
+    plugins = PluginSet(LoadOrder.from_list(order, data_dir=data_dir, game_id='sf1',
+                                            fallback_dir=plugin_dir))
     for who in order:
-        # The mod under test is small and may carry any record type, so parse all of it.
-        # A master is parsed only for the types we actually follow a formID into.
-        if plugins.load_plugin(who, only_signatures=None if who == name else GROUPS) is None:
+        if plugins.load_plugin(who, only_signatures=GROUPS) is None:
             rep.warn('race', f"{who!r} could not be loaded",
                      [f"looked in {', '.join(data)}",
                       "Records it owns cannot be resolved, so every check that follows one "
                       "into it is skipped."])
     return plugins
+
+
+def winning_records(plugins, sig):
+    """The winning copy of every `sig` record in the load order, once each, in the order the
+    records first appear."""
+    out, seen = [], set()
+    for plugin in plugins:
+        for rec in plugin.get_records_by_signature(sig):
+            win = plugins.resolve_form_id(rec.form_id, plugin) or rec
+            if id(win) not in seen:
+                seen.add(id(win))
+                out.append(win)
+    return out
+
+
+def find_race(plugins, edid):
+    """The winning RACE whose EditorID is `edid`, or None."""
+    return next((r for r in reversed(winning_records(plugins, 'RACE'))
+                 if r.editor_id == edid), None)
+
+
+def is_new_record(rec):
+    """True if `rec` is defined by its own plugin rather than overriding a master's record."""
+    p = rec.plugin
+    return p is not None and rec.form_id.file_index >= len(p.header.masters)
 
 
 # --- main -------------------------------------------------------------------------------------
@@ -1381,8 +1499,10 @@ def main(argv=None):
     ap.add_argument('--data', required=True,
                     help="Starfield Data folder, or a comma-separated list of folders searched "
                          "in order (e.g. Data, then unpacked vanilla assets)")
-    ap.add_argument('--plugin', required=True, help="plugin filename or path")
-    ap.add_argument('--race', help="race EDID (auto-detected if the plugin has just one)")
+    ap.add_argument('--plugin', help="plugin filename or path; it and its masters are loaded. "
+                                     "Omit to load the game's active load order (Plugins.txt)")
+    ap.add_argument('--race', help="race EDID, found anywhere in the load order (auto-detected "
+                                   "if the mods define just one)")
     ap.add_argument('--sex', choices=['both', 'male', 'female'], default='both',
                     help="check only this sex's chargen, models and NPCs (default both)")
     ap.add_argument('-v', '--verbose', action='store_true', help="show passing checks too")
@@ -1411,32 +1531,45 @@ def main(argv=None):
 
 def run(args, out):
     """The audit itself, writing its report to `out`. Returns (exit code, tally)."""
-    plugin_path = args.plugin
-    if not os.path.isabs(plugin_path) and not os.path.exists(plugin_path):
-        plugin_path = data_path(args.data, plugin_path)
+    plugin_path, plugin_dir = args.plugin, None
+    if plugin_path:
+        if not os.path.isabs(plugin_path) and not os.path.exists(plugin_path):
+            plugin_path = data_path(args.data, plugin_path)
+        if not os.path.exists(plugin_path):
+            print(f"Could not find {args.plugin}", file=out)
+            return 2, None
+        plugin_dir = os.path.dirname(os.path.abspath(plugin_path))
+        source = f"{os.path.basename(plugin_path)} and its masters"
+    else:
+        source = "the active load order (Plugins.txt)"
 
     rep = Report()
-    plugins = load_plugins(rep, args.data, plugin_path)
-    mod = plugins.get_plugin(os.path.basename(plugin_path))
-    if mod is None:
-        print(f"Could not read {plugin_path}", file=out)
+    try:
+        order = load_order_names(args.data, plugin=plugin_path)
+    except FileNotFoundError as e:
+        print(str(e), file=out)
         return 2, None
+    plugins = load_plugins(rep, args.data, order, plugin_dir)
+    official = official_plugins(order)
 
-    races = list(mod.get_records_by_signature('RACE'))
+    # The race: by EditorID anywhere in the load order, else the one race a mod defines.
     if args.race:
-        race = next((r for r in races if r.editor_id == args.race), None)
+        race = find_race(plugins, args.race)
         if race is None:
-            print(f"No RACE {args.race!r} in {plugin_path}", file=out)
+            print(f"No RACE {args.race!r} in {source}", file=out)
             return 2, None
-    elif len(races) == 1:
-        race = races[0]
     else:
-        print(f"{len(races)} RACE records; pick one with --race: "
-              f"{[r.editor_id for r in races]}", file=out)
-        return 2, None
+        races = [r for r in winning_records(plugins, 'RACE')
+                 if plugin_name(r) not in official and is_new_record(r)]
+        if len(races) != 1:
+            print(f"{len(races)} races defined outside the game's own plugins; pick one with "
+                  f"--race: {[r.editor_id for r in races]}", file=out)
+            return 2, None
+        race = races[0]
 
-    print(f"Race    : {race.editor_id} {race.form_id}", file=out)
-    print(f"Plugin  : {plugin_path}", file=out)
+    print(f"Race    : {race.editor_id} {race.form_id} (winning copy in "
+          f"{race.plugin.file_path.name if race.plugin else '?'})", file=out)
+    print(f"Loaded  : {len(order)} plugins -- {source}", file=out)
     sexes = SEXES if args.sex == 'both' else (args.sex.upper(),)
     if args.sex != 'both':
         print(f"Sex     : {args.sex} only", file=out)
@@ -1451,28 +1584,38 @@ def run(args, out):
         rep.warn('nif', "NiflyDLL could not be loaded -- NIF and mesh checks were SKIPPED",
                  "MaterialID, external .mesh and morph-vs-mesh vertex counts are unchecked.")
 
-    npcs = [r for r in mod.get_records_by_signature('NPC_')
+    # Everything below works on winning records across the whole load order. "Ours" means
+    # a winning copy that lives outside the game's own plugins -- the only records whose
+    # assets we can see on disk.
+    npcs = [r for r in winning_records(plugins, 'NPC_')
             if plugins.resolve_reference(r, 'RNAM') is race and npc_sex(r) in sexes]
-    avmds = list(mod.get_records_by_signature('AVMD'))
-    avmd_by_tnam = {text(r, 'TNAM'): r for r in avmds}
+    avm = avm_index(plugins)
+    own_avmds = [r for r in winning_records(plugins, 'AVMD') if plugin_name(r) not in official]
 
-    tnams = [text(r, 'TNAM') for r in avmds]
-    dupes = {t for t in tnams if t and tnams.count(t) > 1}
-    if dupes:
-        rep.fail('skin tones', "duplicate AVMD TNAMs make lookups ambiguous", sorted(dupes))
+    # Two groups of the same kind and name in ONE plugin are ambiguous. The same name in a
+    # later plugin is not -- that is how a mod replaces a vanilla group.
+    for p in plugins:
+        if p.file_path is None or p.file_path.name.lower() in official:
+            continue
+        keys = [(r.get_subrecord('MNAM').get_uint32() if r.get_subrecord('MNAM') else None,
+                 text(r, 'TNAM')) for r in p.get_records_by_signature('AVMD')]
+        dupes = {k[1] for k in keys if k[1] and keys.count(k) > 1}
+        if dupes:
+            rep.fail('skin tones', f"{p.file_path.name}: duplicate AVMD TNAMs make lookups "
+                                   f"ambiguous", sorted(dupes))
 
     per_sex = split_by_sex(race)
 
     check_race_misc(rep, race)
-    own_face = check_head_parts(rep, data=args.data, mod=mod, race=race,
-                                nif_reader=nif_reader, per_sex=per_sex, plugins=plugins,
+    own_face = check_head_parts(rep, data=args.data, race=race, nif_reader=nif_reader,
+                                per_sex=per_sex, plugins=plugins, official=official,
                                 sexes=sexes)
     check_body(rep, args.data, race, plugins, nif_reader, own_root, sexes)
     check_npcs(rep, race, npcs)
-    check_record_texture_paths(rep, mod, npcs)
+    check_record_texture_paths(rep, own_avmds, npcs)
 
-    phenotypes = check_skin_tones(rep, args.data, race, avmd_by_tnam, fctp, sexes)
-    check_ck_skin_tone_rules(rep, per_sex, avm_index(plugins), npcs, sexes)
+    phenotypes = check_skin_tones(rep, args.data, race, avm, fctp, sexes)
+    check_ck_skin_tone_rules(rep, per_sex, avm, npcs, sexes)
     regions = {r for sx in sexes for r in per_sex[sx]['regions']}
     check_face_textures(rep, args.data, race, phenotypes or {sexes[0].lower() + '_default'},
                         regions)

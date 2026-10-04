@@ -9,6 +9,7 @@
     *_normal.png     -> BC5_SNORM
     *_ao.png         -> BC4_UNORM
     *_rough.png      -> BC4_UNORM
+    *_metal.png      -> BC4_UNORM
     *_mask.png       -> BC4_UNORM
     *_derm_color.png -> R8G8B8A8_UNORM_SRGB, one mip (uncompressed; the game insists)
 
@@ -17,7 +18,7 @@ uncompressed, as all 748 vanilla ones are, and their headers are rewritten to ma
 
     *_color.png      -> R8G8B8A8_UNORM_SRGB, one mip
     *_normal.png     -> R8G8B8A8_SNORM, one mip, legacy (non-DX10) header
-    *_ao/_rough/_mask.png -> R8_UNORM, one mip, legacy header
+    *_ao/_rough/_metal/_mask.png -> R8_UNORM, one mip, legacy header
 
 A face normal must not be BC5 there: BC5 keeps only X and Y and has the shader rebuild Z, so
 any part of the map where x^2+y^2 > 1 loses Z and flattens. Vanilla's signed format stores it.
@@ -72,6 +73,7 @@ SUFFIX_FORMATS = {
     '_normal': Spec('BC5_SNORM'),
     '_ao': Spec('BC4_UNORM'),
     '_rough': Spec('BC4_UNORM'),
+    '_metal': Spec('BC4_UNORM'),
     '_mask': Spec('BC4_UNORM'),
 }
 
@@ -104,6 +106,8 @@ FACE_FORMATS = {
     '_normal': Spec('R8G8B8A8_SNORM', ['-m', '1'], vanilla_header=True, dx10=False),
     '_ao': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
     '_rough': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
+    # No vanilla face texture is a _metal; one there is treated like _rough.
+    '_metal': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
     '_mask': Spec('R8_UNORM', ['-m', '1'], vanilla_header=True, dx10=False),
 }
 

@@ -997,7 +997,7 @@ def TEST_SF_TEXCONV_FACE_FORMATS():
         assert TT.is_eq(spec_for(folder + r'\x_color.png'),
                         ('R8G8B8A8_UNORM_SRGB', one_mip, True, True),
                         f"face colour in {os.path.basename(folder)}")
-        for suffix in ('_ao', '_rough', '_mask'):
+        for suffix in ('_ao', '_rough', '_metal', '_mask'):
             assert TT.is_eq(spec_for(folder + rf'\x{suffix}.png'),
                             ('R8_UNORM', one_mip, True, False),
                             f"face {suffix} in {os.path.basename(folder)}")
@@ -1007,6 +1007,8 @@ def TEST_SF_TEXCONV_FACE_FORMATS():
                     ('BC5_SNORM', (), False, True), "body normal stays BC5")
     assert TT.is_eq(spec_for(LOOSE + r'\x_ao.png'),
                     ('BC4_UNORM', (), False, True), "body ao stays BC4")
+    assert TT.is_eq(spec_for(LOOSE + r'\x_metal.png'),
+                    ('BC4_UNORM', (), False, True), "body metal is BC4, like rough")
     assert TT.is_eq(spec_for(LOOSE + r'\x_color.png'),
                     ('BC7_UNORM_SRGB', (), False, True), "body colour uses --color-format")
     # A dermaesthetic layer kept outside a face tree is still uncompressed: the game
@@ -1595,6 +1597,87 @@ def TEST_SF_RACECHECK_SHADER_SETTINGS():
                  "Index": 0, "Data": {"FileName": "BaseMaterial"}}]}]}, f)
         assert TT.is_eq(said(findings(probe, d), sf_racecheck.FAIL, 'SettingsComponent'), [],
                         "a model with no required settings block is left alone")
+
+
+def TEST_SF_RACECHECK_LOAD_ORDER():
+    """sf_racecheck reads a whole load order, and the latest override of a record wins.
+
+    Two ways to say what to load:
+      * --plugin P: P and every master it needs, RECURSIVELY. A patch that names only the mod
+        as its master still needs the mod's own master, or nothing the mod overrides resolves.
+      * no --plugin: the game's active load order from Plugins.txt, implicit masters first.
+
+    And every lookup -- --race included -- goes by the winning override across that whole
+    order. Before this, the race had to live in --plugin itself, so a player plugin that only
+    overrides a race defined elsewhere could not be checked at all.
+
+    The plugins are tiny ones built here with esplib: a race in a master, overridden by a mod,
+    then by a second mod later in the load order. Each copy marks itself in FCTP. They are
+    written in Fallout 4's record format because esplib has no Starfield writer; this test is
+    about load order and overrides, which work the same way, not about record layouts.
+    """
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+    from esplib import Plugin, Record
+    from esplib.utils import FormID
+
+    def write(d, name, masters, race_mark, is_esm=False, extra=None):
+        p = Plugin.new_plugin(os.path.join(d, name), masters=masters, game='fo4', is_esm=is_esm)
+        if race_mark is not None:
+            if masters:
+                # An override: the race's formID in its master's index slot (master 0).
+                rec = Record('RACE', FormID(0x000800))
+                rec.add_subrecord('EDID', 'RCTestRace')
+                p.add_record(rec)
+            else:
+                rec = p.new_record('RACE', 'RCTestRace', form_id=0x800)
+            rec.add_subrecord('FCTP', race_mark.encode('cp1252') + b'\0')
+        if extra:
+            extra(p)
+        p.save_as(os.path.join(d, name))
+
+    def mark(rec):
+        return sf_racecheck.text(rec, 'FCTP')
+
+    with tempfile.TemporaryDirectory() as d:
+        write(d, 'RCMaster.esm', [], 'master', is_esm=True)
+        write(d, 'RCMod.esm', ['RCMaster.esm'], 'mod', is_esm=True)
+        # The patch names ONLY the mod -- RCMaster must be found through RCMod's header.
+        write(d, 'RCPatch.esp', ['RCMod.esm'], None,
+              extra=lambda p: p.new_record('GLOB', 'RCPatchMarker'))
+        write(d, 'RCOther.esp', ['RCMaster.esm'], 'other')
+
+        # --- --plugin: the plugin and its masters, recursively, masters first ----------
+        order = sf_racecheck.load_order_names([d], plugin='RCPatch.esp')
+        assert TT.is_eq(order, ['RCMaster.esm', 'RCMod.esm', 'RCPatch.esp'],
+                        "the patch's masters, found recursively")
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [d], order)
+        race = sf_racecheck.find_race(plugins, 'RCTestRace')
+        assert race is not None, "a race defined in a master is found by EDID"
+        assert TT.is_eq(mark(race), 'mod', "the latest override in this order wins")
+
+        # --- no --plugin: the active load order from Plugins.txt -------------------------
+        txt = os.path.join(d, 'Plugins.txt')
+        with open(txt, 'w', encoding='utf-8') as f:
+            f.write("# a comment\n*RCMaster.esm\n*RCMod.esm\nRCDisabled.esp\n"
+                    "*RCPatch.esp\n*RCOther.esp\n")
+        order = sf_racecheck.load_order_names([d], plugins_txt=txt)
+        assert TT.is_eq(order[0], 'Starfield.esm', "the implicit master leads")
+        assert TT.is_eq(order[1:], ['RCMaster.esm', 'RCMod.esm', 'RCPatch.esp', 'RCOther.esp'],
+                        "active plugins in Plugins.txt order; inactive ones left out")
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [d], order)
+        race = sf_racecheck.find_race(plugins, 'RCTestRace')
+        assert TT.is_eq(mark(race), 'other', "the last plugin to override the race wins")
+
+        # Every winning RACE, once each, however many plugins override it.
+        races = sf_racecheck.winning_records(plugins, 'RACE')
+        assert TT.is_eq([mark(r) for r in races], ['other'], "one winner per record")
+
+        # CONTROL: an EDID nobody defines is not found.
+        assert sf_racecheck.find_race(plugins, 'NoSuchRace') is None, "unknown race -> None"
 
 
 def TEST_SF_MORPH_ROUNDTRIP():
