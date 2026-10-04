@@ -1892,6 +1892,122 @@ def TEST_ALDUIN():
     assert TT.is_eq(neckdat.properties.zRotations.interpolation, pyn.NiKeyType.QUADRATIC_KEY, "Rotation type")
 
 
+@TT.category('SKYRIMSE', 'ANIMATION')
+def TEST_BANNER_BONE_ANIM():
+    """A static whose skinned banner is animated through its bones round-trips cleanly.
+
+    Vanilla genericbannerred01.nif: one shape skinned to 7 NiNodes, and a
+    NiControllerManager whose "SpecialIdle" sequence drives 6 of them. Import builds those
+    nodes into an armature, so the animation's targets are bones, not objects -- the
+    importer has to look inside the armature for them. Bug report: it didn't, and warned.
+    The harness fails the test on any such warning.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\genericbannerred01.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_BANNER_BONE_ANIM.nif")
+    nif = pyn.NifFile(testfile)
+    seq_in = nif.root.controller.sequences['SpecialIdle']
+    animated = [b.node_name for b in seq_in.controlled_blocks]
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    TT.assert_samemembers(arma.data.bones.keys(), nif.shapes[0].bone_names, "Armature bones")
+    assert arma.animation_data and arma.animation_data.action, "Armature is animated"
+    TT.assert_contains('SpecialIdle', arma.animation_data.action.name, "Action")
+    curve_bones = {fc.data_path.split('"')[1]
+                   for fc in BD.action_fcurves(arma.animation_data.action)
+                   if fc.data_path.startswith('pose.bones')}
+    TT.assert_samemembers(curve_bones, animated, "Animated bones")
+
+    ### EXPORT ###
+
+    BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
+
+    nifcheck = pyn.NifFile(outfile)
+    TT.assert_eq(len(nifcheck.node_ids), len(nifcheck.nodes), "No dup node names")
+    TT.assert_samemembers(nifcheck.shapes[0].bone_names, nif.shapes[0].bone_names, "Shape bones")
+    cm = nifcheck.root.controller
+    assert cm is not None, "Have controller manager"
+    TT.assert_samemembers(cm.sequences.keys(), ['SpecialIdle'], "Sequences")
+    TT.assert_samemembers([b.node_name for b in cm.sequences['SpecialIdle'].controlled_blocks],
+                          animated, "Controlled blocks")
+    # The game resolves each controlled block through the palette, bones included.
+    TT.assert_samemembers(cm.object_palette.objects.keys(),
+                          nif.root.controller.object_palette.objects.keys(), "Object palette")
+    for bn in nif.shapes[0].bone_names:
+        assert nif.nodes[bn].properties.transform.NearEqual(
+            nifcheck.nodes[bn].properties.transform, epsilon=0.001), f"{bn} transform"
+        # As in vanilla, the manager drives the bones; no loose controller on each.
+        assert nifcheck.nodes[bn].controller is None, f"{bn} has no loose controller"
+
+    # The bones sway: the keys survive, at the same times and positions.
+    blocks_in = {b.node_name: b for b in seq_in.controlled_blocks}
+    for b in cm.sequences['SpecialIdle'].controlled_blocks:
+        td_in = blocks_in[b.node_name].interpolator.data
+        td_out = b.interpolator.data
+        assert td_out is not None, f"{b.node_name} has transform data"
+        TT.assert_gt(len(td_out.translations), 1, f"{b.node_name} translation keys")
+        k_in, k_out = td_in.translations[len(td_in.translations)//2], None
+        k_out = min(td_out.translations, key=lambda k: abs(k.time - k_in.time))
+        TT.assert_equiv(k_out.time, k_in.time, f"{b.node_name} mid key time", e=0.05)
+        TT.assert_equiv(k_out.value, k_in.value, f"{b.node_name} mid key position", e=0.05)
+
+
+@TT.category('FO4', 'ANIMATION')
+@TT.expect_errors(("Target of controller not found",
+                   "Unknown block type: NiBoolData",
+                   "Unknown block type: BSPositionData",
+                   "NiPathInterpolator",
+                   "Dropped 16097 duplicate triangle(s)"))
+def TEST_ANIM_STATIC_CHANNEL_PRETTY_BONES():
+    """A bone animated in rotation only is still posed where its node is.
+
+    VltGearDoor01's "Stage0" keys b_Ramp's rotation but not its translation, so import adds
+    a constant location key to pull the bone from its skin-bind rest to its node. That key
+    is in the bone's own axes, which with pretty bones include the pretty rotation. Bug
+    report: the pretty rotation was left out, so the ramp section of WalkWay01:25 posed 168
+    units off in Y while the two sections on walkway bone chains lined up with the door.
+    """
+    testfile = TTB.test_file(r"tests\FO4\Meshes\VltGearDoor01.nif")
+    nif = pyn.NifFile(testfile)
+
+    def node_world(name):
+        m = Matrix.Identity(4)
+        n = nif.nodes[name]
+        while n is not None:
+            m = BD.transform_to_matrix(n.transform) @ m
+            n = n.parent
+        return m
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, rotate_bones_pretty=True)
+
+    ww = next(o for o in bpy.data.objects if o.get('pynNodeName') == 'WalkWay01:25')
+    arma = next(m.object for m in ww.modifiers if m.type == 'ARMATURE')
+    from io_scene_nifly.util.settings import PYN_ROTATE_BONES_PRETTY_PROP
+    assert arma.get(PYN_ROTATE_BONES_PRETTY_PROP, False), "Imported with pretty bones"
+    arma.animation_data.action = bpy.data.actions['Stage0']
+    bpy.context.scene.frame_set(1)
+    bpy.context.view_layer.update()
+
+    # Stage0 rotates b_Ramp but leaves its translation static, so the bone sits on its node.
+    head = arma.matrix_world @ arma.pose.bones['b_Ramp'].head
+    TT.assert_equiv(head, node_world('b_Ramp').translation, "b_Ramp posed on its node", e=0.05)
+
+    # And the user's symptom: the three sections of the walkway line up across Y.
+    dg = bpy.context.evaluated_depsgraph_get()
+    me = ww.evaluated_get(dg).to_mesh()
+    groups = {g.index: g.name for g in ww.vertex_groups}
+    centres = {}
+    for v in ww.data.vertices:
+        g = groups[max(v.groups, key=lambda gg: gg.weight).group]
+        centres.setdefault(g, []).append((ww.matrix_world @ me.vertices[v.index].co).y)
+    ys = {g: (min(c) + max(c)) / 2 for g, c in centres.items()}
+    TT.assert_samemembers(ys.keys(), ['b_Ramp', 'b_WalkWay01Base', 'b_WalkWay03Base'], "Sections")
+    for g, y in ys.items():
+        TT.assert_equiv(y, ys['b_WalkWay01Base'], f"{g} Y centre lines up", e=0.05)
+
+
 @TT.category('SKYRIM', 'HKX', 'ANIMATION')
 @TT.expect_errors(("Controller target not found",))
 def TEST_KF():

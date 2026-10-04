@@ -240,23 +240,40 @@ def all_named_animations(export_objs:ReprObjectCollection) -> Iterator[Animation
 
     for act, slot, targ, elem in all_obj_animations(export_objs):
         if act.get('pynController', '') == 'NiControllerSequence':
-            res = AnimationData()
-            res.name = act.name
-            res.action = act
-            res.slot = slot
-            res.target_obj = targ
-            res.target_elem = elem
-            res.start_time = (act.frame_start - 1) / bpy.context.scene.render.fps
-            res.stop_time = (act.frame_end - 1) / bpy.context.scene.render.fps
-            res.start_frame = act.frame_start
-            res.stop_frame = act.frame_end
-            res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
+            yield _animation_data(act, slot, targ, elem)
 
-            res.markers = {}
-            for m in act.pose_markers:
-                res.markers[m.name] = (m.frame - 1) / bpy.context.scene.render.fps
 
-            yield res
+def armature_named_animations(arma) -> Iterator[AnimationData]:
+    """
+    Named animations that animate the bones of an armature. Their target_obj is the
+    armature itself, not a ReprObject: the armature isn't a node in the nif, its bones are,
+    so all_named_animations never sees it.
+    """
+    for act in bpy.data.actions:
+        if act.get('pynController', '') != 'NiControllerSequence':
+            continue
+        for slot in act.slots:
+            if slot.target_id_type == 'OBJECT' and slot.name_display == arma.name:
+                yield _animation_data(act, slot, arma, None)
+
+
+def _animation_data(act, slot, targ, elem) -> AnimationData:
+    res = AnimationData()
+    res.name = act.name
+    res.action = act
+    res.slot = slot
+    res.target_obj = targ
+    res.target_elem = elem
+    res.start_time = (act.frame_start - 1) / bpy.context.scene.render.fps
+    res.stop_time = (act.frame_end - 1) / bpy.context.scene.render.fps
+    res.start_frame = act.frame_start
+    res.stop_frame = act.frame_end
+    res.cycle_type = CycleType.LOOP if act.use_cyclic else CycleType.CLAMP
+
+    res.markers = {}
+    for m in act.pose_markers:
+        res.markers[m.name] = (m.frame - 1) / bpy.context.scene.render.fps
+    return res
 
 
 def apply_animation(anim_name, myscene):
@@ -390,7 +407,8 @@ class ControllerHandler():
         self.frame_start = 0
         self.parent = parent_handler
         self.path_name = None
-        self.animation_target = None  
+        self.animation_target = None
+        self.sequence_target = None  # what the current NiControllerSequence was imported onto
         self.target_node = None  # nif node being animated, for interpolator defaults
         self.action_target = None # 
         self.accum_root = None
@@ -446,6 +464,18 @@ class ControllerHandler():
             return self.objects_created.find_nifnode(nifnode).blender_obj
         except (KeyError, AttributeError):
             return None
+
+
+    def _bone_armature(self, nifname):
+        """The armature a nif node was built into as a bone, or None if it wasn't."""
+        armatures = [getattr(self.parent, 'armature', None)]
+        if self.objects_created:
+            armatures += [r.blender_obj for r in self.objects_created]
+        for arma in armatures:
+            if arma and arma.type == 'ARMATURE' and (
+                    nifname in arma.data.bones or self.blender_name(nifname) in arma.data.bones):
+                return arma
+        return None
 
 
     def _find_nif_target(self, blendname):
@@ -758,12 +788,29 @@ class ControllerHandler():
         try:
             # Animating an armature just needs one slot--each bone gets its own fcurve.
             # Otherwise one slot per controller link block.
-            if self.animation_target.type == 'ARMATURE':
+            #
+            # A sequence on an ordinary node can still target nodes that were built into an
+            # armature (a skinned banner animated through its bones); those are pose bones
+            # on that armature. Decide by the sequence's own target, not animation_target,
+            # which the previous block has already moved.
+            arma = None
+            if self.sequence_target is None or self.sequence_target.type != 'ARMATURE':
+                arma = self._bone_armature(block.node_name)
+            if arma:
+                self.animation_target = arma
+                self.action_target = arma
+                if not self._animate_bone(block.node_name):
+                    return
+                self._new_slot()
+            elif self.sequence_target and self.sequence_target.type == 'ARMATURE':
+                self.animation_target = self.sequence_target
                 if not self._animate_bone(block.node_name):
                     return
                 if not self.action_slot:
                     self._new_slot()
             else:
+                # Not a bone, so no bone left over from an earlier block may steer it.
+                self.bone_target = None
                 if not self._new_element_action(
                     seq, block.node_name, block.property_type, None):
                     return
@@ -809,6 +856,7 @@ class ControllerHandler():
         target_element = The blender object an action must be bound to, e.g. bone, material.
         """
         self.animation_target = target_object
+        self.sequence_target = None
         self.action_target = target_element
         if not self.action:
             if hasattr(ctlr, "name"):
@@ -1137,13 +1185,21 @@ class ControllerHandler():
 
         self.controller_manager:NiControllerManager = None
 
-        anim:ReprObjectCollection = None
-        for anim in all_named_animations(self.export_objs):
+        # A sequence may animate objects and bones both, and the two are found separately,
+        # so sequences are looked up by name rather than assumed to arrive together.
+        sequences = {}
+        arma = getattr(self.parent, 'armature', None)
+        anims = list(all_named_animations(self.export_objs))
+        if arma:
+            anims += list(armature_named_animations(arma))
+
+        anim:AnimationData = None
+        for anim in anims:
             # Named animations depend on Action Slots. Bail if it's an older Blender.
             if not hasattr(bpy.types, 'ActionSlot'):
                 log.warning("Action Slots not supported in this version of Blender. Cannot export named animations.")
                 return
-            
+
             # Don't create the controller blocks until we need them.
             if not self.multitarget_controller:
                 self.multitarget_controller = NiMultiTargetTransformController.New(
@@ -1161,8 +1217,8 @@ class ControllerHandler():
                     self.nif, self.nif.rootNode, parent=self.controller_manager)
 
             # Create the controller sequence if it's new.
-            if (not self.controller_sequence) or (anim.name != self.controller_sequence.name):
-                self.controller_sequence:NiControllerSequence = NiControllerSequence.New(
+            if anim.name not in sequences:
+                sequences[anim.name] = NiControllerSequence.New(
                     file=self.parent.nif,
                     name=anim.name,
                     accum_root_name=self.parent.nif.rootName,
@@ -1172,10 +1228,13 @@ class ControllerHandler():
                     frequency=anim.frequency,
                     parent=self.controller_manager
                 )
+                self._export_anim_markers(sequences[anim.name], anim.markers)
+            self.controller_sequence:NiControllerSequence = sequences[anim.name]
 
-            self._export_anim_markers(self.controller_sequence, anim.markers)
+            if anim.target_obj is arma:
+                self._export_armature_sequence(anim)
+                continue
 
-            # if the target is an ARMATURE, do something different
             interps = []
             try:
                 interps = self._export_activated_obj(anim)
@@ -1198,6 +1257,39 @@ class ControllerHandler():
             for obj in self.export_objs:
                 if isinstance(obj.nifnode, NiAVObject) and obj.nifnode.id != 0:
                     self.cm_obj_palette.add_object(obj.nifnode.name, obj.nifnode)
+            # Bones are nodes too, and a controlled block finds its bone through here.
+            if arma:
+                for b in arma.data.bones:
+                    node = self.nif.nodes.get(self.nif_name(b.name))
+                    if node is not None and node.id != 0:
+                        self.cm_obj_palette.add_object(node.name, node)
+
+
+    def _export_armature_sequence(self, anim:AnimationData):
+        """
+        Export the bone curves of a named animation on an armature into the current
+        controller sequence: one controlled block per bone, all driven by the manager's
+        multitarget controller (genericbannerred01.nif).
+        """
+        arma = anim.target_obj
+        self.action = anim.action
+        self.start_time = (self.action.curve_frame_range[0]-1)/(self.fps * ANIMATION_TIME_ADJUST)
+        self.stop_time = (self.action.curve_frame_range[1]-1)/(self.fps * ANIMATION_TIME_ADJUST)
+        curves = actionslot_fcurves(anim.action, anim.slot)
+        while curves:
+            bonename, ti = NiTransformController.fcurve_exporter(self, curves, arma)
+            if not (bonename and ti):
+                continue
+            nifname = self.nif_name(bonename)
+            if nifname not in self.nif.nodes:
+                self.warn(f"Animated bone {bonename} was not exported; dropping its animation")
+                continue
+            self.controller_sequence.add_controlled_block(
+                name=nifname,
+                interpolator=ti,
+                controller=self.multitarget_controller,
+                controller_type='NiTransformController',
+            )
 
 
     @classmethod
@@ -1240,6 +1332,11 @@ class ControllerHandler():
         Export an animated skinned mesh (loadscreenalduinwall.nif).
         """
         if not arma.animation_data:return
+        # A named animation belongs to the controller manager's sequence, not to loose
+        # controllers on each bone; export_named_animations handles it.
+        if arma.animation_data.action \
+                and arma.animation_data.action.get('pynController', '') == 'NiControllerSequence':
+            return
 
         exporter = ControllerHandler(parent_handler)
         exporter.nif = parent_handler.nif
@@ -1443,7 +1540,26 @@ def _import_pos_data(td:NiPosData, importer:ControllerHandler):
 NiPosData.import_node = _import_pos_data
 
 
-def _import_transform_data(td:NiTransformData, 
+def _pretty_rotation(importer):
+    """
+    The pretty-bone rotation R as (quaternion, inverse quaternion, inverse 3x3), or
+    (None, None, None) when the target isn't a pretty bone.
+
+    Pretty bone rotations add R to bone.matrix_local, so a pose bone's channels are in
+    axes rotated by R from the nif's. Every NIF-space delta written to a bone has to go
+    through this: translations by R inverse, rotations conjugated by R.
+    """
+    if importer.bone_target and importer.animation_target:
+        arma = importer.animation_target
+        if arma.get(PYN_ROTATE_BONES_PRETTY_PROP, False):
+            axis = BD.game_axes.get(importer.nif.game)
+            if axis:
+                R_mat, R_inv_mat = BD.game_rotations_pretty[axis][:2]
+                return R_mat.to_quaternion(), R_inv_mat.to_quaternion(), R_inv_mat.to_3x3()
+    return None, None, None
+
+
+def _import_transform_data(td:NiTransformData,
                            importer:ControllerHandler, 
                            have_parent_rotation,
                            tiv,
@@ -1464,23 +1580,8 @@ def _import_transform_data(td:NiTransformData,
     # Action group is the bone name if animating an armature, otherwise just "Object Transforms"
     if  not importer.action_group: importer.action_group = "Object Transforms"
 
-    # Pretty bone rotations add R to bone.matrix_local, so NIF-space animation
-    # deltas need to be conjugated into bone-space for correct visual bone positions.
-    pretty_R_q = None
-    pretty_R_q_inv = None
-    pretty_R_inv_3x3 = None
-    if importer.bone_target and importer.animation_target:
-        arma = importer.animation_target
-        if arma.get(PYN_ROTATE_BONES_PRETTY_PROP, False):
-            game = importer.nif.game
-            axis = BD.game_axes.get(game)
-            if axis:
-                R_mat = BD.game_rotations_pretty[axis][0]
-                R_inv_mat = BD.game_rotations_pretty[axis][1]
-                pretty_R_q = R_mat.to_quaternion()
-                pretty_R_q_inv = R_inv_mat.to_quaternion()
-                pretty_R_inv_3x3 = R_inv_mat.to_3x3()
-    
+    pretty_R_q, pretty_R_q_inv, pretty_R_inv_3x3 = _pretty_rotation(importer)
+
     targ.rotation_mode = "QUATERNION"
     if td.properties.rotationType == NiKeyType.XYZ_ROTATION_KEY:
         targ.rotation_mode = "XYZ"
@@ -1756,6 +1857,25 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
 NiTransformInterpolator.import_node = _import_transform_interpolator
 
 
+def _import_path_interpolator(pi:NiPathInterpolator,
+                              importer:ControllerHandler,
+                              interp:NiInterpController):
+    """
+    Path animation (an object following a spline) isn't supported. Note the target so the
+    import can say so once, rather than once per interpolator -- the same interpolator is
+    reached through both its controller and its controlled block.
+    """
+    target = importer.bone_target or importer.animation_target
+    name = target.name if target is not None else f"block {pi.id}"
+    skipped = getattr(importer.parent, '_skipped_paths', None)
+    if skipped is None:
+        importer.warn(f"Path animation (NiPathInterpolator) is not supported; skipped on {name}")
+    else:
+        skipped.add(name)
+
+NiPathInterpolator.import_node = _import_path_interpolator
+
+
 def _add_static_bone_channels(importer, ti, td, qinv, tiv):
     """
     Give a bone a constant key for any channel the nif leaves static.
@@ -1779,11 +1899,17 @@ def _add_static_bone_channels(importer, ti, td, qinv, tiv):
             static_t[i] = static.translation[i]
 
     path_prefix = importer.path_name + "." if importer.path_name else ""
+    # These keys go in the bone's own axes, which for a pretty bone are rotated by R --
+    # converted exactly as _import_transform_data converts animated keys. Left out, a
+    # rotation-only bone on VltGearDoor01 (b_Ramp) posed 168 units off its node.
+    pretty_R_q, pretty_R_q_inv, pretty_R_inv_3x3 = _pretty_rotation(importer)
 
     has_rotation = (len(td.qrotations) or len(td.xrotations)
                     or len(td.yrotations) or len(td.zrotations))
     if not has_rotation:
         vq = qinv @ static_q
+        if pretty_R_q:
+            vq = pretty_R_q_inv @ vq @ pretty_R_q
         if abs(abs(vq.w) - 1.0) > 1e-6:
             importer.bone_target.rotation_mode = "QUATERNION"
             for i in range(4):
@@ -1794,6 +1920,8 @@ def _add_static_bone_channels(importer, ti, td, qinv, tiv):
 
     if not len(td.translations):
         v = qinv @ (static_t - tiv)
+        if pretty_R_inv_3x3:
+            v = pretty_R_inv_3x3 @ v
         if v.length > 1e-5:
             for i in range(3):
                 c = importer.action.fcurve_ensure_for_datablock(
@@ -2080,8 +2208,12 @@ def _import_multitarget_transform_controller(
     # NiMultiTargetTransformController doesn't actually link to a controller or an
     # interpolator. It just references the target objects. The parent Control Link
     # block references the interpolator.
-    importer.action_group = None
-    importer.path_name = ""
+    #
+    # A target that's a bone already has its pose-bone path from _animate_bone; only an
+    # object target animates its own transform.
+    if importer.bone_target is None:
+        importer.action_group = None
+        importer.path_name = ""
 
 
 NiMultiTargetTransformController.import_node = _import_multitarget_transform_controller
@@ -2111,6 +2243,11 @@ def _import_controller_sequence(seq:NiControllerSequence,
     importer.controller_sequence = seq
     importer.start_time = min(importer.start_time, seq.properties.startTime)
     importer.end_time = max(importer.end_time, seq.properties.stopTime)
+    # Every sequence of a manager starts from the manager's target. The blocks of the
+    # previous sequence moved animation_target, so don't take it from there.
+    if importer.sequence_target is None:
+        importer.sequence_target = importer.animation_target
+    importer.animation_target = importer.sequence_target
 
     if importer.animation_target.type == 'ARMATURE':
         importer._new_armature_action(seq)

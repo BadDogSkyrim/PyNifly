@@ -1,3 +1,137 @@
+# PyNifly 29.1.0 Release Notes
+
+**Animated bones and animated collisions**
+
+Named animations that move bones now import and export. Vanilla banners, the FO4
+animatronics, and anything else whose animation drives the bones of a skinned mesh used to
+come in with the animation dropped and a pile of "Target of controller not found"
+warnings. Re-import any of these you've worked on.
+
+## Animation
+
+- **Animations on bones import onto the armature.** A nif's named animation (a
+  NiControllerManager sequence) that animates nodes built into an armature now lands on
+  the pose bones, and exports back into the same sequence the way vanilla files do.
+
+- **A manager's second animation starts from its own beginning**, not from wherever the
+  first one left off.
+
+- **Animated objects with collision play their animation.** The collision follows the
+  object instead of pinning it in place. Static objects are unchanged, so physics previews
+  still work.
+
+## Starfield
+
+- **Eyes preview correctly**: iris inside the iris radius, sclera outside, as the game
+  draws them.
+
+## Scripts (in github, not the kit)
+
+- `sf_racecheck.py` no longer needs `--plugin`. Without it, it checks your whole active
+  load order, so a plugin that only overrides a race defined somewhere else can be
+  checked.
+
+- `sf_texconv.py` handles `_metal` textures.
+
+## For script writers
+
+- **`NifFile.close()`**, or `with NifFile(path) as nif:`, frees a nif as soon as you're
+  done with it. A dropped NifFile otherwise holds its memory until Python gets around to a
+  full garbage collection, which in a long-running script may be never.
+
+## Known limitations
+
+- **Path animation is not imported.** Some objects move along a spline path (the gear
+  door's blowing papers, birds, catapult projectiles). They import without that motion,
+  and export drops it. You'll get one warning naming them. Support is planned.
+
+- **Some vanilla precombined meshes crash on import.** A handful of FO4 `PreCombined`
+  nifs make the nif loader overflow its stack. Precombined meshes aren't meant to be
+  edited, but don't try to import them.
+
+
+# PyNifly 29.0.0 Release Notes
+
+**Major update to how we handle Starfield materials**
+
+Starfield materials have a layered, hierarchical structure. In past versions, we pretty
+much ignored this and flattened the structure on import, and wrote the flat file on
+export. Turns out, you can't do that - the result shows in Creation Kit but not in game.
+So this version handles material templates correctly. 
+
+This will break existing Blend files. Import a nif with the material you want to use for
+the base, make a copy of that, and make your edits. On export you'll get something that
+works. See the [Starfield
+page](https://github.com/BadDogSkyrim/PyNifly/wiki/Starfield-Notes) of the wiki for
+details.
+
+## Starfield materials
+
+- **Materials are read with everything they inherit.** Most Starfield `.mat` inherit from
+  a template material and only state the *changes*. We now read the whole hierarchy and
+  remember what was in the nif's material and what was inherited. The Blender node tree is
+  still the consolidation of the hierarchy, so the look in Blender is correct.
+
+- **Material hierarchy is preserved on export.** Only the changes in the Blender shader
+  nodes are written to the shape's material.
+
+- **Object IDs are preserved.** PyNifly used to re-generate the `res:` IDs in a material
+  on every export. That was wrong.
+
+- **`SF Base` group nodes show you what a material inherits.** One group per material in
+  the chain, nested — your material, the shader-model template it derives from, the root
+  template under that. 
+
+- **A new "PyNifly Material Chain" panel** in the shader editor sidebar. For the selected
+  node it shows which material in the chain set each value, so you can tell what is yours
+  from what you inherited. "Claim for this material" forces a value to be written even
+  where it matches the parent — for when you set it deliberately and want it to stay put
+  if the parent changes.
+
+- **Whatever is at the output path is replaced outright.** PyNifly no longer patches the
+  file it is overwriting; every node carries what it needs, so nothing is read off disk.
+
+- **Layer counts are correct on import.** A material that declares fewer layers than the
+  material it derives from has *deleted* those layers. PyNifly used to merge them back in,
+  so such a material imported with layers its author had removed.
+
+- **Fewer surprises from the material database.** Set the **Starfield .cdb path**
+  preference if you have not: the root templates every material eventually derives from
+  ship only inside it, and without it the bottom of every chain is missing.
+
+## Checker tool
+
+- In the `scripts/` folder, `sf_racecheck.py` will review your race definition and look
+  for errors, because this is all freakishly complicated. It's in github, not in the kit -
+  get it directly from there if needed.
+
+- Give it a race to check and it will walk head parts, chargen lists, skin tint layers,
+  nifs, and materials, looking for disconnects. 
+
+## Starfield head parts
+
+- **`AnimationFlagExtra` values corrected**, and PyNifly no longer expects one on
+  eyelashes — vanilla eyelashes carry no such block, and absence is legal.
+
+## Known limitations
+
+- **Blend modes are not composited.** Every `SF Blend` node passes the base layer through
+  and composites only the normal map. A material whose layers combine *albedo* will not
+  look right in Blender. It exports correctly; this is a preview limitation. We're not
+  sure yet how the blending is supposed to work; once we figure it out we'll update the
+  importer.
+
+- **A material authored from scratch in Blender is written flat**, which is the form that
+  does not render in game. Import a vanilla material and modify it instead. (You can also
+  set all the properties to represent inheritance, but that's also freakishly complicated.
+  If we can figure out a simpler way to do this - that works with Blender shader nodes -
+  we will.)
+
+- **No "revert to inherited" yet.** The panel shows you what you have overridden; putting it
+  back means re-importing.
+
+- The `Known limitations` from 28.3.0 below still stand.
+
 # PyNifly 28.3.0 Release Notes
 
 Fixes to **Fallout 4 nifs that include a posed skeleton** -- power armor furniture,
@@ -47,15 +181,17 @@ you have in a .blend; an old .blend keeps the old placement.
 
 ## Known limitations
 
-- 34 of the 96 animation controllers in the power armor furniture file don't survive a
-  round trip. Each holds one fixed value matching its node's position, which is written
-  anyway, so the exported file behaves the same.
+- Some animations embedded in nifs set a bone position at the start of the animation and
+  never change it - they fix the bone in place. Some of these fix the bone at its bind
+  position, so they do nothing. We don't export those fcurves, so we don't create those
+  controllers. 
 
-- Exporting with only the root object selected still loses a child connect point. Select
-  the whole scene.
+- Exporting with only the root object selected still the child connect point, if there is
+  one. Select the whole scene, or at least child connect point and root.
 
 - **"Create Bones" against a non-human skeleton** silently substitutes vanilla human bone
-  positions. Turn it off for creature and machine rigs.
+  positions; "Rename Bones" renames some, but not all, bones. Turn it off for creature and
+  machine rigs OR provide the correct reference skeleton.
 
 # PyNifly 28.2.0 Release Notes
 

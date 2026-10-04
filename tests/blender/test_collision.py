@@ -1132,9 +1132,15 @@ def TEST_COLLISION_FO4_BOSRADARDISH():
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors( ("Target of controller not found", 
+@TT.expect_errors( ("Target of controller not found",
                     "Unknown block type: NiBoolData",
-                    "Unknown block type: BSPositionData") ) # We don't yet handle particle systems
+                    "Unknown block type: BSPositionData", # We don't yet handle particle systems
+                    # The vanilla gear door really carries 16,097 duplicate tris (every tri
+                    # doubled, same winding); dropping them is harmless. Checked 2026-10-03.
+                    "Dropped 16097 duplicate triangle(s)",
+                    # FXPaper01/FXPaper002 blow along a spline; path animation isn't
+                    # imported yet. One summary line, not an "Unknown block type" per block.
+                    "Path animation (NiPathInterpolator) is not supported: skipped on 2 object(s)") )
 def TEST_COLLISION_FO4_GEARDOOR():
     """FO4 bhkPhysicsSystem shared by 24 NIF nodes — per-body collision import.
 
@@ -1156,13 +1162,21 @@ def TEST_COLLISION_FO4_GEARDOOR():
                    if o.get('pynCollisionShapeType') in ('polytope', 'compressed_mesh')]
     assert TT.is_gt(len(coll_shapes), 3, "Collision shapes imported")
 
-    # Each collision-bearing node should have its own constraint target.
+    # Each collision-bearing node is linked to its own collision. Both of these nodes are
+    # animated, so the link runs from the collision to the node (the animation wins); a
+    # static node would carry the constraint itself.
     for node_name in ["GearDoor", "VltGearKeySupport"]:
         node_obj = bpy.data.objects[node_name]
-        targets = [con.target for con in node_obj.constraints
-                   if con.name == 'bhkCollisionConstraint' and con.target]
-        assert TT.is_gt(len(targets), 0,
-                         f"{node_name} has collision constraint")
+        followers = [o for o in bpy.data.objects
+                     if any(con.name == 'bhkCollisionConstraint' and con.target == node_obj
+                            for con in o.constraints)]
+        TT.assert_eq(len(followers), 1, f"{node_name} has its collision")
+        assert not [con for con in node_obj.constraints
+                    if con.name == 'bhkCollisionConstraint'], \
+            f"Animated {node_name} isn't pinned to its collision"
+    static = bpy.data.objects["VltGenerator02"]
+    assert [con for con in static.constraints if con.name == 'bhkCollisionConstraint'], \
+        "Static VltGenerator02 is still driven by its collision"
 
     # Helper: get world-space vertex bounds for all child meshes of a node.
     def mesh_bounds(node_name):
@@ -1662,6 +1676,64 @@ def TEST_COLLISION_FO4_SHOTGUN_BARREL():
 
     chk = chk_shapes[0]
     assert TT.is_eq(len(chk.data.vertices), orig_nvert, "Vertex count preserved")
+
+
+@TT.category('SKYRIMSE', 'PHYSICS', 'ANIMATION')
+def TEST_COLLISION_ANIMATED_NODE():
+    """An animated node with a collision plays its animation in Blender and round-trips.
+
+    Vanilla impjaildoor01.nif: Door01 carries a bhkCollisionObject and is driven by the
+    Open/Close sequences. Normally the collision drives its node (the node copies the
+    collision's transforms, so physics moves the mesh). For an animated node that pins it
+    and the animation can't play, so the link runs the other way: the collision follows
+    the node, and is kinematic so the rigid body sim takes its transform from the node.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\impjaildoor01.nif")
+    outfile = TTB.test_file(r"tests\out\TEST_COLLISION_ANIMATED_NODE.nif")
+    nif = pyn.NifFile(testfile)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    sc = bpy.context.scene
+    door = bpy.data.objects['Door01']
+    TT.assert_eq([c for c in door.constraints if c.type == 'COPY_TRANSFORMS'], [],
+                 "Animated node isn't pinned to its collision")
+    coll = next(o for o in bpy.data.objects
+                if any(c.type == 'COPY_TRANSFORMS' and c.target == door for c in o.constraints))
+    assert coll.rigid_body and coll.rigid_body.kinematic, "Collision is kinematic"
+
+    # The door swings, and the collision swings with it.
+    act = door.animation_data.action
+    sc.frame_set(int(act.frame_start))
+    closed = door.matrix_world.copy()
+    sc.frame_set(int(act.frame_end))
+    dg = bpy.context.evaluated_depsgraph_get()
+    swung = door.evaluated_get(dg).matrix_world
+    TT.assert_gt(closed.to_quaternion().rotation_difference(swung.to_quaternion()).angle, 1.0,
+                 "Door swings")
+    assert NT.MatNearEqual(coll.evaluated_get(dg).matrix_world, swung), "Collision follows the door"
+
+    ### EXPORT ###
+    sc.frame_set(int(act.frame_start))
+    root = next(obj for obj in bpy.data.objects if 'pynRoot' in obj)
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, export_animations=True)
+
+    nifout = pyn.NifFile(outfile)
+    co_in, co_out = nif.nodes['Door01'].collision_object, nifout.nodes['Door01'].collision_object
+    assert co_out is not None, "Door01 keeps its collision"
+    TT.assert_eq(co_out.body.shape.blockname, co_in.body.shape.blockname, "Collision shape")
+    TT.assert_eq(co_out.body.properties.collisionFilter_layer,
+                 co_in.body.properties.collisionFilter_layer, "Collision layer")
+    TT.assert_eq(co_out.body.properties.motionSystem, co_in.body.properties.motionSystem,
+                 "Motion system")
+    assert nifout.nodes['Door01'].properties.transform.NearEqual(
+        nif.nodes['Door01'].properties.transform, epsilon=0.001), "Door01 rest transform"
+    TT.assert_eq(
+        {k: sorted(b.node_name for b in s.controlled_blocks)
+         for k, s in nifout.root.controller.sequences.items()},
+        {k: sorted(b.node_name for b in s.controlled_blocks)
+         for k, s in nif.root.controller.sequences.items()},
+        "Sequences")
 
 
 @TT.category('SKYRIM', 'COLLISION')

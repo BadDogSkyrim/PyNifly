@@ -252,6 +252,44 @@ def _leaf_shapes(s):
     return [s]
 
 
+_TRANSFORM_CONTROLLERS = ('NiTransformController', 'NiMultiTargetTransformController')
+
+
+def node_is_animated(nif, node):
+    """
+    True if a transform animation moves this node: a transform controller of its own, or
+    a transform block in any controller manager's sequence (the usual case -- a door's
+    Open/Close drives its nodes from the root's manager).
+    """
+    c = node.controller
+    while c is not None:
+        if c.blockname in _TRANSFORM_CONTROLLERS:
+            return True
+        c = c.next_controller
+    for n in nif.nodes.values():
+        if isinstance(n.controller, NiControllerManager):
+            for seq in n.controller.sequences.values():
+                for b in seq.controlled_blocks:
+                    if (b.node_name == node.name and b.controller
+                            and b.controller.blockname in _TRANSFORM_CONTROLLERS):
+                        return True
+    return False
+
+
+def follower_collisions(obj):
+    """
+    Collision objects that follow obj: an animated node's collision copies the node's
+    transforms, the reverse of the usual link, so the constraint lives on the collision.
+    """
+    if not obj.users_scene:
+        return []
+    # A collision is a rigid body, or an imported one: an FO4 multi-body container is an
+    # EMPTY with no rigid body of its own.
+    return [o for o in obj.users_scene[0].objects
+            if o is not obj and (o.rigid_body is not None or 'pynCollisionBlockname' in o)
+            and any(c.type == 'COPY_TRANSFORMS' and c.target is obj for c in o.constraints)]
+
+
 class CollisionHandler():
     def __init__(self, parent_handler):
         self.root_object = parent_handler.root_object
@@ -925,12 +963,15 @@ class CollisionHandler():
 
     @classmethod
     def import_collision_obj(
-        cls, parent_handler, c:NiCollisionObject, parentObj=None, bone:NiNode=None):
+        cls, parent_handler, c:NiCollisionObject, parentObj=None, bone:NiNode=None,
+        node=None):
         """
-        Import collision object. 
-        
+        Import collision object.
+
         * parentObj is target of collision if it's a NiNode. If target is a bone,
-        parentObj is armature and "bone" is the NiNode for the bone. 
+        parentObj is armature and "bone" is the NiNode for the bone.
+        * node is the nif block parentObj was made from, when it isn't a bone. It decides
+        which way the collision and its target are linked.
         * Returns new collision object.
         """
         importer = CollisionHandler(parent_handler)
@@ -1001,6 +1042,18 @@ class CollisionHandler():
                     # property instead of a constraint to avoid dep cycles
                     # through the rigid body sim.
                     parentObj['pynCollisionTarget'] = sh.name
+                elif node is not None and node_is_animated(importer.nif, node):
+                    # The node is animated, so the animation wins: the collision follows
+                    # the node, the reverse of the usual link, or the constraint would pin
+                    # the node and its keys couldn't play (impjaildoor01.nif). Kinematic,
+                    # so the rigid body sim takes its transform from the node too. It
+                    # still pushes other bodies, as a keyframed body does in game.
+                    constr = sh.constraints.new('COPY_TRANSFORMS')
+                    constr.target = parentObj
+                    constr.name = 'bhkCollisionConstraint'
+                    for o in [sh] + list(sh.children_recursive):
+                        if o.rigid_body:
+                            o.rigid_body.kinematic = True
                 else:
                     constr = parentObj.constraints.new('COPY_TRANSFORMS')
                     constr.target = sh
@@ -1717,6 +1770,10 @@ class CollisionHandler():
             for c in obj.constraints:
                 if c.type == 'COPY_TRANSFORMS' and c.target:
                     exporter.export_collision_object(targobj, c.target)
+            # An animated node's collision follows the node instead, so the constraint
+            # is on the collision, pointing back here.
+            for coll in follower_collisions(obj):
+                exporter.export_collision_object(targobj, coll)
             coll_name = obj.get('pynCollisionTarget')
             if coll_name and coll_name in bpy.data.objects:
                 exporter.export_collision_object(targobj, bpy.data.objects[coll_name])

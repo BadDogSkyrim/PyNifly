@@ -409,6 +409,33 @@ def TEST_READ():
     CHK.Check_khajiithead(nif)
 
 
+def TEST_CLOSE():
+    """close() frees a nif without waiting for a full garbage collection"""
+    # The wrappers are reference cycles (file <-> root node, shape <-> shader),
+    # so a dropped NifFile -- native nif and cached geometry included -- lives
+    # until the cycle collector runs. The furrifier's facegen bake leaked
+    # ~13 MB per NPC this way. With the collector off, nothing taken from a
+    # closed nif may survive.
+    import gc
+    testfile = r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif"
+    def live():
+        return sum(isinstance(o, (NifFile, NiShape, NiNode)) for o in gc.get_objects())
+
+    gc.collect()
+    gc.disable()
+    try:
+        before = live()
+        with NifFile(testfile) as nif:
+            shape = nif.shapes[0]
+            assert shape.verts and shape.shader is not None
+            assert nif.nodes and nif.root is not None
+        assert nif._handle is None, "native nif not freed"
+        del nif, shape
+        assert live() == before, f"{live() - before} wrappers left for the cycle collector"
+    finally:
+        gc.enable()
+
+
 def TEST_SF_MESH_READ():
     """Starfield: read a BSGeometry nif + its external .mesh, get geometry + bones."""
     nif = NifFile(r"tests\SF\naked_f.nif")

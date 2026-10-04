@@ -404,6 +404,8 @@ class NifImporter():
         # (shape name, duplicates dropped) for triangles Blender can't hold.
         # Summarized in one message at the end of execute().
         self._dropped_tris = []
+        # Objects whose path animation (NiPathInterpolator) was skipped. Also one message.
+        self._skipped_paths = set()
         self.context = bpy.context
         self.is_facegen = False
         self.is_skinned_tree = False
@@ -1036,7 +1038,7 @@ class NifImporter():
         try:
             if ninode.collision_object and self.settings.import_collisions:
                 collision.CollisionHandler.import_collision_obj(
-                    self, ninode.collision_object, obj)
+                    self, ninode.collision_object, obj, node=ninode)
         except Exception:
             log.exception(f"Error importing collisions {ninode.name}")
 
@@ -1473,7 +1475,7 @@ class NifImporter():
 
                 if the_shape.collision_object and self.settings.import_collisions:
                     collision.CollisionHandler.import_collision_obj(
-                        self, the_shape.collision_object, new_object)
+                        self, the_shape.collision_object, new_object, node=the_shape)
 
                 if self.controller_mgr:
                     # Importing animations.
@@ -2617,6 +2619,25 @@ class NifImporter():
         self._pending_cut_disks = []
 
         self.report_dropped_tris()
+        self.report_skipped_paths()
+
+
+    def report_skipped_paths(self):
+        """Report, once for the whole import, the path animations that weren't imported.
+
+        A NiPathInterpolator moves its target along a spline. Blender could carry it (a
+        curve plus a Follow Path constraint) but PyNifly doesn't yet, so these objects
+        don't move and an export drops the animation.
+        """
+        if not self._skipped_paths:
+            return
+        names = sorted(self._skipped_paths)
+        shown = ", ".join(names[:5]) + (f", +{len(names) - 5} more" if len(names) > 5 else "")
+        log.warning(
+            f"Path animation (NiPathInterpolator) is not supported: skipped on "
+            f"{len(names)} object(s) [{shown}]. They won't move along their paths, and "
+            "export will not write the path animation.")
+        self._skipped_paths = set()
 
 
     def report_dropped_tris(self):

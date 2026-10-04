@@ -2067,6 +2067,18 @@ class NiKeyBasedInterpolator(NiInterpolator):
     pass
 
 
+class NiPathInterpolator(NiKeyBasedInterpolator):
+    """Moves its target along a spline path (NiPosData) at a percent-along-path given
+    over time (NiFloatData). Recognised so it isn't reported as an unknown block, but not
+    read: the DLL has no buffer for it, and path animation isn't imported. Importers
+    skip it and say so."""
+    buffer_type = -1
+
+    @property
+    def data(self):
+        return None
+
+
 class NiTransformInterpolator(NiKeyBasedInterpolator):
     buffer_type = PynBufferTypes.NiTransformInterpolatorBufType
 
@@ -5051,6 +5063,37 @@ class NifFile:
     def __del__(self):
         if self._handle:
             nifly.destroy(self._handle)
+
+    def close(self):
+        """Free the native nif now. Nodes and shapes point back at their file, so
+        a dropped NifFile is a reference cycle: the native memory waits for a
+        full garbage collection, which in a long-running process with a large
+        heap may never come. Call this when done with a nif (or use the NifFile
+        as a context manager). The NifFile and every node/shape taken from it
+        are unusable afterwards. Idempotent."""
+        if self._handle:
+            nifly.destroy(self._handle)
+            self._handle = None
+        # Freeing the native nif isn't enough: the Python wrappers form their own
+        # cycles (file <-> root node, shape <-> shader) and the shapes cache their
+        # geometry as lists, several MB per head. Empty the wrappers so all of it
+        # frees by refcount instead of waiting on the cycle collector.
+        wrappers = list(self._shapes or []) + list((self._nodes or {}).values())
+        if self._root is not None:
+            wrappers.append(self._root)
+        for w in wrappers:
+            w.__dict__.clear()
+        self._root = None
+        self._shapes = None
+        self._nodes = None
+        self._shape_dict = {}
+        self.node_ids = {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
 
     @property
     def max_string_len(self):

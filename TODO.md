@@ -78,6 +78,37 @@ out of the controller's declared range, and be sure a legitimately short animati
 mistaken for garbage. Add a test with the workbench asserting no imported key lands
 before frame 0 (or the animation start).
 
+## Scene frame range isn't set from imported animations
+
+**Status:** open (seen 2026-09-30, confirmed by Bad Dog).
+
+Importing Skyrim `dungeons\imperial\jail\impjaildoor01.nif` leaves the scene at Blender's
+default frames 1-250, although its Open/Close sequences run about 30 frames (stop times
+1.0s and 0.967s). `_record_slot` in `io_scene_nifly/nif/controller.py` only ever widens the
+scene range (`min`/`max` against the current start/end), so it can't shrink the default 250.
+`apply_action` does the same. Fix: on import, set the scene range from the animation rather
+than widening it -- probably to the first/active animation's range, since the sequences can
+differ in length. Test with the jail door: scene end frame matches Open's last key.
+
+## Warn when a Starfield morph is exported to a file not named `morph.dat`
+
+**Status:** open (Bad Dog, 2026-10-03).
+
+The game reads a head part's morphs as `<MRPH TCMP or TMPP folder>\morph.dat`, so the file must be
+named exactly `morph.dat`. Export takes the Starfield Morphs paths (`pyn_sf_morph.chargen_path` /
+`performance_path`) as the file to write, verbatim, so a path that names a folder is written as a
+file with that folder's name. Bad Dog's `FSFFox_Ruff01` (2026-10-03) had
+`meshes/morphs/FSFFox/Male/Chargen/FSFFox_Ruff01` and got extension-less `FSFFox_Ruff01` files
+with correct contents, which the game can't find, and which then block the folder of the same name.
+
+**Do:** warn when the resolved chargen or performance output's filename isn't `morph.dat`
+(case-insensitive), naming the shape and the path, and saying the field should end in
+`\morph.dat` (or `\{shape}\morph.dat`). Warn, don't refuse: an explicit path is the author's call.
+
+**Where:** `io_scene_nifly/sfmorph/export_sfmorph.py`, where the two outputs are resolved (after
+`substitute_shape` / `resolve_morph_output`). Test: a shape whose `chargen_path` names a folder
+exports with a warning that names it; a `.../morph.dat` path exports without one.
+
 ## Starfield `.mat` writer must be diff-only (don't clobber inherited fields)
 
 **Status:** open (found 2026-07-13, latent — `write_sf_materials` defaults OFF).
