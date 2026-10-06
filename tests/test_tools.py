@@ -23,6 +23,8 @@ log = logging.getLogger("pynifly")
 SKYRIM_ASSETS = os.path.join('C:' + os.sep, 'Modding', 'SkyrimSE', '00 Vanilla Assets')
 FO4_ASSETS    = os.path.join('C:' + os.sep, 'Modding', 'FalloutAssets', '00 FO4 Assets')
 SF_ASSETS     = os.path.join('C:' + os.sep, 'Modding', 'Starfield', '00StarfieldAssets')
+# The installed game's Data folder: the vanilla plugins live here, not in the unpacked assets.
+SF_DATA       = os.path.join('C:' + os.sep, 'Steam', 'steamapps', 'common', 'Starfield', 'Data')
 
 PYNIFLY_TEXTURES_SKYRIM = SKYRIM_ASSETS
 PYNIFLY_TEXTURES_FO4 = FO4_ASSETS

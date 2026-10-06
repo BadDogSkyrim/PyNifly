@@ -1707,6 +1707,132 @@ def TEST_SF_RACECHECK_LOAD_ORDER():
         assert sf_racecheck.find_race(plugins, 'NoSuchRace') is None, "unknown race -> None"
 
 
+def TEST_SF_RACECHECK_FOLLICLE_MASK():
+    """sf_racecheck checks that a hair or beard head part's NAM3 mask resolves to a texture.
+
+    NAM3 is not a filename. It is a KEY: the Simple AVMD group `HairFollicleMask` (hair, PNAM
+    3) or `BeardFollicleMask` (facial hair, PNAM 4) lists `LNAM key / VNAM texture path`
+    pairs, and the engine looks the part's NAM3 up there. A mask that's only a .dds on disk
+    -- however vanilla-like its folder and name -- does nothing. That's how FSFFox's
+    `JawRuff_mask` silently failed.
+
+    Vanilla extends a group without overriding it: Shattered Space adds a separate Simple
+    group `HairFollicleMask_AVMDEXT`, and its DLC hair parts' keys resolve ONLY there. So
+    `<group>_AVMDEXT` counts as part of the group.
+
+    Measured over every vanilla hair/beard part: 115 NAM3 keys, all exact-case matches, all
+    in the group for their part type. Eyebrows (PNAM 6) use NAM3 for a colour group instead,
+    and are left alone.
+    """
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+    from esplib import Plugin
+
+    HAIR, BEARD, BROW = 3, 4, 6
+    MASK_REL = 'textures/actors/rctest/scalp/present_mask.dds'
+
+    def group(p, edid, name, entries):
+        rec = p.new_record('AVMD', edid)
+        rec.add_subrecord('MNAM', (1).to_bytes(4, 'little'))      # Simple
+        rec.add_subrecord('TNAM', name.encode() + b'\0')
+        for key, path in entries:
+            rec.add_subrecord('LNAM', key.encode() + b'\0')
+            rec.add_subrecord('VNAM', path.encode() + b'\0')
+
+    def part(p, edid, pnam, nam3):
+        rec = p.new_record('HDPT', edid)
+        rec.add_subrecord('PNAM', pnam.to_bytes(4, 'little'))
+        if nam3 is not None:
+            rec.add_subrecord('NAM3', nam3.encode() + b'\0')
+
+    def findings(rep, level):
+        return [(m, d) for lv, _area, m, d in rep.findings if lv == level]
+
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, *MASK_REL.split('/')[:-1]))
+        open(os.path.join(d, *MASK_REL.split('/')), 'wb').close()
+
+        p = Plugin.new_plugin(os.path.join(d, 'RCHair.esm'), masters=[], game='fo4',
+                              is_esm=True)
+        group(p, 'SimpleGroup_HairFollicleMask', 'HairFollicleMask',
+              [('Hair_Present_Mask', MASK_REL), ('Hair_Missing_Mask', 'textures/rctest/gone.dds'),
+               ('Hair_WrongGroup_Mask', MASK_REL)])
+        group(p, 'SimpleGroup_BeardFollicleMask_AVMDEXT', 'BeardFollicleMask_AVMDEXT',
+              [('Beard_Ext_Mask', MASK_REL)])
+        part(p, 'RCHairGood', HAIR, 'Hair_Present_Mask')
+        part(p, 'RCBeardViaExt', BEARD, 'Beard_Ext_Mask')
+        part(p, 'RCHairNoFile', HAIR, 'Hair_Missing_Mask')
+        part(p, 'RCBeardWrongGroup', BEARD, 'Hair_WrongGroup_Mask')
+        part(p, 'RCBeardUnlisted', BEARD, 'JawRuff_mask')
+        part(p, 'RCHairCase', HAIR, 'hair_present_mask')
+        part(p, 'RCHairNone', HAIR, ' NONE')
+        part(p, 'RCHairNoNam3', HAIR, None)
+        part(p, 'RCBrow', BROW, 'EyebrowColor')
+        p.save_as(os.path.join(d, 'RCHair.esm'))
+
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [d], ['RCHair.esm'])
+        avm = sf_racecheck.avm_index(plugins)
+        parts = {h.editor_id: h for h in sf_racecheck.winning_records(plugins, 'HDPT')}
+
+        def check(edid):
+            r = sf_racecheck.Report()
+            sf_racecheck.check_follicle_mask(r, [d], parts[edid], avm, official=set())
+            return r
+
+        r = check('RCHairGood')
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL) + findings(r, sf_racecheck.WARN), [],
+                        "a hair key in HairFollicleMask with its texture on disk is clean")
+        r = check('RCBeardViaExt')
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL) + findings(r, sf_racecheck.WARN), [],
+                        "a beard key found only in BeardFollicleMask_AVMDEXT resolves")
+
+        r = check('RCBeardUnlisted')
+        fails = findings(r, sf_racecheck.FAIL)
+        assert TT.is_eq(len(fails), 1, "a NAM3 key no group lists is a FAIL")
+        assert 'JawRuff_mask' in fails[0][0] and 'BeardFollicleMask' in str(fails[0]), \
+            f"the failure names the key and the group to add it to: {fails}"
+
+        r = check('RCBeardWrongGroup')
+        fails = findings(r, sf_racecheck.FAIL)
+        assert TT.is_eq(len(fails), 1, "a beard key listed only in the HAIR group is a FAIL")
+        assert 'HairFollicleMask' in str(fails[0]), \
+            f"the failure says where the key actually is: {fails}"
+
+        r = check('RCHairNoFile')
+        fails = findings(r, sf_racecheck.FAIL)
+        assert TT.is_eq(len(fails), 1, "a mod's mask entry pointing at a missing file is a FAIL")
+        assert 'textures/rctest/gone.dds' in str(fails[0]), f"names the missing path: {fails}"
+
+        r = check('RCHairCase')
+        assert TT.is_eq(len(findings(r, sf_racecheck.FAIL)), 0, "case-only match isn't a FAIL")
+        assert TT.is_eq(len(findings(r, sf_racecheck.WARN)), 1,
+                        "but vanilla always matches case exactly, so it's a WARN")
+
+        for edid in ('RCHairNone', 'RCHairNoNam3', 'RCBrow'):
+            r = check(edid)
+            assert TT.is_eq(r.findings, [], f"{edid}: no mask to check, nothing reported")
+
+    # CONTROL, on the real game: every vanilla hair and beard part resolves, the Shattered
+    # Space ones through HairFollicleMask_AVMDEXT. Vanilla textures are in BA2s, so the
+    # official plugins' entries are not looked for on disk.
+    if os.path.exists(os.path.join(TT.SF_DATA, 'Starfield.esm')):
+        order = ['Starfield.esm'] + sf_racecheck.OFFICIAL_MASTERS
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [TT.SF_DATA], order)
+        avm = sf_racecheck.avm_index(plugins)
+        official = sf_racecheck.official_plugins(order)
+        checked = 0
+        for h in sf_racecheck.winning_records(plugins, 'HDPT'):
+            r = sf_racecheck.Report()
+            sf_racecheck.check_follicle_mask(r, [TT.SF_DATA], h, avm, official)
+            assert TT.is_eq(findings(r, sf_racecheck.FAIL) + findings(r, sf_racecheck.WARN),
+                            [], f"vanilla {h.editor_id} is clean")
+            checked += bool(r.findings)
+        assert TT.is_ge(checked, 115, "every vanilla hair/beard mask was actually checked")
+
+
 def TEST_SF_MORPH_ROUNDTRIP():
     """Starfield: read/write a vanilla morph.dat byte-exact; positions-only rebuild round-trips.
 

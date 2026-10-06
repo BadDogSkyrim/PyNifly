@@ -69,6 +69,7 @@ def label_sex(name):
 # Head-part types from HDPT PNAM, as seen in vanilla.
 HDPT_FACE = 1
 HDPT_RIGHT_EYE, HDPT_LEFT_EYE = 2, 12
+HDPT_HAIR, HDPT_FACIAL_HAIR = 3, 4
 
 # The four base maps a FaceGen bake reads from the race's FCTP directory, by filename
 # convention. Only the albedo has an AVMD route; the rest are filename-only.
@@ -443,7 +444,8 @@ def race_head_parts(race, plugins, official):
             if plugin_name(h) not in official and valid_for_race(h, race, plugins)]
 
 
-def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, sexes=SEXES):
+def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, sexes=SEXES,
+                     avm=None):
     """The race's head parts and the NIFs behind them.
 
     Two sources, because either alone leaves a hole: the race's per-sex HEAD list (its
@@ -473,6 +475,8 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
                 own_face[sx] = hdpt
             seen.add(id(hdpt))
             check_head_nif(rep, data, hdpt, nif_reader)
+            if avm is not None:
+                check_follicle_mask(rep, data, hdpt, avm, official)
 
     # The rest of the mod's parts for this race -- the ones the race doesn't default to.
     extra = [h for h in race_head_parts(race, plugins, official)
@@ -483,6 +487,8 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
                sorted(h.editor_id or '?' for h in extra)[:8])
         for hdpt in extra:
             check_head_nif(rep, data, hdpt, nif_reader)
+            if avm is not None:
+                check_follicle_mask(rep, data, hdpt, avm, official)
 
     if not own_face:
         rep.warn('head parts', "Race defines no Face head part of its own (PNAM type 1)",
@@ -1103,6 +1109,91 @@ def complex_children(rec, index):
     return out
 
 
+# A hair or beard head part's NAM3 "Mask" is a key into one of these Simple groups, chosen by
+# the part's type. Measured over every vanilla hair/beard part: 115 keys, all exact-case, all in
+# the group for their type. Eyebrows use NAM3 for a colour group instead.
+FOLLICLE_GROUPS = {HDPT_HAIR: 'HairFollicleMask', HDPT_FACIAL_HAIR: 'BeardFollicleMask'}
+
+# A Simple group named '<group>_AVMDEXT' extends <group>: Shattered Space adds its scalp masks
+# that way, never overriding HairFollicleMask, and its hair parts' keys resolve only there.
+AVMD_EXTENSION = '_AVMDEXT'
+
+
+def simple_entries(rec):
+    """A Simple group's entries as [(LNAM, VNAM or None)], in order."""
+    pairs = []
+    for sr in rec.subrecords:
+        if sr.signature == 'LNAM':
+            pairs.append([sr.get_string(), None])
+        elif sr.signature == 'VNAM' and pairs and pairs[-1][1] is None:
+            pairs[-1][1] = sr.get_string()
+    return [tuple(p) for p in pairs]
+
+
+def check_follicle_mask(rep, data, hdpt, avm, official):
+    """A hair or beard part's NAM3 mask must be a key in its follicle-mask group, and the
+    texture that entry names must exist.
+
+    The engine never builds a path from the key: it looks the key up in the group, which pairs
+    it with a texture path. A .dds on disk with the right-looking name does nothing if no group
+    lists it. Textures named by the game's own plugins live in BA2s, so only a mod's entries
+    are looked for on disk."""
+    pnam = hdpt.get_subrecord('PNAM')
+    grp_name = FOLLICLE_GROUPS.get(pnam.get_uint32() if pnam is not None else None)
+    key = text(hdpt, 'NAM3')
+    if grp_name is None or key is None or key.strip().upper() in ('', 'NONE'):
+        return
+    who = hdpt.editor_id or str(hdpt.form_id)
+    names = [grp_name, grp_name + AVMD_EXTENSION]
+    groups = [(n, avm[(AVM_SIMPLE, n)]) for n in names if (AVM_SIMPLE, n) in avm]
+
+    found = case_only = None
+    for gname, grp in groups:
+        for lnam, vnam in simple_entries(grp):
+            if lnam == key:
+                found = (gname, grp, vnam)
+                break
+            if case_only is None and lnam.lower() == key.lower():
+                case_only = (gname, grp, vnam, lnam)
+        if found:
+            break
+
+    if found is None and case_only is not None:
+        gname, grp, vnam, lnam = case_only
+        rep.warn('hair masks', f"{who}: mask (NAM3) '{key}' matches '{lnam}' in {gname} only "
+                               f"if case is ignored",
+                 "Every vanilla part matches its key exactly; make the case agree.")
+        found = (gname, grp, vnam)
+
+    if found is None:
+        elsewhere = sorted(f"{AVM_KIND_NAME.get(k, k)} {n}" for (k, n), g in avm.items()
+                           if n not in names and key in avm_entries(g))
+        detail = [f"A {'facial hair' if grp_name == 'BeardFollicleMask' else 'hair'} part "
+                  f"(PNAM {pnam.get_uint32()}) looks its NAM3 up in the Simple group "
+                  f"{grp_name}. The key isn't a filename; a .dds on disk does nothing unless a "
+                  f"group entry points at it."]
+        if elsewhere:
+            detail.append(f"'{key}' IS listed in {', '.join(elsewhere)} -- the wrong group "
+                          f"for this part type.")
+        detail.append(f"Fix: add an entry LNAM '{key}' / VNAM <texture path> to {grp_name}, "
+                      f"or to a new Simple group named {grp_name}{AVMD_EXTENSION} (how "
+                      f"Shattered Space extends it without overriding the vanilla record).")
+        rep.fail('hair masks', f"{who}: mask (NAM3) '{key}' is not listed in {grp_name}",
+                 detail)
+        return
+
+    gname, grp, vnam = found
+    if not vnam:
+        rep.fail('hair masks', f"{who}: {gname} entry '{key}' names no texture (VNAM)")
+    elif plugin_name(grp) in official:
+        rep.ok('hair masks', f"{who}: mask '{key}' listed in {gname}")
+    elif not exists(data, vnam):
+        rep.fail('hair masks', f"{who}: mask '{key}' texture not on disk",
+                 [vnam, f"named by {gname} in {plugin_name(grp)}"])
+    else:
+        rep.ok('hair masks', f"{who}: mask '{key}' in {gname} -> {vnam}")
+
+
 def check_ck_simple_group(rep, who, part, name, index):
     """A body or hands skin-tone type must name a non-empty Simple group. Returns it, or None."""
     if not name:
@@ -1609,7 +1700,7 @@ def run(args, out):
     check_race_misc(rep, race)
     own_face = check_head_parts(rep, data=args.data, race=race, nif_reader=nif_reader,
                                 per_sex=per_sex, plugins=plugins, official=official,
-                                sexes=sexes)
+                                sexes=sexes, avm=avm)
     check_body(rep, args.data, race, plugins, nif_reader, own_root, sexes)
     check_npcs(rep, race, npcs)
     check_record_texture_paths(rep, own_avmds, npcs)
