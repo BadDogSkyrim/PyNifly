@@ -909,6 +909,10 @@ class NifExporter:
         obj = robj.blender_obj
         if obj.type != 'MESH' or obj.data.shape_keys is None:
             return
+        if self.file_suffix == '_faceBones':
+            # Morphs belong to the head part, not to either nif of the pair; the base nif's pass
+            # already wrote them to the same paths.
+            return
         from ..sfmorph.export_sfmorph import write_sf_morphs
         wrote = write_sf_morphs(obj, self.nif.filepath, morphdict=morphdict,
                                 used_paths=self._sf_morph_paths)

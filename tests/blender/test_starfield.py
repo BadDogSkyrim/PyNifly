@@ -1725,8 +1725,31 @@ def TEST_SF_FACEBONES_EXPORT():
     vg.add(list(range(len(head.data.vertices))), 1.0, 'REPLACE')
     head.modifiers.new("Armature", 'ARMATURE').object = arma
 
-    BD.ObjectSelect([root, head, arma], active=True)
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", intuit_defaults=False)
+    # A shape key, so the export writes morphs. Morphs belong to the head part, not to either
+    # nif, so they must be written once -- not again by the facebones pass.
+    head.shape_key_add(name="Basis")
+    key = head.shape_key_add(name="Wildman_JawOpen")
+    key.data[0].co.z += 0.5
+
+    messages = []
+
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    cap = _Cap(level=logging.INFO)
+    pyn_log = logging.getLogger("pynifly")
+    pyn_log.addHandler(cap)
+    try:
+        BD.ObjectSelect([root, head, arma], active=True)
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", intuit_defaults=False)
+    finally:
+        pyn_log.removeHandler(cap)
+
+    morph_writes = [m for m in messages if m.startswith("Wrote Starfield morph")]
+    assert TT.is_neq(morph_writes, [], "the shape key was written as a morph")
+    assert TT.is_eq(len(morph_writes), len(set(morph_writes)),
+                    f"each morph.dat written once, not again for the facebones nif: {morph_writes}")
 
     assert os.path.exists(outfile), "wrote the base nif"
     assert os.path.exists(outfile_fb), f"wrote the facebones companion nif at {outfile_fb}"
