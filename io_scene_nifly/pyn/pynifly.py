@@ -9,7 +9,8 @@ from enum import Enum
 import re
 import logging
 from ctypes import *
-from typing import ValuesView, List 
+from typing import ValuesView, List
+from collections.abc import MutableMapping
 import xml.etree.ElementTree as xml
 from pathlib import Path
 from .niflytools import *
@@ -3491,8 +3492,47 @@ class NiAlphaProperty(NiProperty):
             for sh in self.file.shapes:
                 if sh.properties.alphaPropertyID == self.id:
                     self._parent = sh
-                    break 
+                    break
         return self._parent
+
+
+class TextureMap(MutableMapping):
+    """A shader's textures by slot name ('Diffuse', 'Normal', ...).
+
+    Assigning a slot writes the texture path to the nif; the change is saved with the file.
+    A slot the shader has no place for raises KeyError -- including 'RootMaterialPath', which
+    FO4 shaders report here but is the shader's root material name, not a texture. When the
+    textures come from an FO4 material file the map is read-only: assignment raises TypeError,
+    since the material file, not the nif, holds them.
+    """
+    def __init__(self, cache, writer=None, readonly_reason=None):
+        self._cache = cache
+        self._writer = writer
+        self._readonly_reason = readonly_reason
+
+    def __getitem__(self, slot):
+        return self._cache[slot]
+
+    def __iter__(self):
+        return iter(self._cache)
+
+    def __len__(self):
+        return len(self._cache)
+
+    def __setitem__(self, slot, path):
+        if self._writer is None:
+            raise TypeError(self._readonly_reason)
+        self._writer(slot, path)
+        self._cache[slot] = path
+
+    def __delitem__(self, slot):
+        if self._writer is None:
+            raise TypeError(self._readonly_reason)
+        self._writer(slot, '')
+        del self._cache[slot]
+
+    def __repr__(self):
+        return f"TextureMap({self._cache!r})"
 
 
 class NiShader(NiProperty):
@@ -3506,10 +3546,27 @@ class NiShader(NiProperty):
     def getbuf(cls, values=None):
         return NiShaderBuf(values)
 
+    # Texture-set slot index for each texture a lighting shader can hold. Some slots are shared:
+    # which name a slot is read under depends on the shader flags.
+    LIGHTING_TEXTURE_SLOTS = {
+        'Diffuse': 0, 'Normal': 1, 'Glow': 2, 'RimLighting': 2, 'SoftLighting': 2,
+        'HeightMap': 3, 'Greyscale': 3, 'EnvMap': 4, 'EnvMask': 5,
+        'FacegenDetail': 6, 'InnerLayer': 6, 'Specular': 7, 'Wrinkles': 8}
+    # The properties field holding each texture an effect shader can hold.
+    EFFECT_TEXTURE_FIELDS = {
+        'Diffuse': 'sourceTexture', 'Greyscale': 'greyscaleTexture', 'EnvMap': 'envMapTexture',
+        'Normal': 'normalTexture', 'EnvMapMask': 'envMaskTexture',
+        'EmitGradient': 'emitGradientTexture'}
+    # nifly's texture-slot index for the effect-shader textures it can set on a block already in
+    # the file (NifFile::SetTextureSlot). It has none for EmitGradient.
+    EFFECT_TEXTURE_SLOTS = {
+        'Diffuse': 0, 'Normal': 1, 'Greyscale': 3, 'EnvMap': 4, 'EnvMapMask': 5}
+
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
         super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
-        
+
         self._textures = None
+        self._texture_map = None
 
     @property
     def parent(self):
@@ -3538,6 +3595,14 @@ class NiShader(NiProperty):
 
     @property
     def textures(self):
+        """The shader's textures by slot name, as a TextureMap. Assigning a slot writes it to
+        the nif: `shape.textures['Diffuse'] = r'textures\\foo_d.dds'`."""
+        if self._texture_map is None:
+            self._texture_map = TextureMap(self._read_textures(), self._write_texture)
+        return self._texture_map
+
+    def _read_textures(self):
+        """The shader block's textures as a plain dict, read once and cached."""
         if self._textures is None:
             self._textures = {}
             if self.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
@@ -3595,50 +3660,51 @@ class NiShader(NiProperty):
 
         return self._textures
 
+    def _write_texture(self, slot:str, texturepath):
+        """Write one texture path to the nif. KeyError if this shader has no such slot."""
+        path = texturepath.encode('utf-8')
+        buftype = self.properties.bufType
+        if buftype == PynBufferTypes.BSLightingShaderPropertyBufType:
+            if slot not in self.LIGHTING_TEXTURE_SLOTS:
+                raise KeyError(f"A lighting shader has no '{slot}' texture; slots are "
+                               f"{sorted(self.LIGHTING_TEXTURE_SLOTS)}")
+            nifly.setShaderTextureSlot(
+                self.file._handle, self._parent._handle, self.LIGHTING_TEXTURE_SLOTS[slot], path)
+        elif buftype == PynBufferTypes.BSEffectShaderPropertyBufType:
+            if slot not in self.EFFECT_TEXTURE_FIELDS:
+                raise KeyError(f"An effect shader has no '{slot}' texture; slots are "
+                               f"{sorted(self.EFFECT_TEXTURE_FIELDS)}")
+            field = self.EFFECT_TEXTURE_FIELDS[slot]
+            if getattr(self.properties, field) == path:
+                return
+            # Effect-shader textures live in the block itself. Until the block is in the file
+            # (an export fills the buffer, then writes the block) setting the buffer is enough;
+            # once it is, nifly's texture-slot setter writes the block -- but only if the block
+            # in the file really is an effect shader: an export can give a new shape's buffer a
+            # different type from its placeholder block.
+            if self.id != NODEID_NONE:
+                buf = create_string_buffer(128)
+                nifly.getBlockname(self.file._handle, self.id, buf, 128)
+                if buf.value.decode('utf-8') == 'BSEffectShaderProperty':
+                    if slot not in self.EFFECT_TEXTURE_SLOTS:
+                        raise NotImplementedError(
+                            f"'{slot}' can't be changed on an effect shader already in the file")
+                    nifly.setShaderTextureSlot(
+                        self.file._handle, self._parent._handle,
+                        self.EFFECT_TEXTURE_SLOTS[slot], path)
+            setattr(self.properties, field, path)
+        else:
+            raise KeyError(f"Can't write textures to a {self.blockname}")
+
     def set_texture(self, slot:str, texturepath):
-        """Set texture in the named slot to the given string."""
-        if self.properties.bufType == PynBufferTypes.BSLightingShaderPropertyBufType:
-            if slot == 'Diffuse':
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 0, texturepath.encode('utf-8'))
-            if slot == 'Normal':
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 1, texturepath.encode('utf-8'))
-            if slot in ['Glow', 'RimLighting', 'SoftLighting']:
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 2, texturepath.encode('utf-8'))
-            if slot == 'HeightMap':
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 3, texturepath.encode('utf-8'))
-            if slot == 'EnvMap':
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 4, texturepath.encode('utf-8'))
-            if slot == 'EnvMask':
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 5, texturepath.encode('utf-8'))
-            if slot in ['FacegenDetail', 'InnerLayer']:
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 6, texturepath.encode('utf-8'))
-            if slot == 'Specular':
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 7, texturepath.encode('utf-8'))
-                
-            if slot == 'Wrinkles':
-                nifly.setShaderTextureSlot(
-                    self.file._handle, self._parent._handle, 8, texturepath.encode('utf-8'))
-        if self.properties.bufType == PynBufferTypes.BSEffectShaderPropertyBufType:
-            if slot == 'Diffuse':
-                self.properties.sourceTexture = texturepath.encode('utf-8')
-            if slot == 'Greyscale':
-                self.properties.greyscaleTexture = texturepath.encode('utf-8')
-            if slot == 'EnvMap':
-                self.properties.envMapTexture = texturepath.encode('utf-8')
-            if slot == 'Normal':
-                self.properties.normalTexture = texturepath.encode('utf-8')
-            if slot == 'EnvMapMask':
-                self.properties.envMaskTexture = texturepath.encode('utf-8')
-            if slot == 'EmitGradient':
-                self.properties.emitGradientTexture = texturepath.encode('utf-8')
+        """Set texture in the named slot to the given string. Prefer assigning to `textures`,
+        which refuses a slot the shader doesn't have; this silently ignores one."""
+        try:
+            self._write_texture(slot, texturepath)
+        except KeyError:
+            return
+        if self._textures is not None:
+            self._textures[slot] = texturepath
 
     # Individual getter routines for shader flags so the caller doesn't have to worry
     # about Skyrim vs FO4.
@@ -4067,8 +4133,14 @@ class NiShaderFO4(NiShader):
         
     @property
     def textures(self):
+        """The textures the game uses: the material file's when there is one (read-only --
+        change the material file), else the shader block's (writable, as for NiShader)."""
         if self.materials:
-            return self.materials.textures
+            return TextureMap(
+                self.materials.textures,
+                readonly_reason=(f"These textures come from the material file '{self.name}'; "
+                                 f"change them there. To set the nif's own texture set, use "
+                                 f"set_texture()."))
         else:
             return super().textures
         

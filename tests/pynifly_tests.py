@@ -285,7 +285,8 @@ def _export_shape(old_shape: NiShape, new_nif: NifFile, properties=None, verts=N
         new_shape.save_alpha_property()
 
     for k, t in old_shape.textures.items():
-        new_shape.set_texture(k, t)
+        if k != 'RootMaterialPath':   # the shader's root material name, not a texture slot
+            new_shape.textures[k] = t
 
     # Copy behavior graph extra data using new classes
     for i in range(100):  # Arbitrary upper limit
@@ -4765,6 +4766,79 @@ def TEST_EXP_BODY():
 
     assert "ERROR" in NifFile.message_log(), "Error: Expected error message, got '{NifFile.message_log()}'"
     # If no CTD we're good
+
+
+def TEST_TEXTURES_WRITABLE():
+    """Assigning to shape.textures writes the texture to the nif (issue #436).
+
+    textures used to hand back its internal cache: an assignment changed the cache, a read on
+    the same object "confirmed" it, and the file never changed -- the failure only showed after
+    a save and reopen. Now textures writes through, for lighting and effect shaders alike;
+    a slot the shader has no place for is refused; and textures that come from an FO4
+    material file are read-only, with an error saying to edit the material instead.
+    """
+    import shutil
+
+    def fresh(path):
+        return NifFile(path).shapes
+
+    # --- Skyrim lighting shader: assign, save, reopen ---
+    src = r"tests\SKYRIMSE\meshes\maleheadAllTextures.nif"
+    out = r"tests\out\TEST_TEXTURES_WRITABLE_lighting.nif"
+    shutil.copy(src, out)
+    nif = NifFile(out)
+    sh = nif.shapes[0]
+    new = {"Diffuse": r"textures\test\new_d.dds",
+           "Normal": r"textures\test\new_msn.dds",
+           "EnvMap": r"textures\test\new_env.dds",
+           "Specular": r"textures\test\new_s.dds"}
+    for slot, path in new.items():
+        sh.textures[slot] = path
+        assert TT.is_eq(sh.textures[slot], path, f"{slot} reads back on the same object")
+    nif.save()
+    reread = fresh(out)[0].textures
+    for slot, path in new.items():
+        assert TT.is_eq(reread[slot], path, f"{slot} was written to the file")
+    assert TT.is_eq(reread["EnvMask"], r"textures\actors\character\male\EnvMask.dds",
+                    "an untouched slot is unchanged")
+
+    # A slot this shader has nowhere to put is refused, not silently dropped.
+    for bad in ("Bogus", "EmitGradient"):
+        try:
+            sh.textures[bad] = r"textures\test\x.dds"
+            assert False, f"assigning '{bad}' to a lighting shader should raise"
+        except KeyError:
+            pass
+
+    # set_texture still works, and a read on the same object sees it.
+    sh.set_texture("Diffuse", r"textures\test\via_set_texture.dds")
+    assert TT.is_eq(sh.textures["Diffuse"], r"textures\test\via_set_texture.dds",
+                    "set_texture is visible to textures on the same object")
+
+    # --- Effect shader on a loaded nif: the block is rewritten, not just the buffer ---
+    src = r"tests\SkyrimSE\meshes\armor\daedric\daedriccuirass_1.nif"
+    out = r"tests\out\TEST_TEXTURES_WRITABLE_effect.nif"
+    shutil.copy(src, out)
+    nif = NifFile(out)
+    effect = [s for s in nif.shapes if s.shader.blockname == "BSEffectShaderProperty"]
+    assert TT.is_gt(len(effect), 0, "fixture has an effect-shader shape")
+    effect[0].textures["Diffuse"] = r"textures\test\new_effect.dds"
+    nif.save()
+    name = effect[0].name
+    reread = [s for s in fresh(out) if s.name == name][0]
+    assert TT.is_eq(reread.textures["Diffuse"], r"textures\test\new_effect.dds",
+                    "effect-shader texture was written to the file")
+
+    # --- FO4 with a material file: textures come from the material and are read-only ---
+    fo4 = NifFile(r"tests\FO4\Meshes\Actors\Character\CharacterAssets\HeadTest.nif").shapes[0]
+    assert fo4.shader.materials, "fixture's textures come from a material file"
+    try:
+        fo4.textures["Diffuse"] = r"textures\test\x.dds"
+        assert False, "assigning to material-backed textures should raise"
+    except TypeError as e:
+        assert "material" in str(e).lower(), f"the error says why: {e}"
+    assert TT.is_eq(fo4.textures["Diffuse"], r"Actors/Character/BaseHumanMale/BaseMaleHead_d.dds",
+                    "and nothing changed")
 
 
 def TEST_EFFECT_SHADER_SKY():

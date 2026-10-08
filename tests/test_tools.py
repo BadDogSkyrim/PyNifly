@@ -3,7 +3,7 @@
 import os
 import os.path
 from pathlib import Path
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 import logging
 from pyn import niflytools as NT 
 from pyn import nifdefs as ND
@@ -466,7 +466,7 @@ def get_property(nif, property_path):
         else:
             if name == 'len()':
                 current = len(current)
-            elif type(current) == dict:
+            elif isinstance(current, Mapping):
                 current = current[name]
             elif hasattr(current, '__getitem__'):
                 current = current[int(name)]
