@@ -960,7 +960,7 @@ def check_face_textures(rep, data, race, phenotypes, regions):
     if optional:
         rep.warn('face textures',
                  f"{len(optional)} map(s) missing for non-default phenotypes",
-                 [f"{len({o.rsplit('_', 1)[0] for o in optional})} phenotypes affected",
+                 [', '.join(optional),
                   "Only bites once chargen can select those phenotypes."])
 
     # Source art alongside the DDS is normal while authoring -- worth noting, not a failure,

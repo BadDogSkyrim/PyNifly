@@ -1834,6 +1834,49 @@ def TEST_SF_RACECHECK_FOLLICLE_MASK():
         assert TT.is_ge(checked, 115, "every vanilla hair/beard mask was actually checked")
 
 
+def TEST_SF_RACECHECK_PHENOTYPE_MAPS():
+    """sf_racecheck names the missing face maps of a non-default phenotype.
+
+    Each phenotype needs <phenotype>_normal/_rough/_ao.dds in the race's FCTP folder, found by
+    filename only. The warning used to say only "3 map(s) missing ... 1 phenotypes affected",
+    which left the user to work out which phenotype and which files (FSFFox's fennec)."""
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+    from esplib import Plugin
+
+    fctp = r'actors\rctest\faces\chargen'
+    with tempfile.TemporaryDirectory() as d:
+        face = os.path.join(d, 'textures', *fctp.split('\\'))
+        os.makedirs(face)
+        have = [f"{p}{s}" for p in ('male_default', 'male_fox_md1')
+                for s in sf_racecheck.FCTP_SUFFIXES]
+        have += ['male_fennec_md1_rough.dds', 'FCT_null_mask.dds']
+        for f in have:
+            open(os.path.join(face, f), 'wb').close()
+
+        p = Plugin.new_plugin(os.path.join(d, 'RCFace.esm'), masters=[], game='fo4', is_esm=True)
+        rec = p.new_record('RACE', 'RCFaceRace')
+        rec.add_subrecord('FCTP', fctp.encode() + b'\0')
+        p.save_as(os.path.join(d, 'RCFace.esm'))
+        plugins = sf_racecheck.load_plugins(sf_racecheck.Report(), [d], ['RCFace.esm'])
+        race = sf_racecheck.find_race(plugins, 'RCFaceRace')
+
+        rep = sf_racecheck.Report()
+        sf_racecheck.check_face_textures(
+            rep, [d], race, {'male_default', 'male_fox_md1', 'male_fennec_md1'}, set())
+        warns = [(m, d_) for lv, _a, m, d_ in rep.findings if lv == sf_racecheck.WARN
+                 and 'non-default phenotype' in m]
+        assert TT.is_eq(len(warns), 1, "one warning for the missing phenotype maps")
+        text = str(warns[0])
+        for f in ('male_fennec_md1_normal.dds', 'male_fennec_md1_ao.dds'):
+            assert f in text, f"the warning names {f}: {warns[0]}"
+        assert 'male_fennec_md1_rough.dds' not in text, "a map that exists isn't listed"
+        assert 'male_fox_md1' not in text, "a complete phenotype isn't listed"
+        assert TT.is_eq([m for lv, _a, m, _d in rep.findings if lv == sf_racecheck.FAIL], [],
+                        "the default phenotype is complete, so nothing fails")
+
+
 def TEST_SF_MORPH_ROUNDTRIP():
     """Starfield: read/write a vanilla morph.dat byte-exact; positions-only rebuild round-trips.
 
