@@ -624,6 +624,50 @@ class NifImporter():
         return BD.apply_scale_xf(xf, scale_factor)
 
 
+    def _sf_world_from_armature(self, shape, arma) -> Matrix:
+        """Where a Starfield skinned shape belongs, in world space, according to the rest
+        bones of an armature it shares bones with -- or None if it shares none.
+
+        Each shared bone answers "the skin sits at my rest position @ my skin-to-bone".
+        Vanilla human meshes share one skin space, so for a mesh joining another's armature
+        every shared bone gives the same answer, exactly. That's better than
+        _sf_skin_to_world's estimate from the reference skeleton, which vanilla's binds
+        disagree with, and which so gives each file a slightly different answer."""
+        mats = []
+        for i, bn in enumerate(shape.bone_names):
+            blend_name = self.blender_name(bn)
+            if blend_name not in arma.data.bones:
+                continue
+            s2b = shape.get_shape_skin_to_bone_by_index(i)
+            if s2b is None:
+                continue
+            bone_xf = BD.get_bone_xform(arma, blend_name, self.nif.game, False, False)
+            mats.append(arma.matrix_world @ bone_xf
+                        @ BD.apply_scale_xf(BD.transform_to_matrix(s2b), self.scale))
+        if not mats:
+            return None
+        result = mats[0].copy()
+        if len(mats) > 1:
+            t = Vector((0.0, 0.0, 0.0))
+            for m in mats:
+                t = t + m.translation
+            result.translation = t / len(mats)
+        return result
+
+    def _sf_world_from_bound_meshes(self, arma, exclude) -> Matrix:
+        """The placement of a Starfield mesh already bound to the armature, or None.
+
+        For a mesh that shares no bones with the armature -- an eye, binding only its eye
+        bone, joining a head's armature. Vanilla human parts of one sex share a skin space, so
+        it belongs exactly where the meshes already there are. The reference skeleton is no
+        guide: its eye bones sit about 0.22 units further in than the eyes' own binds."""
+        for obj in self.context.scene.objects:
+            if (obj is not exclude and obj.type == 'MESH'
+                    and obj.get(PYN_GAME_PROP) == 'SF'
+                    and any(m.type == 'ARMATURE' and m.object is arma for m in obj.modifiers)):
+                return obj.matrix_world.copy()
+        return None
+
     def _sf_skin_to_world(self, shape) -> Matrix:
         """Recover the skin->world transform for a Starfield skinned shape from the
         reference skeleton. SF carries no bone NiNodes, so the DLL's bone-averaging
@@ -1379,8 +1423,19 @@ class NifImporter():
     def set_object_xf(self, the_shape, new_object):
         # Set the object transform to reflect the skin transform in the nif. This
         # positions the object conveniently for editing.
+        # Starfield, importing onto an armature the user selected: its bones say exactly where
+        # the skin goes.
+        if (self.nif.game == 'SF' and getattr(the_shape, 'has_skin_instance', False)
+                and self.armature in self.preexisting_armatures):
+            world = self._sf_world_from_armature(the_shape, self.armature)
+            if world is None:
+                world = self._sf_world_from_bound_meshes(self.armature, new_object)
+            if world is not None:
+                new_object.matrix_world = world
+                return
+
         mx = self.calc_obj_transform(the_shape, scale_factor=self.scale)
-        if new_object.parent: 
+        if new_object.parent:
             # Have to set matrix_world because setting matrix_local doesn't seem to work.
             new_object.matrix_world = new_object.parent.matrix_world @ mx
         else:
@@ -2547,7 +2602,6 @@ class NifImporter():
             if self.node_scale != 1.0:
                 log.info(f"Node transforms are in other units than the reference "
                          f"skeleton; scaling them by {self.node_scale:.5f}")
-
             # Push texture/material search paths from Blender prefs onto every shader
             # *before* anything touches shape.shader.properties (which triggers the
             # one-shot BGSM lookup). Otherwise the lookup runs with no alt paths and

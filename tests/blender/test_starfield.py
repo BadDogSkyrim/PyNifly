@@ -40,6 +40,85 @@ def TEST_SF_SKELETON_IMPORT():
 
 
 @TT.category('STARFIELD')
+def TEST_SF_IMPORT_ONTO_EXISTING_ARMATURE():
+    """Starfield: hands imported onto the body's selected armature line up with the body.
+
+    Vanilla female body, hands and head share one skin space: every bone two of them have in
+    common has an identical skin bind. But a Starfield nif carries no bone nodes, so import
+    places each mesh by matching its binds against the reference skeleton -- and vanilla's
+    binds disagree with the skeleton by up to 2 units and 7 degrees, so the answer depended on
+    which bones the file uses. Imported onto the body's armature, the hands landed 3.6 degrees
+    and 0.6 units away from the body, their wrists 1-3 units off. A Starfield mesh imported
+    with an armature selected now takes its placement from that armature's bones.
+
+    Only a selected armature is used: with nothing selected, the hands get their own armature
+    as before.
+    """
+    body_file = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    hands_file = TTB.test_file(r"tests\SF\meshes\hands_3rd_f.nif")
+
+    # CONTROL: nothing selected -> the hands make their own armature.
+    bpy.ops.import_scene.pynifly(filepath=body_file)
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = None
+    bpy.ops.import_scene.pynifly(filepath=hands_file)
+    armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    assert TT.is_eq(len(armatures), 2, "with nothing selected, the hands get their own armature")
+    TTB.clear_all()
+
+    # The body's armature selected -> the hands join it, placed by its bones.
+    bpy.ops.import_scene.pynifly(filepath=body_file)
+    body = TTB.find_shape("Naked_F:0")
+    arma = body.modifiers['Armature'].object
+    rest_before = {b.name: (arma.matrix_world @ b.head_local).copy() for b in arma.data.bones}
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly(filepath=hands_file)
+    hands = TTB.find_shape("Hands_3rd_F:0")
+
+    armatures = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    assert TT.is_eq(len(armatures), 1, "the hands joined the body's armature, no second one")
+    assert hands.modifiers['Armature'].object is arma, "the hands are bound to the body's armature"
+
+    # Same skin space, so the same placement -- to float precision, not approximately.
+    assert TT.is_equiv(hands.matrix_world, body.matrix_world, "hands placed exactly like the body",
+                       e=0.001)
+
+    # The body's bones stay where they were; the hands only add their own.
+    moved = [n for n, p in rest_before.items()
+             if (arma.matrix_world @ arma.data.bones[n].head_local - p).length > 0.001]
+    assert TT.is_eq(moved, [], "no existing bone moved")
+    assert 'Wrist_Twist.R' in arma.data.bones or 'R_Wrist_Twist' in arma.data.bones, \
+        "the shared wrist bone is there"
+
+
+@TT.category('STARFIELD')
+def TEST_SF_IMPORT_EYE_ONTO_HEAD_ARMATURE():
+    """Starfield: an eye imported onto the head's selected armature sits in its socket.
+
+    The eye binds only L_Eye, which the head doesn't use, so there's no shared bone to place
+    it by. The reference skeleton's eye bone sits about 0.22 units further in than the eye's
+    own bind, so placing the eye from the skeleton put it that far toward the centre of the
+    face. Vanilla head parts share the head's skin space, so a mesh that shares no bones with
+    the selected armature now takes the placement of the meshes already on it.
+    """
+    head_file = TTB.test_file(r"tests\SF\meshes\malehead.nif")
+    eye_file = TTB.test_file(r"tests\SF\meshes\lefteye.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=head_file)
+    head = TTB.find_shape("MaleHead:0")
+    arma = head.modifiers['Armature'].object
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly(filepath=eye_file)
+    eye = TTB.find_shape("LeftEye:1")
+
+    assert eye.modifiers['Armature'].object is arma, "the eye is bound to the head's armature"
+    assert TT.is_equiv(eye.matrix_world, head.matrix_world,
+                       "the eye shares the head's placement, so it sits in its socket", e=0.001)
+
+
+@TT.category('STARFIELD')
 def TEST_SF_IMPORT():
     """Starfield: import a BSGeometry body, resolving + reading its external .mesh."""
     testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
