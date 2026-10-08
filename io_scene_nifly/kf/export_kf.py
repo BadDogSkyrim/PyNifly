@@ -103,7 +103,6 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         super().__init__(*args, **kwargs)
         self.messages = []
         self.errors = set()
-        self.given_scale_warning = False
 
 
     def invoke(self, context, event):

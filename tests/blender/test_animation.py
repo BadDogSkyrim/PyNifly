@@ -1892,6 +1892,52 @@ def TEST_ALDUIN():
     assert TT.is_eq(neckdat.properties.zRotations.interpolation, pyn.NiKeyType.QUADRATIC_KEY, "Rotation type")
 
 
+@TT.category('FO4', 'ANIMATION')
+def TEST_ANIM_SCALE_KEYS():
+    """Animated scale imports and exports (issue #429).
+
+    The reporter's FO4 file: Bone.002 scales 1 -> 10 -> 3 -> 1 on quadratic keys, alongside
+    translation and rotation keys. Import dropped the scale; export logged "Ignoring scale
+    transforms--not used in Skyrim" and wrote none.
+    """
+    testfile = TTB.test_file(r"tests\FO4\anim_scale_429.nif")
+    outfile = TTB.test_file(r"tests/Out/TEST_ANIM_SCALE_KEYS.nif")
+    keys_in = pyn.NifFile(testfile).nodes['Bone.002'].controller.interpolator.data.scales
+    expected = [(k.time, k.value) for k in keys_in]
+    TT.assert_eq([round(v, 3) for _, v in expected], [1.0, 10.0, 3.0, 1.0], "fixture scale keys")
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    bone2 = bpy.data.objects['Bone.002']
+    scene = bpy.context.scene
+    fps = scene.render.fps
+    for t, v in expected:
+        frame = t * fps + 1
+        scene.frame_set(int(frame), subframe=frame - int(frame))
+        TT.assert_equiv(bone2.scale[:], (v, v, v), f"Bone.002 scale at {t:.3f}s", e=0.01)
+
+    ### EXPORT ###
+
+    BD.ObjectSelect([obj for obj in scene.objects if 'pynRoot' in obj], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', export_animations=True)
+
+    # Look the data up by its scale keys, not by node name: export strips the ".002" from
+    # "Bone.002", taking it for Blender's duplicate suffix (a separate problem).
+    nifout = pyn.NifFile(outfile)
+    scaled = []
+    for node in list(nifout.node_ids.values()):
+        ctlr = getattr(node, 'controller', None)
+        interp = getattr(ctlr, 'interpolator', None) if ctlr is not None else None
+        td = getattr(interp, 'data', None) if interp is not None else None
+        if td is not None and getattr(td, 'scales', None):
+            scaled.append(td)
+    TT.assert_eq(len(scaled), 1, "one node exported with scale keys")
+    td_out = scaled[0]
+    TT.assert_eq(len(td_out.scales), len(expected), "scale keys written")
+    for (t, v), k in zip(expected, td_out.scales):
+        TT.assert_equiv(k.time, t, "scale key time", e=0.01)
+        TT.assert_equiv(k.value, v, "scale key value", e=0.01)
+
+
 @TT.category('SKYRIMSE', 'ANIMATION')
 def TEST_BANNER_BONE_ANIM():
     """A static whose skinned banner is animated through its bones round-trips cleanly.
@@ -2460,6 +2506,50 @@ def TEST_FO4_ANIM_EXPORT():
                                 for m in reimported.pose_markers)
     assert TT.is_eq(reimported_markers, orig_markers,
                     "Annotations preserved through export")
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_SCALE_ROUNDTRIP():
+    """A FO4 HKX animation that animates scale keeps it through import and export (#429).
+
+    Vanilla WorkbenchArmorA PoseA_Idle1 is the one vanilla character animation whose scale
+    visibly moves: one track swings by about 0.24. The scale has to come back out frame for
+    frame, not flattened to 1.
+    """
+    from io_scene_nifly.hkx import anim_fo4
+
+    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\FO4\Animations\WorkbenchArmorA_PoseA_Idle1.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_HKX_SCALE_ROUNDTRIP.hkx")
+
+    def scaled_track(anim):
+        """The track whose X scale swings the most, and its scales."""
+        best = max(range(len(anim.tracks)),
+                   key=lambda i: (max(s[0] for s in anim.tracks[i].scales)
+                                  - min(s[0] for s in anim.tracks[i].scales))
+                   if anim.tracks[i].scales else 0)
+        return best, anim.tracks[best].scales
+
+    orig = anim_fo4.load_fo4_animation(hkx_anim)
+    track, scales_in = scaled_track(orig)
+    swing = max(s[0] for s in scales_in) - min(s[0] for s in scales_in)
+    assert TT.is_gt(swing, 0.2, "fixture's scale really moves")
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False, blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False, blender_xf=False)
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+
+    out = anim_fo4.load_fo4_animation(outfile)
+    out_track = out.track_to_bone_indices.index(orig.track_to_bone_indices[track]) \
+        if out.track_to_bone_indices else track
+    scales_out = out.tracks[out_track].scales
+    assert TT.is_eq(len(scales_out), len(scales_in), "same frame count")
+    worst = max(abs(a[j] - b[j]) for a, b in zip(scales_in, scales_out) for j in range(3))
+    assert TT.is_lt(worst, 0.01, f"scale survives frame for frame (worst error {worst:.4f})")
 
 
 @TT.category('SKYRIM', 'HKX')

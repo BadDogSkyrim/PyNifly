@@ -1914,6 +1914,17 @@ class NiTransformData(NiKeyFrameData):
                 NifFile.log.warning(f"Found unknown key type: {self.properties.translations.interpolation}")
             if k: self.translations.append(k)
 
+        # Scale keys are single floats, read through the same per-channel calls as XYZ
+        # rotation keys (channel 'S').
+        scales = self.properties.scales
+        if scales.numKeys:
+            if scales.interpolation in (NiKeyType.LINEAR_KEY, NiKeyType.QUADRATIC_KEY):
+                self.scales = [self._readrotkey('S', f, scales) for f in range(scales.numKeys)]
+            else:
+                NifFile.log.warning(
+                    f"Scale keys of type {NiKeyType(scales.interpolation).name} aren't "
+                    f"supported; {scales.numKeys} scale keys in block {self.id} ignored")
+
     @classmethod
     def getbuf(cls, values=None):
         return NiTransformDataBuf(values)

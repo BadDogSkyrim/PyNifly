@@ -412,7 +412,6 @@ class ControllerHandler():
         self.target_node = None  # nif node being animated, for interpolator defaults
         self.action_target = None # 
         self.accum_root = None
-        self.given_scale_warning = False
         self.export_objs = objlist
         self.action_slot = None
         self.channelbag = None
@@ -1740,6 +1739,29 @@ def _import_transform_data(td:NiTransformData,
             importer.start_time = min(importer.start_time, k.time)
             importer.end_time = max(importer.end_time, k.time)
 
+    # Scale keys are a uniform scale factor, the same on all three axes. They're a ratio, not
+    # a position, so unlike translations they need no rest-pose delta, unit scaling or
+    # pretty-bone rotation: a pose bone's scale and an object's both take the key as it is.
+    if td.scales:
+        is_bezier = (td.properties.scales.interpolation == NiKeyType.QUADRATIC_KEY)
+        curves = [importer.action.fcurve_ensure_for_datablock(
+                    importer.action_target, path_prefix + "scale", index=i) for i in range(3)]
+        _add_actionslot(importer.action_target, curves[0])
+        keys = list(td.scales)
+        for idx, k in enumerate(keys):
+            frame = k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1
+            for curve in curves:
+                kp = curve.keyframe_points.insert(frame, k.value)
+                kp.interpolation = 'BEZIER' if is_bezier else 'LINEAR'
+                if is_bezier:
+                    prev = keys[idx-1] if idx > 0 else None
+                    nxt = keys[idx+1] if idx < len(keys)-1 else None
+                    kp.handle_left_type = "FREE"
+                    kp.handle_right_type = "FREE"
+                    kp.handle_left, kp.handle_right = importer._key_nif_to_blender(prev, k, nxt)
+            importer.start_time = min(importer.start_time, k.time)
+            importer.end_time = max(importer.end_time, k.time)
+
 NiTransformData.import_node = _import_transform_data
 
 
@@ -2346,8 +2368,8 @@ def _parse_transform_curves(exporter:ControllerHandler, curve_list):
         props.xRotations.interpolation = _get_interpolation_type([eu[0]])
         props.yRotations.interpolation = _get_interpolation_type([eu[1]])
         props.zRotations.interpolation = _get_interpolation_type([eu[2]])
-    # if scale:
-    #     props.scales.interpolation = _get_interpolation_type(scale)
+    if scale:
+        props.scales.interpolation = _get_interpolation_type([scale[0]])
 
     return props, loc, eu, quat, scale
 
@@ -2505,6 +2527,31 @@ def _export_euler_curves(exporter, td, eu, targ_q, R_q=None, R_q_inv=None):
     td.add_xyz_rotation_keys("Z", zkeys)
 
 
+def _export_scale_curves(exporter, td, scale):
+    """
+    Export scale fcurves as the nif's scale keys.
+
+    A nif animates scale with one uniform factor, so one channel is written. Blender allows a
+    different scale per axis; if the curves disagree, the X curve is used and the user told.
+    """
+    if td.properties.scales.interpolation == NiKeyType.QUADRATIC_KEY:
+        keys = exporter._get_curve_quad_values(scale[0])
+    else:
+        keys = exporter._get_curve_linear_values(scale[0])
+
+    first = scale[0]
+    for other in scale[1:]:
+        pts, opts = list(first.keyframe_points), list(other.keyframe_points)
+        if (len(pts) != len(opts)
+                or any(abs(a.co[0] - b.co[0]) > 1e-4 or abs(a.co[1] - b.co[1]) > 1e-4
+                       for a, b in zip(pts, opts))):
+            exporter.warn(f"Scale animation on {first.data_path} differs between axes; nifs "
+                          f"scale uniformly, so only the X scale was exported")
+            break
+
+    td.add_xyz_rotation_keys("S", keys)
+
+
 def _get_keyframe_indices(curve_list):
     """
     Return an ordered list of keyframe indices for all keyframes in the given list of
@@ -2658,12 +2705,7 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
 
     props, loc, eu, quat, scale = _parse_transform_curves(exporter, curve_list)
 
-    if scale:
-        if not exporter.given_scale_warning:
-            log.info("Ignoring scale transforms--not used in Skyrim")
-            exporter.given_scale_warning = True
-
-    if quat or eu or loc:
+    if quat or eu or loc or scale:
         # Use FLT_MAX sentinels for the interpolator's base transform when we
         # have keyed data.  Vanilla NIFs do this to tell the engine "use the
         # keys, not a static base value".  Writing concrete values (e.g.
@@ -2693,6 +2735,9 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
         if len(loc) == 3:
             _export_loc_curves(exporter, td, loc, targ_xf, export_R_3x3,
                                targ_q if targetname else None)
+
+        if scale:
+            _export_scale_curves(exporter, td, scale)
 
     return (targetname if targetname else targetobj.name), ti
 

@@ -5494,6 +5494,60 @@ def TEST_ANIMATION():
         f"Have correct translation: {td189.translations[3].value}"
     
 
+def TEST_TRANSFORM_SCALE_KEYS():
+    """NiTransformData reads and writes scale keys (issue #429).
+
+    Scale keys were never read: a node animated in scale imported with translation and
+    rotation only. The fixture is the #429 reporter's FO4 file, where Bone.002 scales
+    1 -> 10 -> 3 -> 1 with quadratic keys. Writing goes through the same per-channel calls
+    as XYZ rotation keys, channel 'S'; the DLL's linear-key reader had no 'S' case, so linear
+    scale keys round-trip here too.
+    """
+    import shutil
+    from pyn.pynifly import LinearScalarKey, QuadScalarKey
+
+    nif = NifFile(r"tests\FO4\anim_scale_429.nif")
+    td = nif.nodes['Bone.002'].controller.interpolator.data
+    assert TT.is_eq(td.properties.scales.interpolation, NiKeyType.QUADRATIC_KEY, "quadratic scale keys")
+    assert TT.is_eq([round(k.value, 4) for k in td.scales], [1.0, 10.0, 3.0, 1.0], "scale key values")
+    assert TT.is_eq([round(k.time, 4) for k in td.scales], [-0.0417, 0.9583, 1.8333, 2.875],
+                    "scale key times")
+    td001 = nif.nodes['Bone.001'].controller.interpolator.data
+    assert TT.is_eq(td001.scales, [], "a node without scale keys has none")
+
+    # Write both key types to new data blocks, save, and read them back from a fresh file.
+    # Each block hangs off an existing interpolator: a block nothing references isn't saved.
+    out = r"tests\out\TEST_TRANSFORM_SCALE_KEYS.nif"
+    shutil.copy(r"tests\FO4\anim_scale_429.nif", out)
+    nif = NifFile(out)
+    written = {}
+    for keytype, node in ((NiKeyType.LINEAR_KEY, 'Bone.001'), (NiKeyType.QUADRATIC_KEY, 'Bone.003')):
+        newtd = NiTransformData.New(nif, scale_type=keytype)
+        interp = nif.nodes[node].controller.interpolator
+        interp.data = newtd
+        interp.write_properties()
+        keys = []
+        for t, v in ((0.0, 1.0), (0.5, 2.5), (1.0, 0.5)):
+            k = LinearScalarKey() if keytype == NiKeyType.LINEAR_KEY else QuadScalarKey()
+            k.time, k.value = t, v
+            if keytype == NiKeyType.QUADRATIC_KEY:
+                k.forward, k.backward = 0.0, 0.0
+            keys.append(k)
+        newtd.add_xyz_rotation_keys("S", keys)
+        written[keytype] = node
+    nif.save()
+
+    nif = NifFile(out)
+    for keytype, node in written.items():
+        reread = nif.nodes[node].controller.interpolator.data
+        assert TT.is_eq(reread.properties.scales.interpolation, keytype,
+                        f"{NiKeyType(keytype).name} key type kept")
+        assert TT.is_eq([round(k.value, 4) for k in reread.scales], [1.0, 2.5, 0.5],
+                        f"{NiKeyType(keytype).name} scale keys round-trip")
+        assert TT.is_eq([round(k.time, 4) for k in reread.scales], [0.0, 0.5, 1.0],
+                        f"{NiKeyType(keytype).name} scale key times round-trip")
+
+
 def TEST_ANIMATION_NOBLECHEST():
     """Can read & write embedded animations."""
     # NobleChest has a simple open and close animation.

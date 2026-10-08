@@ -6117,7 +6117,8 @@ NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadX
 }
 
 NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearBuf *buf)
-/* Return linear data (time, value). If dimension is X, Y, or Z look for that dimension in transform data rotaions.  */
+/* Return linear data (time, value). Dimension X, Y, or Z reads that channel of the transform
+   data's rotations; S reads its scales. */
 {
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
@@ -6127,6 +6128,7 @@ NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int f
     if (dimension == 'X') k = td->xRotations.GetKey(frame);
     if (dimension == 'Y') k = td->yRotations.GetKey(frame);
     if (dimension == 'Z') k = td->zRotations.GetKey(frame);
+    if (dimension == 'S') k = td->scales.GetKey(frame);
 
     buf->time = k.time; 
     buf->value = k.value;
