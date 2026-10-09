@@ -97,6 +97,12 @@ class AnimationData:
     original_skeleton_name: str = ""
     blend_hint: int = 0  # 0=NORMAL, 1=ADDITIVE
 
+    # Float tracks: one value per frame for each, and the skeleton float slot each drives
+    # (floatTrackToFloatSlotIndices). Skyrim's are the hkVis visibility switches; FO4
+    # animations have none.
+    float_tracks: List[List[float]] = field(default_factory=list)
+    float_slot_indices: List[int] = field(default_factory=list)
+
     # Skeleton (if present in the same file)
     skeleton: Optional[Skeleton] = None
 
@@ -441,11 +447,15 @@ def _decompress_spline(data_bytes, num_tracks, num_frames, num_blocks,
 
     for block_idx in range(num_blocks):
         block_start = block_offsets[block_idx]
-        first_frame = block_idx * max_frames_per_block
-        if block_idx == num_blocks - 1:
-            frames_in_block = num_frames - first_frame
-        else:
-            frames_in_block = max_frames_per_block
+        # Blocks overlap by one frame: block b covers frames b*(mfpb-1) .. b*(mfpb-1)+mfpb-1,
+        # so each block's first frame repeats the previous block's last. Measured on vanilla:
+        # read as disjoint, 354 of 355 multi-block FO4 animations froze a frame at every
+        # block boundary.
+        first_frame = block_idx * (max_frames_per_block - 1)
+        frames_in_block = min(max_frames_per_block, num_frames - first_frame)
+        # Frames this block contributes: all of them for the first block, else all but the
+        # repeated first one.
+        skip = 1 if block_idx > 0 else 0
 
         # ── Parse masks (4 bytes per track) ──
         masks = []
@@ -517,7 +527,7 @@ def _decompress_spline(data_bytes, num_tracks, num_frames, num_blocks,
                 pos_frames = [list(pos) for _ in range(frames_in_block)]
 
             off = _align(off, 4)
-            track.translations.extend(pos_frames)
+            track.translations.extend(pos_frames[skip:])
 
             # ─── ROTATION ───
             rot_frames = []
@@ -559,7 +569,7 @@ def _decompress_spline(data_bytes, num_tracks, num_frames, num_blocks,
                 rot_frames = [[0.0, 0.0, 0.0, 1.0] for _ in range(frames_in_block)]
 
             off = _align(off, 4)
-            track.rotations.extend(rot_frames)
+            track.rotations.extend(rot_frames[skip:])
 
             # ─── SCALE ───
             scale_frames = []
@@ -616,7 +626,7 @@ def _decompress_spline(data_bytes, num_tracks, num_frames, num_blocks,
                 scale_frames = [list(s) for _ in range(frames_in_block)]
 
             off = _align(off, 4)
-            track.scales.extend(scale_frames)
+            track.scales.extend(scale_frames[skip:])
 
     return all_tracks
 
@@ -1509,16 +1519,148 @@ def _build_mask_bytes(track: TrackData, n_frames: int,
     return bytes([b0, b1, b2, b3]), info
 
 
+# ── Float tracks ──────────────────────────────────────────────────────────────
+#
+# Per block: one mask byte per float track sits right after the transform masks (both inside
+# maskAndQuantizationSize = align4(4*nTT + nFT)); the float data starts at
+# floatBlockOffsets[b] = align4(end of transform data), relative to the block. Mask byte:
+# quantization = (byte >> 1) & 3 (0 = 8-bit, 1 = 16-bit); byte & ~0x06 is the type: bit 0
+# static, bit 4 spline, neither identity. Data per track: static = f32; spline = u16 n
+# (control points - 1), u8 degree, n+degree+2 u8 knots in block-frame units, align 4,
+# f32 min, f32 max, n+1 control points (u8 or u16 of max-min), align 4; identity = none.
+# Validated byte-for-byte on 2663 vanilla SE and 2281 LE animations with float tracks.
+
+_FLOAT_STATIC, _FLOAT_SPLINE = 0x01, 0x10
+_FLOAT_STATIC_MASK = 0x03    # static, 16-bit -- what vanilla writes
+_FLOAT_SPLINE_MASK = 0x12    # spline, 16-bit
+
+
+def _bspline_span(n, p, u, knots):
+    if u >= knots[n + 1]:
+        return n
+    if u <= knots[0]:
+        return p
+    low, high = p, n + 1
+    mid = (low + high) // 2
+    while u < knots[mid] or u >= knots[mid + 1]:
+        if u < knots[mid]:
+            high = mid
+        else:
+            low = mid
+        mid = (low + high) // 2
+    return mid
+
+
+def _bspline_eval(n, p, knots, cps, u):
+    """Evaluate a clamped B-spline with n+1 control points and degree p at parameter u."""
+    span = _bspline_span(n, p, u, knots)
+    N = [1.0] + [0.0] * p
+    left = [0.0] * (p + 1)
+    right = [0.0] * (p + 1)
+    for j in range(1, p + 1):
+        left[j] = u - knots[span + 1 - j]
+        right[j] = knots[span + j] - u
+        saved = 0.0
+        for r in range(j):
+            den = right[r + 1] + left[j - r]
+            tmp = N[r] / den if den else 0.0
+            N[r] = saved + right[r + 1] * tmp
+            saved = left[j - r] * tmp
+        N[j] = saved
+    return sum(N[i] * cps[span - p + i] for i in range(p + 1))
+
+
+def _decode_float_tracks(data_bytes, num_tracks, num_float, num_frames, num_blocks,
+                         max_frames_per_block, block_offsets, float_block_offsets):
+    """Per-frame values for each float track. Blocks overlap by one frame, as for
+    transform tracks."""
+    values = [[] for _ in range(num_float)]
+    for b in range(num_blocks):
+        bs = block_offsets[b]
+        first = b * (max_frames_per_block - 1)
+        nfr = min(max_frames_per_block, num_frames - first)
+        masks = data_bytes[bs + 4 * num_tracks: bs + 4 * num_tracks + num_float]
+        off = bs + float_block_offsets[b]
+        for t, mb in enumerate(masks):
+            quant = (mb >> 1) & 3
+            kind = mb & ~0x06
+            if kind & _FLOAT_SPLINE:
+                n, p = struct.unpack_from('<HB', data_bytes, off)
+                off += 3
+                knots = list(data_bytes[off:off + n + p + 2])
+                off = _align(off + n + p + 2, 4)
+                vmin, vmax = struct.unpack_from('<ff', data_bytes, off)
+                off += 8
+                if quant == 0:
+                    q = list(data_bytes[off:off + n + 1])
+                    off += n + 1
+                    span = 255.0
+                else:
+                    q = list(struct.unpack_from(f'<{n + 1}H', data_bytes, off))
+                    off += 2 * (n + 1)
+                    span = 65535.0
+                off = _align(off, 4)
+                cps = [qv / span * (vmax - vmin) + vmin for qv in q]
+                vals = [_bspline_eval(n, p, knots, cps, float(f)) for f in range(nfr)]
+            elif kind & _FLOAT_STATIC:
+                v = struct.unpack_from('<f', data_bytes, off)[0]
+                off += 4
+                vals = [v] * nfr
+            else:
+                vals = [0.0] * nfr
+            values[t].extend(vals[1:] if b > 0 else vals)
+    return values
+
+
+def _encode_float_block(block_values, start_off):
+    """Encode one block's float tracks. block_values[t] = that track's values for the
+    block's frames. Returns (mask bytes, data bytes); start_off is where the data will sit,
+    relative to the 16-aligned block start, for alignment.
+
+    A constant track is written static. Anything else is a degree-1 spline with one
+    control point per frame: exact at every frame, unlike Havok's own least-squares cubic
+    fit, which isn't reproducible anyway."""
+    masks = bytearray()
+    out = bytearray()
+
+    def pad4():
+        while (start_off + len(out)) % 4:
+            out.append(0)
+
+    for vals in block_values:
+        lo, hi = min(vals), max(vals)
+        if hi - lo <= 1e-6 or len(vals) < 2:
+            masks.append(_FLOAT_STATIC_MASK)
+            out.extend(_w_f32(vals[0]))
+            continue
+        masks.append(_FLOAT_SPLINE_MASK)
+        nf = len(vals)
+        knots = [0] + list(range(nf)) + [nf - 1]          # degree 1: n+p+2 = nf+2 knots
+        out.extend(struct.pack('<HB', nf - 1, 1))
+        out.extend(bytes(knots))
+        pad4()
+        out.extend(struct.pack('<ff', lo, hi))
+        out.extend(struct.pack(f'<{nf}H', *(
+            max(0, min(65535, int(round((v - lo) / (hi - lo) * 65535)))) for v in vals)))
+        pad4()
+    return bytes(masks), bytes(out)
+
+
 def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
-                    frames_in_block: int, rot_quant: int = _ROT_QUANT) -> bytes:
+                    frames_in_block: int, rot_quant: int = _ROT_QUANT,
+                    float_values=None) -> Tuple[bytes, int]:
     """Compress one block of animation data for all tracks.
 
-    Returns the compressed byte blob for this block.
+    float_values[t] = float track t's values for this block's frames (None: no float
+    tracks). Returns (the block's bytes, padded to 16 as vanilla does; the offset of its
+    float data within the block).
     """
     num_tracks = len(all_tracks)
     out = bytearray()
+    float_values = float_values or []
 
-    # 1. Write track masks
+    # 1. Write track masks, then the float masks; together they fill
+    #    maskAndQuantizationSize = align4(4*nTT + nFT).
     masks = []
     infos = []
     for track in all_tracks:
@@ -1527,6 +1669,8 @@ def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
         masks.append(mask_bytes)
         infos.append(info)
         out.extend(mask_bytes)
+    float_mask_pos = len(out)
+    out.extend(bytes(len(float_values)))    # placeholder; filled in once encoded
     _pad4(out)
 
     # 2. Per-track data
@@ -1696,22 +1840,49 @@ def _compress_block(all_tracks: List[TrackData], block_start_frame: int,
 
         _pad4(out)
 
-    return bytes(out)
+    # 3. Float tracks, from floatBlockOffsets[b] = align4(end of transform data).
+    float_off = len(out)
+    if float_values:
+        fmasks, fdata = _encode_float_block(float_values, float_off)
+        out[float_mask_pos:float_mask_pos + len(fmasks)] = fmasks
+        out.extend(fdata)
+    while len(out) % 16:
+        out.append(0)
+
+    return bytes(out), float_off
 
 
-def _compress_all_blocks(anim: AnimationData, rot_quant: int = _ROT_QUANT) -> Tuple[bytes, List[int]]:
-    """Compress all animation blocks. Returns (data_blob, block_offsets)."""
+def _set_block_layout(anim: AnimationData) -> None:
+    """Derive the block count and block duration from the frame count.
+
+    Blocks overlap by one frame (see _decompress_spline): block b covers frames
+    b*(mfpb-1) .. b*(mfpb-1)+mfpb-1, so numBlocks = ceil((nf-1)/(mfpb-1)) and a block spans
+    (mfpb-1) frame intervals. Both held in every vanilla file measured (6126 Skyrim SE,
+    6454 FO4). Always derived, never trusted from the data: they have to match the frames
+    actually being written."""
     max_fpb = anim.max_frames_per_block or 256
-    num_blocks = anim.num_blocks or 1
+    anim.max_frames_per_block = max_fpb
+    anim.num_blocks = max(1, -(-(anim.num_frames - 1) // (max_fpb - 1)))
+    if anim.frame_duration:
+        anim.block_duration = (max_fpb - 1) * anim.frame_duration
+
+
+def _compress_all_blocks(anim: AnimationData, rot_quant: int = _ROT_QUANT,
+                         include_floats: bool = False) -> Tuple[bytes, List[int], List[int]]:
+    """Compress all animation blocks. Returns (data_blob, block_offsets,
+    float_block_offsets). include_floats writes anim.float_tracks (Skyrim)."""
+    _set_block_layout(anim)
+    max_fpb = anim.max_frames_per_block
+    num_blocks = anim.num_blocks
     data = bytearray()
     block_offsets = []
+    float_block_offsets = []
+    floats = anim.float_tracks if include_floats else []
 
     for block_idx in range(num_blocks):
-        first_frame = block_idx * max_fpb
-        if block_idx == num_blocks - 1:
-            frames_in_block = anim.num_frames - first_frame
-        else:
-            frames_in_block = max_fpb
+        # Overlapping blocks: each starts on the previous block's last frame.
+        first_frame = block_idx * (max_fpb - 1)
+        frames_in_block = min(max_fpb, anim.num_frames - first_frame)
 
         # Slice tracks to this block's frame range
         block_tracks = []
@@ -1722,11 +1893,15 @@ def _compress_all_blocks(anim: AnimationData, rot_quant: int = _ROT_QUANT) -> Tu
             bt.scales = track.scales[first_frame:first_frame + frames_in_block]
             block_tracks.append(bt)
 
+        block_floats = [vals[first_frame:first_frame + frames_in_block] for vals in floats]
+
         block_offsets.append(len(data))
-        block_data = _compress_block(block_tracks, 0, frames_in_block, rot_quant=rot_quant)
+        block_data, float_off = _compress_block(block_tracks, 0, frames_in_block,
+                                                rot_quant=rot_quant, float_values=block_floats)
+        float_block_offsets.append(float_off)
         data.extend(block_data)
 
-    return bytes(data), block_offsets
+    return bytes(data), block_offsets, float_block_offsets
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1872,7 +2047,7 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
             data.append(0)
 
     # Compress the animation data (FO4 uses rot_quant=1, 40-bit quaternions)
-    spline_blob, block_offsets = _compress_all_blocks(anim, rot_quant=1)
+    spline_blob, block_offsets, _float_offsets = _compress_all_blocks(anim, rot_quant=1)
 
     num_tracks = anim.num_tracks
     bone_names = anim.bone_names or [f"Bone{i}" for i in range(num_tracks)]
@@ -2132,14 +2307,10 @@ def write_fo4_animation(filepath: str, anim: AnimationData) -> None:
     anim : AnimationData
         Must have tracks, duration, num_frames, frame_duration populated.
     """
-    # Fill in defaults
-    if not anim.num_blocks:
-        max_fpb = anim.max_frames_per_block or 256
-        anim.num_blocks = max(1, (anim.num_frames + max_fpb - 1) // max_fpb)
-    if not anim.block_duration:
-        anim.block_duration = anim.duration / anim.num_blocks if anim.num_blocks > 0 else anim.duration
+    # Fill in defaults. The block layout is derived from the frames, never trusted.
     if not anim.frame_duration:
         anim.frame_duration = anim.duration / max(1, anim.num_frames - 1) if anim.num_frames > 1 else 1.0 / 30.0
+    _set_block_layout(anim)
 
     # Build sections
     cn_data, name_offs = _build_anim_classnames()

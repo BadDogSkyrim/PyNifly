@@ -1015,7 +1015,100 @@ def TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY():
 #  Runner
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _frozen_boundaries(anim, period):
+    """Moving tracks that stand still across frames (B-1, B) for B = period, 2*period...,
+    while moving on both sides. That's the signature of decoding overlapping blocks as if
+    they were disjoint: each block's first frame repeats the previous block's last."""
+    def delta(a, b):
+        return max(abs(x - y) for x, y in zip(a, b))
+    frozen = 0
+    for t in anim.tracks:
+        rots = t.rotations
+        for B in range(period, len(rots) - 1, period):
+            if (delta(rots[B - 1], rots[B]) < 1e-4
+                    and delta(rots[B - 2], rots[B - 1]) > 1e-3
+                    and delta(rots[B], rots[B + 1]) > 1e-3):
+                frozen += 1
+    return frozen
+
+
+def TEST_ANIM_BLOCK_OVERLAP():
+    """Spline blocks overlap by one frame, on read and on write.
+
+    Block b covers frames b*(mfpb-1) .. b*(mfpb-1)+mfpb-1: each block's first frame repeats
+    the previous block's last, and numBlocks = ceil((nf-1)/(mfpb-1)). Measured on vanilla:
+    354 of 355 multi-block FO4 animations repeat a frame at every block boundary when read
+    as disjoint blocks. Read as disjoint, every animation over mfpb frames came in one frame
+    off per block, with a frozen frame at each boundary and its last frames dropped; written
+    as disjoint, the game would sample it one frame off per block.
+    """
+    fp = str(_FO4_ANIM_DIR / "CoughingAfterCryo.hkx")
+    anim = anim_fo4.load_fo4_animation(fp)
+    m = anim.max_frames_per_block
+    assert TT.is_eq(anim.num_frames, 826, "fixture frames")
+    assert TT.is_eq(anim.num_blocks, 4, "fixture blocks")
+    assert TT.is_eq(len(anim.tracks[0].rotations), anim.num_frames, "one decoded frame per frame")
+
+    # Decoded right, nothing freezes at the old (disjoint) boundaries.
+    assert TT.is_eq(_frozen_boundaries(anim, m), 0, "no frozen frame at block boundaries")
+
+    # Written and read back: the overlapping block count, and the same motion.
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out = str(_OUT_DIR / "TEST_ANIM_BLOCK_OVERLAP.hkx")
+    anim_fo4.write_fo4_animation(out, anim)
+    back = anim_fo4.load_fo4_animation(out)
+    assert TT.is_eq(back.num_blocks, -(-(anim.num_frames - 1) // (m - 1)), "overlapping block count")
+    assert TT.is_eq(_frozen_boundaries(back, m), 0, "written file has no frozen boundary frames")
+    worst = max(abs(a - b) for t0, t1 in zip(anim.tracks, back.tracks)
+                for q0, q1 in zip(t0.rotations, t1.rotations) for a, b in zip(q0, q1))
+    assert TT.is_lt(worst, 0.05, f"motion survives the round trip (worst rotation error {worst:.4f})")
+    for t0, t1 in zip(anim.tracks, back.tracks):
+        assert all(abs(a - b) < 0.05 for a, b in zip(t0.rotations[-1], t1.rotations[-1])), \
+            "last frame survives"
+
+
+def TEST_SKYRIM_FLOAT_TRACKS():
+    """Skyrim float tracks (the hkVis visibility switches) are read and written (#386).
+
+    1598 of 1858 vanilla SE character animations carry float tracks -- almost all four,
+    bound to the skeleton's float slots 4-7 (hkVis:Shield, NPC L/R MagicNode, Weapon). They
+    were skipped on read and never written. idlebook_onepage has a spline track: slot 5 (the
+    left magic node) is 0, then 1 for frames 16-33, then 0. sneakmtidle spans two blocks.
+    """
+    book = anim_skyrim.load_skyrim_animation(str(_SKYRIMSE_DIR / "idlebook_onepage.hkx"))
+    assert TT.is_eq(book.float_slot_indices, [4, 5, 6, 7], "float slot binding")
+    assert TT.is_eq(len(book.float_tracks), 4, "four float tracks")
+    assert TT.is_eq([len(t) for t in book.float_tracks], [book.num_frames] * 4,
+                    "one value per frame")
+    assert all(abs(v - 1.0) < 1e-4 for v in book.float_tracks[0]), "slot 4 constant 1"
+    lmag = book.float_tracks[1]
+    expected = [1.0 if 16 <= f <= 33 else 0.0 for f in range(book.num_frames)]
+    worst = max(abs(a - b) for a, b in zip(lmag, expected))
+    assert TT.is_lt(worst, 0.01, f"slot 5 switches on for frames 16-33 (worst error {worst:.4f})")
+
+    sneak = anim_skyrim.load_skyrim_animation(str(_SKYRIMSE_DIR / "sneakmtidle.hkx"))
+    assert TT.is_eq(sneak.num_blocks, 2, "multi-block fixture")
+    assert TT.is_eq([len(t) for t in sneak.float_tracks], [sneak.num_frames] * 4,
+                    "multi-block float tracks have one value per frame")
+
+    # Written and read back, SE and LE: same bindings, same values.
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for label, ptr in (("SE", 8), ("LE", 4)):
+        for name, anim in (("book", book), ("sneak", sneak)):
+            out = str(_OUT_DIR / f"TEST_SKYRIM_FLOAT_TRACKS_{name}_{label}.hkx")
+            anim_skyrim.write_skyrim_animation(out, anim, ptr_size=ptr)
+            back = anim_skyrim.load_skyrim_animation(out)
+            assert TT.is_eq(back.float_slot_indices, anim.float_slot_indices,
+                            f"{name} {label}: slot binding kept")
+            worst = max(abs(a - b) for t0, t1 in zip(anim.float_tracks, back.float_tracks)
+                        for a, b in zip(t0, t1))
+            assert TT.is_lt(worst, 0.001, f"{name} {label}: float values kept ({worst:.5f})")
+            assert TT.is_eq(len(back.tracks), len(anim.tracks), f"{name} {label}: transform tracks kept")
+
+
 ALL_TESTS = [
+    TEST_ANIM_BLOCK_OVERLAP,
+    TEST_SKYRIM_FLOAT_TRACKS,
     TEST_READ_FO4_ANIM,
     TEST_FO4_ANIM_TRACKS,
     TEST_FO4_ANIM_ROUNDTRIP,

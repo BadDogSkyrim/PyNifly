@@ -4,6 +4,7 @@ HKX ANIMATION IMPORT
 
 """
 import os
+import re
 import subprocess
 import logging
 from pathlib import Path
@@ -41,6 +42,78 @@ else:
     hkxcmd_path = os.path.join(pynifly_addon_path, "hkxcmd.exe")
 
 log = logging.getLogger("pynifly")
+
+
+def _match_scene_fps(context, anim_data):
+    """Set the scene to the animation's frame rate and return it.
+
+    Import puts one key on each Blender frame, and export turns frames back into seconds at
+    the scene's frame rate -- so the two have to agree. Left at Blender's default 24 fps, a
+    30 fps animation exported 25% long with every annotation shifted."""
+    render = context.scene.render
+    if not anim_data.frame_duration or anim_data.frame_duration <= 0:
+        return render.fps / render.fps_base
+    fps = round(1.0 / anim_data.frame_duration)
+    if render.fps != fps or render.fps_base != 1.0:
+        log.info(f"Setting the scene to {fps} fps to match the animation "
+                 f"(was {render.fps / render.fps_base:g})")
+        render.fps = fps
+        render.fps_base = 1.0
+    return fps
+
+
+def _float_slot_names(armature):
+    """The skeleton's float slot names, as stored on the armature by skeleton import."""
+    names = armature.get(PYN_HKX_FLOAT_SLOTS_PROP, '')
+    return names.split(';') if isinstance(names, str) and names else list(names or [])
+
+
+def _float_prop_name(slot_names, slot):
+    if 0 <= slot < len(slot_names) and slot_names[slot]:
+        return slot_names[slot]
+    return f"float_slot_{slot}"
+
+
+def _apply_float_tracks(armature, anim_data):
+    """Animate one armature property per float track, named after the float slot it drives
+    (for humans the hkVis visibility switches, e.g. "hkVis:Weapon"). A constant track gets
+    one key; a changing one a linear key per frame, so it's exact at every frame."""
+    if not anim_data.float_tracks:
+        return
+    action = armature.animation_data.action
+    slot_names = _float_slot_names(armature)
+    for t, vals in enumerate(anim_data.float_tracks):
+        # A file that binds no slots is taken to drive its skeleton's slots 0..n-1 (inferred;
+        # in vanilla these are mostly clutter and creature animations).
+        slot = (anim_data.float_slot_indices[t] if t < len(anim_data.float_slot_indices)
+                else t)
+        name = _float_prop_name(slot_names, slot)
+        armature[name] = float(vals[0])
+        curve = action.fcurve_ensure_for_datablock(armature, f'["{name}"]')
+        frames = [0] if max(vals) - min(vals) <= 1e-6 else range(len(vals))
+        for f in frames:
+            kp = curve.keyframe_points.insert(f + 1, vals[f])
+            kp.interpolation = 'LINEAR'
+
+
+def _extract_float_tracks(armature, action, bl_frames):
+    """Float tracks for export: every float-slot property the action animates, sampled at
+    the given Blender frames. Returns (tracks, slot indices)."""
+    slot_names = _float_slot_names(armature)
+    curves = {fc.data_path: fc for fc in bdefs.action_fcurves(action)}
+    tracks, slots = [], []
+    for slot, name in enumerate(slot_names):
+        fc = curves.get(f'["{name}"]')
+        if fc is None:
+            continue
+        tracks.append([fc.evaluate(f) for f in bl_frames])
+        slots.append(slot)
+    for path, fc in curves.items():
+        m = re.fullmatch(r'\["float_slot_(\d+)"\]', path)
+        if m and int(m.group(1)) not in slots:
+            tracks.append([fc.evaluate(f) for f in bl_frames])
+            slots.append(int(m.group(1)))
+    return tracks, slots
 
 
 def _store_annotations(armature, annotations, fps):
@@ -528,6 +601,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
             return 'CANCELLED'
 
         # ── Create Blender action ──
+        self.fps = _match_scene_fps(context, anim_data)
         anim_name = self.hkx_filepath.stem
         apply_fo4_animation(armature, anim_data, bone_names, anim_name,
                             self.fps, self.rename_bones, self.rename_bones_niftools)
@@ -743,10 +817,13 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                       "Import the skeleton HKX first to create the armature.")
             return 'CANCELLED'
 
+        self.fps = _match_scene_fps(context, anim_data)
         anim_name = self.hkx_filepath.stem
         apply_fo4_animation(armature, anim_data, bone_names, anim_name,
                             self.fps, self.rename_bones, self.rename_bones_niftools,
                             bone_dict=skyrimDict)
+
+        _apply_float_tracks(armature, anim_data)
 
         if anim_data.blend_hint == 1:
             armature[PYN_HKX_ADDITIVE_PROP] = True
@@ -1197,4 +1274,10 @@ def extract_fo4_animation(armature, fps=None):
     )
     anim_out.annotations = _read_annotations(
         action, frame_start, frame_end, blender_fps)
+    # Float tracks (Skyrim's float slots; FO4 skeletons have none), sampled at the same
+    # frame times as the transform tracks.
+    bl_frames = [frame_start + (f / fps if fps > 0 else 0.0) * blender_fps
+                 for f in range(num_frames)]
+    anim_out.float_tracks, anim_out.float_slot_indices = _extract_float_tracks(
+        armature, action, bl_frames)
     return anim_out

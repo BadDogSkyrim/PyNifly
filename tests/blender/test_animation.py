@@ -2508,6 +2508,89 @@ def TEST_FO4_ANIM_EXPORT():
                     "Annotations preserved through export")
 
 
+@TT.category('SKYRIM', 'FO4', 'HKX')
+def TEST_HKX_IMPORT_SETS_FPS():
+    """Importing an HKX animation sets the scene to the animation's frame rate (#386).
+
+    Import puts one key on each Blender frame, but export turns frames back into seconds at
+    the scene's frame rate. Left at Blender's default 24 fps, a 30 fps animation exported 25%
+    long -- swimidle went from 2.93 s to 3.67 s -- with every annotation shifted.
+    """
+    from io_scene_nifly.hkx import anim_fo4, anim_skyrim
+
+    cases = [
+        ("FO4", anim_fo4.load_fo4_animation,
+         TTB.test_file(r"tests\FO4\Animations\skeleton.hkx"),
+         TTB.test_file(r"tests\FO4\Animations\Death1.hkx")),
+        ("Skyrim", anim_skyrim.load_skyrim_animation,
+         TTB.test_file(r"tests\Skyrim\skeleton.hkx"),
+         TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")),
+    ]
+    for label, load, skel, anim in cases:
+        TTB.clear_all()
+        outfile = TTB.test_file(rf"tests\Out\TEST_HKX_IMPORT_SETS_FPS_{label}.hkx")
+        orig = load(anim)
+        anim_fps = round(1.0 / orig.frame_duration)
+
+        bpy.context.scene.render.fps = 24
+        bpy.ops.import_scene.pynifly_hkx(filepath=skel, rename_bones=False, blender_xf=False)
+        arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+        BD.ObjectSelect([arma], active=True)
+        bpy.ops.import_scene.pynifly_hkx(filepath=anim, rename_bones=False, blender_xf=False)
+        assert TT.is_eq(bpy.context.scene.render.fps, anim_fps,
+                        f"{label}: scene set to the animation's frame rate")
+
+        BD.ObjectSelect([arma], active=True)
+        bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+        out = load(outfile)
+        assert TT.is_equiv(out.duration, orig.duration, f"{label}: duration kept", e=0.01)
+        assert TT.is_eq(out.num_frames, orig.num_frames, f"{label}: frame count kept")
+        assert TT.is_eq([a.text for a in out.annotations], [a.text for a in orig.annotations],
+                        f"{label}: annotations kept")
+        for a, b in zip(orig.annotations, out.annotations):
+            assert TT.is_equiv(b.time, a.time, f"{label}: annotation '{a.text}' time", e=0.02)
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_SKYRIM_HKX_FLOAT_TRACKS():
+    """Skyrim float tracks import as animated armature properties and export back (#386).
+
+    Float tracks drive the skeleton's float slots -- for humans the hkVis visibility
+    switches (shield, magic nodes, weapon). They were dropped on import and never written,
+    so an exported animation lost them. In idlebook_onepage, slot 5 (the left magic node)
+    switches on for frames 16-33.
+    """
+    from io_scene_nifly.hkx import anim_skyrim
+
+    skel = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    anim_file = TTB.test_file(r"tests\SkyrimSE\idlebook_onepage.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_SKYRIM_HKX_FLOAT_TRACKS.hkx")
+    orig = anim_skyrim.load_skyrim_animation(anim_file)
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=skel, rename_bones=False, blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=anim_file, rename_bones=False, blender_xf=False)
+
+    lmag = 'hkVis:NPC L MagicNode [LMag]'
+    assert lmag in arma, f"float slot property on the armature: {list(arma.keys())}"
+    paths = {fc.data_path for fc in BD.action_fcurves(arma.animation_data.action)}
+    assert f'["{lmag}"]' in paths, "the float track is animated in the action"
+    scene = bpy.context.scene
+    for frame, want in ((1, 0.0), (17, 1.0), (30, 1.0), (40, 0.0)):
+        scene.frame_set(frame)
+        assert TT.is_equiv(arma[lmag], want, f"{lmag} at frame {frame}", e=0.01)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, game='SKYRIM_SE')
+    out = anim_skyrim.load_skyrim_animation(outfile)
+    assert TT.is_eq(out.float_slot_indices, orig.float_slot_indices, "float slots written")
+    worst = max(abs(a - b) for t0, t1 in zip(orig.float_tracks, out.float_tracks)
+                for a, b in zip(t0, t1))
+    assert TT.is_lt(worst, 0.01, f"float values survive the round trip ({worst:.4f})")
+
+
 @TT.category('FO4', 'HKX')
 def TEST_FO4_HKX_SCALE_ROUNDTRIP():
     """A FO4 HKX animation that animates scale keeps it through import and export (#429).

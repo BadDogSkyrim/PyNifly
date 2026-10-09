@@ -29,7 +29,8 @@ try:
         AnimationData, Annotation, BonePose, Skeleton, TrackData,
         _decompress_spline, _parse_skeleton_xml, _parse_animation_xml,
         _read_null_string,
-        _compress_all_blocks, _write_48bit_quat, _write_40bit_quat,
+        _compress_all_blocks, _set_block_layout, _decode_float_tracks,
+        _write_48bit_quat, _write_40bit_quat,
         _write_16bit_scalar, _write_8bit_scalar, _FixupBuilder,
         _w_u8, _w_u16, _w_u32, _w_i16, _w_f32,
         _pad16, _pad4, _hkarray, _align,
@@ -39,7 +40,8 @@ except ImportError:
         AnimationData, Annotation, BonePose, Skeleton, TrackData,
         _decompress_spline, _parse_skeleton_xml, _parse_animation_xml,
         _read_null_string,
-        _compress_all_blocks, _write_48bit_quat, _write_40bit_quat,
+        _compress_all_blocks, _set_block_layout, _decode_float_tracks,
+        _write_48bit_quat, _write_40bit_quat,
         _write_16bit_scalar, _write_8bit_scalar, _FixupBuilder,
         _w_u8, _w_u16, _w_u32, _w_i16, _w_f32,
         _pad16, _pad4, _hkarray, _align,
@@ -314,6 +316,9 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     anim.frame_duration = _f32(data, a + o_frame_dur)
 
     block_offsets = _read_hkarray_u32(data, data_abs, anim_rel, o_block_offsets, fixups, ptr_size)
+    float_block_offsets = (_read_hkarray_u32(data, data_abs, anim_rel, o_float_block_offsets,
+                                             fixups, ptr_size)
+                           if num_float_tracks else [])
     data_blob = _read_hkarray_u8(data, data_abs, anim_rel, o_data, fixups, ptr_size)
 
     if not data_blob or not block_offsets:
@@ -376,6 +381,14 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
                 ]
             # blendHint follows the two hkArray fields
             arr_sz = ptr_size + 4 + 4  # hkArray: ptr + size + capacityAndFlags
+            fslot_arr_rel = rel + bind_idx_off + arr_sz
+            fslot_count = _u32(data, data_abs + fslot_arr_rel + ptr_size)
+            fslot_content_rel = fixups.get(fslot_arr_rel)
+            if fslot_content_rel is not None and fslot_count > 0:
+                anim.float_slot_indices = [
+                    struct.unpack_from('<h', data, data_abs + fslot_content_rel + i * 2)[0]
+                    for i in range(fslot_count)
+                ]
             blend_hint_off = bind_idx_off + 2 * arr_sz
             anim.blend_hint = _u32(data, data_abs + rel + blend_hint_off)
             break
@@ -386,6 +399,10 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
         anim.num_blocks, anim.max_frames_per_block, block_offsets,
         mask_and_quant_size
     )
+    if num_float_tracks and float_block_offsets:
+        anim.float_tracks = _decode_float_tracks(
+            data_blob, anim.num_tracks, num_float_tracks, anim.num_frames,
+            anim.num_blocks, anim.max_frames_per_block, block_offsets, float_block_offsets)
 
     return anim
 
@@ -756,7 +773,9 @@ def _build_anim_data_section(anim: AnimationData,
         struct.pack_into('<I', buf, off + P + 4, count | 0x80000000)
 
     # Compress animation
-    spline_blob, block_offsets = _compress_all_blocks(anim, rot_quant=1)
+    spline_blob, block_offsets, float_block_offsets = _compress_all_blocks(
+        anim, rot_quant=1, include_floats=True)
+    num_float = len(anim.float_tracks)
 
     num_tracks = anim.num_tracks
     bone_names = anim.bone_names or [f"Bone{i}" for i in range(num_tracks)]
@@ -855,13 +874,13 @@ def _build_anim_data_section(anim: AnimationData,
     struct.pack_into('<I', spline_hdr, o_type, 5)  # SPLINE_COMPRESSED
     struct.pack_into('<f', spline_hdr, o_duration, anim.duration)
     struct.pack_into('<I', spline_hdr, o_num_tracks, num_tracks)
-    struct.pack_into('<I', spline_hdr, o_num_float, 0)
+    struct.pack_into('<I', spline_hdr, o_num_float, num_float)
     pack_arr_at(spline_hdr, o_ann_tracks, num_tracks)
     struct.pack_into('<I', spline_hdr, o_num_frames, anim.num_frames)
     n_blocks = anim.num_blocks or 1
     struct.pack_into('<I', spline_hdr, o_num_blocks, n_blocks)
     struct.pack_into('<I', spline_hdr, o_max_frames, anim.max_frames_per_block or 256)
-    mask_size = _align(4 * num_tracks, 4)
+    mask_size = _align(4 * num_tracks + num_float, 4)   # transform masks + float masks
     struct.pack_into('<I', spline_hdr, o_mask_quant, mask_size)
     struct.pack_into('<f', spline_hdr, o_block_dur, anim.block_duration)
     if anim.block_duration > 0:
@@ -938,11 +957,12 @@ def _build_anim_data_section(anim: AnimationData,
         write(_w_u32(bo))
     align16()
 
-    # Float block offsets array (same count as blocks, all zero — no float tracks)
+    # Float block offsets array: where each block's float data starts, block-relative
+    # (still one per block when there are no float tracks, as vanilla does).
     float_block_off_data_rel = rel()
     fx.add_local(spline_rel + o_float_block_off, float_block_off_data_rel)
-    for _ in range(n_blocks):
-        write(_w_u32(0))
+    for fbo in float_block_offsets:
+        write(_w_u32(fbo))
     align16()
 
     # Spline data blob
@@ -971,6 +991,9 @@ def _build_anim_data_section(anim: AnimationData,
 
     bind_hdr = bytearray(bind_struct_size)
     pack_arr_at(bind_hdr, o_bind_idx, len(binding_indices))
+    float_slots = list(anim.float_slot_indices) if num_float else []
+    if float_slots:
+        pack_arr_at(bind_hdr, o_bind_float_idx, len(float_slots))
     struct.pack_into('<I', bind_hdr, o_bind_hint, anim.blend_hint)
     write(bytes(bind_hdr))
 
@@ -989,6 +1012,14 @@ def _build_anim_data_section(anim: AnimationData,
     for idx in binding_indices:
         write(_w_i16(idx))
     align16()
+
+    # Float track -> float slot indices array
+    if float_slots:
+        fslot_rel = rel()
+        fx.add_local(binding_rel + o_bind_float_idx, fslot_rel)
+        for idx in float_slots:
+            write(_w_i16(idx))
+        align16()
 
     # ═══ hkMemoryResourceContainer ═══
     # Full struct: base(2P) + 3 hkArrays + name(P) + pad(P)
@@ -1018,14 +1049,10 @@ def write_skyrim_animation(filepath: str, anim: AnimationData,
     ptr_size : int
         4 for Skyrim LE (32-bit), 8 for Skyrim SE (64-bit).
     """
-    # Fill in defaults
-    if not anim.num_blocks:
-        max_fpb = anim.max_frames_per_block or 256
-        anim.num_blocks = max(1, (anim.num_frames + max_fpb - 1) // max_fpb)
-    if not anim.block_duration:
-        anim.block_duration = anim.duration / anim.num_blocks if anim.num_blocks > 0 else anim.duration
+    # Fill in defaults. The block layout is derived from the frames, never trusted.
     if not anim.frame_duration:
         anim.frame_duration = anim.duration / max(1, anim.num_frames - 1) if anim.num_frames > 1 else 1.0 / 30.0
+    _set_block_layout(anim)
 
     # Build sections
     cn_data, name_offs = _build_anim_classnames_v8()
