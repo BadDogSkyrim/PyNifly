@@ -49,7 +49,7 @@ Edit the animation to your heart's content.
 
 With the armature selected, use **File > Export > Export HKX (PyNifly)**. Choose the output path and the target game format (Skyrim LE, Skyrim SE, or FO4).
 
-No reference skeleton file is needed -- PyNifly uses the bone data stored on the armature from the skeleton import.
+No reference skeleton file is needed -- PyNifly uses the bone data stored on the armature from the skeleton import. If the armature came from a NIF instead, set **Reference Skeleton** to the HKX skeleton the animation is for; PyNifly writes a track for each of its bones.
 
 ## Import Options
 
@@ -58,7 +58,7 @@ No reference skeleton file is needed -- PyNifly uses the bone data stored on the
 | **Use Blender Orientation** | Apply Blender's coordinate system (Z-up). Leave off to keep game coordinates. |
 | **Rename Bones** | Convert bone names to Blender L/R conventions (e.g., "NPC L Hand" becomes "NPC Hand.L"). |
 | **Rename Bones NifTools** | Use NifTools naming conventions instead. |
-| **Reference Skeleton** | Path to an HKX skeleton file. Only needed for the legacy hkxcmd workflow (see below). |
+| **Reference Skeleton** | Path to an HKX skeleton file. Needed to import an animation onto an armature that came from a NIF. |
 
 ## Export Options
 
@@ -66,7 +66,7 @@ No reference skeleton file is needed -- PyNifly uses the bone data stored on the
 |--------|-------------|
 | **Game** | Target game: FO4, Skyrim LE, or Skyrim SE. |
 | **FPS** | Frames per second. Default 30, which matches the standard for Bethesda animations. |
-| **Reference Skeleton** | Only needed for the legacy hkxcmd workflow. |
+| **Reference Skeleton** | The HKX skeleton the animation is for. Needed only when the armature came from a NIF rather than an HKX skeleton. |
 
 ## Annotation Markers
 
@@ -88,11 +88,12 @@ it with `F2`.
 - **Skyrim LE vs SE**: The skeleton determines which format is exported. If you imported a Skyrim LE skeleton (32-bit pointers), the export will default to LE format, and vice versa for SE. You can import a LE animation on a SE skeleton, so conversion between games is easy.
 - **Multiple animations**: You can import multiple animations onto the same skeleton. Each import creates a new Blender action. Switch between them in the Action Editor.
 
-## Legacy Workflow (hkxcmd)
+## Armatures Imported from a NIF
 
-If your armature was imported from a NIF file rather than an HKX skeleton, PyNifly falls back to using hkxcmd.exe for animation conversion. This requires:
+You can animate an armature imported from a skeleton NIF. Give the import and export a **Reference Skeleton**: the HKX skeleton the animation is for. Export writes one track per bone of that skeleton; bones the armature doesn't have hold the skeleton's reference pose.
 
-- `hkxcmd.exe` present in the addon folder
-- A **Reference Skeleton** HKX file specified in the import/export options
+Importing the HKX skeleton itself is still the simplest route, since the armature then carries everything export needs.
 
-The native workflow (importing the HKX skeleton first) is recommended, as it requires no external tools and supports all three game formats.
+## Legacy Import (hkxcmd)
+
+An HKX file from any other Havok version (neither Skyrim's hk_2010 nor Fallout 4's hk_2014) is imported with hkxcmd.exe, which must be present in the addon folder. Export never uses hkxcmd.

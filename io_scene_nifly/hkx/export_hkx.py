@@ -3,37 +3,40 @@
 HKX ANIMATION EXPORT
 
 """
-from contextlib import suppress
-import os
-import subprocess
 import logging
 from pathlib import Path
-import xml.etree.ElementTree as xml
 import bpy
-from bpy.props import StringProperty
-from bpy_extras.io_utils import ExportHelper, ImportHelper
-from ..pyn.nifdefs import PynIntFlag
-from ..pyn.niflytools import tmp_filepath, nospace_filepath, copyfile
+from bpy_extras.io_utils import ExportHelper
 from ..pyn.pynifly import NifFile
-from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
 from ..blender_defs import LogHandler
 from .. import bl_info
 from . import skeleton_hkx
-from ..pyn.xmltools import XMLFile
-from ..kf.export_kf import KFExporter
 from . import anim_fo4
 from . import anim_skyrim
 from .import_hkx import PYN_HKX_BONES_PROP, PYN_HKX_GAME_PROP, PYN_HKX_PTR_SIZE_PROP, extract_fo4_animation
 
 
-hkxcmd_path = None
-
-if pynifly_dev_path:
-    hkxcmd_path = os.path.join(pynifly_dev_path, "hkxcmd.exe")
-else:
-    hkxcmd_path = os.path.join(pynifly_addon_path, "hkxcmd.exe")
-
 log = logging.getLogger("pynifly")
+
+
+def _load_reference_skeleton(filepath):
+    """Read an HKX skeleton to export against. Returns (skeleton, game, ptr_size), where
+    game is 'SKYRIM' or 'FO4', or None if the file isn't a skeleton we can read."""
+    filepath = filepath.strip('"')
+    if anim_fo4.is_fo4_hkx(filepath):
+        skel = anim_fo4.load_fo4_skeleton(filepath)
+        game, ptr_size = 'FO4', 8
+    elif anim_skyrim.is_skyrim_hkx(filepath):
+        skel = anim_skyrim.load_skyrim_skeleton(filepath)
+        game = 'SKYRIM'
+        with open(filepath, 'rb') as f:
+            hdr = f.read(0x11)
+        ptr_size = hdr[0x10] if len(hdr) >= 0x11 and hdr[:4] == b'\x57\xE0\xE0\x57' else 4
+    else:
+        return None
+    if not skel or not skel.bones:
+        return None
+    return skel, game, ptr_size
 
 
 ################################################################################
@@ -43,7 +46,7 @@ log = logging.getLogger("pynifly")
 ################################################################################
 
 class ExportHKX(bpy.types.Operator, ExportHelper):
-    """Export Blender object(s) to a NIF File"""
+    """Export the active armature's animation to an HKX file"""
 
     bl_idname = "export_scene.pynifly_hkx"
     bl_label = 'Export HKX (pyNifly)'
@@ -63,7 +66,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
 
     reference_skel: bpy.props.StringProperty(
         name="Reference skeleton",
-        description="HKX reference skeleton to use for animation binding",
+        description="HKX skeleton the animation is for. Needed when the armature wasn't "
+                    "imported from an HKX skeleton",
         default="") # type: ignore
 
     fps: bpy.props.FloatProperty(
@@ -95,120 +99,43 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         if (not context.object.animation_data) or (not context.object.animation_data.action):
             return False
 
-        # FO4/Skyrim armatures (with PYN_HKX_BONES) don't need hkxcmd
-        if context.object.get(PYN_HKX_BONES_PROP):
-            return True
-
-        if not hkxcmd_path:
-            log.error("hkxcmd.exe not found--animation I/O not available.")
-            return False
-
         return True
 
 
     def invoke(self, context, event):
         # Set the default directory to the last used path if available
         if context.window_manager.pynifly_last_export_path_hkx:
-            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_hkx) 
+            self.filepath = str(Path(context.window_manager.pynifly_last_export_path_hkx)
                                 / Path(self.filepath))
         return super().invoke(context, event)
 
-    def generate_hkx(self, filepath):
-        """Generates an HKX file from a KF file. Also generates an XML file."""
 
-        # Generate HKX from KF
-        log.debug(f"{hkxcmd_path} CONVERTKF {self.reference_skel_short} {self.kf_filepath} {filepath}")
-        stat = subprocess.run([hkxcmd_path, 
-                               "CONVERTKF", 
-                               self.reference_skel_short, 
-                               str(self.kf_filepath), 
-                               filepath], 
-                               capture_output=True, 
-                               check=False)
-        if stat.returncode:
-            s = stat.stderr.decode('utf-8').strip()
-            log.error(f"HKXCMD failed with error: {s}")
-            return None
-        if not os.path.exists(filepath):
-            log.error(f"HKXCMD failed to create {filepath} with error {stat.stderr.decode('utf-8').strip()}")
-            return None
-        log.info(f"Created temporary HKX file: {filepath}")
+    def _game_and_skeleton(self, arma):
+        """The target game ('FO4', 'SKYRIM_LE' or 'SKYRIM_SE') and the reference skeleton
+        to export against--None when the armature carries its own HKX bone list."""
+        if arma.get(PYN_HKX_BONES_PROP):
+            return self.game, None
 
-        if self.xml_filepath:
-            # Generate XML from HKX
-            stat = subprocess.run([hkxcmd_path, 
-                                "CONVERT", 
-                               "-V:XML",
-                                filepath, 
-                                self.xml_filepath], 
-                                capture_output=True, check=True)
-            if stat.returncode:
-                s = stat.stderr.decode('utf-8').strip()
-                log.error(s)
-                return None
-            if not os.path.exists(self.xml_filepath):
-                log.error(f"Failed to create {self.xml_filepath}")
-                return None
-            
-            log.info(f"Created temporary XML file: {self.xml_filepath}")
+        if not self.reference_skel:
+            log.error("This armature wasn't imported from an HKX skeleton. Choose the "
+                      "HKX skeleton the animation is for as the reference skeleton.")
+            return None, None
+        ref = _load_reference_skeleton(self.reference_skel)
+        if ref is None:
+            log.error(f"Cannot read a skeleton from reference skeleton {self.reference_skel}")
+            return None, None
+        skel, skel_game, ptr_size = ref
 
-    def write_annotations(self):
-        """Write animation text annotations to the intermediate xml file.
-        Returns False if there were no annotations, so the original HKX is fine.
-        """
-        markers = self.context.scene.timeline_markers
-        if len(markers) == 0:
-            return False
-        
-        xmlfile = xml.parse(self.xml_filepath)
-        xmlroot = xmlfile.getroot()
-        annotation_tracks = next(x for x in xmlroot.iter('hkparam') if x.attrib['name'] == "annotationTracks")
-        tracks = [obj for obj in annotation_tracks]
-        for t in tracks: 
-            annotation_tracks.remove(t)
-
-        # # Writing a single track. Don't know how or why we would have more.
-        annotation_tracks.set('numelements', "1")
-        trackobj = xml.SubElement(annotation_tracks, 'hkobject')
-        annotations = xml.SubElement(
-            trackobj, 'hkparam', {'name': 'annotations', 'numelements': str(len(markers))})
-        
-        for m in markers:
-            markobj = xml.SubElement(annotations, 'hkobject')
-            timeparam = xml.SubElement(markobj, 'hkparam', {'name': 'time'})
-            timeparam.text = f"{(m.frame/self.fps):f}"
-            textparam =xml.SubElement(markobj, 'hkparam', {'name': 'text'})
-            textparam.text = m.name
-        
-        self.xml_filepath_out = tmp_filepath(Path(self.filepath), ext='.xml')
-        xmlfile.write(self.xml_filepath_out)
-        log.info(f"Created final XML file: {self.xml_filepath_out}")
-        
-        return True
-    
-
-    def rename_output(self):
-        """If we renamed our output to deal with spaces in names, set it back to what it
-        should be."""
-        copyfile(self.filepath_short, self.filepath)
-
-
-    def generate_final_hkx(self):
-        stat = subprocess.run([hkxcmd_path, 
-                               "CONVERT", 
-                               "-V:WIN32",
-                               self.xml_filepath, 
-                               self.filepath_short], 
-                               capture_output=True, check=True)
-        if stat.returncode:
-            s = stat.stderr.decode('utf-8').strip()
-            log.error(s)
-            return None
-        if not os.path.exists(self.filepath_short):
-            log.error(f"Failed to create {self.filepath_short}")
-            return None
-    
-        log.info(f"Created HKX file: {self.filepath_short}")
+        # The skeleton decides the game; for Skyrim the chosen LE/SE wins, so an animation
+        # can be written for either from the same skeleton.
+        if skel_game == 'FO4':
+            game = 'FO4'
+        elif self.game in ('SKYRIM_LE', 'SKYRIM_SE'):
+            game = self.game
+        else:
+            game = 'SKYRIM_SE' if ptr_size == 8 else 'SKYRIM_LE'
+        arma['PYN_SKELETON_FILE'] = self.reference_skel
+        return game, skel
 
 
     def execute(self, context):
@@ -222,79 +149,36 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
         self.log_handler = LogHandler.New(bl_info, "EXPORT", "HKX")
         NifFile.clear_log()
 
-        # ── FO4 / Skyrim native path ──
-        if context.object.get(PYN_HKX_BONES_PROP):
-            game = self.game
-            try:
-                anim_data = extract_fo4_animation(context.object, fps=self.fps)
+        try:
+            game, skel = self._game_and_skeleton(context.object)
+            anim_data = None
+            if game:
+                anim_data = extract_fo4_animation(
+                    context.object, fps=self.fps, skeleton=skel,
+                    game=('FO4' if game == 'FO4' else 'SKYRIM'))
                 if anim_data is None:
                     log.error("Failed to extract animation data from armature.")
-                    res.add('CANCELLED')
-                elif game in ('SKYRIM_LE', 'SKYRIM_SE'):
-                    ptr_size = 8 if game == 'SKYRIM_SE' else 4
-                    anim_skyrim.write_skyrim_animation(self.filepath, anim_data, ptr_size=ptr_size)
-                    fmt = "SE" if ptr_size == 8 else "LE"
-                    log.info(f"Exported Skyrim {fmt} animation: {self.filepath}")
-                    res.add('FINISHED')
-                else:
-                    anim_fo4.write_fo4_animation(self.filepath, anim_data)
-                    log.info(f"Exported FO4 animation: {self.filepath}")
-                    res.add('FINISHED')
-            except:
-                log.exception("HKX export failed")
+            if anim_data is None:
                 res.add('CANCELLED')
-
-            self.log_handler.finish("EXPORT", self.filepath)
-            wm = context.window_manager
-            wm.pynifly_last_export_path_hkx = self.filepath
-            return res.intersection({'CANCELLED'}, {'FINISHED'})
-
-        # ── Skyrim path (via hkxcmd) ──
-        refskelpath = Path(self.reference_skel.strip('"'))
-        self.reference_skel_short = nospace_filepath(refskelpath)
-        if refskelpath != self.reference_skel_short:
-            copyfile(self.reference_skel, self.reference_skel_short)
-        self.filepath_short = nospace_filepath(Path(self.filepath))
-        if self.reference_skel:
-            context.object['PYN_SKELETON_FILE'] = self.reference_skel
-
-        self.has_markers = (len(context.scene.timeline_markers) > 0)
-        self.hkx_tmp_filepath = tmp_filepath(Path(self.filepath), ext=".hkx")
-        self.xml_filepath = None
-        self.xml_filepath_out = None
-
-        # Export whatever animation is attached to the active object.
-        self.kf_filepath = Path(tmp_filepath(Path(self.filepath), ext=".kf"))
-        try:
-            KFExporter.Export(self.kf_filepath, context, fps=self.fps)
-            log.info(f"Created temporary kf file: {self.kf_filepath}")
-        except:
-            log.exception("Creation of temporary KF file failed")
-
-        if self.log_handler.max_error <= logging.WARNING:
-            try:
-                if self.has_markers:
-                    self.xml_filepath = tmp_filepath(Path(self.filepath), ext=".xml")
-                    self.generate_hkx(self.hkx_tmp_filepath)
-                    self.write_annotations()
-                    self.generate_final_hkx()
-                else:
-                    self.generate_hkx(self.filepath_short)
-                self.rename_output()
-
+            elif game in ('SKYRIM_LE', 'SKYRIM_SE'):
+                ptr_size = 8 if game == 'SKYRIM_SE' else 4
+                anim_skyrim.write_skyrim_animation(self.filepath, anim_data, ptr_size=ptr_size)
+                fmt = "SE" if ptr_size == 8 else "LE"
+                log.info(f"Exported Skyrim {fmt} animation: {self.filepath}")
                 res.add('FINISHED')
-            except:
-                self.log_handler.log.exception("Export of HKX failed")
-                res.add('CANCELLED')
+            else:
+                anim_fo4.write_fo4_animation(self.filepath, anim_data)
+                log.info(f"Exported FO4 animation: {self.filepath}")
+                res.add('FINISHED')
+        except:
+            log.exception("HKX export failed")
+            res.add('CANCELLED')
 
         self.log_handler.finish("EXPORT", self.filepath)
-
-        # Save the directory path for next time
         wm = context.window_manager
         wm.pynifly_last_export_path_hkx = self.filepath
+        return {'CANCELLED'} if 'CANCELLED' in res else {'FINISHED'}
 
-        return res.intersection({'CANCELLED'}, {'FINISHED'})
-    
 
 class ExportSkelHKX(bpy.types.Operator, ExportHelper):
     """Export Blender armature to an HKX skeleton file (Skyrim LE/SE or FO4)"""

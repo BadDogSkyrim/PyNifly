@@ -3098,3 +3098,124 @@ def TEST_SKYRIMSE_ANIM_EXPORT():
 
     rot_quant = (raw[ds_abs + data_blob_off] >> 2) & 0x0F
     assert TT.is_eq(rot_quant, 1, "Skyrim uses rot_quant=1 (40-bit), not 2 (48-bit)")
+
+
+def _hkx_track_rotations(anim, skel_bones):
+    """{bone name: per-frame rotations (xyzw)} for an HKX animation, naming the tracks
+    from the binding against the skeleton's bone list."""
+    from io_scene_nifly.hkx import anim_fo4  # noqa: F401  (rotations are xyzw lists)
+    if anim.track_to_bone_indices:
+        names = [skel_bones[i] for i in anim.track_to_bone_indices]
+    else:
+        names = skel_bones[:len(anim.tracks)]
+    return {n: t.rotations for n, t in zip(names, anim.tracks)}
+
+
+def _quat_angle(a, b):
+    """Angle in degrees between two xyzw rotations, ignoring the sign of the quaternion."""
+    dot = min(1.0, abs(sum(x * y for x, y in zip(a, b))))
+    return math.degrees(2 * math.acos(dot))
+
+
+@TT.category('SKYRIM', 'HKX')
+@TT.parameterize("pretty", [False, True])
+def TEST_HKX_EXPORT_NIF_SKELETON(pretty):
+    """An armature imported from a skeleton NIF exports its animation to HKX against a
+    reference skeleton, track for track.
+
+    Such an armature has no HKX bone list of its own. Export used to hand it to hkxcmd,
+    which wrote unnamed tracks and dropped the last frame; the reference skeleton now
+    supplies the bone list and the export is native.
+    """
+    from io_scene_nifly.hkx import anim_skyrim
+
+    skel_nif = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    skel_hkx = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    anim_file = TTB.test_file(r"tests\Skyrim\1hm_staggerbacksmallest.hkx")
+    outfile = TTB.test_file(rf"tests\Out\TEST_HKX_EXPORT_NIF_SKELETON_{pretty}.hkx")
+    skel_bones = anim_skyrim.load_skyrim_skeleton(skel_hkx).bones
+    orig = anim_skyrim.load_skyrim_animation(anim_file)
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly(filepath=skel_nif, rename_bones=False,
+                                 rotate_bones_pretty=pretty)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    assert 'PYN_HKX_BONES' not in arma, "a NIF armature carries no HKX bone list"
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=anim_file, reference_skel=skel_hkx,
+                                     rename_bones=False, rotate_bones_pretty=pretty)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=skel_hkx)
+    out = anim_skyrim.load_skyrim_animation(outfile)
+
+    assert TT.is_eq(out.num_frames, orig.num_frames, "every frame exported")
+    assert TT.is_eq(out.bone_names[:len(skel_bones)], skel_bones,
+                    "tracks are named for the reference skeleton's bones")
+
+    want = _hkx_track_rotations(orig, skel_bones)
+    got = _hkx_track_rotations(out, skel_bones)
+    compared = [n for n in want if n in got and n in arma.pose.bones]
+    assert TT.is_gt(len(compared), 50, "most animated bones are in the armature")
+    worst = max((_quat_angle(a, b), n) for n in compared
+                for a, b in zip(want[n], got[n]))
+    assert TT.is_lt(worst[0], 0.5, f"rotations survive the round trip (worst {worst})")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_HKX_EXPORT_EULER_ROTATION():
+    """Bones keyed in Euler rotation mode export their rotations (#439).
+
+    hkxcmd ignored the XYZ rotation keys the KF route wrote for Euler curves, so every
+    frame came out with the same rotation.
+    """
+    from io_scene_nifly.hkx import anim_skyrim
+
+    skel_nif = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    skel_hkx = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_EXPORT_EULER_ROTATION.hkx")
+    skel_bones = anim_skyrim.load_skyrim_skeleton(skel_hkx).bones
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly(filepath=skel_nif, rename_bones=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    bone = 'NPC L UpperArm [LUar]'
+    pb = arma.pose.bones[bone]
+    pb.rotation_mode = 'XYZ'
+    arma.animation_data_create()
+    arma.animation_data.action = bpy.data.actions.new("euler_439")
+    for frame, deg in ((1, 0.0), (10, 60.0), (20, 0.0)):
+        pb.rotation_euler = (math.radians(deg), 0, 0)
+        pb.keyframe_insert("rotation_euler", frame=frame)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=skel_hkx)
+    out = anim_skyrim.load_skyrim_animation(outfile)
+
+    assert TT.is_eq(out.num_frames, 20, "every frame exported")
+    rots = _hkx_track_rotations(out, skel_bones)[bone]
+    assert TT.is_equiv(_quat_angle(rots[0], rots[9]), 60.0, "bone turns 60 degrees by frame 10", e=0.5)
+    assert TT.is_equiv(_quat_angle(rots[0], rots[19]), 0.0, "and back by frame 20", e=0.5)
+
+
+@TT.category('SKYRIM', 'HKX')
+@TT.expect_errors(("wasn't imported from an HKX skeleton",))
+def TEST_HKX_EXPORT_NEEDS_REFERENCE():
+    """Exporting an armature with no HKX bone list and no reference skeleton says what's
+    missing and writes nothing."""
+    skel_nif = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_EXPORT_NEEDS_REFERENCE.hkx")
+    if os.path.exists(outfile):
+        os.remove(outfile)
+
+    bpy.ops.import_scene.pynifly(filepath=skel_nif, rename_bones=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    pb = arma.pose.bones['NPC L UpperArm [LUar]']
+    arma.animation_data_create()
+    arma.animation_data.action = bpy.data.actions.new("no_reference")
+    pb.keyframe_insert("rotation_quaternion", frame=1)
+
+    BD.ObjectSelect([arma], active=True)
+    result = bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    assert TT.is_eq(result, {'CANCELLED'}, "export cancelled")
+    assert not os.path.exists(outfile), "no file written"

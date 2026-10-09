@@ -96,10 +96,9 @@ def _apply_float_tracks(armature, anim_data):
             kp.interpolation = 'LINEAR'
 
 
-def _extract_float_tracks(armature, action, bl_frames):
+def _extract_float_tracks(action, slot_names, bl_frames):
     """Float tracks for export: every float-slot property the action animates, sampled at
     the given Blender frames. Returns (tracks, slot indices)."""
-    slot_names = _float_slot_names(armature)
     curves = {fc.data_path: fc for fc in bdefs.action_fcurves(action)}
     tracks, slots = [], []
     for slot, name in enumerate(slot_names):
@@ -1083,13 +1082,18 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
     log.info(f"Created action '{action.name}' with {frame_end} frames")
 
 
-def extract_fo4_animation(armature, fps=None):
+def extract_fo4_animation(armature, fps=None, skeleton=None, game=None):
     """Extract animation data from a Blender armature into an AnimationData.
 
     Evaluates pose bone transforms at each frame, capturing NLA blending,
     constraints, and drivers.  Only selected bones get per-frame animation;
     unselected bones are exported as static (frame-1 value).  If no bones
     are selected, all bones are animated.
+
+    skeleton, if given, is the HKX skeleton to write tracks for (an armature imported
+    from a NIF has no HKX bone list of its own); bones it has that the armature lacks
+    hold the skeleton's reference pose.  game ('SKYRIM' or 'FO4') overrides the
+    armature's.
 
     Returns an AnimationData ready for write_fo4_animation(), or None if no action.
     """
@@ -1119,7 +1123,7 @@ def extract_fo4_animation(armature, fps=None):
     num_frames = round(duration * fps) + 1 if duration > 0 else 1
 
     # Select the correct bone dictionary based on game
-    game = armature.get(PYN_HKX_GAME_PROP, 'FO4')
+    game = game or armature.get(PYN_HKX_GAME_PROP, 'FO4')
     bone_dict = skyrimDict if game == 'SKYRIM' else fo4Dict
     additive = armature.get(PYN_HKX_ADDITIVE_PROP, False)
 
@@ -1139,7 +1143,9 @@ def extract_fo4_animation(armature, fps=None):
     if rename_bones or rename_bones_niftools:
         bone_dict.use_niftools = rename_bones_niftools
 
-    if hkx_bones_str:
+    if skeleton is not None:
+        nif_bone_names = list(skeleton.bones)
+    elif hkx_bones_str:
         nif_bone_names = hkx_bones_str.split(";")
     else:
         nif_bone_names = []
@@ -1238,9 +1244,15 @@ def extract_fo4_animation(armature, fps=None):
             td = tracks[track_idx]
 
             if pb_name is None:
-                td.rotations.append([0.0, 0.0, 0.0, 1.0])
-                td.translations.append([0.0, 0.0, 0.0])
-                td.scales.append([1.0, 1.0, 1.0])
+                if skeleton is not None and track_idx < len(skeleton.reference_pose):
+                    pose = skeleton.reference_pose[track_idx]
+                    td.rotations.append(list(pose.rotation))
+                    td.translations.append(list(pose.translation))
+                    td.scales.append(list(pose.scale))
+                else:
+                    td.rotations.append([0.0, 0.0, 0.0, 1.0])
+                    td.translations.append([0.0, 0.0, 0.0])
+                    td.scales.append([1.0, 1.0, 1.0])
                 continue
 
             # Unselected bones: repeat frame-0 value
@@ -1278,6 +1290,8 @@ def extract_fo4_animation(armature, fps=None):
     # frame times as the transform tracks.
     bl_frames = [frame_start + (f / fps if fps > 0 else 0.0) * blender_fps
                  for f in range(num_frames)]
+    slot_names = (list(skeleton.float_slots) if skeleton is not None
+                  else _float_slot_names(armature))
     anim_out.float_tracks, anim_out.float_slot_indices = _extract_float_tracks(
-        armature, action, bl_frames)
+        action, slot_names, bl_frames)
     return anim_out
