@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 import esplib.plugin
 from esplib import LoadOrder, Plugin, PluginSet
 from pyn import sf_matchain
+from pyn.sf_cdb import load_cdb
 from pyn.sf_morph import MorphFile
 from pyn.sf_materials import material_id
 
@@ -587,8 +588,23 @@ def check_shader_settings(rep, data, mat_rel, path):
               f"Chain searched: {' -> '.join(os.path.basename(p) for p in chain.paths)}"])
 
 
+_material_dbs = {}
+
+
+def material_db(data):
+    """The game's compiled material database, from the first --data folder that has
+    materials\\materialsbeta.cdb loose (an unpacked-assets folder, normally), or None."""
+    for d in data:
+        path = os.path.join(d, 'materials', 'materialsbeta.cdb')
+        if os.path.exists(path):
+            if path not in _material_dbs:
+                _material_dbs[path] = load_cdb(path)
+            return _material_dbs[path]
+    return None
+
+
 def check_material(rep, data, mat_rel, own_root, seen):
-    """A shape's `.mat`: does it resolve, is it game-valid, do its textures exist?
+    """A shape's `.mat`: does it exist, is it game-valid, do its textures exist?
 
     A material that parses fine but points at a texture nobody produced renders the shape
     black, and nothing in the CK says so.
@@ -599,7 +615,19 @@ def check_material(rep, data, mat_rel, own_root, seen):
 
     path = data_path(data, mat_rel)
     if not os.path.exists(path):
-        rep.info('materials', f"{mat_rel}: no loose file (compiled into the .cdb?)")
+        # Vanilla materials are compiled into materialsbeta.cdb, not shipped loose, so a
+        # missing file is only wrong when the database doesn't have the path either.
+        db = material_db(data)
+        if db is None:
+            rep.warn('materials', f"{mat_rel}: no loose file, and no materialsbeta.cdb "
+                                  f"to look it up in",
+                     "Add a folder of unpacked vanilla assets to --data to check it.")
+        elif db.material_dbid(mat_rel) is not None:
+            rep.info('materials', f"{mat_rel}: compiled into materialsbeta.cdb")
+        else:
+            rep.fail('materials', f"{mat_rel}: material does not exist",
+                     "Not a loose file in any --data folder, and not in the game's "
+                     "materialsbeta.cdb. Check the material path on the shape.")
         return
 
     try:

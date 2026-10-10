@@ -1627,6 +1627,51 @@ def TEST_SF_RACECHECK_SHADER_SETTINGS():
                         "a model with no required settings block is left alone")
 
 
+def TEST_SF_RACECHECK_MATERIAL_EXISTS():
+    """sf_racecheck fails a body part whose material exists nowhere.
+
+    A material that isn't a loose file used to get only an info line ("compiled into the
+    .cdb?"), so a misnamed material on the hands or body passed silently. Vanilla materials
+    really are compiled into the game's materialsbeta.cdb, so the check looks there too:
+
+      * a vanilla material in the .cdb but not loose is fine -- no FAIL;
+      * a material in neither is a FAIL;
+      * with no .cdb to consult, a missing loose file can't be judged -- a WARN.
+    """
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+
+    cdb_src = os.path.join(TT.SF_ASSETS, 'materials', 'materialsbeta.cdb')
+    assert TT.is_eq(os.path.exists(cdb_src), True, "vanilla materialsbeta.cdb is unpacked")
+    vanilla = r'Materials\Actors\Human\Faces\left_eye.mat'
+    nosuch = r'Materials\FSFTest\Hands\NoSuchHands.mat'
+
+    def levels(data_dir, mat_rel):
+        rep = sf_racecheck.Report()
+        sf_racecheck.check_material(rep, [data_dir], mat_rel, None, set())
+        return {lv for lv, _area, _m, _d in rep.findings}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # No loose materials here at all -- only the compiled database.
+        os.makedirs(os.path.join(tmp, 'materials'))
+        try:
+            os.link(cdb_src, os.path.join(tmp, 'materials', 'materialsbeta.cdb'))
+        except OSError:
+            import shutil
+            shutil.copy(cdb_src, os.path.join(tmp, 'materials', 'materialsbeta.cdb'))
+
+        assert TT.is_eq(sf_racecheck.FAIL in levels(tmp, vanilla), False,
+                        "a vanilla material compiled into the .cdb is not flagged")
+        assert TT.is_eq(sf_racecheck.FAIL in levels(tmp, nosuch), True,
+                        "a material that exists nowhere is a FAIL")
+
+    with tempfile.TemporaryDirectory() as empty:
+        found = levels(empty, nosuch)
+        assert TT.is_eq((sf_racecheck.FAIL in found, sf_racecheck.WARN in found), (False, True),
+                        "with no .cdb to consult, a missing loose material is a WARN")
+
+
 def TEST_SF_RACECHECK_LOAD_ORDER():
     """sf_racecheck reads a whole load order, and the latest override of a record wins.
 
