@@ -2344,6 +2344,10 @@ class ShaderImporter:
 
     def import_specular(self):
         """Set up nodes for specular texture"""
+        # An effect shader has no specular data and its shader group no specular inputs, but
+        # the flag can still be set. The flag itself round-trips with the shader flags.
+        if self.is_effect_shader:
+            return
         if self.shape.shader.properties.shaderflags1_test(ShaderFlags1.SPECULAR):
             if 'Specular' in self.textures and self.textures['Specular']:
                 # Make the specular texture input node.
@@ -3503,6 +3507,10 @@ class ShaderExporter:
         # FO4: Environment Mapping flag on the NIF causes CTDs — skip env map textures
         # and clear the flag in case it was carried over from material properties.
         textureslots = ['Diffuse', 'Normal', 'SoftLighting', 'Specular']
+        if self.is_effectshader:
+            # No specular slot on an effect shader. Writing it would find no texture and
+            # clear a SPECULAR flag the block may legitimately carry.
+            textureslots.remove('Specular')
         if self.game != 'FO4':
             textureslots += ['EnvMap', 'EnvMask']
         for textureslot in textureslots:

@@ -1245,3 +1245,40 @@ def TEST_FACEGEN_SE():
     assert TT.is_equiv(re_bb[1].z - re_bb[0].z, head_height,
                         "Re-imported head height matches",
                         e=0.1)
+
+
+@TT.category('FO4', 'SHADER')
+def TEST_EFFECT_SHADER_SPECULAR_FLAG():
+    """An effect shader with the SPECULAR flag imports its material and exports as an
+    effect shader.
+
+    Effect shaders have no specular data and their shader groups no specular inputs, but the
+    flag can still be set. Import set up specular nodes anyway, failed on the missing
+    'Specular Color' input, and abandoned the whole material -- so the shape came in with no
+    material and exported as a lighting shader. Seen on the #430 reporter's file; the fixture
+    is vanilla CombatShotgunGlowPinSight.nif with that one flag set on its effect shader.
+    """
+    from io_scene_nifly.pyn.nifdefs import ShaderFlags1
+    testfile = TTB.test_file(r"tests\FO4\Shotgun\CombatShotgunGlowPinSight_SpecularEffect.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_EFFECT_SHADER_SPECULAR_FLAG.nif")
+
+    nif = pyn.NifFile(testfile)
+    sight = next(s for s in nif.shapes if s.name == 'NightSights006:0')
+    assert TT.is_eq(sight.shader.blockname, 'BSEffectShaderProperty', "fixture has an effect shader")
+    assert sight.shader.properties.shaderflags1_test(ShaderFlags1.SPECULAR), \
+        "fixture's effect shader has the SPECULAR flag"
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    obj = TTB.find_shape('NightSights006:0')
+    assert obj.active_material is not None, "effect shader imported a material"
+    groups = [n.node_tree.name for n in obj.active_material.node_tree.nodes if n.type == 'GROUP']
+    assert TT.is_eq('Fallout 4 Effect' in groups, True, f"effect shader group in material {groups}")
+
+    BD.ObjectSelect([o for o in bpy.data.objects if o.type == 'MESH'], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    out = pyn.NifFile(outfile)
+    sight_out = next(s for s in out.shapes if s.name == 'NightSights006:0')
+    assert TT.is_eq(sight_out.shader.blockname, 'BSEffectShaderProperty', "exported as an effect shader")
+    assert sight_out.shader.properties.shaderflags1_test(ShaderFlags1.SPECULAR), \
+        "SPECULAR flag survives the round trip"
