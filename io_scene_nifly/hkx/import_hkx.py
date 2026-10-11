@@ -3,25 +3,18 @@
 HKX ANIMATION IMPORT
 
 """
-import os
 import re
-import subprocess
 import logging
 from pathlib import Path
-import xml.etree.ElementTree as xml
 import bpy
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 from .. import __package__ as base_package
-from ..pyn.nifdefs import PynIntFlag
-from ..pyn.niflytools import tmp_copy_nospace, tmp_copy, tmp_filepath, fo4Dict, skyrimDict
-from ..pyn.niflydll import nifly_path, pynifly_dev_path, pynifly_addon_path
-from ..pyn.pynifly import NifFile
+from ..pyn.niflytools import fo4Dict, skyrimDict
+from ..pyn.niflydll import nifly_path
 from .. import blender_defs as bdefs
 from .. import bl_info
 from ..util.settings import ImportSettings, PYN_RENAME_BONES_PROP, PYN_RENAME_BONES_NIFTOOLS_PROP, PYN_BLENDER_XF_PROP, PYN_ROTATE_BONES_PRETTY_PROP
-from ..pyn.xmltools import XMLFile
-from ..nif.import_nif import NifImporter
 from . import anim_fo4
 from . import anim_skyrim
 
@@ -33,13 +26,6 @@ PYN_HKX_FLOAT_SLOTS_PROP = 'PYN_HKX_FLOAT_SLOTS'
 PYN_HKX_REFERENCE_FLOATS_PROP = 'PYN_HKX_REFERENCE_FLOATS'
 PYN_HKX_ADDITIVE_PROP = 'PYN_HKX_ADDITIVE'
 
-
-hkxcmd_path = None
-
-if pynifly_dev_path:
-    hkxcmd_path = os.path.join(pynifly_dev_path, "hkxcmd.exe")
-else:
-    hkxcmd_path = os.path.join(pynifly_addon_path, "hkxcmd.exe")
 
 log = logging.getLogger("pynifly")
 
@@ -202,20 +188,16 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
         if not nifly_path:
             log.error("pyNifly DLL not found--pyNifly disabled")
             return False
-        # hkxcmd is only needed for Skyrim HKX; FO4 is parsed natively
         return True
     
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.kf:NifFile = None
         self.armature = None
         self.errors = set()
         self.import_flags = ImportSettings()
         self.animation_name = None
         self.hkx_filepath:Path = None
-        self.xml_filepath:Path = None
-        self.kf_filepath:Path = None
 
 
     def invoke(self, context, event):
@@ -292,37 +274,10 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                 stat = self.import_skyrim(context)
                 res.add(stat)
 
-            # ── Legacy hkxcmd path (XML skeletons, etc.) ──
             else:
-                if not hkxcmd_path:
-                    log.error("hkxcmd.exe not found — required for this HKX file type.")
-                    return {'CANCELLED'}
-                XMLFile.SetPath(hkxcmd_path)
-                self.xmlfile = XMLFile(self.filepath, self)
-                if self.xmlfile.contains_skeleton:
-                    self.import_skeleton()
-
-                if self.xmlfile.contains_animation:
-                    if self.reference_skel:
-                        self.reference_skel = self.reference_skel.strip('"')
-                        fp, ext = os.path.splitext(self.reference_skel)
-                        if ext.lower() != ".hkx":
-                            log.error("Must have an HKX file to use as reference skeleton.")
-                            return {'CANCELLED'}
-                        self.reference_skel_short = tmp_copy_nospace(Path(self.reference_skel))
-
-                    if not context.object:
-                        log.error("Must have selected object for animation.")
-                        return {'CANCELLED'}
-                    if not self.reference_skel:
-                        log.error("Must provide a reference skeleton for the animation.")
-                        return {'CANCELLED'}
-                    if self.reference_skel:
-                        context.object['PYN_SKELETON_FILE'] = self.reference_skel
-
-                    self.animation_name = self.hkx_filepath.stem
-                    stat = self.import_animation()
-                    res.add(stat)
+                log.error(f"{self.hkx_filepath.name} is neither a Skyrim (hk_2010) nor a "
+                          f"Fallout 4 (hk_2014) HKX file, so PyNifly can't read it.")
+                res.add('CANCELLED')
 
         except:
             self.log_handler.log.exception("Import of HKX file failed")
@@ -351,101 +306,6 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
 
     def info(self, msg):
         self.report({"INFO"}, msg)
-
-
-    def import_skeleton(self):
-        """self.xmlfile has a skeleton in it. Import the skeleton."""
-        imp = NifImporter([self.xmlfile.xml_filepath], import_settings=self.import_flags)
-        imp.context = self.context
-        if self.context.view_layer.active_layer_collection: 
-            imp.collection = self.context.view_layer.active_layer_collection.collection
-        imp.settings.create_bones = False
-        imp.settings.rename_bones = self.rename_bones
-        imp.settings.rename_bones_niftools = self.rename_bones_niftools
-        imp.settings.import_animations = True
-        imp.settings.import_tris = False
-        if self.blender_xf:
-            imp.settings.blender_xf = bdefs.blender_import_xf
-        imp.execute()
-        objlist = [x for x in imp.objects_created.blender_objects() if x.type=='MESH']
-        if imp.armature:
-            objlist.append(imp.armature)
-        bdefs.highlight_objects(objlist, self.context)
-
-
-    def import_animation(self):
-        """self.xmlfile has an animation in it. Import the animation."""
-        kf_file = self.make_kf(self.xmlfile.hkx_filepath, is_temp=True)
-        if not kf_file:
-            return('CANCELLED')
-        else:
-            imp = NifImporter(str(self.kf_filepath), 
-                              target_armatures=[self.context.object],
-                              import_settings=self.import_flags,
-                              animation_name=self.animation_name,)
-            imp.context = self.context
-            imp.nif = kf_file
-            imp.import_nif()
-            self.import_annotations()
-            bdefs.highlight_objects([imp.armature], self.context)
-            log.info('Import of HKX animation completed successfully')
-            return('FINISHED')
-
-
-    def make_kf(self, filepath_working:Path, is_temp=False) -> NifFile:
-        """
-        Creates a kf file from a hkx file.  
-        
-        Returns 
-        * KF file is opened and returned as a NifFile. 
-        """
-        self.kf_filepath = Path(tmp_filepath(filepath_working, ext=".kf"))
-        if not self.kf_filepath:
-            raise RuntimeError(f"Could not create temporary file {self.kf_filepath}")
-        
-        # Put the source file in the same folder as the kf because HKXCMD wants them together.
-        if filepath_working.parent != self.kf_filepath.parent:
-            filepath_working = tmp_copy(filepath_working)
-
-        log.debug(f"{hkxcmd_path} EXPORTKF {self.reference_skel_short} {filepath_working} {self.kf_filepath}")
-        stat = subprocess.run([hkxcmd_path, 
-                               "EXPORTKF", 
-                               str(self.reference_skel_short), 
-                               str(filepath_working), 
-                               str(self.kf_filepath)], 
-                               capture_output=True, check=True)
-        if stat.stderr:
-            s = stat.stderr.decode('utf-8').strip()
-            if not s.startswith("Exporting"):
-                log.error(s)
-                return None
-        if not os.path.exists(self.kf_filepath):
-            log.error(f"HKXCMD failed to create {self.kf_filepath}")
-            return None
-        log.info(f"Temporary KF file created: {self.kf_filepath}")
-
-        return NifFile(str(self.kf_filepath))
-    
-
-    def import_annotations(self):
-        """Import text annotations from the XML file associated with this import."""
-        if not self.xml_filepath or not os.path.exists(self.xml_filepath):
-            return
-        
-        xmlfile = xml.parse(self.xml_filepath)
-        xmlroot = xmlfile.getroot()
-        annotation_tracks = next(x for x in xmlroot.iter('hkparam') if x.attrib['name'] == "annotationTracks")
-        annotations = next(a for a in annotation_tracks.iter('hkparam') if a.attrib['name'] == 'annotations')
-        for a in annotations.iter('hkobject'):
-            t = None
-            txt = None
-            for p in a.iter('hkparam'):
-                if p.attrib['name'] == "time":
-                    t = float(p.text)
-                if p.attrib['name'] == "text":
-                    txt = p.text
-            if t and txt:
-                self.context.scene.timeline_markers.new(txt, frame=int(t*self.fps))
 
 
     def import_fo4(self, context):

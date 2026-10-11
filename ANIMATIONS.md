@@ -94,6 +94,6 @@ You can animate an armature imported from a skeleton NIF. Give the import and ex
 
 Importing the HKX skeleton itself is still the simplest route, since the armature then carries everything export needs.
 
-## Legacy Import (hkxcmd)
+## Supported HKX Versions
 
-An HKX file from any other Havok version (neither Skyrim's hk_2010 nor Fallout 4's hk_2014) is imported with hkxcmd.exe, which must be present in the addon folder. Export never uses hkxcmd.
+PyNifly reads and writes Skyrim's hk_2010 (binary, or an XML packfile for skeletons) and Fallout 4's hk_2014. An HKX file from any other Havok version can't be imported.

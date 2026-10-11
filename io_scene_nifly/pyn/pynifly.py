@@ -15,7 +15,6 @@ import xml.etree.ElementTree as xml
 from pathlib import Path
 from .niflytools import *
 from .nifdefs import *
-from . import xmltools
 from .niflydll import nifly, nifly_path
 from .nifconstants import BSXFlagsValues
 
@@ -5656,8 +5655,7 @@ class hkxSkeletonFile(NifFile):
     def __init__(self, filepath=None):
         super().__init__(filepath=None)
         self.filepath = filepath
-        self.xmlfile = None
-        self.xmlroot = None
+        self._loaded = False
         self._game = "SKYRIM"
         self.dict = gameSkeletons[self._game]
         if filepath: 
@@ -5677,20 +5675,72 @@ class hkxSkeletonFile(NifFile):
         Load the skeleton from a HKX or XML file. Since the XML spreads bone information
         across multiple constructs it's more convenient to load it all at once.
         """
-        if self.xmlroot:
+        if self._loaded:
             # Prevent recursive call from NiNode().
             return
-        
-        if os.path.splitext(self.filepath)[1].upper() == ".HKX":
-            self.xml_filepath = xmltools.XMLFile.hkx_to_xml(Path(self.filepath))
-        else:
-            self.xml_filepath = self.filepath
-    
-        self.xmlfile = xml.parse(self.xml_filepath)
-        self.xmlroot = self.xmlfile.getroot()
+        self._loaded = True
 
-        skel = self.xmlroot.find(".//*[@class='hkaSkeleton']")
-        skelname = skel.find("./*[@name='name']").text
+        if os.path.splitext(self.filepath)[1].upper() == ".HKX":
+            bonelist, parentIndices, poses = self._read_hkx()
+        else:
+            bonelist, parentIndices, poses = self._read_xml()
+
+        for j, (name, pose) in enumerate(zip(bonelist, poses)):
+            if pose is None:
+                continue
+            loc, quat, scale = pose
+            parent = None
+            if parentIndices[j] >= 0:
+                parentname = bonelist[parentIndices[j]]
+                if parentname in self.nodes:
+                    parent = self.nodes[parentname]
+
+            # Note this quaternion may not be normalized. Stored x, y, z, w.
+            rot = PM.quaternion_to_matrix([quat[3], quat[0], quat[1], quat[2]])
+            buf = NiNodeBuf()
+            buf.transform.translation = VECTOR3(*loc)
+            buf.transform.rotation = MATRIX3(VECTOR3(*rot[0]), VECTOR3(*rot[1]), VECTOR3(*rot[2]))
+            buf.transform.scale = scale[0]
+            n = NiNode(file=self, parent=parent, properties=buf, name=name)
+            # The skeleton's own root bone (bone 0, no parent) is the file
+            # root: giving it id 0 makes register_node record it as _root.
+            n.id = j
+            n._blockname = "NiNode"
+            self.register_node(n)
+
+
+    def _read_hkx(self):
+        """Bones, parent indices and reference poses from a binary HKX skeleton, read
+        natively. The readers live in the Blender-side hkx package, whose __init__ needs
+        bpy; outside Blender, import them straight from its folder."""
+        try:
+            from ..hkx import anim_fo4, anim_skyrim
+        except ImportError:
+            import sys
+            hkx_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                   'hkx')
+            if hkx_dir not in sys.path:
+                sys.path.append(hkx_dir)
+            import anim_fo4
+            import anim_skyrim
+
+        if anim_fo4.is_fo4_hkx(self.filepath):
+            skel = anim_fo4.load_fo4_skeleton(self.filepath)
+            self._game = "FO4"
+            self.dict = gameSkeletons[self._game]
+        else:
+            skel = anim_skyrim.load_skyrim_skeleton(self.filepath)
+        if skel is None:
+            raise ValueError(f"No skeleton in {self.filepath}")
+        poses = [(p.translation, p.rotation, p.scale) for p in skel.reference_pose]
+        return skel.bones, skel.parents, poses
+
+
+    def _read_xml(self):
+        """Bones, parent indices and reference poses from an hkpackfile XML skeleton. A pose
+        that can't be read is None, and that bone is skipped."""
+        root = xml.parse(self.filepath).getroot()
+        skel = root.find(".//*[@class='hkaSkeleton']")
         parentIndices = [int(x) for x in skel.find("./*[@name='parentIndices']").text.split()]
 
         bonelist = []
@@ -5701,53 +5751,26 @@ class hkxSkeletonFile(NifFile):
         pose = skel.find("./*[@name='referencePose']")
         poselist = pose.text.strip(' ()\t\n').split(')')
 
-        mxWorld = [None] * len(bonelist)
-        i = j = 0
-        while i < len(poselist) and j < len(bonelist):
-            parent = None
-            parentname = None
-            if parentIndices[j] >= 0:
-                parentname = bonelist[parentIndices[j]]
-                if parentname in self.nodes:
-                    parent = self.nodes[parentname]
+        def floats(text, n):
+            vals = text.strip(' ()\t\n').split()
+            return [float(x) for x in vals] if len(vals) == n else None
 
-            loc = rot = None
-            loclist = poselist[i].strip(' ()\t\n').split()
-            if len(loclist) == 3:
-                loc = [float(x) for x in loclist]
+        poses = []
+        for j in range(len(bonelist)):
+            i = 3 * j
+            if i + 2 >= len(poselist):
+                poses.append(None)
+                continue
+            loc, quat, scale = (floats(poselist[i], 3), floats(poselist[i+1], 4),
+                                floats(poselist[i+2], 3))
+            if not (loc and quat and scale):
+                self.warn(f"Pose list is not translation, rotation, scale at index {j}: "
+                          f"{poselist[i:i+3]}")
+                poses.append(None)
             else:
-                self.warn(f"Pose list does not have translation at index {j}: {poselist[i]}")
+                poses.append((loc, quat, scale))
+        return bonelist, parentIndices, poses
 
-            rotlist = poselist[i+1].strip(' ()\t\n').split()
-            if len(rotlist) == 4:
-                # Note this quaternion may not be normalized
-                rot = PM.quaternion_to_matrix(
-                    [float(rotlist[3]), float(rotlist[0]), float(rotlist[1]), float(rotlist[2])])
-            else:
-                self.warn(f"Pose list does not have good rotation at index {j}: {poselist[i+1]}")
-
-            scalelist = poselist[i+2].strip(' ()\t\n').split()
-            if len(scalelist) == 3:
-                scale = [float(x) for x in scalelist]
-            else:
-                self.warn(f"Pose list does not have good scale at index {j}: {poselist[i+2]}")
-            
-            if loc and rot and scale:
-                buf = NiNodeBuf()
-                buf.transform.translation = VECTOR3(*loc)
-                buf.transform.rotation = MATRIX3(VECTOR3(*rot[0]), VECTOR3(*rot[1]), VECTOR3(*rot[2]))
-                buf.transform.scale = scale[0]
-                n = NiNode(file=self, parent=parent,
-                           properties=buf, name=bonelist[j])
-                # The skeleton's own root bone (bone 0, no parent) is the file
-                # root: giving it id 0 makes register_node record it as _root.
-                n.id = j
-                n._blockname = "NiNode"
-                self.register_node(n)
-
-            i += 3
-            j += 1
-        
         
     @property
     def nodes(self):

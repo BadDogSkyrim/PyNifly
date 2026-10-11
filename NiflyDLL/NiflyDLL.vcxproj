@@ -416,7 +416,6 @@ del /q "$(OutDir)io_scene_nifly.zip"
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\PyNifly\PyNifly\skeletons\Skyrim\SKYRIM_skeleton.nif" />
-    <None Include="..\PyNifly\hkxcmd.exe" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
