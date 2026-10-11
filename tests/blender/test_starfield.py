@@ -2406,3 +2406,41 @@ def TEST_SF_MORPH_PANEL_SURFACES():
     bpy.ops.export_scene.pynifly(filepath=outnif2, target_game="SF")
     assert body.pyn_sf_morph.chargen_path == r"meshes\morphs\Custom\chargen\morph.dat", \
         f"export didn't stomp the user's explicit path: {body.pyn_sf_morph.chargen_path!r}"
+
+
+@TT.category('STARFIELD', 'ARMATURE')
+@TT.expect_errors(("Unknown block type: bhkRagdollSystem", "bhkPhysicsSystem decode failed"))
+def TEST_SF_SKELETON_EXTRA_BONES():
+    """Bones a Starfield skeleton adds to the vanilla set import in place, at normal length.
+
+    Starfield's skeleton nifs are in Havok metres. Vanilla bones take their rest from our
+    reference skeleton, but an added bone (an extended skeleton's tail and ears) is read
+    from the file, so it needs the unit conversion. Against the female skeleton the
+    conversion used to decline -- its proportions differ from our male reference -- and the
+    tail landed 70x too close to the origin. Converting it then stretched the bone 70x too.
+
+    The fixture is vanilla's female skeleton.nif plus one bone, C_Tail_Root under C_Hips,
+    at the local transform SF Extended Skeleton gives it.
+    """
+    from io_scene_nifly.pyn.nifconstants import HAVOC_SCALE_FACTOR
+    testfile = TTB.test_file(r"tests\SF\skeleton_female_tailroot.nif")
+    tail_metres = pyn.NifFile(testfile).nodes['C_Tail_Root'].global_transform.translation[:]
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, rename_bones=False)
+    arma = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
+    tail = arma.data.bones['C_Tail_Root']
+    spine = arma.data.bones['C_Spine']
+
+    head = arma.matrix_world @ tail.head_local
+    want = [v * HAVOC_SCALE_FACTOR for v in tail_metres]
+    assert TT.is_equiv(head.z, want[2], "tail root sits at hip height, in game units", e=0.5)
+    assert TT.is_equiv(head.y, want[1], "tail root sits behind the hips", e=0.5)
+    assert TT.is_equiv(tail.length, spine.length, "the added bone is as long as a vanilla one",
+                       e=0.01)
+
+    # The pose gets the same unit conversion, and it must move the bones, not scale them:
+    # a pose scale of 70 draws every octahedron 70x too big.
+    worst = max(max(pb.matrix.to_scale()) for pb in arma.pose.bones)
+    assert TT.is_equiv(worst, 1.0, "posed bones are unscaled", e=0.01)
+    posed = arma.matrix_world @ arma.pose.bones['C_Tail_Root'].head
+    assert TT.is_equiv(posed.z, want[2], "posed tail root sits at hip height", e=0.5)

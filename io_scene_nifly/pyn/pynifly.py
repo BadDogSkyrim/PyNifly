@@ -16,7 +16,7 @@ from pathlib import Path
 from .niflytools import *
 from .nifdefs import *
 from .niflydll import nifly, nifly_path
-from .nifconstants import BSXFlagsValues
+from .nifconstants import BSXFlagsValues, HAVOC_SCALE_FACTOR
 
 
 # Set up logging
@@ -4172,6 +4172,23 @@ _UNIT_SCALE_MIN_SAMPLES = 30
 _UNIT_SCALE_TOLERANCE = 0.002
 
 
+def _havok_metres_or_one(ratios):
+    """The unit factor for a skeleton whose bone ratios aren't one uniform scale.
+
+    Not one scale means a posed rig, a nif that only shares bone names, or a skeleton of
+    different proportions from the reference. The last still needs converting when it is
+    in metres: Starfield's female skeleton against our (male) reference scatters 48..135,
+    but every ratio sits within a factor of two of a median 0.3% from the Havok scale. A
+    posed rig clusters near 1 instead. So believe Havok metres only when the ratios cluster
+    tightly round it, and otherwise decline."""
+    med = sorted(ratios)[len(ratios) // 2]
+    if med <= 0 or abs(med / HAVOC_SCALE_FACTOR - 1) > 0.01:
+        return 1.0
+    if any(r <= 0 or not 0.5 < r / med < 2.0 for r in ratios):
+        return 1.0
+    return HAVOC_SCALE_FACTOR
+
+
 def node_unit_scale(nif, reference):
     """How many of `reference`'s units one of `nif`'s node-transform units is.
 
@@ -4211,9 +4228,7 @@ def node_unit_scale(nif, reference):
 
     lo, hi = min(ratios), max(ratios)
     if lo <= 0 or (hi - lo) / hi > _UNIT_SCALE_TOLERANCE:
-        # Not one uniform scale, so not a unit difference. Posed rig, different skeleton,
-        # or a nif that only incidentally shares bone names.
-        return 1.0
+        return _havok_metres_or_one(ratios)
 
     scale = sum(ratios) / len(ratios)
     # Close enough to 1 to be measurement noise rather than a different unit system.

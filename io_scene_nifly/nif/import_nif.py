@@ -1777,10 +1777,13 @@ class NifImporter():
                     # child_rest = parent_rest @ child_local, so run that backwards.
                     bone_xform = (child_bone.matrix @ R.inverted()) @ child_local.inverted()
             if bone_xform is None:
-                bone_xform = BD.transform_to_matrix(
-                    self.nif.get_node_xform_to_global(nifname))
-                # Straight from the file, so it carries the file's units.
-                scale_factor = self.scale * self.node_scale
+                # Straight from the file, so it carries the file's units. Convert only its
+                # position: a unit conversion moves the bone, it mustn't stretch it (a
+                # Starfield skeleton's added tail bones came out 70x long).
+                bone_xform = BD.apply_scale_transl(
+                    BD.transform_to_matrix(self.nif.get_node_xform_to_global(nifname)),
+                    self.node_scale)
+                scale_factor = self.scale
             # We have the world position of the bone, so we don't need the armature's
             # skin transform. (We might need the armature object's Blender transform.
             # But that's always the identity.)
@@ -1850,9 +1853,11 @@ class NifImporter():
 
                     pose_bone = arma.pose.bones[blname]
                     # bone_xf came out of the nif, so it needs the same unit conversion
-                    # the rest position got when it was built.
-                    pbmx = BD.get_pose_blender_xf(bone_xf, self.nif.game,
-                                                  self.scale * self.node_scale)
+                    # the rest position got when it was built -- position only, or every
+                    # posed bone is drawn 70x too big.
+                    pbmx = BD.get_pose_blender_xf(
+                        BD.apply_scale_transl(bone_xf, self.node_scale),
+                        self.nif.game, self.scale)
                     pose_bone.matrix = pbmx
                     bpy.context.view_layer.update()
 

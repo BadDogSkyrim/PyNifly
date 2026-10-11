@@ -966,6 +966,16 @@ def TEST_NODE_UNIT_SCALE():
     assert TT.is_equiv(node_unit_scale(sf_vanilla, sf_ref), HAVOC_SCALE_FACTOR,
                        "vanilla SF skeleton reads as metres", e=0.001)
 
+    # The female skeleton is in metres too, but its proportions differ from our (male)
+    # reference bone by bone, so the per-bone ratios scatter (48..135) around the unit
+    # factor instead of matching it exactly. Bones the reference doesn't have -- an
+    # extended skeleton's tail and ears -- take their rest from the file, so declining
+    # here left them 70x too close to the origin.
+    sf_female = NifFile(os.path.join(
+        TT.SF_ASSETS, 'meshes', 'actors', 'human', 'characterassets', 'female', 'skeleton.nif'))
+    assert TT.is_equiv(node_unit_scale(sf_female, sf_ref), HAVOC_SCALE_FACTOR,
+                       "vanilla SF female skeleton reads as metres", e=0.001)
+
     # A file already in the reference's units must measure exactly 1 -- including the
     # reference against itself, the degenerate case.
     assert TT.is_eq(node_unit_scale(sf_ref, sf_ref), 1.0, "our SF skeleton is already converted")
