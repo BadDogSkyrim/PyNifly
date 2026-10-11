@@ -1497,33 +1497,37 @@ class NifImporter():
             self.loaded_meshes.append(new_object)
             self.nodes_loaded[new_object.name] = the_shape
         
+            # The mesh's own data comes in even with "Import mesh only": that option leaves
+            # out the armature, parenting, groups and material, not the mesh itself.
+            import_colors(new_mesh, the_shape)
+            BD.mesh_create_uv(new_object.data, the_shape.uvs)
+
             if not self.settings.mesh_only:
                 self.objects_created.add(ReprObject(new_object, the_shape))
-                
-                import_colors(new_mesh, the_shape)
 
-                parent = self.import_node_parents(None, the_shape) 
+                parent = self.import_node_parents(None, the_shape)
 
                 # Parent the shape. Skinned meshes will be parented to the parent found in 
                 # the nif, not to the armature. 
                 if parent: # and parent != self.root_object: # and not the_shape.bone_names:
                     new_object.parent = parent
 
-                BD.mesh_create_uv(new_object.data, the_shape.uvs)
                 self.mesh_create_bone_groups(the_shape, new_object)
                 mesh_create_partition_groups(the_shape, new_object, tri_map)
                 # Queue for end-of-import cut-disk creation (needs the armature).
                 if 'FO4_CUT_OFFSETS' in new_object.keys():
                     self._pending_cut_disks.append((the_shape, new_object))
                 mesh_create_lod_groups(the_shape, new_object, tri_map)
-                for f in new_mesh.polygons:
-                    f.use_smooth = True
 
-                new_mesh.validate(verbose=True)
+            for f in new_mesh.polygons:
+                f.use_smooth = True
 
-                if the_shape.normals:
-                    mesh_create_normals(new_object.data, the_shape.normals)
+            new_mesh.validate(verbose=True)
 
+            if the_shape.normals:
+                mesh_create_normals(new_object.data, the_shape.normals)
+
+            if not self.settings.mesh_only:
                 shader_io.ShaderImporter().import_material(new_object, the_shape, BD.asset_path)
                 if not new_object.active_material:
                     new_object.display_type = 'WIRE'

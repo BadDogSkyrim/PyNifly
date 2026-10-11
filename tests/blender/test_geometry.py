@@ -571,3 +571,28 @@ def TEST_VANILLA_TREEASPEN_ROUNDTRIP():
     tn = nif.read_node(id=0)
     assert tn.blockname == 'BSTreeNode', "Root BSTreeNode preserved"
     assert TT.is_eq(tn.bones1, ['TrunkBone'], "BSTreeNode Bones1 preserved")
+
+
+@TT.category('SKYRIM', 'GEOMETRY')
+def TEST_IMPORT_MESH_ONLY_UV():
+    """"Import mesh only" still imports the mesh's UVs.
+
+    The option leaves out the armature, parenting and bone groups, but it skipped the UVs
+    too -- they sat in the same block as everything it leaves out.
+    """
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\circletm1_test.nif")
+    nif = pyn.NifFile(testfile)
+    shape = nif.shapes[0]
+    us = [uv[0] for uv in shape.uvs]
+    vs = [uv[1] for uv in shape.uvs]
+
+    bpy.ops.import_scene.pynifly(filepath=testfile, mesh_only=True)
+    obj = TTB.find_shape(shape.name)
+    assert TT.is_eq(len(obj.data.uv_layers), 1, "mesh-only import has a UV layer")
+    uv = obj.data.uv_layers[0].data
+    got_u = [d.uv[0] for d in uv]
+    got_v = [1 - d.uv[1] for d in uv]   # Blender flips V
+    assert TT.is_equiv(min(got_u), min(us), "UV range matches the file (u min)", e=0.001)
+    assert TT.is_equiv(max(got_u), max(us), "UV range matches the file (u max)", e=0.001)
+    assert TT.is_equiv(min(got_v), min(vs), "UV range matches the file (v min)", e=0.001)
+    assert TT.is_equiv(max(got_v), max(vs), "UV range matches the file (v max)", e=0.001)
