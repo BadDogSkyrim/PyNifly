@@ -717,6 +717,15 @@ def make_nif_reader(own_root):
             rep.warn('nif', f"{label}: could not be read: {e}")
             return
         for s in f.shapes:
+            # Head parts and body parts are placed by their skin -- an eye rides its eye bone.
+            # An unskinned shape has its position baked into its transform and nothing to
+            # attach it to the actor, so it doesn't show. All 427 vanilla head-part and
+            # skin-addon NIFs are fully skinned.
+            if not s.bone_names:
+                rep.fail('nif', f"{label}: {s.name} is not skinned",
+                         "It has no bones, so the game can't attach it to the actor. In "
+                         "Blender, give it an Armature modifier and vertex groups for its "
+                         "bones (an eye: all vertices in R_Eye or L_Eye), then re-export.")
             mat = s.shader.name if s.shader else None
             if mat:
                 check_material(rep, data, mat, own_root, seen_materials)

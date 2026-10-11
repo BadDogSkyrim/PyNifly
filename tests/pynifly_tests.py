@@ -15,7 +15,6 @@ import os
 # import xml.etree.ElementTree as xml
 # from niflytools import *
 # from nifdefs import *
-# import xmltools
 import sys
 import codecs
 import ctypes
@@ -1670,6 +1669,32 @@ def TEST_SF_RACECHECK_MATERIAL_EXISTS():
         found = levels(empty, nosuch)
         assert TT.is_eq((sf_racecheck.FAIL in found, sf_racecheck.WARN in found), (False, True),
                         "with no .cdb to consult, a missing loose material is a WARN")
+
+
+def TEST_SF_RACECHECK_SKINNED():
+    """sf_racecheck fails a head-part or body NIF with an unskinned shape.
+
+    A Starfield head part is placed by its skin -- an eye rides its eye bone. Exported with
+    no armature binding, the shape gets its position baked into its transform and no bones,
+    and the game has nothing to attach it with: the fox female right eye simply didn't show.
+    Every one of the 427 vanilla head-part and skin-addon NIFs is fully skinned, so an
+    unskinned shape is always a mistake here.
+    """
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+
+    data = [TT.SF_ASSETS]
+    skinned = r"meshes\actors\human\characterassets\female\righteye.nif"
+    unskinned = r"meshes\setdressing\outpost\harvesterflora\harvesterflora02\outpostharvesterflora01_dirt02.nif"
+
+    def fails(rel):
+        rep = sf_racecheck.Report()
+        reader = sf_racecheck.make_nif_reader(None)
+        reader(rep, data, os.path.join(TT.SF_ASSETS, rel), rel)
+        return [m for lv, _area, m, _d in rep.findings if lv == sf_racecheck.FAIL and 'skinned' in m]
+
+    assert TT.is_eq(fails(skinned), [], "a vanilla eye, skinned to its eye bone, passes")
+    assert TT.is_eq(len(fails(unskinned)), 1, "an unskinned shape is a FAIL")
 
 
 def TEST_SF_RACECHECK_LOAD_ORDER():
@@ -6464,7 +6489,7 @@ def TEST_HKX_FO4_SKELETON_ROUNDTRIP():
 
 @test_category("HKX", "SKYRIM")
 def TEST_HKX_SKELETON():
-    """Read an hkx skeleton file (via hkxcmd -> XML) into a NifFile-like object.
+    """Read an hkx skeleton file natively into a NifFile-like object.
 
     This is the legacy hkxSkeletonFile path that import_nif uses for .hkx/.xml
     skeleton imports. The skeleton's own root bone (NPC Root [Root]) is the file
