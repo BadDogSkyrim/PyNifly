@@ -1039,13 +1039,15 @@ def build_mat_doc(data, filename=None):
         w1 = (ns_hi ^ ((counter[0] * 0x9E3779B1) & 0xFFFFFFFF)) & 0xFFFFFFFF
         return f"res:{w1:08X}:{ns_hi:08X}:{ns_lo:08X}"
 
-    def emit(meta, default_parent, default_name, comps, refs=()):
+    def emit(meta, default_parent, default_name, comps, refs=(), drop=()):
         """Append one node, preferring the identity and components it was imported with.
 
         `comps` are the modelled values, merged over what the node carried; `refs` are the
-        structural references, which are always regenerated. Returns the node's id."""
+        structural references, which are always regenerated; `drop` names carried components,
+        as (type, index), that were deleted in Blender. Returns the node's id."""
         meta = meta or {}
-        holder = {"Components": [copy.deepcopy(c) for c in (meta.get('components') or [])]}
+        holder = {"Components": [copy.deepcopy(c) for c in (meta.get('components') or [])
+                                 if (c.get('Type'), c.get('Index', 0)) not in drop]}
         for c in comps:
             _set_component(holder, c['Type'], c.get('Index', 0), c['Data'])
         obj = {"Components": ([{"Type": _CTNAME, "Index": 0,
@@ -1082,8 +1084,13 @@ def build_mat_doc(data, filename=None):
                      "Data": {"FileName": _reprefix(path)}}
                     for slot, path in ly.get('textures', {}).items() if slot in _SF_SLOT_INDEX]
         ts_comps += _textureset_extras(ly)
+        # A slot absent from `textures` keeps the file it was imported with -- import makes no
+        # image node for a texture it can't find, and that file still belongs in the material.
+        # `removed_textures` is the other case: the slot had a texture and it was taken out.
+        removed = {(_TEXTURE_FILE_TYPE, _SF_SLOT_INDEX[slot])
+                   for slot in ly.get('removed_textures', ()) if slot in _SF_SLOT_INDEX}
         ts_id = emit(nodes.get('textureset'), _PARENT_TEXTURESET,
-                     f"{base}_TextureSet{i + 1}", ts_comps)
+                     f"{base}_TextureSet{i + 1}", ts_comps, drop=removed)
 
         uv_id = uv_node(nodes.get('uvstream'), ly, f"{base}_UVStream{i + 1}")
         # The stream hangs off whichever object owned it in the source (the layer, or its

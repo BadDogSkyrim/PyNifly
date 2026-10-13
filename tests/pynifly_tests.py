@@ -2693,6 +2693,22 @@ def TEST_SF_MAT_BUILD_FROM_TREE():
     assert TT.is_eq(out['layers'][0]['textures'], data['layers'][0]['textures'],
                     "the layers that were already there are unchanged")
 
+    # -- a texture removed in Blender stays removed ---------------------------------------------
+    # The texture set carries the files it was imported with, so leaving a slot out of `textures`
+    # isn't enough: the carried AO comes back. `removed_textures` says the slot was emptied.
+    cut = json.loads(json.dumps(data))
+    del cut['layers'][0]['textures']['AO']
+    kept = parse_mat(write_mat(cut, filename=r"Materials\Test\Cut.mat"))
+    assert TT.is_eq('AO' in kept['layers'][0]['textures'], True,
+                    "a slot merely left out keeps its carried file (a texture import couldn't find)")
+    cut['layers'][0]['removed_textures'] = ['AO']
+    gone = parse_mat(write_mat(cut, filename=r"Materials\Test\Cut.mat"))
+    assert TT.is_eq('AO' in gone['layers'][0]['textures'], False, "a removed slot is dropped")
+    assert TT.is_eq(gone['layers'][0]['textures'].get('Albedo'),
+                    data['layers'][0]['textures']['Albedo'], "the other slots stay")
+    assert TT.is_eq(gone['layers'][2]['textures'].get('AO'),
+                    data['layers'][2]['textures']['AO'], "and other layers' AO stays")
+
     # A node with no carried identity gets a fresh id in the new material's namespace, and every
     # reference in the file still resolves.
     built = build_mat_doc(grown, r"Materials\Test\Grown.mat")

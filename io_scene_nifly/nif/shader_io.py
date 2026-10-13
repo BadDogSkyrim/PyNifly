@@ -448,6 +448,7 @@ SF_NORMAL_INPUT = "Normal Tex"
 PYN_SF_PATH = 'pyn_sf_path'     # verbatim .mat-relative texture path (Data\-stripped)
 PYN_SF_SLOT = 'pyn_sf_slot'     # slot name (Albedo/Normal/Mask/...)
 PYN_SF_LAYER = 'pyn_sf_layer'   # owning layer index (on image + SF Layer node)
+PYN_SF_TEX_SLOTS = 'pyn_sf_tex_slots'   # slots import gave an image node (on SF Layer node)
 PYN_SF_BLEND = 'pyn_sf_blend'   # blender index (on SF Blend node)
 PYN_SF_MODE = 'pyn_sf_mode'     # blend mode string (also encoded in the group name)
 # MaterialOverrideColorTypeComponent, off the layer's MATERIAL -- how the layer's albedo is
@@ -817,6 +818,18 @@ def _sf_game_texture_path(node):
     return str(Path(*parts[lower.index('textures'):]).with_suffix('.dds'))
 
 
+def _image_feeding(sock):
+    """The image node plugged into an input socket, looking through reroutes; None if the input
+    is fed by anything else or nothing."""
+    while sock.is_linked:
+        n = sock.links[0].from_node
+        if n.type == 'REROUTE':
+            sock = n.inputs[0]
+            continue
+        return n if n.type == 'TEX_IMAGE' else None
+    return None
+
+
 def _put_if(d, key, value):
     """Record a recovered family only when it has something in it, matching the parser: a layer
     with no such component produces a dict with no such key, so an untouched material recovers to
@@ -948,14 +961,40 @@ def recover_sf_material(material):
                  else n.get(PYN_SF_BLEND) in live_blends if PYN_SF_BLEND in n
                  else True)]
 
-    # Texture paths per layer: the assigned image wins (graph is the source of truth); the import
-    # stamp is the fallback for images that can't be resolved under a 'textures' tree.
+    # A layer's textures are the images plugged into its inputs: the input names the slot, and the
+    # assigned image names the file, with the import stamp as the fallback for an image that
+    # doesn't live under a 'textures' tree. An image that isn't plugged in isn't exported, stamp
+    # or no stamp.
+    slot_of_input = {inp: slot for slot, (inp, _cs)
+                     in ShaderImporter._SF_SLOT_TO_LAYER_INPUT.items()}
     images_by_layer = {}
-    for n in nodes:
-        if (getattr(n, 'type', '') == 'TEX_IMAGE' and PYN_SF_LAYER in n
-                and PYN_SF_SLOT in n and PYN_SF_PATH in n):
-            path = _sf_game_texture_path(n) or n[PYN_SF_PATH]
-            images_by_layer.setdefault(n[PYN_SF_LAYER], {})[n[PYN_SF_SLOT]] = path
+    removed_by_layer = {}
+    for marker in nodes:
+        if not (_is_group(marker, SF_LAYER_GROUP) and PYN_SF_LAYER in marker):
+            continue
+        idx = marker[PYN_SF_LAYER]
+        found = images_by_layer.setdefault(idx, {})
+        for inp, slot in slot_of_input.items():
+            sock = marker.inputs.get(inp)
+            img = _image_feeding(sock) if sock is not None else None
+            if img is None:
+                continue
+            path = _sf_game_texture_path(img) or img.get(PYN_SF_PATH)
+            if path:
+                found[slot] = path
+            else:
+                log.warning(f"{material.name}: the image plugged into layer {idx}'s {inp} "
+                            f"isn't under a 'textures' folder, so it has no game path; "
+                            f"not exported")
+        # A slot that had a texture and now has nothing plugged in was removed, and the file its
+        # texture set carried has to go too. "Had a texture" is import's record on the layer,
+        # plus any stamped image of this layer still in the tree.
+        had = set(marker.get(PYN_SF_TEX_SLOTS, ()))
+        had |= {n[PYN_SF_SLOT] for n in nt.nodes
+                if getattr(n, 'type', '') == 'TEX_IMAGE' and n.get(PYN_SF_LAYER) == idx
+                and PYN_SF_SLOT in n}
+        removed_by_layer[idx] = sorted(s for s in had if s in ShaderImporter._SF_SLOT_TO_LAYER_INPUT
+                                       and s not in found)
 
     # UV tiling per layer, off the shared Mapping node stamped with the layer index (absent = 1:1).
     uv_by_layer = {n[PYN_SF_LAYER]: n for n in nodes
@@ -984,6 +1023,7 @@ def recover_sf_material(material):
         entry = {'textures': images_by_layer.get(idx, {}),
                  'uv_scale': uv_scale, 'uv_offset': uv_offset,
                  'override_color': marker.get(PYN_SF_OVERRIDE_COLOR_TYPE, '')}
+        _put_if(entry, 'removed_textures', removed_by_layer.get(idx))
         _put_if(entry, 'param_bools', _recover_indexed(marker, PYN_SF_PARAM_BOOL, bool))
         _put_if(entry, 'mat_params', _recover_indexed(marker, PYN_SF_PARAM_FLOAT, float))
         if PYN_SF_COLOR in marker:
@@ -2696,6 +2736,11 @@ class ShaderImporter:
                 present.append((socket_order(m[0]), 'rgb', slot, m[0], slot_idx, rep['color']))
 
         present.sort(key=lambda t: t[0])
+        # Which slots got an image node: one of these with nothing plugged in at export was
+        # removed in Blender, even if its node was deleted outright.
+        tex_slots = [t[2] for t in present if t[1] == 'tex']
+        if tex_slots:
+            node[PYN_SF_TEX_SLOTS] = tex_slots
         for k, (_order, kind, slot, inp, aux, value) in enumerate(present):
             loc = (x - SF_LAYER_TEX_DX, y - k * SF_TEX_DY)
             if kind == 'tex':

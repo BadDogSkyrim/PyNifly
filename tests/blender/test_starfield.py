@@ -592,6 +592,54 @@ def TEST_SF_ALPHA_VERTEX():
 
 
 @TT.category('STARFIELD', 'SHADER')
+def TEST_SF_TEXTURE_BY_SOCKET():
+    """Starfield: a layer's textures are the images plugged into it.
+
+    Export used to find a layer's textures by the slot and layer import stamped on each image
+    node, ignoring the wiring. An image node added by hand and plugged into a layer's Opacity
+    input carried no stamp and was silently left out of the .mat; a stamped AO node that had been
+    unplugged was still exported. The socket an image feeds now names its slot, and a slot that
+    had a texture but has nothing plugged in is reported as removed, so the writer drops the file
+    the texture set carried."""
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material, _is_group,
+                                              SF_LAYER_GROUP)
+    from pyn.sf_materials import write_mat, parse_mat
+
+    color = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
+    ao = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")
+    si = ShaderImporter()
+    mat = bpy.data.materials.new("SF_TexBySocket")
+    mat.use_nodes = True
+    mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Tail.mat'
+    si.material = mat
+    si._build_sf_nodes({'Albedo': (color, r'Textures\SF\test\body_color.dds'),
+                        'AO': (ao, r'Textures\SF\test\body_ao.dds')},
+                       {'shader_model': '1LayerStandard'})
+    nt = mat.node_tree
+    layer = next(n for n in nt.nodes if _is_group(n, SF_LAYER_GROUP))
+
+    # Unplug the AO image, leaving the node in the tree.
+    ao_node = next(n for n in nt.nodes if n.type == 'TEX_IMAGE' and n.get('pyn_sf_slot') == 'AO')
+    for lk in list(ao_node.outputs['Color'].links):
+        nt.links.remove(lk)
+    # Plug a new, unstamped image into Opacity, through a reroute.
+    op = nt.nodes.new('ShaderNodeTexImage')
+    op.image = bpy.data.images.load(ao, check_existing=True)
+    rr = nt.nodes.new('NodeReroute')
+    nt.links.new(op.outputs['Color'], rr.inputs[0])
+    nt.links.new(rr.outputs[0], layer.inputs['Opacity'])
+
+    ly = recover_sf_material(mat)['layers'][0]
+    assert TT.is_eq(sorted(ly['textures']), ['Albedo', 'Opacity'], "textures are what's plugged in")
+    assert TT.is_eq(ly['textures']['Opacity'].lower(), r'textures\sf\test\body_ao.dds',
+                    "the plugged image's game path")
+    assert TT.is_eq(ly.get('removed_textures'), ['AO'], "the unplugged slot is reported removed")
+
+    back = parse_mat(write_mat(recover_sf_material(mat)))['layers'][0]['textures']
+    assert TT.is_eq(sorted(back), ['Albedo', 'Opacity'], "and the .mat says the same")
+
+
+@TT.category('STARFIELD', 'SHADER')
 def TEST_SF_HAIR():
     """Starfield P4: HairSettings lands on its own SF HairSettingsComponent node (per-component
     settings groups), holds the ~11 hair params for round-trip, and drives Principled Sheen
