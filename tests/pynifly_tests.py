@@ -1048,6 +1048,13 @@ def TEST_SF_TEXCONV_FACE_FORMATS():
                     ('BC4_UNORM', (), False, True), "body metal is BC4, like rough")
     assert TT.is_eq(spec_for(LOOSE + r'\x_color.png'),
                     ('BC7_UNORM_SRGB', (), False, True), "body colour uses --color-format")
+    # The rest of a texture set, in the format vanilla uses for each (census of 00StarfieldAssets:
+    # _opacity 2756 of 2762 BC4, the others unanimous).
+    for suffix, fmt in (('_opacity', 'BC4_UNORM'), ('_transmissive', 'BC4_UNORM'),
+                        ('_height', 'BC4_UNORM'), ('_id', 'BC4_UNORM'),
+                        ('_emissive', 'BC1_UNORM_SRGB')):
+        assert TT.is_eq(spec_for(LOOSE + rf'\x{suffix}.png'), (fmt, (), False, True),
+                        f"body {suffix} is {fmt}")
     # A dermaesthetic layer kept outside a face tree is still uncompressed: the game
     # insists on that one wherever it lives.
     assert TT.is_eq(spec_for(LOOSE + r'\x_derm_color.png'),

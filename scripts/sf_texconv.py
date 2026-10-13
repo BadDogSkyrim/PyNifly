@@ -11,6 +11,8 @@
     *_rough.png      -> BC4_UNORM
     *_metal.png      -> BC4_UNORM
     *_mask.png       -> BC4_UNORM
+    *_opacity.png, *_transmissive.png, *_height.png, *_id.png -> BC4_UNORM
+    *_emissive.png   -> BC1_UNORM_SRGB
     *_derm_color.png -> R8G8B8A8_UNORM_SRGB, one mip (uncompressed; the game insists)
 
 Under a `chargen` or `postblenddetails` folder the face-customization textures are
@@ -75,6 +77,13 @@ SUFFIX_FORMATS = {
     '_rough': Spec('BC4_UNORM'),
     '_metal': Spec('BC4_UNORM'),
     '_mask': Spec('BC4_UNORM'),
+    # The rest of a texture set, as vanilla ships them (census of 00StarfieldAssets, 2026-10-12):
+    # _opacity 2756 of 2762 BC4 (the 6 others are effects), the rest unanimous.
+    '_opacity': Spec('BC4_UNORM'),
+    '_transmissive': Spec('BC4_UNORM'),
+    '_height': Spec('BC4_UNORM'),
+    '_id': Spec('BC4_UNORM'),
+    '_emissive': Spec('BC1_UNORM_SRGB'),
 }
 
 # Face-customization textures are authored uncompressed, and that holds for the WHOLE chargen
