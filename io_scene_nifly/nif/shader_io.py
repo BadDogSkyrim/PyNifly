@@ -96,7 +96,8 @@ def _wire_eye(gin, gout, ng):
     ng.links.new(gin.outputs["Iris Depth Transition"], gout.inputs["Iris Radius"])
 
 
-_SF_COMPONENT_VERSION = 2   # 2: the eye settings output their iris radius
+_SF_COMPONENT_VERSION = 3   # 2: the eye settings output their iris radius
+                            # 3: the alpha settings hold their vertex-color source
 _SF_COMPONENTS = {
     'translucency': {
         'group': 'SF TranslucencySettings',
@@ -126,6 +127,8 @@ _SF_COMPONENTS = {
         'fields': [
             ("Has Opacity",          'NodeSocketBool',  False, 'has_opacity'),
             ("Alpha Test Threshold", 'NodeSocketFloat', 0.5,   'threshold'),
+            ("Use Vertex Color",     'NodeSocketBool',  False, 'use_vertex_color'),
+            ("Vertex Color Channel", None,              'Red', 'vertex_color_channel'),  # Red|Alpha
         ],
         'outputs': [("Alpha Test Threshold Out", 'NodeSocketFloat')],
         'wire': _wire_alpha,
@@ -272,7 +275,9 @@ def recover_sf_component(node, key):
     spec = _SF_COMPONENTS[key]
     block = {}
     for name, stype, default, skey in spec['fields']:
-        if stype is None:
+        if stype is not None and name not in node.inputs:
+            block[skey] = default   # a node from an older group version, built before this field
+        elif stype is None:
             block[skey] = node.get(name, default)
         elif stype == 'NodeSocketColor':
             block[skey] = tuple(node.inputs[name].default_value)
@@ -2874,7 +2879,11 @@ class ShaderImporter:
             clip = self.nodes.new('ShaderNodeMath')
             clip.operation = 'GREATER_THAN'
             clip.location = (bx - 300, -700)
-            nt.links.new(o['Opacity'], clip.inputs[0])
+            opacity = o['Opacity']
+            if al.get('use_vertex_color'):
+                opacity = self._sf_vertex_opacity(nt, opacity, al.get('vertex_color_channel'),
+                                                  (bx - 500, -800))
+            nt.links.new(opacity, clip.inputs[0])
             nt.links.new(al_node.outputs['Alpha Test Threshold Out'], clip.inputs[1])
             nt.links.new(clip.outputs['Value'], bsdf.inputs['Alpha'])
 
@@ -2885,6 +2894,30 @@ class ShaderImporter:
                 nt.links.new(hr.outputs['Sheen Weight'], bsdf.inputs['Sheen Weight'])
             if 'Sheen Roughness' in bsdf.inputs:
                 nt.links.new(hr.outputs['Sheen Roughness'], bsdf.inputs['Sheen Roughness'])
+
+    def _sf_vertex_opacity(self, nt, opacity, channel, loc):
+        """Opacity scaled by the vertex-color channel the alpha settings name. The mesh's vertex
+        alpha is imported into its own VERTEX_ALPHA attribute (as grey), not VERTEX_COLOR's alpha,
+        so the Alpha channel reads that; Red reads VERTEX_COLOR."""
+        attr = nt.nodes.new('ShaderNodeAttribute')
+        attr.attribute_type = 'GEOMETRY'
+        attr.location = (loc[0] - 400, loc[1])
+        if channel == 'Alpha':
+            attr.attribute_name = ALPHA_MAP_NAME
+            vc = attr.outputs['Color']   # grey; the float socket takes its luminance
+        else:
+            attr.attribute_name = COLOR_MAP_NAME
+            sep = nt.nodes.new('ShaderNodeSeparateColor')
+            sep.location = (loc[0] - 200, loc[1])
+            nt.links.new(attr.outputs['Color'], sep.inputs['Color'])
+            vc = sep.outputs['Red']
+        mult = nt.nodes.new('ShaderNodeMath')
+        mult.operation = 'MULTIPLY'
+        mult.label = "Opacity x vertex color"
+        mult.location = loc
+        nt.links.new(opacity, mult.inputs[0])
+        nt.links.new(vc, mult.inputs[1])
+        return mult.outputs['Value']
 
     def _build_sf_base_chain(self, chain):
         """Nested `SF Base` group nodes for everything this material inherits from.

@@ -139,9 +139,14 @@ _COMPONENT_SPECS = [
         ('blender_mode',       'FirstBlenderMode', 'str'),
         ('tint',               'FirstLayerTint',   'color'),
     ]),
-    ('alpha', _ALPHA_SETTINGS, None, [
-        ('has_opacity', 'HasOpacity',         'bool'),
-        ('threshold',   'AlphaTestThreshold', 'float', 0.5),
+    # The vertex-color source sits in the `Blender` wrapper, next to fields we don't model
+    # (OpacityUVStream, Mode, Contrast...), which the merge on patch leaves alone. Vanilla spells
+    # the channel out on most alpha materials, Red 97% of the time.
+    ('alpha', _ALPHA_SETTINGS, {'Blender': 'BSMaterial::AlphaBlenderSettings'}, [
+        ('has_opacity',          'HasOpacity',                         'bool'),
+        ('threshold',            'AlphaTestThreshold',                 'float', 0.5),
+        ('use_vertex_color',     ('Blender', 'UseVertexColor'),        'bool'),
+        ('vertex_color_channel', ('Blender', 'VertexColorChannel'),    'str', 'Red'),
     ]),
     # HairSettingsComponent has ~26 fields; these are the authored/visually-relevant ones.
     ('hair', _HAIR, None, [

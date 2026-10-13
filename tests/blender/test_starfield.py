@@ -547,6 +547,51 @@ def TEST_SF_ALPHA():
 
 
 @TT.category('STARFIELD', 'SHADER')
+def TEST_SF_ALPHA_VERTEX():
+    """Starfield: an alpha component that takes its opacity from the vertex colors.
+
+    `UseVertexColor` + `VertexColorChannel` (inside the component's AlphaBlenderSettings) are held
+    on the SF AlphaSettingsComponent node and written back. The preview multiplies the opacity by
+    the channel before the alpha test: vertex alpha lives in PyNifly's VERTEX_ALPHA attribute,
+    vertex red in VERTEX_COLOR."""
+    from io_scene_nifly.nif.shader_io import (ShaderImporter, sf_component_node_of,
+                                              recover_sf_material)
+    from pyn.sf_materials import write_mat, parse_mat
+
+    tex = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")
+    for channel, attr in (('Alpha', 'VERTEX_ALPHA'), ('Red', 'VERTEX_COLOR')):
+        si = ShaderImporter()
+        mat = bpy.data.materials.new(f"SF_AlphaVertex_{channel}")
+        mat.use_nodes = True
+        mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Decal.mat'
+        si.material = mat
+        settings = {'shader_model': '1LayerStandard',
+                    'alpha': {'has_opacity': True, 'threshold': 0.0, 'use_vertex_color': True,
+                              'vertex_color_channel': channel}}
+        si._build_sf_nodes({'Albedo': tex, 'Opacity': tex}, settings)
+
+        p = sf_component_node_of(mat, 'alpha')
+        assert TT.is_true(p.inputs["Use Vertex Color"].default_value, "Use Vertex Color stored")
+        assert TT.is_eq(p.get("Vertex Color Channel"), channel, "channel stored")
+
+        # Alpha test <- Opacity x the vertex channel.
+        bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+        clip = bsdf.inputs['Alpha'].links[0].from_node
+        mult = clip.inputs[0].links[0].from_node
+        assert TT.is_eq((mult.type, mult.operation), ('MATH', 'MULTIPLY'),
+                        f"{channel}: opacity scaled before the test")
+        sources = {lk.from_node.type: lk.from_node for s in mult.inputs[:2] for lk in s.links}
+        if 'SEPARATE_COLOR' in sources:
+            sources['ATTRIBUTE'] = sources['SEPARATE_COLOR'].inputs[0].links[0].from_node
+        assert TT.is_eq(sources['ATTRIBUTE'].attribute_name, attr, f"{channel}: reads {attr}")
+
+        rec = recover_sf_material(mat)
+        back = parse_mat(write_mat(rec))['settings']['alpha']
+        assert TT.is_eq((back['use_vertex_color'], back['vertex_color_channel']), (True, channel),
+                        f"{channel}: vertex-color settings round-trip")
+
+
+@TT.category('STARFIELD', 'SHADER')
 def TEST_SF_HAIR():
     """Starfield P4: HairSettings lands on its own SF HairSettingsComponent node (per-component
     settings groups), holds the ~11 hair params for round-trip, and drives Principled Sheen

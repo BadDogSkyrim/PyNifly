@@ -2372,7 +2372,8 @@ def TEST_SF_MAT_WRITE():
                              'spec_lobe0_roughness': 0.93, 'spec_lobe1_roughness': 1.15},
             'emissive': {'enabled': False, 'first_layer_index': 0, 'blender_mode': 'Lerp',
                          'tint': (0.9, 0.1, 0.1, 1.0)},
-            'alpha': {'has_opacity': True, 'threshold': 0.3333}},
+            'alpha': {'has_opacity': True, 'threshold': 0.3333, 'use_vertex_color': True,
+                      'vertex_color_channel': 'Alpha'}},
         'layers': [
             {'textures': {'Albedo': r'Textures\Skin\color.dds', 'Normal': r'Textures\Skin\normal.dds'},
              'uv_scale': (1.0, 1.0), 'uv_offset': (0.0, 0.0), 'override_color': ''},
@@ -2581,9 +2582,28 @@ def TEST_SF_MAT_COMPONENTS():
     assert TT.is_true(rep[0]['enabled'], "texture replacement enabled on the albedo slot")
     assert TT.is_equiv(rep[1]['color'][2], 1.0, "texture replacement colour (flat normal blue)")
 
+    # The alpha settings nest their vertex-color source inside a Blender (AlphaBlenderSettings)
+    # wrapper.
+    assert TT.is_eq(js['alpha']['vertex_color_channel'], 'Alpha', "jewelry reads vertex alpha")
+    assert TT.is_true(not js['alpha']['use_vertex_color'], "jewelry doesn't use it")
+
     swim = parse_mat_doc(load(r"Naked_Body\Male\Naked_M_Body_Swimsuit.mat"))
     assert TT.is_eq(swim['layers'][0]['tex_resolution'], 'Tiling', "texture resolution hint")
     assert TT.is_true(swim['layers'][1]['mip_bias'], "mip bias hint")
+
+    # Switching vertex color on writes it into the existing wrapper, next to the channel.
+    jdoc = load(r"Faces\Jewelry\Generic_FacialJewelry.mat")
+    jdata = parse_mat_doc(jdoc)
+    jdata['settings']['alpha']['use_vertex_color'] = True
+    patched = patch_mat_doc(jdoc, jdata, r"Materials\Test\Copy.mat")
+    root_alpha = [c['Data'] for c in patched['Objects'][0]['Components']
+                  if c['Type'] == 'BSMaterial::AlphaSettingsComponent'][0]
+    assert TT.is_eq(root_alpha['Blender'],
+                    {"Type": "BSMaterial::AlphaBlenderSettings",
+                     "Data": {"VertexColorChannel": "Alpha", "UseVertexColor": "true"}},
+                    "UseVertexColor joins the channel in the Blender wrapper")
+    assert TT.is_eq(parse_mat_doc(patched)['settings']['alpha']['use_vertex_color'], True,
+                    "UseVertexColor reads back")
 
     # -- the indexed shader knobs, on the nodes that carry them ---------------------------------
     head = parse_mat_doc(load(r"Faces\male_default.mat"))
