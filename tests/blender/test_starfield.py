@@ -534,26 +534,38 @@ def TEST_SF_ALPHA():
     assert abs(p.inputs["Alpha Test Threshold"].default_value - 0.3333) < 1e-4, \
         f"Alpha test threshold stored: {p.inputs['Alpha Test Threshold'].default_value}"
 
-    # Alpha is a real test: opacity > threshold -> Alpha, via a GREATER_THAN node whose threshold
-    # input is driven by the alpha component (single editable source), not baked into the node.
+    # The component computes the alpha itself: the opacity map goes in, the tested alpha comes
+    # out, so editing its inputs changes the preview with no rewiring.
     bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
-    assert bsdf.inputs['Alpha'].is_linked, "Alpha is driven"
-    clip = bsdf.inputs['Alpha'].links[0].from_node
-    assert clip.type == 'MATH' and clip.operation == 'GREATER_THAN', \
-        f"Alpha fed by a GREATER_THAN alpha-test node, got {clip.type}/{getattr(clip,'operation',None)}"
-    assert clip.inputs[0].is_linked, "Opacity map feeds the alpha test"
-    thr_src = clip.inputs[1].links[0].from_node if clip.inputs[1].is_linked else None
-    assert thr_src == p, "Threshold driven by the SF AlphaSettingsComponent node (single source)"
+    assert TT.is_true(bsdf.inputs['Alpha'].is_linked, "Alpha is driven")
+    lk = bsdf.inputs['Alpha'].links[0]
+    assert TT.is_eq((lk.from_node, lk.from_socket.name), (p, "Alpha Out"),
+                    "Alpha comes from the alpha component")
+    assert TT.is_true(p.inputs["Opacity"].is_linked, "Opacity map feeds the alpha component")
+
+    # Without opacity the component is still wired, so ticking Has Opacity takes effect live.
+    mat2 = bpy.data.materials.new("SF_Alpha_Test_Off")
+    mat2.use_nodes = True
+    si2 = ShaderImporter()
+    si2.material = mat2
+    si2._build_sf_nodes({'Albedo': tex, 'Opacity': tex},
+                        {'shader_model': 'Hair1Layer', 'alpha': {'has_opacity': False}})
+    p2 = sf_component_node_of(mat2, 'alpha')
+    bsdf2 = next(n for n in mat2.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
+    assert TT.is_true(bsdf2.inputs['Alpha'].is_linked
+                      and bsdf2.inputs['Alpha'].links[0].from_node == p2,
+                      "Alpha wired to the component even with Has Opacity off")
 
 
 @TT.category('STARFIELD', 'SHADER')
 def TEST_SF_ALPHA_VERTEX():
     """Starfield: an alpha component that takes its opacity from the vertex colors.
 
-    `UseVertexColor` + `VertexColorChannel` (inside the component's AlphaBlenderSettings) are held
-    on the SF AlphaSettingsComponent node and written back. The preview multiplies the opacity by
-    the channel before the alpha test: vertex alpha lives in PyNifly's VERTEX_ALPHA attribute,
-    vertex red in VERTEX_COLOR."""
+    `UseVertexColor` (inside the component's AlphaBlenderSettings) is held on the SF
+    AlphaSettingsComponent node. `VertexColorChannel` is what is plugged into its Vertex Color
+    input, as in the game: the vertex alpha is PyNifly's VERTEX_ALPHA attribute, the red channel
+    is VERTEX_COLOR's. Both are written back, and plugging in another channel changes the one
+    written."""
     from io_scene_nifly.nif.shader_io import (ShaderImporter, sf_component_node_of,
                                               recover_sf_material)
     from pyn.sf_materials import write_mat, parse_mat
@@ -572,23 +584,30 @@ def TEST_SF_ALPHA_VERTEX():
 
         p = sf_component_node_of(mat, 'alpha')
         assert TT.is_true(p.inputs["Use Vertex Color"].default_value, "Use Vertex Color stored")
-        assert TT.is_eq(p.get("Vertex Color Channel"), channel, "channel stored")
-
-        # Alpha test <- Opacity x the vertex channel.
         bsdf = next(n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
-        clip = bsdf.inputs['Alpha'].links[0].from_node
-        mult = clip.inputs[0].links[0].from_node
-        assert TT.is_eq((mult.type, mult.operation), ('MATH', 'MULTIPLY'),
-                        f"{channel}: opacity scaled before the test")
-        sources = {lk.from_node.type: lk.from_node for s in mult.inputs[:2] for lk in s.links}
-        if 'SEPARATE_COLOR' in sources:
-            sources['ATTRIBUTE'] = sources['SEPARATE_COLOR'].inputs[0].links[0].from_node
-        assert TT.is_eq(sources['ATTRIBUTE'].attribute_name, attr, f"{channel}: reads {attr}")
+        assert TT.is_eq(bsdf.inputs['Alpha'].links[0].from_node, p,
+                        f"{channel}: Alpha comes from the alpha component")
+
+        # The channel the .mat names is plugged into the component.
+        src = p.inputs["Vertex Color"].links[0].from_node
+        if src.type == 'SEPARATE_COLOR':
+            assert TT.is_eq(p.inputs["Vertex Color"].links[0].from_socket.name, channel,
+                            f"{channel}: separator output")
+            src = src.inputs[0].links[0].from_node
+        assert TT.is_eq((src.type, src.attribute_name), ('ATTRIBUTE', attr),
+                        f"{channel}: reads {attr}")
 
         rec = recover_sf_material(mat)
         back = parse_mat(write_mat(rec))['settings']['alpha']
         assert TT.is_eq((back['use_vertex_color'], back['vertex_color_channel']), (True, channel),
                         f"{channel}: vertex-color settings round-trip")
+
+    # Rewiring the Red material to the vertex alpha makes it an Alpha-channel material.
+    va = mat.node_tree.nodes.new('ShaderNodeAttribute')
+    va.attribute_name = 'VERTEX_ALPHA'
+    mat.node_tree.links.new(va.outputs['Fac'], p.inputs["Vertex Color"])
+    back = parse_mat(write_mat(recover_sf_material(mat)))['settings']['alpha']
+    assert TT.is_eq(back['vertex_color_channel'], 'Alpha', "channel follows the wiring")
 
 
 @TT.category('STARFIELD', 'SHADER')

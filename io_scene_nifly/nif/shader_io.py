@@ -56,8 +56,11 @@ def _sf_new_socket(iface, name, in_out, socket_type):
 # the Principled, and recovery/write walk them by the group name (== the .mat component).
 #
 # fields: (socket name, socket type, default, settings key). A None socket type = a string that
-#   has no shader socket, held as a node custom property. outputs: (name, type). wire(gin,gout,ng)
-#   builds the internal driving wiring.
+#   has no shader socket, held as a node custom property. inputs (optional): sockets the material
+#   wires into, same shape as fields but not stored in the .mat. outputs: (name, type).
+#   wire(gin,gout,ng) builds the internal driving wiring. build(nt, node, block) and
+#   recover(node, block) (optional) carry a setting the material's wiring records instead of a
+#   socket value.
 def _wire_translucency(gin, gout, ng):
     # SSS Weight = Translucency Enable * Use SSS (both flags kept; product = AND on 0/1).
     m = ng.nodes.new('ShaderNodeMath'); m.operation = 'MULTIPLY'; m.location = (0, 100)
@@ -72,7 +75,78 @@ def _wire_emissive(gin, gout, ng):
 
 
 def _wire_alpha(gin, gout, ng):
-    ng.links.new(gin.outputs["Alpha Test Threshold"], gout.inputs["Alpha Test Threshold Out"])
+    """The component's own semantics, so its inputs drive the preview live: with Has Opacity off
+    the shape is opaque; with it on, the opacity -- scaled by the Vertex Color input when Use
+    Vertex Color is on -- is alpha-tested against the threshold. Which vertex channel that is
+    is the wiring outside the group (see _alpha_vertex_source)."""
+    n, L = ng.nodes, ng.links
+
+    def mix(label, fac, a, b, loc):
+        m = n.new('ShaderNodeMix'); m.data_type = 'FLOAT'; m.label = label; m.location = loc
+        L.new(fac, m.inputs['Factor'])
+        for sock, v in ((m.inputs['A'], a), (m.inputs['B'], b)):
+            if hasattr(v, 'node'):
+                L.new(v, sock)
+            else:
+                sock.default_value = v
+        return m.outputs['Result']
+
+    vert = mix("Vertex color if used", gin.outputs["Use Vertex Color"], 1.0,
+               gin.outputs["Vertex Color"], (-150, -200))
+    scaled = n.new('ShaderNodeMath'); scaled.operation = 'MULTIPLY'; scaled.location = (0, 0)
+    scaled.label = "Opacity x vertex color"
+    L.new(gin.outputs["Opacity"], scaled.inputs[0])
+    L.new(vert, scaled.inputs[1])
+    test = n.new('ShaderNodeMath'); test.operation = 'GREATER_THAN'; test.location = (150, 0)
+    test.label = "Alpha test"
+    L.new(scaled.outputs['Value'], test.inputs[0])
+    L.new(gin.outputs["Alpha Test Threshold"], test.inputs[1])
+    out = mix("Opaque unless Has Opacity", gin.outputs["Has Opacity"], 1.0,
+              test.outputs['Value'], (300, 100))
+    gout.location = (500, 0)
+    L.new(out, gout.inputs["Alpha Out"])
+
+
+_VERTEX_CHANNELS = ('Red', 'Green', 'Blue', 'Alpha')
+
+
+def _alpha_vertex_source(nt, node, block):
+    """Plug the vertex channel the .mat names (VertexColorChannel) into the alpha component's
+    Vertex Color input. The game reads that channel of the vertex color; PyNifly imports the
+    vertex alpha as its own VERTEX_ALPHA attribute and the rest as VERTEX_COLOR. The wiring is the
+    record of the channel: export reads it back from whatever is plugged in."""
+    channel = block.get('vertex_color_channel', 'Red')
+    x, y = node.location
+    attr = nt.nodes.new('ShaderNodeAttribute')
+    attr.attribute_type = 'GEOMETRY'
+    attr.location = (x - 450, y)
+    if channel == 'Alpha':
+        attr.attribute_name = ALPHA_MAP_NAME
+        out = attr.outputs['Fac']
+    else:
+        attr.attribute_name = COLOR_MAP_NAME
+        sep = make_separator(nt, attr.outputs['Color'], (x - 250, y))
+        out = sep.outputs[channel if channel in _VERTEX_CHANNELS else 'Red']
+    nt.links.new(out, node.inputs['Vertex Color'])
+
+
+def _alpha_vertex_channel(node, block):
+    """The vertex channel plugged into the alpha component (the reverse of _alpha_vertex_source):
+    VERTEX_ALPHA is the Alpha channel, a separated VERTEX_COLOR output is that channel. Anything
+    else -- or nothing -- writes the game's default, Red."""
+    channel = 'Red'
+    sock = node.inputs.get('Vertex Color')
+    link = sock.links[0] if sock is not None and sock.is_linked else None
+    while link is not None and link.from_node.type == 'REROUTE':
+        ins = link.from_node.inputs[0]
+        link = ins.links[0] if ins.is_linked else None
+    if link is not None:
+        src = link.from_node
+        if src.type == 'ATTRIBUTE' and src.attribute_name == ALPHA_MAP_NAME:
+            channel = 'Alpha'
+        elif src.type == 'SEPARATE_COLOR' and link.from_socket.name in _VERTEX_CHANNELS:
+            channel = link.from_socket.name
+    block['vertex_color_channel'] = channel
 
 
 def _wire_none(gin, gout, ng):
@@ -96,8 +170,10 @@ def _wire_eye(gin, gout, ng):
     ng.links.new(gin.outputs["Iris Depth Transition"], gout.inputs["Iris Radius"])
 
 
-_SF_COMPONENT_VERSION = 3   # 2: the eye settings output their iris radius
+_SF_COMPONENT_VERSION = 5 # 2: the eye settings output their iris radius
                             # 3: the alpha settings hold their vertex-color source
+                            # 4: the alpha settings compute the alpha (Opacity in, Alpha Out)
+                            # 5: ... and take the vertex channel as an input (Vertex Color)
 _SF_COMPONENTS = {
     'translucency': {
         'group': 'SF TranslucencySettings',
@@ -128,10 +204,13 @@ _SF_COMPONENTS = {
             ("Has Opacity",          'NodeSocketBool',  False, 'has_opacity'),
             ("Alpha Test Threshold", 'NodeSocketFloat', 0.5,   'threshold'),
             ("Use Vertex Color",     'NodeSocketBool',  False, 'use_vertex_color'),
-            ("Vertex Color Channel", None,              'Red', 'vertex_color_channel'),  # Red|Alpha
         ],
-        'outputs': [("Alpha Test Threshold Out", 'NodeSocketFloat')],
+        'inputs': [("Opacity",      'NodeSocketFloat', 1.0, None),
+                   ("Vertex Color", 'NodeSocketFloat', 1.0, None)],
+        'outputs': [("Alpha Out", 'NodeSocketFloat')],
         'wire': _wire_alpha,
+        'build': _alpha_vertex_source,      # VertexColorChannel = what's plugged into Vertex Color
+        'recover': _alpha_vertex_channel,
     },
     'hair': {
         'group': 'SF HairSettingsComponent',
@@ -224,7 +303,7 @@ def ensure_sf_component_group(key):
     if not fresh:
         return ng
     iface = ng.interface
-    for name, stype, default, _key in spec['fields']:
+    for name, stype, default, _key in spec.get('inputs', []) + spec['fields']:
         if stype is None:
             continue   # string custom-prop field, no socket
         s = _sf_new_socket(iface, name, 'INPUT', stype)
@@ -267,6 +346,8 @@ def add_sf_component_node(nt, key, block, location):
             node.inputs[name].default_value = tuple(val)
         else:
             node.inputs[name].default_value = val
+    if 'build' in spec:
+        spec['build'](nt, node, block)
     return node
 
 
@@ -287,6 +368,8 @@ def recover_sf_component(node, key):
             block[skey] = int(node.inputs[name].default_value)
         else:
             block[skey] = node.inputs[name].default_value
+    if 'recover' in spec:
+        spec['recover'](node, block)
     return block
 
 
@@ -2918,19 +3001,10 @@ class ShaderImporter:
             if 'Emission Strength' in bsdf.inputs:
                 nt.links.new(em.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
 
-        al_node = comp_nodes.get('alpha')
-        al = (settings or {}).get('alpha') or {}
-        if al_node is not None and al.get('has_opacity') and 'Alpha' in bsdf.inputs:
-            clip = self.nodes.new('ShaderNodeMath')
-            clip.operation = 'GREATER_THAN'
-            clip.location = (bx - 300, -700)
-            opacity = o['Opacity']
-            if al.get('use_vertex_color'):
-                opacity = self._sf_vertex_opacity(nt, opacity, al.get('vertex_color_channel'),
-                                                  (bx - 500, -800))
-            nt.links.new(opacity, clip.inputs[0])
-            nt.links.new(al_node.outputs['Alpha Test Threshold Out'], clip.inputs[1])
-            nt.links.new(clip.outputs['Value'], bsdf.inputs['Alpha'])
+        al = comp_nodes.get('alpha')
+        if al is not None and 'Alpha' in bsdf.inputs:
+            nt.links.new(o['Opacity'], al.inputs['Opacity'])
+            nt.links.new(al.outputs['Alpha Out'], bsdf.inputs['Alpha'])
 
         # Hair -> Principled Sheen (fuzzy rim). First pass; calibrate by eye.
         hr = comp_nodes.get('hair')
@@ -2939,30 +3013,6 @@ class ShaderImporter:
                 nt.links.new(hr.outputs['Sheen Weight'], bsdf.inputs['Sheen Weight'])
             if 'Sheen Roughness' in bsdf.inputs:
                 nt.links.new(hr.outputs['Sheen Roughness'], bsdf.inputs['Sheen Roughness'])
-
-    def _sf_vertex_opacity(self, nt, opacity, channel, loc):
-        """Opacity scaled by the vertex-color channel the alpha settings name. The mesh's vertex
-        alpha is imported into its own VERTEX_ALPHA attribute (as grey), not VERTEX_COLOR's alpha,
-        so the Alpha channel reads that; Red reads VERTEX_COLOR."""
-        attr = nt.nodes.new('ShaderNodeAttribute')
-        attr.attribute_type = 'GEOMETRY'
-        attr.location = (loc[0] - 400, loc[1])
-        if channel == 'Alpha':
-            attr.attribute_name = ALPHA_MAP_NAME
-            vc = attr.outputs['Color']   # grey; the float socket takes its luminance
-        else:
-            attr.attribute_name = COLOR_MAP_NAME
-            sep = nt.nodes.new('ShaderNodeSeparateColor')
-            sep.location = (loc[0] - 200, loc[1])
-            nt.links.new(attr.outputs['Color'], sep.inputs['Color'])
-            vc = sep.outputs['Red']
-        mult = nt.nodes.new('ShaderNodeMath')
-        mult.operation = 'MULTIPLY'
-        mult.label = "Opacity x vertex color"
-        mult.location = loc
-        nt.links.new(opacity, mult.inputs[0])
-        nt.links.new(vc, mult.inputs[1])
-        return mult.outputs['Value']
 
     def _build_sf_base_chain(self, chain):
         """Nested `SF Base` group nodes for everything this material inherits from.
