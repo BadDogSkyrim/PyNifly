@@ -885,6 +885,25 @@ def check_body(rep, data, race, plugins, nif_reader, own_root, sexes=SEXES):
                          sexes)
 
 
+# The skin-tone swap picks its texture by the addon's record flag: Is Skin gets the race's body
+# tone (BSTT), Is Skin Hands the hands tone (HSTT). Vanilla pairs the flag with the slot without
+# exception -- all 3 Is Skin Hands addons are in the hands slot, none of the 14 Is Skin ones are.
+BIPED_HANDS = 1 << 6
+
+
+def check_skin_flag_slot(rep, who, flags, bo64):
+    """A skin addon whose skin flag doesn't match its slot gets the other tone texture."""
+    in_hands = bool(bo64 & BIPED_HANDS)
+    if flags & ARMA_IS_SKIN_HANDS and not in_hands:
+        rep.fail('body', f"{who}: flagged Is Skin Hands but not in the hands slot",
+                 ["Skin tone gives it the HANDS tone texture, sampled at its own UVs: the "
+                  "wrong colour. A tail or other body part wants Is Skin."])
+    elif flags & ARMA_IS_SKIN and not flags & ARMA_IS_SKIN_HANDS and in_hands:
+        rep.fail('body', f"{who}: in the hands slot but flagged Is Skin",
+                 ["Skin tone gives it the BODY tone texture instead of the hands one. "
+                  "Hands want Is Skin Hands."])
+
+
 def check_body_addon(rep, data, race, arma, armor_race, plugins, nif_reader, own_root,
                      sexes=SEXES):
     """One ARMA: does this race actually get it, and are its models and morphs sound?"""
@@ -893,6 +912,9 @@ def check_body_addon(rep, data, race, arma, armor_race, plugins, nif_reader, own
     role = ('body' if flags & ARMA_IS_SKIN else
             'hands' if flags & ARMA_IS_SKIN_HANDS else 'unflagged')
     rep.info('body', f"{who}: addon role {role}")
+    bo64 = arma.get_subrecord('BO64')
+    check_skin_flag_slot(rep, who, flags,
+                         int.from_bytes(bo64.data[:8], 'little') if bo64 is not None else 0)
 
     if flags & ARMA_NO_MODEL:
         rep.warn('body', f"{who}: addon has the 'No Model' flag set",

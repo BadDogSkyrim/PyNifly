@@ -1772,6 +1772,37 @@ def TEST_SF_RACECHECK_SKINNED():
     assert TT.is_eq(len(fails(unskinned)), 1, "an unskinned shape is a FAIL")
 
 
+def TEST_SF_RACECHECK_SKIN_FLAG_SLOT():
+    """sf_racecheck fails a skin addon whose skin flag doesn't match its slot.
+
+    The skin-tone swap picks the texture by the addon's record flag: Is Skin (0x80) gets the
+    race's body tone (BSTT), Is Skin Hands (0x100) the hands tone (HSTT). A fox tail flagged
+    Is Skin Hands took the hands texture at body-texture UVs and showed the wrong colour in
+    game; flagged Is Skin, like Felid's tails, it takes the body tone.
+
+    Vanilla pairs them without exception: all 3 Is Skin Hands addons are in the hands slot
+    (`BO64` bit 6), and none of the 14 Is Skin addons are.
+    """
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+
+    def fails(flags, bo64):
+        rep = R.Report()
+        R.check_skin_flag_slot(rep, 'probe', flags, bo64)
+        return [m for lv, _a, m, _d in rep.findings if lv == R.FAIL]
+
+    # The fox tail as it was: Is Skin Hands, slots 15 and 31.
+    assert TT.is_eq(len(fails(R.ARMA_IS_SKIN_HANDS, 0x80008000)), 1,
+                    "a tail flagged Is Skin Hands is a FAIL")
+    # A hands addon flagged as body skin would take the body texture.
+    assert TT.is_eq(len(fails(R.ARMA_IS_SKIN, 0x40)), 1, "hands flagged Is Skin is a FAIL")
+    # CONTROLS, as vanilla flags them: AA_Naked_Hands, AA_Naked_Body, a clothing skin part.
+    assert TT.is_eq(fails(R.ARMA_IS_SKIN_HANDS, 0x40), [], "vanilla hands pass")
+    assert TT.is_eq(fails(R.ARMA_IS_SKIN, 0x8), [], "vanilla body passes")
+    assert TT.is_eq(fails(R.ARMA_IS_SKIN, 0x400), [], "a clothing skin part passes")
+    assert TT.is_eq(fails(0, 0x40), [], "an unflagged addon isn't this check's business")
+
+
 def TEST_SF_RACECHECK_LOAD_ORDER():
     """sf_racecheck reads a whole load order, and the latest override of a record wins.
 
