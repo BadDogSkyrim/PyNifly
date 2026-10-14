@@ -576,6 +576,8 @@ def check_shader_settings(rep, data, mat_rel, path):
                  "The shader-model/settings check is skipped for it.")
         return
 
+    check_skin_vertex_alpha(rep, mat_rel, chain)
+
     want = SHADER_MODEL_SETTINGS.get(chain.shader_model)
     if not want or chain.root.component('BSMaterial::' + want) is not None:
         return
@@ -585,6 +587,32 @@ def check_shader_settings(rep, data, mat_rel, path):
               f"INVISIBLE in game while the Creation Kit preview looks correct.",
               "Every vanilla material using this shader model carries it, on the template "
               "if not on the material itself.",
+              f"Chain searched: {' -> '.join(os.path.basename(p) for p in chain.paths)}"])
+
+
+# The skin shader models. On these, alpha settings that take opacity from vertex colour
+# (Blender.UseVertexColor) make the whole shape invisible on a character, even where vertex
+# alpha is 1.0, while the CK's armor preview still draws it. Texture opacity works. Found in
+# game on a custom race's body and tail, 2026-10-12. Vanilla never does it: no skin material
+# has an alpha component at all, and vertex-colour opacity appears only on standard and decal
+# models.
+SKIN_SHADER_MODELS = {'BodySkin1Layer', 'BodySkin2Layer', 'Skin5Layer'}
+
+
+def check_skin_vertex_alpha(rep, mat_rel, chain):
+    """A skin material whose opacity comes from vertex colour."""
+    if chain.shader_model not in SKIN_SHADER_MODELS:
+        return
+    al = chain.root.component('BSMaterial::AlphaSettingsComponent')
+    blender = ((al.data if al else {}).get('Blender') or {}).get('Data') or {}
+    if str(blender.get('UseVertexColor', 'false')).lower() != 'true':
+        return
+    rep.fail('materials',
+             f"{mat_rel}: {chain.shader_model} takes its opacity from vertex colour",
+             ["Alpha settings with UseVertexColor on a skin shader make the whole shape "
+              "INVISIBLE on a character, while the CK armor preview still draws it.",
+              "Put the transparency in the opacity texture and turn off Use Vertex Color "
+              "on the material's SF AlphaSettingsComponent node.",
               f"Chain searched: {' -> '.join(os.path.basename(p) for p in chain.paths)}"])
 
 

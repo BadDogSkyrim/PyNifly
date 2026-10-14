@@ -1643,6 +1643,64 @@ def TEST_SF_RACECHECK_SHADER_SETTINGS():
                         "a model with no required settings block is left alone")
 
 
+def TEST_SF_RACECHECK_SKIN_VERTEX_ALPHA():
+    """sf_racecheck fails a skin material that takes its opacity from vertex colour.
+
+    On a skin shader model, AlphaSettings `Blender { UseVertexColor true }` makes the whole
+    shape invisible on a character -- even where vertex alpha is 1.0 -- while the Creation
+    Kit's armor preview still draws it. Texture opacity on the same material works. Found in
+    game on the fox race's body and tail (2026-10-12), twice, and vanilla agrees: no skin
+    material has any alpha component, and vertex-colour opacity appears only on standard and
+    decal models.
+
+    A body material inherits its shader model, so the check follows the Import chain: the
+    probe here is shaped like the fox body, deriving from vanilla `Naked_M_Body.mat`
+    (BodySkin2Layer) and adding only an alpha component.
+    """
+    import json
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+
+    body = r'Data\MATERIALS\Actors\Human\Naked_Body\Male\Naked_M_Body.mat'
+
+    def alpha(use_vertex_color):
+        return {"Type": "BSMaterial::AlphaSettingsComponent", "Index": 0, "Data": {
+            "HasOpacity": "true", "AlphaTestThreshold": "0.5",
+            "Blender": {"Type": "BSMaterial::AlphaBlenderSettings",
+                        "Data": {"UseVertexColor": use_vertex_color,
+                                 "VertexColorChannel": "Alpha"}}}}
+
+    def fails(doc):
+        with tempfile.TemporaryDirectory() as d:
+            probe = os.path.join('materials', 'probe.mat')
+            os.makedirs(os.path.join(d, 'materials'))
+            with open(os.path.join(d, probe), 'w', encoding='utf-8') as f:
+                json.dump(doc, f)
+            rep = sf_racecheck.Report()
+            sf_racecheck.check_material(rep, [d, TT.SF_ASSETS], probe, None, set())
+            return [m for lv, _a, m, _d in rep.findings
+                    if lv == sf_racecheck.FAIL and 'vertex' in m.lower()]
+
+    def derived(use_vertex_color):
+        return {"Version": 1, "Import": [body], "Objects": [{"Parent": body, "Components": [
+            {"Type": "BSComponentDB::CTName", "Index": 0, "Data": {"Name": "probe"}},
+            alpha(use_vertex_color)]}]}
+
+    hits = fails(derived("true"))
+    assert TT.is_eq(len(hits), 1, "skin material with vertex-colour opacity is a FAIL")
+    assert TT.is_eq('BodySkin2Layer' in hits[0], True, "the message names the inherited model")
+
+    # CONTROL: texture opacity on the same skin material works in game.
+    assert TT.is_eq(fails(derived("false")), [], "texture opacity on skin is fine")
+
+    # CONTROL: vertex-colour opacity is how vanilla decals work.
+    decal = {"Version": 1, "Objects": [{"Components": [
+        {"Type": "BSMaterial::ShaderModelComponent", "Index": 0,
+         "Data": {"FileName": "1LayerStandard"}}, alpha("true")]}]}
+    assert TT.is_eq(fails(decal), [], "vertex-colour opacity on a standard model is fine")
+
+
 def TEST_SF_RACECHECK_MATERIAL_EXISTS():
     """sf_racecheck fails a body part whose material exists nowhere.
 
