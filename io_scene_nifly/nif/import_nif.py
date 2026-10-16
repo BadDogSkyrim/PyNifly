@@ -2235,6 +2235,13 @@ class NifImporter():
                 arm_data.niftools.axis_forward = "Z"
                 arm_data.niftools.axis_up = "-X"
 
+        # An armature made for a _facebones nif is that nif's facebones armature, whatever its
+        # bones are called -- a crowd head's companion has no faceBone_* bones at all. Only an
+        # armature made here: one the user selected keeps whatever it was.
+        nif_stem = os.path.splitext(os.path.basename(self.nif.filepath or ''))[0]
+        if nif_stem.lower().endswith('_facebones'):
+            arma.pyn_facebones = True
+
         arma[PYN_BLENDER_XF_PROP] = MatNearEqual(self.import_xf, BD.blender_import_xf)
         arma[PYN_RENAME_BONES_PROP] = self.settings.rename_bones
         arma[PYN_ROTATE_BONES_PRETTY_PROP] = self.settings.rotate_bones_pretty

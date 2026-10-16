@@ -2003,6 +2003,113 @@ def TEST_SF_MATERIALS_FLAG_STICKY_NO_ROOT():
         "reads back sticky on the next export"
 
 
+def _face_rig(name, parent=None):
+    """An armature of six faceBone_* bones -- enough for the name test to call it a face rig."""
+    data = bpy.data.armatures.new(name + "Data")
+    arma = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(arma)
+    arma.parent = parent
+    bpy.context.view_layer.objects.active = arma
+    bpy.ops.object.mode_set(mode='EDIT')
+    for i, bn in enumerate(['faceBone_C_Chin', 'faceBone_L_Cheek', 'faceBone_R_Cheek',
+                            'faceBone_L_EarMaster', 'faceBone_R_EarMaster',
+                            'faceBone_C_NoseRidge']):
+        b = data.edit_bones.new(bn)
+        b.head = (i * 0.1, 0, 0)
+        b.tail = (i * 0.1, 0, 1)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return arma
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+@TT.expect_errors(("Unknown block type: BoneTranslations",))
+def TEST_SF_FACEBONES_FLAG_CROWD():
+    """An armature marked as the facebones armature wins over one only the bone names point to,
+    and a marked armature with no faceBone_* bones writes the companion the way vanilla crowd
+    heads ship it: the same nif again, LOD0 only, on the same .mesh.
+
+    The fox crowd head came out invisible because its mesh also carried the chargen face rig:
+    export found that rig by its bone names and skinned the companion to 46 bones a crowd
+    actor's skeleton doesn't have. The game draws the head from the companion."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'male',
+                            'crowd_head_af_md1.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_FACEBONES_FLAG_CROWD\meshes\crowdhead.nif",
+                            output=True)
+    outfile_fb = TTB.test_file(
+        r"tests\Out\TEST_SF_FACEBONES_FLAG_CROWD\meshes\crowdhead_faceBones.nif", output=True)
+    outdir = os.path.dirname(outfile)
+    os.makedirs(outdir, exist_ok=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    lod0 = bpy.data.objects["crowd_head_af_md1:0:LOD0"]
+    crowd_arma = next(m.object for m in lod0.modifiers if m.type == 'ARMATURE')
+    crowd_arma.pyn_facebones = True
+    decoy = _face_rig("ChargenFaceRig", parent=crowd_arma.parent)
+    lod0.modifiers.new("FaceRig", 'ARMATURE').object = decoy
+
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    plain = pyn.NifFile(outfile).shapes[0]
+    assert TT.is_true(os.path.exists(outfile_fb), "the companion is written")
+    fb = pyn.NifFile(outfile_fb).shapes[0]
+    assert TT.is_eq(fb.mesh_paths(), plain.mesh_paths()[:1],
+                    "the companion is LOD0 only, on the plain nif's own .mesh")
+    assert TT.is_eq(list(fb.bone_names), list(plain.bone_names),
+                    "the companion is skinned like the plain nif, not to the decoy face rig")
+    fb_meshes = [f for _, _, fs in os.walk(os.path.join(os.path.dirname(outdir), 'geometries'))
+                 for f in fs if f.endswith('_fb.mesh')]
+    assert TT.is_eq(fb_meshes, [], "no separate facebones .mesh is written")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_FACEBONES_FLAG_OFF():
+    """An armature marked NOT facebones is an ordinary armature even though its bone names say
+    otherwise: the shape is skinned to it in the plain nif, and no companion is written."""
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_FACEBONES_FLAG_OFF\meshes\head.nif", output=True)
+    outfile_fb = outfile.replace("head.nif", "head_faceBones.nif")
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    if os.path.exists(outfile_fb):
+        os.remove(outfile_fb)
+
+    root = bpy.data.objects.new("HeadRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    root['pynRoot'] = True
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=8, ring_count=6)
+    head = bpy.context.object
+    head.parent = root
+    rig = _face_rig("FaceRig", parent=root)
+    rig.pyn_facebones = False
+    head.vertex_groups.new(name='faceBone_C_Chin').add(
+        list(range(len(head.data.vertices))), 1.0, 'REPLACE')
+    head.modifiers.new("Armature", 'ARMATURE').object = rig
+
+    BD.ObjectSelect([root, head, rig], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", intuit_defaults=False)
+
+    assert TT.is_true(os.path.exists(outfile), "wrote the plain nif")
+    assert TT.is_eq(list(pyn.NifFile(outfile).shapes[0].bone_names), ['faceBone_C_Chin'],
+                    "the plain nif is skinned to the armature")
+    assert TT.is_true(not os.path.exists(outfile_fb), "no companion for an armature marked No")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_FACEBONES_FLAG_IMPORT():
+    """Importing a _facebones nif marks the armature it creates as the facebones armature;
+    importing the plain nif leaves the flag unset, so the bone names decide."""
+    folder = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'characterassets', 'male')
+    bpy.ops.import_scene.pynifly(filepath=os.path.join(folder, 'malehead_facebones.nif'))
+    armas = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    assert TT.is_eq(len(armas), 1, "one armature")
+    assert TT.is_true(armas[0].is_property_set('pyn_facebones') and armas[0].pyn_facebones,
+                      "the _facebones import marks its armature")
+
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=os.path.join(folder, 'malehead.nif'))
+    arma = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
+    assert TT.is_true(not arma.is_property_set('pyn_facebones'), "the plain import leaves it unset")
+
+
 @TT.category('STARFIELD')
 def TEST_SF_FACEBONES_EXPORT():
     """Starfield head parts ship as a <name>.nif + <name>_faceBones.nif pair; the facebones

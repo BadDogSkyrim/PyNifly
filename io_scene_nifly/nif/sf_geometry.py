@@ -265,7 +265,8 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
 
     if not hasattr(exporter, '_sf_meshes'):
         exporter._sf_meshes = []
-    for i in sorted(set(owners)):
+    # A companion that copies the plain nif points at the .mesh the plain nif already wrote.
+    for i in ([] if getattr(exporter, 'sf_companion_copy', False) else sorted(set(owners))):
         out_path = resolve_mesh_output_path(exporter.nif.filepath, members[i]['mesh_name'])
         exporter._sf_meshes.append((out_path, new_shape, owners.index(i)))
 
@@ -303,8 +304,10 @@ def _member_mesh_name(exporter, obj, slot):
     # ships the pair as two distinct geometry files). Suffix the name we write with rather than
     # the stored property, so the base path stays authoritative and round-trips unchanged.
     # '_fb' not '_facebones': a generated name is 41 chars and the cap is 46, so '_fb' fits and
-    # '_facebones' would not.
+    # '_facebones' would not. A companion that is just a copy (a crowd head's) shares the .mesh.
     if getattr(exporter, 'file_suffix', '') == '_faceBones':
+        if getattr(exporter, 'sf_companion_copy', False):
+            return mesh_name
         mesh_name = mesh_name + '_fb'
 
     # Two shapes writing one .mesh would give a nif that loads and renders the wrong geometry.

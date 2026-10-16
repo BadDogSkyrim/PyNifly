@@ -407,6 +407,20 @@ def is_facebones(bone_names):
                 if x.startswith(FACEBONE_PREFIXES)]) > 5
 
 
+def is_facebones_armature(arma):
+    """Whether `arma` is a facebones armature. Its 'pyn_facebones' flag decides when it has been
+    set (import sets it on a _facebones nif's armature; the user can set it either way);
+    unset, the bone names decide."""
+    if arma.is_property_set('pyn_facebones'):
+        return arma.pyn_facebones
+    return is_facebones(arma.data.bones.keys())
+
+
+def facebones_explicit(arma):
+    """True if `arma` was explicitly marked as the facebones armature, not just named like one."""
+    return arma.is_property_set('pyn_facebones') and arma.pyn_facebones
+
+
 def find_armatures(obj):
     """Find armatures associated with obj. 
     Returns (regular armature, facebones armature)
@@ -417,14 +431,15 @@ def find_armatures(obj):
     fb_arma = None
     for skel in [m.object for m in obj.modifiers if m.type == "ARMATURE"]:
         if skel:
-            if is_facebones(skel.data.bones.keys()):
-                fb_arma = skel
+            if is_facebones_armature(skel):
+                if fb_arma is None or facebones_explicit(skel):
+                    fb_arma = skel
             else:
                 if not arma:
                     arma = skel
 
     if obj.parent and obj.parent.type == "ARMATURE":
-        if is_facebones(obj.parent.data.bones.keys()):
+        if is_facebones_armature(obj.parent):
             if fb_arma == None:
                 fb_arma = obj.parent
         else:

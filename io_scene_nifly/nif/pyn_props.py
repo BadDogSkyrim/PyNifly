@@ -922,10 +922,45 @@ class PYN_PT_export_skel(bpy.types.Panel):
         return context.object is not None and context.object.type == 'ARMATURE'
 
     def draw(self, context):
-        grp = context.object.pyn_export_skel
+        obj = context.object
+        grp = obj.pyn_export_skel
         col = self.layout.column(align=True)
         for fn in _EXPORT_SKEL_FIELDS:
             col.prop(grp, fn)
+
+        # Facebones: yes, no, or (never set) decided by the bone names.
+        box = self.layout.box()
+        row = box.row(align=True)
+        if obj.is_property_set('pyn_facebones'):
+            row.label(text="Facebones armature: " + ("Yes" if obj.pyn_facebones else "No"))
+        else:
+            from .. import blender_defs as BD
+            auto = BD.is_facebones(obj.data.bones.keys())
+            row.label(text=f"Facebones armature: Auto ({'yes' if auto else 'no'}, by bone names)")
+        for value, text in (('YES', "Yes"), ('NO', "No"), ('AUTO', "Auto")):
+            row.operator(PYN_OT_set_facebones.bl_idname, text=text).value = value
+
+
+class PYN_OT_set_facebones(bpy.types.Operator):
+    """Mark the active armature as the facebones armature, or not, or let its bone names decide"""
+    bl_idname = "object.pyn_set_facebones"
+    bl_label = "Set Facebones Armature"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    value: bpy.props.EnumProperty(items=[('YES', "Yes", ""), ('NO', "No", ""),
+                                         ('AUTO', "Auto", "")])
+
+    @classmethod
+    def poll(cls, context):
+        return context.object is not None and context.object.type == 'ARMATURE'
+
+    def execute(self, context):
+        obj = context.object
+        if self.value == 'AUTO':
+            obj.property_unset('pyn_facebones')
+        else:
+            obj.pyn_facebones = (self.value == 'YES')
+        return {'FINISHED'}
 
 
 # ---------------------------------------------------------------------------
@@ -1075,7 +1110,7 @@ _classes = (PynShaderProps, PYN_PT_shader, *_child_panels,
             *[s['grp'] for s in _block_specs],
             *[s['grp'] for s in _handwired_specs], PYN_PT_block,
             PynExportProps, PynExportSkelProps, PYN_PT_export, PYN_PT_export_skel,
-            PYN_OT_sf_claim_node, PYN_PT_sf_provenance)
+            PYN_OT_set_facebones, PYN_OT_sf_claim_node, PYN_PT_sf_provenance)
 
 
 def register():
@@ -1088,12 +1123,18 @@ def register():
         setattr(bpy.types.Object, s['attr'], bpy.props.PointerProperty(type=s['grp']))
     bpy.types.Object.pyn_export = bpy.props.PointerProperty(type=PynExportProps)
     bpy.types.Object.pyn_export_skel = bpy.props.PointerProperty(type=PynExportSkelProps)
+    # On an armature: whether it's the facebones armature. Deliberately outside the sticky
+    # export-settings group, which export writes wholesale -- this must stay unset (decided by
+    # the bone names) until import or the user sets it.
+    bpy.types.Object.pyn_facebones = bpy.props.BoolProperty(
+        name="Facebones armature",
+        description="This armature is the facebones armature. Unset, its bone names decide")
 
 
 def unregister():
     if hasattr(bpy.types.Material, 'pyn_shader'):
         del bpy.types.Material.pyn_shader
-    for attr in ('pyn_export', 'pyn_export_skel'):
+    for attr in ('pyn_export', 'pyn_export_skel', 'pyn_facebones'):
         if hasattr(bpy.types.Object, attr):
             delattr(bpy.types.Object, attr)
     for s in _block_specs + _handwired_specs:

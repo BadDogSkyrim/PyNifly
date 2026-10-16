@@ -774,9 +774,14 @@ class NifExporter:
         modifier and is authoritative — it overrides any prior armature added as a
         fallback (e.g. a bare ARMATURE child of a root EMPTY).
         """
-        facebones_arma = (self.game in ['FO4', 'FO76', 'SF']) and (BD.is_facebones(arma.data.bones.keys()))
+        facebones_arma = (self.game in ['FO4', 'FO76', 'SF']) and BD.is_facebones_armature(arma)
         if facebones_arma:
-            if self.facebones is None or (via_modifier and not self._facebones_via_modifier):
+            # An armature marked as the facebones armature beats one only named like one: a
+            # crowd head can carry the chargen face rig yet want its own armature for both nifs.
+            if (self.facebones is None
+                    or (BD.facebones_explicit(arma) and not BD.facebones_explicit(self.facebones))
+                    or (via_modifier and not self._facebones_via_modifier
+                        and BD.facebones_explicit(arma) == BD.facebones_explicit(self.facebones))):
                 self.facebones = arma
                 if via_modifier:
                     self._facebones_via_modifier = True
@@ -2294,6 +2299,11 @@ class NifExporter:
         # Which file of the set we're writing ('' or '_faceBones'). SF geometry export reads
         # this to give the facebones companion its own external .mesh.
         self.file_suffix = suffix
+        # A Starfield facebones armature with no face bones -- a crowd head's -- writes the
+        # companion as vanilla crowds ship it: the same nif again, on the same .mesh.
+        self.sf_companion_copy = (
+            suffix == '_faceBones' and self.game == 'SF' and self.facebones is not None
+            and not BD.is_facebones(self.facebones.data.bones.keys()))
         # Queued external .mesh/.mat writes are per-file; the base nif's are already on disk.
         self._sf_meshes = []
         self._sf_materials = []
