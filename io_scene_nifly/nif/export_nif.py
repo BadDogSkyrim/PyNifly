@@ -869,9 +869,9 @@ class NifExporter:
                 # node for it (nifly can't add_block a shape), but still export its LOD-child
                 # meshes. Without this, selecting the object hierarchy (not just the leaf mesh)
                 # routes the Empty through export_node and crashes on add_block(type 1).
+                # Hidden children too: LOD1 and up are hidden on import, and are still slots.
                 for c in obj.children:
-                    if not c.hide_get():
-                        self.add_object(c)
+                    self.add_object(c)
 
             elif (connectpoint.is_child(obj)) or (not connectpoint.is_connectpoint(obj)):
                 self.grouping_nodes.add(obj)
@@ -1949,6 +1949,32 @@ class NifExporter:
         return recentered, morphdict, new_xform
 
 
+    def _sf_lod_data(self, obj, arma, lead_xform, obj_space_normals):
+        """The geometry of a further Starfield LOD object, ready for a slot of its LOD0's
+        BSGeometry: a dict of obj, verts, uvs, norms, tris, colors, weights. Verts are moved
+        into LOD0's space if the object sits elsewhere, since the slots share one transform and
+        one set of binds. A LOD hidden on import is shown while its mesh is read."""
+        hidden = obj.hide_get()
+        obj.hide_set(False)
+        try:
+            if arma is not None and not any(vg.name in arma.data.bones
+                                            for vg in obj.vertex_groups):
+                arma = None
+            verts, norms, uvs, colors, tris, weights, *_ = \
+                self.extract_mesh_data(obj, arma, '')
+        finally:
+            obj.hide_set(hidden)
+        my_xform = self._export_shape_transform(obj)
+        if not MatNearEqual(my_xform, lead_xform):
+            to_lead = lead_xform.inverted() @ my_xform
+            rot = to_lead.to_3x3()
+            verts = [tuple(to_lead @ Vector(v)) for v in verts]
+            norms = [tuple((rot @ Vector(n)).normalized()) for n in norms]
+        return dict(obj=obj, verts=verts, tris=tris, colors=colors, weights=weights,
+                    uvs=[(u, 1.0 - v) for u, v in uvs],
+                    norms=None if obj_space_normals else norms)
+
+
     def export_shape(self, obj, target_key='', arma=None):
         """ Export given blender object to the given NIF file; also writes any associated
             tri file. Checks to make sure the object wasn't already written.
@@ -1958,6 +1984,20 @@ class NifExporter:
             """
         if self.objs_written.find_blend(obj) or BD.nonunique_name(obj) in collision.collision_names:
             return
+
+        # Starfield LODs: the objects named '<shape>:LOD...' are one BSGeometry, written by the
+        # member that fills slot 0; the others become its further slots. The facebones
+        # companion carries LOD0 only, as vanilla's does.
+        lod_group = None
+        if self.game == 'SF':
+            from . import sf_geometry
+            lod_group = sf_geometry.lod_group(obj)
+            if lod_group and lod_group[0][0] is not obj:
+                if getattr(self, 'file_suffix', '') == '_faceBones':
+                    return
+                return self.export_shape(lod_group[0][0], target_key, arma)
+            if getattr(self, 'file_suffix', '') == '_faceBones':
+                lod_group = None
         log.info(f"Exporting {obj.name}")
 
         self.active_obj = obj
@@ -2107,9 +2147,18 @@ class NifExporter:
                 # bytes to be written after nif.save(). Uses the SF skin path (SkinAttach +
                 # BSSkin::BoneData), not the generic export_skin (nifly can't skin a BSGeometry).
                 from . import sf_geometry
+                lods, owners = None, None
+                if lod_group:
+                    owners = sf_geometry.slot_owners(lod_group)
+                    lods = [self._sf_lod_data(o, arma if is_skinned else None, new_xform,
+                                              norms_exp is None)
+                            for o, _ in lod_group[1:]]
+                    ObjectSelect([obj], active=True)
+                    self.active_obj = obj
                 sf_geometry.export_sf_shape(
                     self, obj, new_shape, verts, uvmap_nif, norms_exp, tris,
-                    colors_new, weights_by_vert, arma if is_skinned else None, new_xform)
+                    colors_new, weights_by_vert, arma if is_skinned else None, new_xform,
+                    lods=lods, owners=owners)
                 # A skinned BSGeometry keeps an IDENTITY transform: the skin-to-bone binds are
                 # computed relative to new_xform (see _export_sf_skin) and already place every
                 # vertex, so writing new_xform onto the shape too would double-apply it and the

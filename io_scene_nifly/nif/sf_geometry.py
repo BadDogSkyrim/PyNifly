@@ -48,6 +48,65 @@ def resolve_mesh(mesh_path, nif_filepath):
         alt_suffix='.mesh', alt_pathlist=mesh_search_paths())
 
 
+def lod_groups(the_shape):
+    """The shape's LOD slots grouped by the .mesh they name, in slot order: vanilla often
+    points neighbouring slots at one file (slots 1 and 2 of a crowd head), and each group
+    becomes one Blender object. [[0]] for a shape with internal geometry."""
+    if the_shape.is_internal_geom:
+        return [[0]]
+    groups = {}
+    for slot, path in enumerate(the_shape.mesh_paths()):
+        groups.setdefault(path, []).append(slot)
+    return list(groups.values()) or [[0]]
+
+
+def lod_suffix(slots):
+    """The ':LOD...' suffix naming the slots a LOD object fills: ':LOD0', ':LOD1-2' for a run,
+    ':LOD0,3' otherwise."""
+    if len(slots) > 1 and slots == list(range(slots[0], slots[-1] + 1)):
+        return f":LOD{slots[0]}-{slots[-1]}"
+    return ":LOD" + ",".join(str(s) for s in slots)
+
+
+def lod_slots(name):
+    """The slots an object's ':LOD...' name suffix says it fills, or None if it has none.
+    Inverse of lod_suffix; a name is the only place the slots are recorded."""
+    if ':LOD' not in name:
+        return None
+    spec = name.rsplit(':LOD', 1)[1]
+    slots = []
+    try:
+        for part in spec.split(','):
+            if '-' in part:
+                lo, hi = part.split('-')
+                slots.extend(range(int(lo), int(hi) + 1))
+            else:
+                slots.append(int(part))
+    except ValueError:
+        return None
+    return sorted(set(slots)) or None
+
+
+def internal_lod_count(data):
+    """How many reduced triangle lists a .mesh carries over its own vertices -- Starfield's
+    second LOD mechanism, separate from slots (the vanilla hands have three). nifly reads past
+    them without exposing them, so walk the header here. 0 if the layout doesn't fit."""
+    import struct
+    # (bytes per element of each counted array, in file order) after the u32 version:
+    # triangle indices, then scale + weights-per-vertex, positions, uv1, uv2, colors,
+    # normals, tangents, weights. The LOD list count follows.
+    o = 4
+    try:
+        n = struct.unpack_from('<I', data, o)[0]
+        o += 4 + n * 2 + 8
+        for size in (6, 4, 4, 4, 4, 4, 4):
+            n = struct.unpack_from('<I', data, o)[0]
+            o += 4 + n * size
+        return struct.unpack_from('<I', data, o)[0]
+    except struct.error:
+        return 0
+
+
 def load_geometry(the_shape, slot=0):
     """Resolve + load the external .mesh for a BSGeometry LOD slot so the shape's
     verts/tris/uvs/normals/weights become available. Returns True if loaded.
@@ -65,6 +124,10 @@ def load_geometry(the_shape, slot=0):
         return False
     with open(resolved, 'rb') as f:
         data = f.read()
+    if (n := internal_lod_count(data)):
+        log.warning(f"'{the_shape.name}': its .mesh '{mesh_path}' holds {n} reduced triangle "
+                    f"lists (LODs inside the .mesh). PyNifly doesn't import them, and export "
+                    f"writes the .mesh without them.")
     return the_shape.load_mesh(data, slot)
 
 
@@ -96,7 +159,7 @@ def record_geometry_props(obj, the_shape, slot=0):
 
 def sf_base_name(obj):
     """The BSGeometry block name for a LOD-child mesh object. The container Empty holds the
-    real nif name in pynNodeName; fall back to stripping the ':LOD<slot>' suffix off the
+    real nif name in pynNodeName; fall back to stripping the ':LOD...' suffix off the
     child's own name."""
     empty = obj.parent
     if empty is not None and empty.get('pynNodeName'):
@@ -105,6 +168,38 @@ def sf_base_name(obj):
     if ':LOD' in name:
         name = name.rsplit(':LOD', 1)[0]
     return name
+
+
+def lod_group(obj):
+    """The LOD objects that export with `obj` as one BSGeometry: mesh objects under the same
+    parent whose names are '<shape>:LOD...' with the same <shape>. Sorted by the first slot
+    each fills, so the first member is the one that writes the block. [(object, slots)], or
+    None if `obj`'s name carries no LOD suffix."""
+    if lod_slots(obj.name) is None:
+        return None
+    base = sf_base_name(obj)
+    if obj.parent is not None:
+        siblings = obj.parent.children
+    else:
+        siblings = [o for o in bpy.data.objects if o.parent is None]
+    group = [(o, lod_slots(o.name)) for o in siblings
+             if o.type == 'MESH' and lod_slots(o.name) is not None and sf_base_name(o) == base]
+    return sorted(group, key=lambda g: g[1][0])
+
+
+def slot_owners(group):
+    """Which member of a LOD group fills each slot, slot 0 up to the highest one named: a list
+    of indices into `group`. The first member always takes slot 0, and a slot nobody names
+    repeats the slot before it, the way vanilla repeats a .mesh."""
+    top = max(s for _, slots in group for s in slots)
+    owners = []
+    for s in range(top + 1):
+        owner = next((i for i, (_, slots) in enumerate(group) if s in slots), None)
+        if owner is None:
+            owner = owners[-1] if owners else 0
+        owners.append(owner)
+    owners[0] = 0
+    return owners
 
 
 def mesh_name_seed(exporter):
@@ -135,17 +230,57 @@ def resolve_mesh_output_path(nif_filepath, mesh_name):
 
 
 def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
-                    colors, weights_by_vert, arma, new_xform):
+                    colors, weights_by_vert, arma, new_xform, lods=None, owners=None):
     """Finish exporting a Starfield BSGeometry: set the external .mesh path, vertex colors,
     and skin (bone list -> SkinAttach, per-bone binds -> BSSkin::BoneData, per-vertex weights
     -> the .mesh), then queue the .mesh bytes to be written to disk after the nif is saved.
 
-    Geometry (verts/tris/uvs/normals) is already on `new_shape` from createShapeFromData.
-    Returns the resolved output .mesh path (also queued on exporter._sf_meshes)."""
-    slot = 0
+    Geometry (verts/tris/uvs/normals) is already on `new_shape` from createShapeFromData; that
+    is slot 0. `lods` are the other members of obj's LOD group, each a dict of obj, verts, uvs,
+    norms, tris, colors, weights; `owners` (from slot_owners) says which member fills each slot,
+    0 being obj. Each member writes one .mesh, however many slots point at it.
+    Returns the resolved output .mesh path of slot 0 (all are queued on exporter._sf_meshes)."""
+    members = [dict(obj=obj, verts=verts, uvs=uvs, norms=norms, tris=tris, colors=colors,
+                    weights=weights_by_vert)] + list(lods or [])
+    owners = owners or [0]
+    for s in range(1, len(owners)):
+        m = members[owners[s]]
+        new_shape.add_mesh(m['verts'], m['tris'], m['uvs'], m['norms'])
+
+    for i in sorted(set(owners)):
+        members[i]['mesh_name'] = _member_mesh_name(exporter, members[i]['obj'],
+                                                    owners.index(i))
+    for s, i in enumerate(owners):
+        m = members[i]
+        new_shape.set_mesh_name(m['mesh_name'], s)
+        # Vertex colors: SF meshes always carry them; default to white where Blender has none.
+        if m['colors']:
+            new_shape.set_mesh_colors([tuple(c) for c in m['colors']], s)
+        else:
+            new_shape.set_mesh_colors([(1.0, 1.0, 1.0, 1.0)] * len(m['verts']), s)
+
+    # Skin: SF has no NiNode bone refs; build the bone name list + binds + per-vertex weights.
+    if arma is not None:
+        _export_sf_skin(exporter, members, owners, new_shape, arma, new_xform)
+
+    if not hasattr(exporter, '_sf_meshes'):
+        exporter._sf_meshes = []
+    for i in sorted(set(owners)):
+        out_path = resolve_mesh_output_path(exporter.nif.filepath, members[i]['mesh_name'])
+        exporter._sf_meshes.append((out_path, new_shape, owners.index(i)))
+
+    # Queue the material for a loose .mat write (recovered from its shader graph on nif.save()).
+    mat = obj.active_material
+    if mat is not None and mat.get('BSLSP_Shader_Name'):
+        if not hasattr(exporter, '_sf_materials'):
+            exporter._sf_materials = []
+        exporter._sf_materials.append(mat)
+    return resolve_mesh_output_path(exporter.nif.filepath, members[0]['mesh_name'])
+
+
+def _member_mesh_name(exporter, obj, slot):
+    """The .mesh path `obj` writes its geometry to, recorded on it if it was generated."""
     grp = getattr(obj, 'pyn_sf_geometry', None)
-    if grp is not None:
-        slot = grp.lod_slot
 
     # External .mesh path. The stored mesh_path names a directory (filename comes from the object)
     # or a directory plus a filename (used verbatim, which is how an imported shape writes back to
@@ -189,31 +324,7 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
     # Over the cap the shape is invisible in game, with nothing else to show for it.
     if (err := mesh_name_error(mesh_name)):
         log.warning(f"{obj.name}: {err}")
-
-    new_shape.set_mesh_name(mesh_name, slot)
-
-    # Vertex colors: SF meshes always carry them; default to white where Blender has none.
-    if colors:
-        new_shape.set_mesh_colors([tuple(c) for c in colors], slot)
-    else:
-        new_shape.set_mesh_colors([(1.0, 1.0, 1.0, 1.0)] * len(verts), slot)
-
-    # Skin: SF has no NiNode bone refs; build the bone name list + binds + per-vertex weights.
-    if arma is not None:
-        _export_sf_skin(exporter, obj, new_shape, verts, weights_by_vert, arma, new_xform)
-
-    out_path = resolve_mesh_output_path(exporter.nif.filepath, mesh_name)
-    if not hasattr(exporter, '_sf_meshes'):
-        exporter._sf_meshes = []
-    exporter._sf_meshes.append((out_path, new_shape, slot))
-
-    # Queue the material for a loose .mat write (recovered from its shader graph on nif.save()).
-    mat = obj.active_material
-    if mat is not None and mat.get('BSLSP_Shader_Name'):
-        if not hasattr(exporter, '_sf_materials'):
-            exporter._sf_materials = []
-        exporter._sf_materials.append(mat)
-    return out_path
+    return mesh_name
 
 
 # Max bone influences kept per vertex. Starfield has no hard limit (vanilla body = 6,
@@ -222,40 +333,44 @@ def export_sf_shape(exporter, obj, new_shape, verts, uvs, norms, tris,
 SF_MAX_WEIGHTS_PER_VERTEX = 8
 
 
-def _export_sf_skin(exporter, obj, new_shape, verts, weights_by_vert, arma, new_xform):
+def _export_sf_skin(exporter, members, owners, new_shape, arma, new_xform):
     """Assemble SF skinning on a BSGeometry: an ordered bone list (SkinAttach), a bind
     (skin-to-bone) transform per bone (BSSkin::BoneData), and per-vertex weights (the heaviest
     influences, normalized). Bone ordering fixes the index that both SkinAttach and the weights
-    use. The shape's weightsPerVertex is the max influence count across its verts (<= the cap),
-    matching how vanilla sizes it -- must be set before skin_bones zeroes the weight slots."""
+    use. Every LOD slot shares the bone list and binds, so the list covers the bones any LOD
+    uses; each slot's .mesh holds its own weights. A .mesh's weightsPerVertex is the max
+    influence count across its verts (<= the cap), matching how vanilla sizes it."""
     arma_bones = arma.data.bones
 
     # Ordered list of bones that actually weight this shape, in armature order for stability.
     used = set()
-    for vw in weights_by_vert:
-        for nm, w in vw.items():
-            if w > 0.00005 and nm in arma_bones:
-                used.add(nm)
+    for m in members:
+        for vw in m['weights']:
+            for nm, w in vw.items():
+                if w > 0.00005 and nm in arma_bones:
+                    used.add(nm)
     bone_list = [b.name for b in arma_bones if b.name in used]
     if not bone_list:
-        log.warning(f"{obj.name}: Starfield shape has no armature-bone weights; "
+        log.warning(f"{members[0]['obj'].name}: Starfield shape has no armature-bone weights; "
                     "exporting without skin.")
         return
     bone_index = {nm: i for i, nm in enumerate(bone_list)}
 
-    # Precompute each vertex's heaviest influences so the shape's weightsPerVertex can be set
-    # from the true max before skinning (nifly sizes/caps the weight slots to it).
-    vert_pairs = []
-    for vw in weights_by_vert:
-        pairs = [(w, bone_index[nm]) for nm, w in vw.items()
-                 if w > 0.00005 and nm in bone_index]
-        pairs.sort(reverse=True)
-        vert_pairs.append(pairs[:SF_MAX_WEIGHTS_PER_VERTEX])
-    weights_per_vertex = max((len(p) for p in vert_pairs), default=1) or 1
+    # Each vertex's heaviest influences, so a .mesh's weightsPerVertex can be set from the true
+    # max before its weights go in (nifly sizes/caps the weight slots to it).
+    for m in members:
+        vert_pairs = []
+        for vw in m['weights']:
+            pairs = [(w, bone_index[nm]) for nm, w in vw.items()
+                     if w > 0.00005 and nm in bone_index]
+            pairs.sort(reverse=True)
+            vert_pairs.append(pairs[:SF_MAX_WEIGHTS_PER_VERTEX])
+        m['vert_pairs'] = vert_pairs
+        m['weights_per_vertex'] = max((len(p) for p in vert_pairs), default=1) or 1
 
     # SkinAttach: nif-name each bone (SF names generally pass through unchanged).
     nif_names = [exporter.nif_name(nm) for nm in bone_list]
-    new_shape.skin_bones(nif_names, weights_per_vertex)
+    new_shape.skin_bones(nif_names, members[0]['weights_per_vertex'])
 
     # Per-bone bind = inverse of (vert-frame -> bone), same formula as the generic export_skin.
     for i, nm in enumerate(bone_list):
@@ -263,17 +378,22 @@ def _export_sf_skin(exporter, obj, new_shape, verts, weights_by_vert, arma, new_
         xfinv = (new_xform.inverted() @ xf).inverted()
         new_shape.set_bone_bind(i, BD.pack_xf_to_buf(xfinv, exporter.scale))
 
-    # Per-vertex weights, normalized over the kept influences.
-    for v, pairs in enumerate(vert_pairs):
-        total = sum(w for w, _ in pairs)
-        if total <= 0:
-            continue
-        idxs = [bi for _, bi in pairs]
-        wts = [w / total for w, _ in pairs]
-        new_shape.set_vert_weights(v, idxs, wts)
+    # Per-vertex weights, normalized over the kept influences, into each slot's .mesh.
+    for s, mi in enumerate(owners):
+        m = members[mi]
+        new_shape.set_weights_per_vertex(m['weights_per_vertex'], s)
+        for v, pairs in enumerate(m['vert_pairs']):
+            total = sum(w for w, _ in pairs)
+            if total <= 0:
+                continue
+            idxs = [bi for _, bi in pairs]
+            wts = [w / total for w, _ in pairs]
+            new_shape.set_vert_weights(v, idxs, wts, s)
 
     # Finalize per-bone bounding spheres now that binds + weights are set. Skipping this leaves
-    # the default zero-radius spheres, which crash the Creation Kit on actor load.
+    # the default zero-radius spheres, which crash the Creation Kit on actor load. LOD0 holds
+    # the most geometry, so it bounds the bones.
+    new_shape.select_mesh(0)
     new_shape.update_skin_bounds()
 
 

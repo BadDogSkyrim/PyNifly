@@ -51,6 +51,9 @@ log.setLevel(logging.DEBUG)
 # whitelist them. Duplicate triangles turn up in a lot of vanilla meshes;
 # TEST_IMPORT_DUPLICATE_TRIS_WARNS covers that the warning still fires.
 ALWAYS_EXPECTED = ("duplicate triangle(s) across",)
+# Likewise the vanilla Starfield hands' .mesh carries internal LOD triangle lists, which
+# PyNifly reports and doesn't import; TEST_SF_LOD_INTERNAL_WARNS covers that it still fires.
+ALWAYS_EXPECTED += ("reduced triangle lists",)
 
 # Animation export is gated on slotted actions (bpy.types.ActionSlot, Blender 4.4+).
 # On an older supported Blender the exporter warns on EVERY export, which otherwise

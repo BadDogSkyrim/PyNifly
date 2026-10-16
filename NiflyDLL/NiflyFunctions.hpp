@@ -68,4 +68,12 @@ nifly::NiShape* PyniflyCreateShape(nifly::NifFile* nif, const std::string& shape
 	const std::vector<nifly::Vector3>* norms, 
 	nifly::NiNode* parentRef);
 
+// Fill one Starfield LOD slot from geometry: verts/uvs/normals/tris, computed tangents, and
+// a per-mesh position scale. Shared by shape creation (slot 0) and adding further slots.
+void FillExternalMesh(nifly::BSGeometryMesh* mesh, nifly::NiVersion& version,
+	const std::vector<nifly::Vector3>* v,
+	const std::vector<nifly::Triangle>* t,
+	const std::vector<nifly::Vector2>* uv,
+	const std::vector<nifly::Vector3>* norms);
+
 //AnimSkeleton* MakeSkeleton(enum TargetGame theGame);

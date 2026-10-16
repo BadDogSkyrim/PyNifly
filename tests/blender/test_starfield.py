@@ -454,6 +454,142 @@ def TEST_SF_NORMAL_GREEN():
     bpy.data.materials.remove(mat)
 
 
+@TT.category('STARFIELD', 'GEOMETRY')
+@TT.expect_errors(("Unknown block type: BoneTranslations",))  # crowd heads carry one; unread
+def TEST_SF_LOD_IMPORT():
+    """Starfield: every LOD slot of a BSGeometry imports, one mesh child per distinct .mesh.
+
+    A vanilla crowd head has four slots on three .mesh files -- slots 1 and 2 share one (ABBC).
+    They come in under the shape's container Empty as ':LOD0', ':LOD1-2' and ':LOD3', each with
+    its own geometry, all weighted to the one armature and sharing the material. Only LOD0
+    shows; the others are hidden."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'female',
+                            'crowd_female_af_md1.nif')
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    empty = bpy.data.objects.get("BSGeometry:crowd_female_af_md1:0")
+    assert TT.is_true(empty is not None, "BSGeometry container imported")
+    children = {c.name: c for c in empty.children}
+    assert TT.is_eq(sorted(children),
+                    ["crowd_female_af_md1:0:LOD0", "crowd_female_af_md1:0:LOD1-2",
+                     "crowd_female_af_md1:0:LOD3"],
+                    "one child per distinct .mesh, named by the slots it fills")
+
+    lod0 = children["crowd_female_af_md1:0:LOD0"]
+    lod12 = children["crowd_female_af_md1:0:LOD1-2"]
+    lod3 = children["crowd_female_af_md1:0:LOD3"]
+    assert TT.is_eq([len(o.data.vertices) for o in (lod0, lod12, lod3)], [4179, 1022, 806],
+                    "each LOD has its own geometry")
+    assert TT.is_eq((lod0.hide_get(), lod12.hide_get(), lod3.hide_get()), (False, True, True),
+                    "only LOD0 shows")
+
+    armas = {next(m.object for m in o.modifiers if m.type == 'ARMATURE')
+             for o in (lod0, lod12, lod3)}
+    assert TT.is_eq(len(armas), 1, "all LODs bound to the one armature")
+    for o in (lod12, lod3):
+        assert TT.is_gt(len(o.vertex_groups), 10, f"{o.name} carries its bone weights")
+        assert TT.is_true(o.active_material is lod0.active_material,
+                          f"{o.name} shares LOD0's material")
+    assert TT.is_eq([o.pyn_sf_geometry.mesh_path == '' for o in (lod0, lod12, lod3)],
+                    [False, False, False], "each LOD records its .mesh")
+    assert TT.is_eq(len({o.pyn_sf_geometry.mesh_path for o in (lod0, lod12, lod3)}), 3,
+                    "three distinct .mesh paths")
+
+
+def _sf_slot_meshes(nif_path, shape):
+    """Load every LOD slot of a re-read exported shape from the .mesh files written beside the
+    nif. Returns per-slot (vertex count, set of weighted vertices)."""
+    out = []
+    for slot, p in enumerate(shape.mesh_paths()):
+        mesh_file = os.path.join(os.path.dirname(nif_path), 'geometries', p + '.mesh')
+        with open(mesh_file, 'rb') as f:
+            assert shape.load_mesh(f.read(), slot), f"slot {slot} .mesh loads"
+        weighted = {vi for bn in shape.bone_names for vi, w in shape.bone_weights[bn] if w > 0}
+        out.append((len(shape.verts), weighted))
+    return out
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+@TT.expect_errors(("Unknown block type: BoneTranslations",))
+def TEST_SF_LOD_ROUNDTRIP():
+    """Starfield: a BSGeometry's LODs export back into ONE block with all its slots.
+
+    The crowd head imports as LOD0, LOD1-2 and LOD3 objects; export gathers them into one
+    BSGeometry with four slots on three .mesh files, slots 1 and 2 sharing one as the original
+    does. Each slot keeps its geometry and its weights, under one bone list."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'female',
+                            'crowd_female_af_md1.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_LOD_ROUNDTRIP.nif")
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF')
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq([s.name for s in nif.shapes], ["crowd_female_af_md1:0"],
+                    "one BSGeometry for all the LODs")
+    shape = nif.shapes[0]
+    paths = shape.mesh_paths()
+    assert TT.is_eq(len(paths), 4, "four slots")
+    assert TT.is_eq((paths[1] == paths[2], len(set(paths))), (True, 3),
+                    "slots 1 and 2 share a .mesh; three files in all")
+    slots = _sf_slot_meshes(outfile, shape)
+    assert TT.is_eq([n for n, _ in slots], [4179, 1022, 1022, 806], "each slot's vertex count")
+    for slot, (n, weighted) in enumerate(slots):
+        assert TT.is_eq(len(weighted), n, f"every vertex of slot {slot} is weighted")
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+def TEST_SF_LOD_NEW():
+    """Starfield: LODs made in Blender. Objects named '<shape>:LOD0' and '<shape>:LOD1' under
+    the same parent export as one BSGeometry '<shape>' with two slots, each written to its own
+    generated .mesh."""
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_LOD_NEW.nif")
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=10)
+    lod0 = bpy.context.object
+    lod0.name = "Rock:LOD0"
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1, radius=10)
+    lod1 = bpy.context.object
+    lod1.name = "Rock:LOD1"
+    n0, n1 = len(lod0.data.vertices), len(lod1.data.vertices)
+
+    BD.ObjectSelect([lod0, lod1], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq([s.name for s in nif.shapes], ["Rock"], "one BSGeometry named for the LODs")
+    shape = nif.shapes[0]
+    paths = shape.mesh_paths()
+    assert TT.is_eq((len(paths), len(set(paths))), (2, 2), "two slots, two .mesh files")
+    counts = [n for n, _ in _sf_slot_meshes(outfile, shape)]
+    assert TT.is_true(counts[0] >= n0 and n1 <= counts[1] < counts[0],
+                      f"LOD0 then the smaller LOD1 ({counts}; Blender {n0}, {n1})")
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+def TEST_SF_LOD_INTERNAL_WARNS():
+    """A .mesh can hold reduced triangle lists over its own vertices -- a second LOD mechanism,
+    separate from slots. The vanilla hands carry three. PyNifly doesn't import them, so import
+    says so: export will write the .mesh without them."""
+    import logging
+    messages = []
+
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    cap = _Cap(level=logging.WARNING)
+    pyn_log = logging.getLogger("pynifly")
+    pyn_log.addHandler(cap)
+    try:
+        bpy.ops.import_scene.pynifly(filepath=TTB.test_file(r"tests\SF\meshes\hands_3rd_f.nif"))
+    finally:
+        pyn_log.removeHandler(cap)
+
+    warned = [m for m in messages if "Hands_3rd_F:0" in m and "3 reduced triangle lists" in m]
+    assert TT.is_neq(warned, [], f"internal LOD lists reported (saw {messages[:3]})")
+
+
 @TT.category('STARFIELD', 'SHADER')
 def TEST_SF_PARAMS():
     """Starfield: the .mat's non-texture settings land on PER-COMPONENT value-holder group nodes

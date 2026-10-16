@@ -7252,6 +7252,49 @@ NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh,
     return 1;
 }
 
+// Add a LOD slot to a BSGeometry, filled from the given geometry the same way
+// createNifShapeFromData fills slot 0 (tangents computed, per-mesh scale set). The new slot
+// is selected. Set its meshName, colors and weights with the slot-taking setters. uvs and
+// norms may be null. Returns the new slot's index, or -1 if the shape isn't a BSGeometry.
+NIFLY_API int addBSGeometryMesh(void* theNif, void* theShape,
+                                const Vector3* verts, int vertCount,
+                                const Triangle* tris, int triCount,
+                                const Vector2* uvs, const Vector3* norms) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || vertCount <= 0) return -1;
+
+    std::vector<Vector3> v(verts, verts + vertCount);
+    std::vector<Triangle> t(tris, tris + triCount);
+    std::vector<Vector2> uv;
+    if (uvs) uv.assign(uvs, uvs + vertCount);
+    std::vector<Vector3> n;
+    if (norms) n.assign(norms, norms + vertCount);
+
+    FillExternalMesh(geom->AddMesh(), nif->GetHeader().GetVersion(),
+                     &v, &t, uvs ? &uv : nullptr, norms ? &n : nullptr);
+    return geom->MeshCount() - 1;
+}
+
+// Prepare LOD slot 'whichMesh' of a skinned BSGeometry for weights: select it, set how many
+// bone influences its .mesh stores per vertex, and zero its weight slots. Each slot's .mesh
+// carries its own weights; skinBSGeometry does this for the slot selected when it runs.
+// Follow with setBSGeometryVertWeights, which writes to the selected slot. Returns 1 on
+// success.
+NIFLY_API int setBSGeometryWeightsPerVertex(void* theNif, void* theShape, int whichMesh,
+                                            int weightsPerVertex) {
+    NifFile* nif = static_cast<NifFile*>(theNif);
+    nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
+    nifly::BSGeometry* geom = asBSGeometry(theShape);
+    if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
+
+    nifly::BSGeometryMesh* mesh = geom->SelectMesh((uint8_t)whichMesh);
+    if (!mesh) return 0;
+    mesh->meshData.nWeightsPerVert = (weightsPerVertex > 0) ? (uint32_t)weightsPerVertex : 4;
+    nif->ClearShapeVertWeights(shape->name.get());
+    return 1;
+}
+
 // Set the tangents for LOD slot 'whichMesh'. tangents = count Vector3 (unit tangents);
 // tangentWs = count bytes, the 2-bit bitangent-sign W of each tangent (1 or 3 in the
 // packed UDEC3.W; pass 1 if unknown). nifly packs both into the .mesh on save. These

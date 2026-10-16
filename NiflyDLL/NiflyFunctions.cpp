@@ -338,6 +338,47 @@ static void ComputeExternalMeshTangents(BSGeometryMeshData& md) {
 	}
 }
 
+void FillExternalMesh(BSGeometryMesh* mesh, NiVersion& version,
+	const std::vector<Vector3>* v,
+	const std::vector<Triangle>* t,
+	const std::vector<Vector2>* uv,
+	const std::vector<Vector3>* norms
+) {
+	mesh->internalGeom = false;
+	mesh->flags = 64;                     // observed constant on vanilla meshes
+	BSGeometryMeshData& md = mesh->meshData;
+	md.version = 1;                       // .mesh format version (game reads 0..2)
+
+	// Populate verts/uvs/normals through nifly's Create: it sets the protected
+	// numVertices and sizes vertices/uvSets/normals consistently (a direct assign
+	// would be truncated later by SetVertices' resize-to-numVertices). Create ignores
+	// the triangle argument, so the tris go in separately.
+	md.Create(version, v, t, uv, norms);
+	if (t) md.tris = *t;
+	// Compute tangents from the geometry (BSGeometryMeshData has no real CalcTangentSpace,
+	// unlike the other shape types). setBSGeometryTangents can still override afterward.
+	ComputeExternalMeshTangents(md);
+
+	// Per-mesh scale: the packer stores each position as
+	//   int16 = component / (scale * havokScale) * 32767,
+	// so scale must cover the largest game-unit extent (÷havokScale = metric).
+	const float havokScale = 69.969f;
+	float maxCoord = 0.0f;
+	if (v) for (const auto& p : *v) {
+		maxCoord = std::max(maxCoord,
+			std::max(std::fabs(p.x), std::max(std::fabs(p.y), std::fabs(p.z))));
+	}
+	// Positions are int16 signed-normalized: stored int16 = round(component / scale * 32767),
+	// decoded at runtime as int16 / 32767 * scale. If scale == the exact max extent, the
+	// deepest verts encode right at the +-32767 edge -- and float rounding pushes some to
+	// -32768, one step PAST the symmetric range. Those decode fine statically but the engine's
+	// skinned vertex-fetch mishandles the SNORM extreme, flinging the verts across the map when
+	// posed. So carry a safety MARGIN (vanilla bodies use ~2.0 for a ~1.63 max, ~22%); 10%
+	// keeps the max encoded value near 29788, comfortably clear. Precision cost is negligible.
+	const float kScaleMargin = 1.1f;
+	md.scale = (maxCoord > 0.0f) ? (maxCoord / havokScale * kScaleMargin) : 1.0f;
+}
+
 NiShape* PyniflyCreateShape(NifFile* nif,
 	const std::string& shapeName,
 	NiShapeBuf* buf,
@@ -371,40 +412,8 @@ NiShape* PyniflyCreateShape(NifFile* nif,
 		bsGeom->name.get() = shapeName;
 		bsGeom->SetInternalGeomData(false);   // external geometry
 
-		BSGeometryMesh* mesh = bsGeom->AddMesh();
-		mesh->internalGeom = false;
-		mesh->flags = 64;                     // observed constant on vanilla meshes
-		BSGeometryMeshData& md = mesh->meshData;
-		md.version = 1;                       // .mesh format version (game reads 0..2)
-
-		// Populate verts/uvs/normals through nifly's Create: it sets the protected
-		// numVertices and sizes vertices/uvSets/normals consistently (a direct assign
-		// would be truncated later by SetVertices' resize-to-numVertices). Create ignores
-		// the triangle argument, so the tris go in separately.
-		md.Create(version, v, t, uv, norms);
-		if (t) md.tris = *t;
-		// Compute tangents from the geometry (BSGeometryMeshData has no real CalcTangentSpace,
-		// unlike the other shape types). setBSGeometryTangents can still override afterward.
-		ComputeExternalMeshTangents(md);
-
-		// Per-mesh scale: the packer stores each position as
-		//   int16 = component / (scale * havokScale) * 32767,
-		// so scale must cover the largest game-unit extent (÷havokScale = metric).
+		FillExternalMesh(bsGeom->AddMesh(), version, v, t, uv, norms);
 		const float havokScale = 69.969f;
-		float maxCoord = 0.0f;
-		if (v) for (const auto& p : *v) {
-			maxCoord = std::max(maxCoord,
-				std::max(std::fabs(p.x), std::max(std::fabs(p.y), std::fabs(p.z))));
-		}
-		// Positions are int16 signed-normalized: stored int16 = round(component / scale * 32767),
-		// decoded at runtime as int16 / 32767 * scale. If scale == the exact max extent, the
-		// deepest verts encode right at the +-32767 edge -- and float rounding pushes some to
-		// -32768, one step PAST the symmetric range. Those decode fine statically but the engine's
-		// skinned vertex-fetch mishandles the SNORM extreme, flinging the verts across the map when
-		// posed. So carry a safety MARGIN (vanilla bodies use ~2.0 for a ~1.63 max, ~22%); 10%
-		// keeps the max encoded value near 29788, comfortably clear. Precision cost is negligible.
-		const float kScaleMargin = 1.1f;
-		md.scale = (maxCoord > 0.0f) ? (maxCoord / havokScale * kScaleMargin) : 1.0f;
 
 		// Bounding volumes on the BSGeometry block. The engine frustum/distance-culls a
 		// STATIC (non-skinned) shape by these, so a zero bound makes the shape invisible

@@ -1363,6 +1363,89 @@ namespace NiflyDLLTests
 			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
 		}
 
+		TEST_METHOD(CreateStarfieldLODSlots)
+		{
+			/* UNIT TEST: a Starfield BSGeometry with several LOD slots. Create the shape (slot
+			   0), add two more slots from their own geometry, point slots 1 and 2 at the same
+			   .mesh (vanilla's ABB pattern), skin every slot, save, reload. Each slot keeps its
+			   own vertex count and its own weights; the skin's bone list is shared. */
+			Vector3 v0[4] = { {0,0,0}, {10,0,0}, {10,10,0}, {0,10,0} };
+			Triangle t0[2] = { {0,1,2}, {0,2,3} };
+			Vector2 uv0[4] = { {0,0}, {1,0}, {1,1}, {0,1} };
+			Vector3 n0[4] = { {0,0,1}, {0,0,1}, {0,0,1}, {0,0,1} };
+			Vector3 v1[3] = { {0,0,0}, {10,0,0}, {10,10,0} };
+			Triangle t1[1] = { {0,1,2} };
+
+			void* nif = createNif("SF", "NiNode", "Scene Root");
+			NiShapeBuf buf{};
+			buf.scale = 1.0f;
+			buf.rotation[0][0] = 1.0f; buf.rotation[1][1] = 1.0f; buf.rotation[2][2] = 1.0f;
+			buf.vertexCount = 4;
+			buf.triangleCount = 2;
+			buf.shaderPropertyID = NO_SHADER_REF;
+			void* geom = createNifShapeFromData(nif, "LODShape", &buf, v0, uv0, n0, t0, nullptr);
+			Assert::AreEqual(1, getBSGeometryMeshCount(nif, geom), L"Created with one slot");
+
+			Assert::AreEqual(1, addBSGeometryMesh(nif, geom, v1, 3, t1, 1, uv0, n0),
+				L"Added slot 1");
+			Assert::AreEqual(2, addBSGeometryMesh(nif, geom, v1, 3, t1, 1, uv0, n0),
+				L"Added slot 2");
+			Assert::AreEqual(3, getBSGeometryMeshCount(nif, geom), L"Three slots");
+
+			Assert::AreEqual(1, setBSGeometryMeshName(nif, geom, 0, "lodtest\\lod0"));
+			Assert::AreEqual(1, setBSGeometryMeshName(nif, geom, 1, "lodtest\\lod1"));
+			Assert::AreEqual(1, setBSGeometryMeshName(nif, geom, 2, "lodtest\\lod1"));
+
+			// Skin once (shared bone list), then weight each slot's own vertices.
+			Assert::AreEqual(1, skinBSGeometry(nif, geom, "C_Head\nC_Neck", 2, 1));
+			for (int slot = 0; slot < 3; slot++) {
+				Assert::AreEqual(1, setBSGeometryWeightsPerVertex(nif, geom, slot, 1),
+					L"Sized this slot's weights");
+				int nv = (slot == 0) ? 4 : 3;
+				for (int v = 0; v < nv; v++) {
+					uint8_t bid = (uint8_t)(slot == 0 ? 0 : 1); float w = 1.0f;
+					Assert::AreEqual(1, setBSGeometryVertWeights(nif, geom, v, &bid, &w, 1));
+				}
+			}
+			selectBSGeometryMesh(nif, geom, 0);
+			Assert::AreEqual(1, updateBSGeometrySkinBounds(nif, geom));
+
+			std::filesystem::path outNif = testRoot / "Out/CreateStarfieldLODSlots.nif";
+			Assert::AreEqual(0, saveNif(nif, outNif.u8string().c_str()), L"Saved NIF");
+			std::string mesh[3];
+			for (int slot = 0; slot < 3; slot++) {
+				int n = saveBSGeometryMeshData(nif, geom, slot, nullptr, 0);
+				Assert::IsTrue(n > 0, L"Slot serializes");
+				mesh[slot].resize(n);
+				saveBSGeometryMeshData(nif, geom, slot, &mesh[slot][0], n);
+			}
+
+			void* rNif = load(outNif.u8string().c_str());
+			void* rShapes[2]; Assert::AreEqual(1, getShapes(rNif, rShapes, 2, 0));
+			void* rGeom = rShapes[0];
+			Assert::AreEqual(3, getBSGeometryMeshCount(rNif, rGeom), L"Three slots reload");
+			char path[64];
+			getBSGeometryMeshPath(rNif, rGeom, 0, path, 64);
+			Assert::AreEqual("lodtest\\lod0", path);
+			getBSGeometryMeshPath(rNif, rGeom, 1, path, 64);
+			Assert::AreEqual("lodtest\\lod1", path);
+			getBSGeometryMeshPath(rNif, rGeom, 2, path, 64);
+			Assert::AreEqual("lodtest\\lod1", path, L"Slots 1 and 2 share a .mesh");
+
+			Vector3 rv[8];
+			for (int slot = 0; slot < 3; slot++) {
+				Assert::AreEqual(1, loadBSGeometryMeshData(rNif, rGeom, slot,
+					mesh[slot].data(), (int)mesh[slot].size()));
+				int nv = (slot == 0) ? 4 : 3;
+				Assert::AreEqual(nv, getVertsForShape(rNif, rGeom, rv, 8 * 3, 0),
+					L"Slot keeps its own vertex count");
+				Assert::AreEqual(slot == 0 ? 4 : 0, getShapeBoneWeightsCount(rNif, rGeom, 0),
+					L"Bone 0 weights only slot 0");
+				Assert::AreEqual(slot == 0 ? 0 : 3, getShapeBoneWeightsCount(rNif, rGeom, 1),
+					L"Bone 1 weights only slots 1 and 2");
+			}
+		}
+
 		TEST_METHOD(LoadAndStoreFO4)
 		{
 			/* UNIT TEST: Can load a nif and read info out of it */

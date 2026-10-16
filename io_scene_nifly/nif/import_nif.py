@@ -1444,19 +1444,45 @@ class NifImporter():
 
     def import_shape(self, the_shape: P.NiShape):
         """ Import the shape to a Blender object, translating bone names if requested
-            
+
         * self.objects_created = List of objects created, extended with objects associated
           with this shape. Might be more than one because of extra data nodes.
         * self.loaded_meshes = List of Blender objects created that represent meshes,
           extended with this shape.
         * self.nodes_loaded = Dictionary mapping blender name : P.NiShape from nif
+
+        A Starfield BSGeometry becomes one mesh object per distinct .mesh among its LOD
+        slots, all under the shape's container Empty. LOD0 carries the material, extra data,
+        collision and animation; the other LODs share its material and are hidden.
         """
+        if not isinstance(the_shape, P.BSGeometry):
+            self._import_shape_lod(the_shape)
+            return
+        from . import sf_geometry
+        lod0 = container = None
+        for slots in sf_geometry.lod_groups(the_shape):
+            obj, empty = self._import_shape_lod(the_shape, slots, lod0, container)
+            if lod0 is None:
+                lod0, container = obj, empty
+            if obj is None or container is None:
+                break
+        # Later passes read the shape's geometry; they mean LOD0.
+        if not the_shape.is_internal_geom:
+            the_shape.select_mesh(0)
+
+
+    def _import_shape_lod(self, the_shape: P.NiShape, slots=(0,), lod0=None, container=None):
+        """Import one Blender object for the_shape: the whole shape, or for a Starfield
+        BSGeometry the LOD `slots` that share one .mesh. `lod0` and `container` are the
+        BSGeometry's LOD0 object and container Empty, None while importing LOD0 itself.
+        Returns (object, container Empty), or (None, None) if the import failed."""
+        new_object = None
         try:
             # Starfield: geometry lives in an external .mesh; resolve + load it so verts/
             # tris/uvs/normals/weights are available before the normal build reads them.
             if isinstance(the_shape, P.BSGeometry):
                 from . import sf_geometry
-                sf_geometry.load_geometry(the_shape, 0)
+                sf_geometry.load_geometry(the_shape, slots[0])
 
             v = the_shape.verts
             t = the_shape.tris
@@ -1484,7 +1510,7 @@ class NifImporter():
             # can round-trip the geometry back to its source .mesh (not recoverable from mesh).
             if isinstance(the_shape, P.BSGeometry):
                 from . import sf_geometry
-                sf_geometry.record_geometry_props(new_object, the_shape, 0)
+                sf_geometry.record_geometry_props(new_object, the_shape, slots[0])
             try:
                 new_object["pynNodeFlags"] = NiAVFlags(the_shape.flags).fullname
                 if the_shape.properties.vertexDesc:
@@ -1503,7 +1529,10 @@ class NifImporter():
             BD.mesh_create_uv(new_object.data, the_shape.uvs)
 
             if not self.settings.mesh_only:
-                self.objects_created.add(ReprObject(new_object, the_shape))
+                # objects_created maps each nif block to ONE object -- animation targets and
+                # node lookups go through it -- so a shape's further LODs stay out of it.
+                if lod0 is None:
+                    self.objects_created.add(ReprObject(new_object, the_shape))
 
                 parent = self.import_node_parents(None, the_shape)
 
@@ -1527,7 +1556,18 @@ class NifImporter():
             if the_shape.normals:
                 mesh_create_normals(new_object.data, the_shape.normals)
 
-            if not self.settings.mesh_only:
+            if not self.settings.mesh_only and lod0 is not None:
+                # A further LOD of a Starfield shape: the block's material, extra data,
+                # collision and animation came in with LOD0.
+                if lod0.active_material:
+                    new_object.data.materials.append(lod0.active_material)
+                new_object.display_type = lod0.display_type
+                for k in (PYN_GAME_PROP, PYN_BLENDER_XF_PROP, PYN_RENAME_BONES_PROP,
+                          PYN_RENAME_BONES_NIFTOOLS_PROP):
+                    if k in lod0:
+                        new_object[k] = lod0[k]
+
+            elif not self.settings.mesh_only:
                 shader_io.ShaderImporter().import_material(new_object, the_shape, BD.asset_path)
                 if not new_object.active_material:
                     new_object.display_type = 'WIRE'
@@ -1563,33 +1603,48 @@ class NifImporter():
             # representation is (block container Empty) -> (one mesh child per LOD),
             # uniform for single- and multi-LOD shapes.
             if isinstance(the_shape, P.BSGeometry):
-                self._wrap_bsgeometry(new_object, the_shape)
+                if container is None:
+                    container = self._wrap_bsgeometry(new_object, the_shape, slots)
+                else:
+                    self._name_lod_child(new_object, the_shape, slots)
+                    for k in ('pynNodeName', 'pynNodeFlags', 'pynVertexDesc',
+                              'pynSkinInstanceType', 'pynBlockName'):
+                        if k in new_object:
+                            del new_object[k]
+                    new_object.parent = container
+                    new_object.hide_set(True)
 
         except Exception as e:
             log.exception(f"Error importing shape {the_shape.name}: {e}")
+            return None, None
+        return new_object, container
 
 
-    def _wrap_bsgeometry(self, mesh_obj, the_shape):
+    def _name_lod_child(self, mesh_obj, the_shape, slots):
+        """Name a Starfield mesh object for the LOD slots it fills ('<shape>:LOD1-2'), keeping
+        nodes_loaded (keyed by object name) in sync. Export reads the slots back off the name."""
+        from . import sf_geometry
+        base_name = the_shape.name or the_shape.blockname
+        old_name = mesh_obj.name
+        mesh_obj.name = base_name + sf_geometry.lod_suffix(list(slots))
+        if old_name in self.nodes_loaded:
+            del self.nodes_loaded[old_name]
+        self.nodes_loaded[mesh_obj.name] = the_shape
+
+
+    def _wrap_bsgeometry(self, mesh_obj, the_shape, slots=(0,)):
         """Insert a BSGeometry Empty as the block container above an imported SF mesh.
 
         The Empty owns the block-level metadata (name, flags, skin-instance type); the mesh
-        child keeps its geometry, weights, material, and per-LOD pyn_sf_geometry group. We
-        currently import LOD slot 0, but the Empty is created even for a single LOD so the
-        structure (and export) is uniform. Transform-transparent: the Empty sits at identity
+        child keeps its geometry, weights, material, and per-LOD pyn_sf_geometry group. Further
+        LODs are parented to it as they import. The Empty is created even for a single LOD so
+        the structure (and export) is uniform. Transform-transparent: the Empty sits at identity
         relative to the mesh's parent (matrix_parent_inverse stays identity on direct parent
         assignment), so the child's world transform -- set later by set_object_xf /
         set_parent_arma -- is unchanged.
         """
         base_name = the_shape.name or the_shape.blockname
-        slot = mesh_obj.pyn_sf_geometry.lod_slot
-
-        # Rename the mesh to its LOD-child name, keeping nodes_loaded (keyed by object name)
-        # in sync.
-        old_name = mesh_obj.name
-        mesh_obj.name = f"{base_name}:LOD{slot}"
-        if old_name in self.nodes_loaded:
-            del self.nodes_loaded[old_name]
-        self.nodes_loaded[mesh_obj.name] = the_shape
+        self._name_lod_child(mesh_obj, the_shape, slots)
 
         # Flag the container Empty with the block type, matching the extra-data/marker naming
         # convention ("<BlockType>:<name>"), so the outliner shows what it is. The prefix is

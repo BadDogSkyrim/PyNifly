@@ -745,6 +745,73 @@ def TEST_SF_SKIN_EXPORT():
     assert len(w0) == len(verts), f"Every vertex weighted to bone 0: {len(w0)} vs {len(verts)}"
 
 
+def TEST_SF_LOD_SLOTS():
+    """Starfield LOD slots (pyn layer): copy a vanilla crowd head's four slots into a new
+    BSGeometry -- slot 0 from createShapeFromData, the rest from add_mesh, slots 1 and 2
+    sharing one .mesh as vanilla does (ABBC) -- weight each slot from its source, save, and
+    reload. Each slot keeps its own geometry and weights under the one shared bone list."""
+    srcnif = NifFile(os.path.join(
+        TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'female',
+        'crowd_female_af_md1.nif'))
+    src = srcnif.shapes[0]
+    paths = src.mesh_paths()
+    assert len(paths) == 4 and paths[1] == paths[2] and len(set(paths)) == 3, \
+        f"Fixture is the ABBC pattern: {paths}"
+    bones = list(src.bone_names)
+
+    slots = []
+    for slot, p in enumerate(paths):
+        with open(os.path.join(TT.SF_ASSETS, 'geometries', p + '.mesh'), 'rb') as f:
+            assert src.load_mesh(f.read(), slot), f"Loaded source slot {slot}"
+        perv = [[] for _ in src.verts]
+        for bi, bn in enumerate(src.bone_names):
+            for vi, w in src.bone_weights[bn]:
+                perv[vi].append((bi, w))
+        slots.append(dict(verts=list(src.verts), tris=list(src.tris), uvs=list(src.uvs),
+                          normals=list(src.normals), weights=perv))
+    assert [len(s['verts']) for s in slots] == [4179, 1022, 1022, 806], \
+        f"Source vertex counts: {[len(s['verts']) for s in slots]}"
+
+    outfile = r"tests\Out\TEST_SF_LOD_SLOTS.nif"
+    names = [r"lodtest\lod0", r"lodtest\lod1", r"lodtest\lod1", r"lodtest\lod3"]
+    nif = NifFile()
+    nif.initialize('SF', outfile)
+    s0 = slots[0]
+    geom = nif.createShapeFromData("CrowdHead", s0['verts'], s0['tris'], s0['uvs'],
+                                   s0['normals'], parent=nif.root)
+    for slot, s in enumerate(slots[1:], start=1):
+        assert geom.add_mesh(s['verts'], s['tris'], s['uvs'], s['normals']) == slot, \
+            f"add_mesh returns slot {slot}"
+    assert geom.mesh_count == 4, f"Four slots: {geom.mesh_count}"
+    for slot, name in enumerate(names):
+        geom.set_mesh_name(name, slot)
+
+    geom.skin_bones(bones, 4)
+    for slot, s in enumerate(slots):
+        geom.set_weights_per_vertex(4, slot)
+        for vi, pairs in enumerate(s['weights']):
+            geom.set_vert_weights(vi, [b for b, _ in pairs], [w for _, w in pairs], slot)
+    geom.select_mesh(0)
+    geom.update_skin_bounds()
+
+    nif.save()
+    mesh_bytes = [geom.save_mesh(slot) for slot in range(4)]
+    assert mesh_bytes[1] == mesh_bytes[2], "Shared slots serialize identically"
+
+    rnif = NifFile(outfile)
+    rgeom = rnif.shapes[0]
+    assert rgeom.mesh_paths() == names, f"Slot paths round-trip: {rgeom.mesh_paths()}"
+    assert list(rgeom.bone_names) == bones, "One shared bone list"
+    for slot, s in enumerate(slots):
+        assert rgeom.load_mesh(mesh_bytes[slot], slot), f"Reloaded slot {slot}"
+        assert len(rgeom.verts) == len(s['verts']), \
+            f"Slot {slot} vertex count: {len(rgeom.verts)} vs {len(s['verts'])}"
+        assert len(rgeom.tris) == len(s['tris']), f"Slot {slot} triangle count"
+        weighted = {vi for bn in rgeom.bone_names for vi, w in rgeom.bone_weights[bn] if w > 0}
+        assert len(weighted) == len(s['verts']), \
+            f"Slot {slot}: every vertex weighted ({len(weighted)} of {len(s['verts'])})"
+
+
 def TEST_SF_SKINNED_STRUCTURE():
     """Starfield skinned-body EXPORT structure: the several non-obvious hard requirements the
     engine + Creation Kit impose on an authored skinned BSGeometry, each of which produced a
@@ -840,11 +907,16 @@ def TEST_SF_SKIN_BIND():
     with open(r"tests\SF\body_skinned.mesh", "rb") as f:
         geom.load_mesh(f.read(), 0)
 
-    # Name-based lookup fails for SF (no NiNode boneRefs) ...
-    assert geom.get_shape_skin_to_bone(geom.bone_names[0]) is None, \
-        "Name-based skin-to-bone returns None for Starfield"
+    # The name-based lookup goes through the bone's index (there are no NiNode boneRefs to
+    # walk), so it answers the same as the index lookup. Import code asks by name -- the
+    # armature check a shape's second LOD goes through did, and got None.
+    by_name = geom.get_shape_skin_to_bone(geom.bone_names[3])
+    by_index = geom.get_shape_skin_to_bone_by_index(3)
+    assert by_name is not None and tuple(by_name.translation) == tuple(by_index.translation), \
+        "Name-based skin-to-bone matches the index lookup for Starfield"
+    assert geom.get_shape_skin_to_bone("NoSuchBone") is None, "Unknown bone gives None"
 
-    # ... but the index-based accessor returns a real transform for every bone.
+    # The index-based accessor returns a real transform for every bone.
     found = 0
     for i in range(len(geom.bone_names)):
         xf = geom.get_shape_skin_to_bone_by_index(i)

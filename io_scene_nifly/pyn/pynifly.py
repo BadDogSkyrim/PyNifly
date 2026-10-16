@@ -4990,6 +4990,20 @@ class BSGeometry(NiShape):
             self.file._handle, self._handle, slot, name.encode('utf-8'))
         self._invalidate_geometry()
 
+    def add_mesh(self, verts, tris, uvs=None, normals=None):
+        """Add a LOD slot filled from this geometry, the way createShapeFromData fills slot 0.
+        Returns the new slot's index, which is left selected. Set its meshName, colors and
+        weights with the slot-taking setters; the skin's bone list is shared by every slot."""
+        n = len(verts)
+        vbuf = (c_float * 3 * n)(*[tuple(v) for v in verts])
+        tbuf = (c_uint16 * 3 * len(tris))(*[tuple(t) for t in tris])
+        ubuf = (c_float * 2 * n)(*[tuple(u) for u in uvs]) if uvs else None
+        nbuf = (c_float * 3 * n)(*[tuple(v) for v in normals]) if normals else None
+        slot = nifly.addBSGeometryMesh(self.file._handle, self._handle, vbuf, n,
+                                       tbuf, len(tris), ubuf, nbuf)
+        self._invalidate_geometry()
+        return slot
+
     def set_mesh_tangents(self, tangents, tangent_ws=None, slot=0):
         """Set per-vertex tangents for LOD slot `slot`. tangents = [(x,y,z)...]; tangent_ws =
         the 2-bit bitangent-sign W of each tangent (1 or 3), defaulting to 1 if omitted."""
@@ -5023,14 +5037,35 @@ class BSGeometry(NiShape):
                              weights_per_vertex)
         self._invalidate_geometry()
 
+    def get_shape_skin_to_bone(self, bone_name):
+        """The bind (skin-to-bone) transform for `bone_name`, or None if the shape doesn't use
+        it. Starfield keys binds by position in the bone list and has no NiNode boneRefs for
+        the generic name lookup to walk, so go through the bone's index."""
+        try:
+            i = list(self.bone_names).index(bone_name)
+        except ValueError:
+            return None
+        return self.get_shape_skin_to_bone_by_index(i)
+
     def set_bone_bind(self, bone_index, xform: TransformBuf):
         """Set the skin-to-bone (bind) transform for the bone at `bone_index` (SkinAttach
         order). Pass the bind in game units; the DLL divides translation by havokScale."""
         nifly.setBSGeometryBoneBind(self.file._handle, self._handle, bone_index, xform)
 
-    def set_vert_weights(self, vert_index, bone_indices, weights):
+    def set_weights_per_vertex(self, weights_per_vertex, slot=0):
+        """Prepare LOD slot `slot` for weights: select it, set how many influences its .mesh
+        stores per vertex, and zero its weights. skin_bones() does this for the selected slot;
+        call this for each further slot before its set_vert_weights()."""
+        nifly.setBSGeometryWeightsPerVertex(self.file._handle, self._handle, slot,
+                                            weights_per_vertex)
+        self._invalidate_geometry()
+
+    def set_vert_weights(self, vert_index, bone_indices, weights, slot=None):
         """Set the bone weights for one vertex. bone_indices index the shape's bone list
-        (SkinAttach order); weights are floats (nifly normalizes + quantizes into the .mesh)."""
+        (SkinAttach order); weights are floats (nifly normalizes + quantizes into the .mesh).
+        Writes to the selected LOD slot, or to `slot` if given (which then stays selected)."""
+        if slot is not None:
+            nifly.selectBSGeometryMesh(self.file._handle, self._handle, slot)
         n = len(bone_indices)
         bbuf = (c_uint8 * n)(*bone_indices)
         wbuf = (c_float * n)(*weights)

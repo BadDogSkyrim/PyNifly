@@ -350,6 +350,11 @@ nifly.saveBSGeometryMeshData.argtypes = [c_void_p, c_void_p, c_int, c_char_p, c_
 nifly.saveBSGeometryMeshData.restype = c_int
 nifly.setBSGeometryMeshName.argtypes = [c_void_p, c_void_p, c_int, c_char_p]
 nifly.setBSGeometryMeshName.restype = c_int
+nifly.addBSGeometryMesh.argtypes = [c_void_p, c_void_p, c_void_p, c_int, c_void_p, c_int,
+                                    c_void_p, c_void_p]
+nifly.addBSGeometryMesh.restype = c_int
+nifly.setBSGeometryWeightsPerVertex.argtypes = [c_void_p, c_void_p, c_int, c_int]
+nifly.setBSGeometryWeightsPerVertex.restype = c_int
 nifly.setBSGeometryTangents.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_void_p, c_int]
 nifly.setBSGeometryTangents.restype = c_int
 nifly.setBSGeometryColors.argtypes = [c_void_p, c_void_p, c_int, c_void_p, c_int]
