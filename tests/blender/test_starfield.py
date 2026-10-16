@@ -491,6 +491,16 @@ def TEST_SF_PARAMS():
     assert abs(tint[0] - 0.9) < 1e-4 and abs(tint[1] - 0.1) < 1e-4 and abs(tint[2] - 0.1) < 1e-4, \
         f"Emissive tint recovered: {tint}"
 
+    # The emissive component computes the emission itself: the layer's Emissive goes in, the
+    # tinted colour and the strength (0 unless Emissive Enable) come out to the Principled.
+    assert TT.is_true(em.inputs["Emissive"].is_linked, "layer Emissive feeds the component")
+    bsdf = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    for bsdf_in, out in (('Emission Color', "Emissive Color"),
+                         ('Emission Strength', "Emissive Strength")):
+        lk = bsdf.inputs[bsdf_in].links[0]
+        assert TT.is_eq((lk.from_node, lk.from_socket.name), (em, out),
+                        f"{bsdf_in} comes from the emissive component's {out}")
+
     # Shader-model identity is a string -> a material custom property.
     assert mat[SF_SHADER_MODEL_PROP] == "BodySkin2Layer", \
         f"Shader-model identity kept: {mat.get(SF_SHADER_MODEL_PROP)!r}"

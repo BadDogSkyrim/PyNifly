@@ -70,8 +70,12 @@ def _wire_translucency(gin, gout, ng):
 
 
 def _wire_emissive(gin, gout, ng):
+    """The component's own semantics, so its inputs drive the preview live: the layer's emissive
+    colour times the tint, at strength 1 when Emissive Enable is on and 0 when it is off."""
+    m = make_mixnode(ng, gin.outputs["Emissive"], gin.outputs["Emissive Tint"],
+                     output=gout.inputs["Emissive Color"], location=(0, 0))
+    m.label = "Emissive x tint"
     ng.links.new(gin.outputs["Emissive Enable"], gout.inputs["Emissive Strength"])
-    ng.links.new(gin.outputs["Emissive Tint"], gout.inputs["Emissive Tint Out"])
 
 
 def _wire_alpha(gin, gout, ng):
@@ -170,10 +174,11 @@ def _wire_eye(gin, gout, ng):
     ng.links.new(gin.outputs["Iris Depth Transition"], gout.inputs["Iris Radius"])
 
 
-_SF_COMPONENT_VERSION = 5 # 2: the eye settings output their iris radius
+_SF_COMPONENT_VERSION = 6 # 2: the eye settings output their iris radius
                             # 3: the alpha settings hold their vertex-color source
                             # 4: the alpha settings compute the alpha (Opacity in, Alpha Out)
                             # 5: ... and take the vertex channel as an input (Vertex Color)
+                            # 6: the emissive settings compute the emission (Emissive in)
 _SF_COMPONENTS = {
     'translucency': {
         'group': 'SF TranslucencySettings',
@@ -194,8 +199,9 @@ _SF_COMPONENTS = {
             ("Emissive Tint",   'NodeSocketColor', (1., 1., 1., 1.), 'tint'),
             ("Blend Mode",      None,              '',              'blender_mode'),
         ],
-        'outputs': [("Emissive Strength", 'NodeSocketFloat'),
-                    ("Emissive Tint Out", 'NodeSocketColor')],
+        'inputs': [("Emissive", 'NodeSocketColor', (0., 0., 0., 1.), None)],
+        'outputs': [("Emissive Color", 'NodeSocketColor'),
+                    ("Emissive Strength", 'NodeSocketFloat')],
         'wire': _wire_emissive,
     },
     'alpha': {
@@ -2994,10 +3000,10 @@ class ShaderImporter:
 
         em = comp_nodes.get('emissive')
         if em is not None:
+            nt.links.new(o['Emissive'], em.inputs['Emissive'])
             ecol = bsdf.inputs.get('Emission Color') or bsdf.inputs.get('Emission')
             if ecol is not None:
-                make_mixnode(nt, o['Emissive'], em.outputs['Emissive Tint Out'], output=ecol,
-                             factor=1.0, blend_type='MULTIPLY', location=(bx - 300, -150))
+                nt.links.new(em.outputs['Emissive Color'], ecol)
             if 'Emission Strength' in bsdf.inputs:
                 nt.links.new(em.outputs['Emissive Strength'], bsdf.inputs['Emission Strength'])
 
