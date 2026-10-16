@@ -812,6 +812,34 @@ def TEST_SF_LOD_SLOTS():
             f"Slot {slot}: every vertex weighted ({len(weighted)} of {len(s['verts'])})"
 
 
+def TEST_SF_BONE_TRANSLATIONS():
+    """Starfield BoneTranslations: a crowd head's root 'BoneTrn', giving L_Eye and R_Eye relative
+    to C_Head in metres. Read vanilla's; write one onto a new nif's root and read it back."""
+    nif = NifFile(r"tests\SF\meshes\crowd_head_af_md1.nif")
+    bts = [e for e in nif.rootNode.extra_data() if e.blockname == 'BoneTranslations']
+    assert len(bts) == 1, f"Vanilla crowd head has one root BoneTranslations: {bts}"
+    bt = bts[0]
+    assert bt.name == 'BoneTrn', f"Named BoneTrn: {bt.name!r}"
+    tr = bt.translations
+    assert [b for b, _ in tr] == ['L_Eye', 'R_Eye'], f"Eye bones: {tr}"
+    for (b, v), want in zip(tr, [(0.0316, 0.0788, 0.0323), (0.0326, 0.0805, -0.0312)]):
+        assert all(abs(a - w) < 0.0001 for a, w in zip(v, want)), f"{b} = {v}, want {want}"
+
+    outfile = r"tests\Out\TEST_SF_BONE_TRANSLATIONS.nif"
+    out = NifFile()
+    out.initialize('SF', outfile)
+    entries = [('L_Eye', (0.04, 0.08, 0.03)), ('R_Eye', (0.04, 0.08, -0.03))]
+    BoneTranslations.New(out, name='BoneTrn', translations=entries, parent=out.rootNode)
+    out.save()
+
+    back = [e for e in NifFile(outfile).rootNode.extra_data() if e.blockname == 'BoneTranslations']
+    assert len(back) == 1 and back[0].name == 'BoneTrn', f"Written and named: {back}"
+    got = back[0].translations
+    assert [b for b, _ in got] == ['L_Eye', 'R_Eye'], f"Bone names round-trip: {got}"
+    assert all(abs(a - w) < 1e-6 for (_, v), (_, wv) in zip(got, entries) for a, w in zip(v, wv)), \
+        f"Values round-trip: {got}"
+
+
 def TEST_SF_SKINNED_STRUCTURE():
     """Starfield skinned-body EXPORT structure: the several non-obvious hard requirements the
     engine + Creation Kit impose on an authored skinned BSGeometry, each of which produced a

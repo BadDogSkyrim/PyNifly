@@ -455,7 +455,6 @@ def TEST_SF_NORMAL_GREEN():
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
-@TT.expect_errors(("Unknown block type: BoneTranslations",))  # crowd heads carry one; unread
 def TEST_SF_LOD_IMPORT():
     """Starfield: every LOD slot of a BSGeometry imports, one mesh child per distinct .mesh.
 
@@ -510,7 +509,6 @@ def _sf_slot_meshes(nif_path, shape):
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
-@TT.expect_errors(("Unknown block type: BoneTranslations",))
 def TEST_SF_LOD_ROUNDTRIP():
     """Starfield: a BSGeometry's LODs export back into ONE block with all its slots.
 
@@ -2003,6 +2001,96 @@ def TEST_SF_MATERIALS_FLAG_STICKY_NO_ROOT():
         "reads back sticky on the next export"
 
 
+def _crowd_head_with_markers():
+    """Import vanilla's male crowd head af_md1; return (LOD0 object, its armature, the
+    BoneTranslations Empty, {bone: marker})."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'male',
+                            'crowd_head_af_md1.nif')
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    lod0 = bpy.data.objects["crowd_head_af_md1:0:LOD0"]
+    arma = next(m.object for m in lod0.modifiers if m.type == 'ARMATURE')
+    block = bpy.data.objects.get("BoneTranslations:BoneTrn")
+    markers = {c.name.split(':', 1)[1]: c for c in block.children} if block else {}
+    return lod0, arma, block, markers
+
+
+def _bone_translations(nif_path):
+    nif = pyn.NifFile(nif_path)
+    bts = [e for e in nif.rootNode.extra_data() if e.blockname == 'BoneTranslations']
+    return {b.name: dict(b.translations) for b in bts}
+
+
+VANILLA_AF_MD1_EYES = {'L_Eye': (0.0316, 0.0788, 0.0323), 'R_Eye': (0.0326, 0.0805, -0.0312)}
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+def TEST_SF_BONETRANS_IMPORT():
+    """A crowd head's BoneTranslations imports as an Empty, 'BoneTranslations:BoneTrn', with a
+    marker per entry where that eye bone sits: C_Head moved by the entry. For a vanilla head the
+    block equals the binds, so each marker lands on the armature's own eye bone."""
+    lod0, arma, block, markers = _crowd_head_with_markers()
+    assert TT.is_true(block is not None, "the block imports as an Empty")
+    assert TT.is_true('pynRoot' in block.parent, "it hangs off the nif root")
+    assert TT.is_eq(sorted(markers), ['L_Eye', 'R_Eye'], "one marker per entry")
+    for nif_bone, marker in markers.items():
+        bone = next(b for b in arma.data.bones if b.name in (nif_bone, 'Eye.' + nif_bone[0]))
+        want = arma.matrix_world @ bone.head_local
+        got = marker.matrix_world.translation
+        assert TT.is_true((got - want).length < 0.01,
+                          f"{nif_bone} marker at the eye bone ({got[:]} vs {want[:]})")
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+def TEST_SF_BONETRANS_ROUNDTRIP():
+    """Export writes BoneTranslations from the Empty, into the plain nif and the facebones
+    companion alike (every vanilla companion carries it too), measured against the export
+    armature's C_Head. Moving a marker moves the value: up 1 cm is +0.01 on C_Head's x axis,
+    which points up."""
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_BONETRANS_ROUNDTRIP\meshes\crowdhead.nif",
+                            output=True)
+    outfile_fb = TTB.test_file(
+        r"tests\Out\TEST_SF_BONETRANS_ROUNDTRIP\meshes\crowdhead_faceBones.nif", output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    lod0, arma, block, markers = _crowd_head_with_markers()
+    arma.pyn_facebones = True             # a crowd head: the companion is a copy of the nif
+
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    for path in (outfile, outfile_fb):
+        bt = _bone_translations(path)
+        assert TT.is_eq(list(bt), ['BoneTrn'], f"{os.path.basename(path)} carries BoneTrn")
+        for bone, want in VANILLA_AF_MD1_EYES.items():
+            got = bt['BoneTrn'][bone]
+            assert TT.is_true(all(abs(a - w) < 0.0001 for a, w in zip(got, want)),
+                              f"{os.path.basename(path)} {bone} = {got}, vanilla {want}")
+
+    # Drag the left marker up 1 cm (in game units, HAVOC_SCALE_FACTOR per metre).
+    from io_scene_nifly.pyn.nifconstants import HAVOC_SCALE_FACTOR
+    m = markers['L_Eye'].matrix_world.copy()
+    m.translation.z += 0.01 * HAVOC_SCALE_FACTOR
+    markers['L_Eye'].matrix_world = m
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+    got = _bone_translations(outfile)['BoneTrn']['L_Eye']
+    want = VANILLA_AF_MD1_EYES['L_Eye']
+    assert TT.is_true(abs(got[0] - (want[0] + 0.01)) < 0.0002
+                      and abs(got[1] - want[1]) < 0.0002 and abs(got[2] - want[2]) < 0.0002,
+                      f"moving the marker up 1 cm moves L_Eye along C_Head's x: {got}")
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+def TEST_SF_BONETRANS_NONE():
+    """No Empty, no block: export never makes BoneTranslations up."""
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_BONETRANS_NONE.nif", output=True)
+    lod0, arma, block, markers = _crowd_head_with_markers()
+    for o in list(markers.values()) + [block]:
+        bpy.data.objects.remove(o)
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+    assert TT.is_eq(_bone_translations(outfile), {}, "no BoneTranslations written")
+
+
 def _face_rig(name, parent=None):
     """An armature of six faceBone_* bones -- enough for the name test to call it a face rig."""
     data = bpy.data.armatures.new(name + "Data")
@@ -2022,7 +2110,6 @@ def _face_rig(name, parent=None):
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
-@TT.expect_errors(("Unknown block type: BoneTranslations",))
 def TEST_SF_FACEBONES_FLAG_CROWD():
     """An armature marked as the facebones armature wins over one only the bone names point to,
     and a marked armature with no faceBone_* bones writes the companion the way vanilla crowd

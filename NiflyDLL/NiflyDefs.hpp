@@ -103,6 +103,7 @@ enum BUFFER_TYPES : uint16_t {
 	BSMultiBoundBufType,
 	BSMultiBoundOBBBufType,
 	NiIntegersExtraDataBufType,
+	BoneTranslationsBufType,
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {
@@ -529,6 +530,17 @@ struct NiIntegersExtraDataBuf {
 	uint16_t bufType = BUFFER_TYPES::NiIntegersExtraDataBufType;
 	uint32_t nameID = nifly::NIF_NPOS;
 	uint32_t integerCount = 0;
+};
+
+/* BoneTranslations -- Starfield. A list of (bone name, position): every vanilla crowd head
+carries one named 'BoneTrn' on its root, giving L_Eye and R_Eye relative to C_Head in metres, so
+the actor's eye bones sit where that face has its eyes. The entries are variable-length, so they
+travel through getBoneTranslationsData/setBoneTranslationsData; the buffer reports the count. */
+struct BoneTranslationsBuf {
+	uint16_t bufSize = sizeof(BoneTranslationsBuf);
+	uint16_t bufType = BUFFER_TYPES::BoneTranslationsBufType;
+	uint32_t nameID = nifly::NIF_NPOS;
+	uint32_t translationCount = 0;
 };
 
 struct BSBehaviorGraphExtraDataBuf {

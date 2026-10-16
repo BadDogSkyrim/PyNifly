@@ -5,6 +5,7 @@ Import of nif files to Blender
 import os
 from contextlib import suppress
 from mathutils import Matrix, Vector, Euler, Color
+from ..pyn.nifconstants import HAVOC_SCALE_FACTOR
 from math import pi
 import codecs
 import logging
@@ -744,6 +745,56 @@ class NifImporter():
         BD.link_to_collection(self.collection, ed)
 
 
+    def import_bone_translations(self, node, parent_obj, extblock):
+        """Starfield BoneTranslations: an Empty for the block, 'BoneTranslations:<name>', and a
+        marker Empty per entry, '<name>:<bone>', where that bone goes: C_Head moved by the
+        entry's offset (metres, in C_Head's frame). Every vanilla crowd head carries one for its
+        eyes. The markers are placed once the meshes are, in place_bone_translations."""
+        bpy.ops.object.add(radius=self.scale, type='EMPTY', location=self.next_loc())
+        ed = bpy.context.object
+        ed.name = "BoneTranslations:" + extblock.name
+        ed.show_name = True
+        ed.empty_display_type = 'SPHERE'
+        from . import pyn_props
+        pyn_props.set_group(ed, 'pyn_bonetrans', name=extblock.name)
+        ed.parent = parent_obj
+        self.objects_created.add(ReprObject(blender_obj=ed))
+        BD.link_to_collection(self.collection, ed)
+        if not hasattr(self, '_pending_bonetrans'):
+            self._pending_bonetrans = []
+        self._pending_bonetrans.append((ed, extblock.name, extblock.translations))
+
+
+    def place_bone_translations(self):
+        """Put the BoneTranslations markers where their bones go. The offsets are relative to
+        C_Head, so they need a shape skinned to C_Head to say where C_Head is."""
+        if not getattr(self, '_pending_bonetrans', None):
+            return
+        bpy.context.view_layer.update()
+        ref = next(((o, self.nodes_loaded[o.name]) for o in self.loaded_meshes
+                    if o.name in self.nodes_loaded
+                    and 'C_Head' in getattr(self.nodes_loaded[o.name], 'bone_names', [])), None)
+        for ed, name, entries in self._pending_bonetrans:
+            if ref:
+                obj, shape = ref
+                head = obj.matrix_world @ BD.apply_scale_xf(BD.bind_position(shape, 'C_Head'),
+                                                            self.scale)
+            else:
+                log.warning(f"{ed.name}: no shape in this nif is skinned to C_Head, so its "
+                            f"markers can't be placed relative to it; they sit at the Empty")
+                head = ed.matrix_world
+            for bone, v in entries:
+                m = bpy.data.objects.new(f"{name}:{bone}", None)
+                m.empty_display_type = 'SPHERE'
+                m.empty_display_size = 0.5 * self.scale
+                m.show_name = True
+                BD.link_to_collection(self.collection, m)
+                m.parent = ed
+                m.matrix_world = Matrix.Translation(
+                    head @ (Vector(v) * HAVOC_SCALE_FACTOR * self.scale))
+        self._pending_bonetrans = []
+
+
     def import_integers(self, node, parent_obj, extblock):
         """NiIntegersExtraData -- PLURAL, an array of uint32. Starfield's 'AnimationFlagExtra'
         sits on the BSGeometry shape this way. Values are kept as a comma-separated string for the
@@ -900,6 +951,7 @@ class NifImporter():
         'BSXFlags': import_bsx,
         'NiIntegerExtraData': import_integer,
         'NiIntegersExtraData': import_integers,
+        'BoneTranslations': import_bone_translations,
         'BSInvMarker': import_inventory_marker,
         'BSFurnitureMarkerNode': import_furniture_markers,
         'NiStringExtraData': import_stringdata,
@@ -2698,7 +2750,9 @@ class NifImporter():
 
             have_priors = (prior_shapes is not None and len(prior_shapes) > 0)
             self.loaded_meshes = []
+            self._pending_bonetrans = []
             self.import_nif(prior_shapes)
+            self.place_bone_translations()
             if self.settings.import_tris:
                 self.import_tris()
 

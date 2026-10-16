@@ -3074,6 +3074,94 @@ int addNiIntegersExtraData(void* nifref, const char* name, void* b, uint32_t par
     return hdr->AddBlock(std::move(intData));
 }
 
+/* BoneTranslations (Starfield) -- (bone name, position) pairs. A crowd head's 'BoneTrn' on the
+root gives L_Eye and R_Eye relative to C_Head, in metres. The count comes back in the buffer; the
+entries travel through the Data pair below. */
+int getBoneTranslations(void* nifref, uint32_t blockID, void* inbuf) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BoneTranslations* bt = hdr->GetBlock<BoneTranslations>(blockID);
+    BoneTranslationsBuf* buf = static_cast<BoneTranslationsBuf*>(inbuf);
+    if (!bt) {
+        niflydll::LogWrite("getBoneTranslations not passed a BoneTranslations block");
+        return 1;
+    }
+    CheckBuf(buf, BUFFER_TYPES::BoneTranslationsBufType, BoneTranslationsBuf);
+    buf->nameID = bt->name.GetIndex();
+    buf->translationCount = uint32_t(bt->translations.size());
+    return 0;
+}
+
+/* Fill `names` with the bone names joined by '\n' (NUL-terminated, cut to `namesLen`) and
+`trans` with up to `count` positions. Returns the full length of the joined names, so a caller
+can size the buffer with a first call. */
+NIFLY_API int getBoneTranslationsData(void* nifref, uint32_t blockID, char* names, int namesLen,
+                                      Vector3* trans, int count) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    BoneTranslations* bt = nif->GetHeader().GetBlock<BoneTranslations>(blockID);
+    if (!bt) {
+        niflydll::LogWrite("getBoneTranslationsData not passed a BoneTranslations block");
+        return 0;
+    }
+    std::string joined;
+    for (size_t i = 0; i < bt->translations.size(); i++) {
+        if (i) joined += '\n';
+        joined += bt->translations[i].bone.get();
+        if (trans && int(i) < count) trans[i] = bt->translations[i].trans;
+    }
+    if (names && namesLen > 0) {
+        int n = std::min(int(joined.size()), namesLen - 1);
+        memcpy(names, joined.data(), n);
+        names[n] = 0;
+    }
+    return int(joined.size());
+}
+
+/* Replace the block's entries: `count` bone names joined by '\n', and their positions. */
+NIFLY_API void setBoneTranslationsData(void* nifref, uint32_t blockID, const char* names,
+                                       Vector3* trans, int count) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    BoneTranslations* bt = nif->GetHeader().GetBlock<BoneTranslations>(blockID);
+    if (!bt) {
+        niflydll::LogWrite("setBoneTranslationsData not passed a BoneTranslations block");
+        return;
+    }
+    std::vector<std::string> bones;
+    std::string s(names ? names : "");
+    size_t start = 0;
+    while (int(bones.size()) < count) {
+        size_t nl = s.find('\n', start);
+        bones.push_back(s.substr(start, nl == std::string::npos ? std::string::npos : nl - start));
+        if (nl == std::string::npos) break;
+        start = nl + 1;
+    }
+    bt->translations.resize(count);
+    bt->numTranslations = uint32_t(count);
+    for (int i = 0; i < count; i++) {
+        bt->translations[i].bone.get() = (i < int(bones.size())) ? bones[i] : std::string();
+        bt->translations[i].trans = trans[i];
+    }
+}
+
+int addBoneTranslations(void* nifref, const char* name, void* b, uint32_t parent) {
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    BoneTranslationsBuf* buf = static_cast<BoneTranslationsBuf*>(b);
+    CheckBuf(buf, BUFFER_TYPES::BoneTranslationsBufType, BoneTranslationsBuf);
+
+    auto bt = std::make_unique<BoneTranslations>();
+    if (name) bt->name.get() = name;
+    // Entries are written afterwards by setBoneTranslationsData; size the list now.
+    bt->numTranslations = buf->translationCount;
+    bt->translations.resize(buf->translationCount);
+
+    if (parent != NIF_NPOS) {
+        NiAVObject* p = hdr->GetBlock<NiAVObject>(parent);
+        if (p) return nif->AssignExtraData(p, std::move(bt));
+    }
+    return hdr->AddBlock(std::move(bt));
+}
+
 int getInvMarker(void* nifref, uint32_t id, void* inbuf)
 /* 
 * Returns the InvMarker node data, if any. Assumes there is only one.
@@ -6910,6 +6998,7 @@ BlockGetterFunction getterFunctions[] = {
     getBSMultiBound, //BSMultiBoundBufType
     getBSMultiBoundOBB, //BSMultiBoundOBBBufType
     getNiIntegersExtraData, //NiIntegersExtraDataBufType
+    getBoneTranslations, //BoneTranslationsBufType
     nullptr //END
 };
 
@@ -7010,6 +7099,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSMultiBoundBufType (created via addBSMultiBound)
     nullptr, //BSMultiBoundOBBBufType (created via addBSMultiBoundOBB)
     nullptr, //NiIntegersExtraDataBufType (values set via setNiIntegersExtraDataValues)
+    nullptr, //BoneTranslationsBufType (entries set via setBoneTranslationsData)
     nullptr //END
 };
 
@@ -7109,6 +7199,7 @@ BlockCreatorFunction creatorFunctions[] = {
     addBSMultiBound, //BSMultiBoundBufType
     addBSMultiBoundOBB, //BSMultiBoundOBBBufType
     addNiIntegersExtraData, //NiIntegersExtraDataBufType
+    addBoneTranslations, //BoneTranslationsBufType
     nullptr //end
 };
 

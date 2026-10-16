@@ -2985,6 +2985,55 @@ class NiIntegersExtraData(NiExtraData):
         return block
 
 
+class BoneTranslations(NiExtraData):
+    """Starfield: (bone name, position) pairs on the root node.
+
+    Every vanilla crowd head carries one named 'BoneTrn' -- 102 of 102, and nothing else does --
+    giving L_Eye and R_Eye relative to C_Head, in metres, in C_Head's frame: where that face has
+    its eyes. The engine moves the actor's eye bones there; without it a crowd head's eyes are drawn
+    at the skeleton's eye bones (the European face's), off by up to a centimetre. Authored data:
+    PyNifly writes one only when Blender has it."""
+    buffer_type = PynBufferTypes.BoneTranslationsBufType
+
+    def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
+        super().__init__(handle=handle, file=file, id=id, properties=properties, parent=parent)
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return BoneTranslationsBuf(values)
+
+    @property
+    def translations(self):
+        """[(bone name, (x, y, z))], in file order."""
+        n = self.properties.translationCount
+        if not n:
+            return []
+        vbuf = (c_float * 3 * n)()
+        need = nifly.getBoneTranslationsData(self.file._handle, self.id, None, 0, vbuf, n)
+        names = create_string_buffer(need + 1)
+        nifly.getBoneTranslationsData(self.file._handle, self.id, names, need + 1, vbuf, n)
+        bones = names.value.decode('utf-8').split('\n')
+        return [(bones[i], (vbuf[i][0], vbuf[i][1], vbuf[i][2])) for i in range(n)]
+
+    @translations.setter
+    def translations(self, entries):
+        entries = list(entries)
+        vbuf = (c_float * 3 * len(entries))(*[tuple(v) for _, v in entries])
+        names = '\n'.join(b for b, _ in entries).encode('utf-8')
+        nifly.setBoneTranslationsData(self.file._handle, self.id, names, vbuf, len(entries))
+        self.properties.translationCount = len(entries)
+
+    @classmethod
+    def New(cls, file, name='', translations=None, parent=None):
+        translations = list(translations or [])
+        p = BoneTranslationsBuf()
+        p.translationCount = len(translations)
+        block = file.add_block(name, p, parent)
+        if translations:
+            block.translations = translations
+        return block
+
+
 class BSBehaviorGraphExtraData(NiExtraData):
     buffer_type = PynBufferTypes.BSBehaviorGraphExtraDataBufType
 

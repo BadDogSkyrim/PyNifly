@@ -194,6 +194,9 @@ extern "C" NIFLY_API void setIntegerExtraData(void* nifref, void* shaperef, char
 buffer, which only reports the count. */
 extern "C" NIFLY_API int getNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count);
 extern "C" NIFLY_API void setNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count);
+/* BoneTranslations (Starfield) entries -- bone names joined by '\n', plus one position each. */
+extern "C" NIFLY_API int getBoneTranslationsData(void* nifref, uint32_t blockID, char* names, int namesLen, nifly::Vector3* trans, int count);
+extern "C" NIFLY_API void setBoneTranslationsData(void* nifref, uint32_t blockID, const char* names, nifly::Vector3* trans, int count);
 
 // MOPP bytecode read
 extern "C" NIFLY_API int getCollMoppCodeLen(void* nifref, int blockID);

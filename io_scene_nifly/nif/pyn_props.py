@@ -606,6 +606,11 @@ _reg_extradata('PynIntsDataProps', 'pyn_niintsdata', 'NiIntegersExtraData',
                bpy.props.StringProperty(name='value', default='',
                                         description='Comma-separated integers'),
                legacy={})   # new in 28.0.0 -- no custom-property form to migrate from
+# Starfield BoneTranslations: the entries are the marker Empties under the block's Empty, so the
+# group only carries the block's name ('BoneTrn' on every vanilla crowd head).
+_register_handwired_group('PynBoneTransProps', 'pyn_bonetrans',
+                          {'name': bpy.props.StringProperty(name='name', default='')},
+                          'BoneTranslations', legacy={})
 _reg_extradata('PynStrDataProps', 'pyn_nistrdata', 'NiStringExtraData',
                bpy.props.StringProperty(name='value', default=''),
                legacy={'name': 'NiStringExtraData_Name', 'value': 'NiStringExtraData_Value'})

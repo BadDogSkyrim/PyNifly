@@ -98,11 +98,12 @@ class PynBufferTypes(IntEnum):
     BSMultiBoundBufType = 75
     BSMultiBoundOBBBufType = 76
     NiIntegersExtraDataBufType = 77
+    BoneTranslationsBufType = 78
     # Starfield BSGeometry. Python-only: the C++ getShape returns a plain NiShapeBuf for a
     # BSGeometry block (reading is name-based); this distinct value just keeps
     # register_subclasses from clobbering NiShapeBuf's buffer_types slot.
-    BSGeometryBufType = 78
-    COUNT = 79
+    BSGeometryBufType = 79
+    COUNT = 80
 
 
 class NiShaderBuf(pynStructure):
@@ -1745,6 +1746,21 @@ class NiIntegersExtraDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiIntegersExtraDataBufType
+
+class BoneTranslationsBuf(pynStructure):
+    """BoneTranslations (Starfield): (bone name, position) pairs. Every vanilla crowd head carries
+    one named 'BoneTrn' on its root, giving L_Eye and R_Eye relative to C_Head in metres. The
+    entries are variable-length, so this reports the count and BoneTranslations.translations
+    moves them."""
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("nameID", c_uint32),
+        ("translationCount", c_uint32),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.BoneTranslationsBufType
 
 class BSBehaviorGraphExtraDataBuf(pynStructure):
     _fields_ = [

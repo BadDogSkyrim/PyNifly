@@ -1363,6 +1363,49 @@ namespace NiflyDLLTests
 			delete[] verts; delete[] tris; delete[] uv; delete[] norms;
 		}
 
+		TEST_METHOD(StarfieldBoneTranslations)
+		{
+			/* UNIT TEST: Starfield BoneTranslations -- the root extra data a crowd head uses to
+			   put the eye bones where its face has its eyes. Read vanilla's, then write one onto
+			   a new nif's root, save, reload and read it back. */
+			void* van = load((testRoot / "SF/meshes/crowd_head_af_md1.nif").u8string().c_str());
+			int btID = getExtraData(van, 0, "BoneTranslations", nullptr, 0);
+			Assert::IsTrue(btID >= 0, L"Vanilla crowd head has a root BoneTranslations");
+			BoneTranslationsBuf buf;
+			Assert::AreEqual(0, getBlock(van, btID, &buf));
+			Assert::AreEqual(2u, buf.translationCount, L"Two entries");
+			char names[64];
+			Vector3 trans[2];
+			Assert::AreEqual(11, getBoneTranslationsData(van, btID, names, 64, trans, 2),
+				L"Names come back newline-separated, full length returned");
+			Assert::AreEqual("L_Eye\nR_Eye", names);
+			Assert::IsTrue(std::fabs(trans[0].x - 0.0316f) < 0.0001f
+				&& std::fabs(trans[0].y - 0.0788f) < 0.0001f
+				&& std::fabs(trans[1].z + 0.0312f) < 0.0001f, L"Vanilla values (metres)");
+
+			void* nif = createNif("SF", "NiNode", "Scene Root");
+			BoneTranslationsBuf nb;
+			nb.translationCount = 2;
+			int newID = addBlock(nif, "BoneTrn", &nb, 0);
+			Assert::IsTrue(newID > 0, L"Added a BoneTranslations to the root");
+			Vector3 outTrans[2] = { {0.04f, 0.08f, 0.03f}, {0.04f, 0.08f, -0.03f} };
+			setBoneTranslationsData(nif, newID, "L_Eye\nR_Eye", outTrans, 2);
+			std::filesystem::path outNif = testRoot / "Out/StarfieldBoneTranslations.nif";
+			Assert::AreEqual(0, saveNif(nif, outNif.u8string().c_str()));
+
+			void* rNif = load(outNif.u8string().c_str());
+			int rID = getExtraData(rNif, 0, "BoneTranslations", nullptr, 0);
+			Assert::IsTrue(rID >= 0, L"Reloaded root carries it");
+			BoneTranslationsBuf rb;
+			Assert::AreEqual(0, getBlock(rNif, rID, &rb));
+			Assert::AreEqual(2u, rb.translationCount);
+			char rNames[64];
+			Vector3 rTrans[2];
+			getBoneTranslationsData(rNif, rID, rNames, 64, rTrans, 2);
+			Assert::AreEqual("L_Eye\nR_Eye", rNames);
+			Assert::AreEqual(-0.03f, rTrans[1].z, L"Values round-trip");
+		}
+
 		TEST_METHOD(CreateStarfieldLODSlots)
 		{
 			/* UNIT TEST: a Starfield BSGeometry with several LOD slots. Create the shape (slot

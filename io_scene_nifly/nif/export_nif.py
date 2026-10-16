@@ -426,6 +426,7 @@ class NifExporter:
         self.str_data = set()
         self.int_data = set()
         self.ints_data = set()   # NiIntegersExtraData (plural -- an array of uint32)
+        self.bone_trans = set()  # Starfield BoneTranslations Empties (markers are children)
         self._matid_written = set()   # nif block ids that already got a MaterialID this export
         self.cloth_data = set()
         self.decal_data = set()
@@ -802,6 +803,9 @@ class NifExporter:
           are considered for export.
         """
         if obj in self.objects or obj in self.grouping_nodes: return
+        # A BoneTranslations marker is an entry of its block, written with it, never a node.
+        if obj.parent is not None and obj.parent.name.startswith("BoneTranslations:"):
+            return
 
         if obj.type == 'ARMATURE':
             self.add_armature(obj)
@@ -852,6 +856,9 @@ class NifExporter:
 
             elif obj.name.startswith("BSDecalPlacementVectorExtraData"):
                 self.decal_data.add(obj)
+
+            elif obj.name.startswith("BoneTranslations:"):
+                self.bone_trans.add(obj)
 
             elif obj.name.startswith("NiIntegersExtraData"):
                 self.ints_data.add(obj)
@@ -1122,6 +1129,37 @@ class NifExporter:
                 self._matid_written.add(parent.id)
 
 
+    def export_bone_translations(self):
+        """Starfield BoneTranslations, from its Empty: one entry per marker child, the marker's
+        position relative to the export armature's C_Head, in metres in C_Head's frame. Written
+        onto the root only when Blender has the Empty -- nothing is generated. Every vanilla crowd
+        head carries 'BoneTrn' for L_Eye and R_Eye; the facebones companion gets it too."""
+        if not self.bone_trans:
+            return
+        from . import pyn_props
+        from ..pyn.nifconstants import HAVOC_SCALE_FACTOR
+        arma = self.armature or self.facebones
+        head = next((b for b in arma.data.bones if self.nif_name(b.name) == 'C_Head'), None) \
+            if arma else None
+        for ed in self.bone_trans:
+            name = pyn_props.get_group(ed, 'pyn_bonetrans').name \
+                or BD.nonunique_name(ed.name).split(':', 1)[1]
+            if head is None:
+                log.warning(f"{ed.name}: its positions are relative to C_Head, and the export "
+                            f"armature has no C_Head bone; not writing BoneTranslations '{name}'")
+                continue
+            head_world = arma.matrix_world @ BD.get_bone_xform(
+                arma, head.name, self.game, False, self.settings.export_pose)
+            to_head = head_world.inverted()
+            entries = []
+            for m in sorted(ed.children, key=lambda c: c.name):
+                bone = BD.nonunique_name(m.name).split(':', 1)[-1]
+                local = to_head @ m.matrix_world.translation
+                entries.append((bone, tuple(c / (HAVOC_SCALE_FACTOR * self.scale) for c in local)))
+            pynifly.BoneTranslations.New(self.nif, name=name, translations=entries,
+                                         parent=self.nif.rootNode)
+
+
     def export_integers_data(self):
         """NiIntegersExtraData -- PLURAL, an ARRAY of uint32, attached like the singular block to
         whatever its Empty is parented to. Starfield's 'AnimationFlagExtra' rides on the BSGeometry
@@ -1235,6 +1273,7 @@ class NifExporter:
         self.export_cloth_data()
         self.export_decal_data()
         self.export_bsx_flag()
+        self.export_bone_translations()
         self.export_bone_lod()
         self.export_bound()
         self.export_inv_marker()
