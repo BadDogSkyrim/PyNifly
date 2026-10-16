@@ -1803,6 +1803,80 @@ def TEST_SF_RACECHECK_SKIN_FLAG_SLOT():
     assert TT.is_eq(fails(0, 0x40), [], "an unflagged addon isn't this check's business")
 
 
+def TEST_UV_TRANSFER_IMAGE_IO():
+    """uv_transfer reads the textures it's given and writes what it paints.
+
+    Starfield colour textures are sRGB block-compressed DDS, which Pillow refuses outright; the
+    blocks are the same as the plain formats, so the reader relabels them. 16-bit PNG output,
+    used for normals, is written by hand since Pillow can't write it."""
+    import numpy as np
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import uv_transfer as U
+
+    crowd = os.path.join(TT.SF_ASSETS, 'textures', 'actors', 'human', 'crowd')
+    color = U.load_image(os.path.join(crowd, 'crowd_af_md1_color.dds'))   # BC1 sRGB
+    assert TT.is_eq(color.shape[:2], (1024, 1024), "sRGB colour DDS read")
+    assert TT.is_true(0.05 < color[..., :3].mean() < 0.95, f"with real pixels: {color.mean():.3f}")
+    ao = U.load_image(os.path.join(crowd, 'crowd_af_md1_ao.dds'))
+    assert TT.is_eq(ao.shape, (1024, 1024, 1), "single-channel DDS read as one channel")
+
+    # 16-bit round trip: grey exactly (Pillow reads it at 16 bits), RGB to 8-bit precision.
+    os.makedirs(r"tests/Out", exist_ok=True)
+    ramp = (np.arange(64 * 64, dtype=np.float32) / (64 * 64 - 1)).reshape(64, 64, 1)
+    U.save_image(ramp, r"tests/Out/TEST_UV_TRANSFER_grey16.png", bits=16)
+    back = U.load_image(r"tests/Out/TEST_UV_TRANSFER_grey16.png")
+    assert TT.is_true(np.abs(back - ramp).max() < 1 / 65535 + 1e-7, "16-bit grey round trip")
+    rgb = np.concatenate([ramp, ramp[::-1], ramp[:, ::-1]], axis=-1)
+    U.save_image(rgb, r"tests/Out/TEST_UV_TRANSFER_rgb16.png", bits=16)
+    back = U.load_image(r"tests/Out/TEST_UV_TRANSFER_rgb16.png")
+    assert TT.is_true(np.abs(back - rgb).max() < 1 / 255 + 1e-6, "16-bit RGB round trip")
+
+    # Flat colours, and every part accounted for.
+    assert TT.is_eq(U.parse_flat('#ff8000'), (1.0, 128 / 255, 0.0), "flat colour")
+    assert TT.is_eq(U.parse_flat('#80'), (128 / 255,), "flat grey")
+    m = {'parts': np.array(['Head', 'Eye']), 'part': np.zeros(0, np.int16),
+         'tgt_uv': np.zeros((0, 3, 2)), 'src_uv': np.zeros((0, 3, 2))}
+    for textures, why in (({'Head': (1, 1, 1)}, "a part left out"),
+                          ({'Head': (1, 1, 1), 'Eye': (1, 1, 1), 'Ear': (1, 1, 1)}, "a stray part")):
+        try:
+            U.paint(m, textures, size=8)
+            assert False, f"{why} must be refused"
+        except ValueError:
+            pass
+
+
+def TEST_UV_TRANSFER_CLI_PAINT():
+    """`uv_transfer.py paint` paints from the command line even where a `bpy` module imports.
+
+    Bad Dog's Python has a stray `bpy` folder in site-packages, an empty namespace package. The
+    script took "bpy imports" to mean "running in Blender" and tried to build a map from the
+    Blender selection instead of painting."""
+    import subprocess
+    import numpy as np
+    scripts = os.path.join(os.path.dirname(os.getcwd()), 'scripts')
+    sys.path.insert(0, scripts)
+    import uv_transfer as U
+
+    work = os.path.abspath(r"tests/Out/TEST_UV_TRANSFER_CLI")
+    os.makedirs(os.path.join(work, 'bpy'), exist_ok=True)     # the stray namespace package
+    mp = os.path.join(work, 'one.uvmap.npz')
+    tri = np.array([[[0, 0], [1, 0], [0, 1]]], np.float64)
+    U.write_map(mp, {'parts': np.array(['Part']), 'part': np.zeros(1, np.int16),
+                     'tgt_uv': tri, 'src_uv': tri, 'target': np.array('Joined')})
+    out = os.path.join(work, 'painted.png')
+    if os.path.exists(out):
+        os.remove(out)
+
+    env = dict(os.environ, PYTHONPATH=work)
+    r = subprocess.run([sys.executable, os.path.join(scripts, 'uv_transfer.py'), 'paint',
+                        '--map', mp, '--out', out, '--part', 'Part=#ff0000', '--size', '8'],
+                       env=env, capture_output=True, text=True)
+    assert TT.is_eq(r.returncode, 0, f"paint ran: {r.stderr.strip()[-300:]}")
+    img = U.load_image(out)
+    assert TT.is_eq(tuple(np.round(img[7, 0, :3], 3)), (1.0, 0.0, 0.0),
+                    "the triangle's corner pixel is painted")
+
+
 def TEST_SF_RACECHECK_LOAD_ORDER():
     """sf_racecheck reads a whole load order, and the latest override of a record wins.
 
