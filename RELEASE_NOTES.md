@@ -1,31 +1,160 @@
+# PyNifly 30.0.0 Release Notes
+
+**hkxcmd is gone**
+
+PyNifly no longer ships or uses hkxcmd. All HKX import and export is native now. That's
+why this is a major version: HKX files that only hkxcmd could read no longer import (see
+below), and an armature from a skeleton nif now needs a reference skeleton to export
+animations.
+
+## Animation
+
+- **hkxcmd is no longer used or shipped.** HKX export was the last thing that needed it.
+  PyNifly reads and writes Skyrim LE/SE (hk_2010, binary or XML) and FO4 (hk_2014) HKX
+  files itself. Any other HKX version gives a clear error instead of going through
+  hkxcmd.
+
+- **Animations on an armature imported from a skeleton nif export natively** (#439).
+  These used to go through hkxcmd, which ignored XYZ (Euler) rotation keys, so every frame
+  came out with the same rotation. It also dropped the last frame and wrote unnamed tracks.
+  Now the animation exports against the armature's **Reference Skeleton** (an HKX
+  skeleton, Skyrim or FO4), with one track per skeleton bone. Bones the armature doesn't
+  have hold the skeleton's reference pose. The skeleton decides FO4 vs Skyrim; for Skyrim,
+  the LE/SE setting decides. If there's no reference skeleton, you get an error telling
+  you to set one. Alternatively, import the skeleton.hkx instead of the skeleton nif.
+
+- **The NIF importer's HKX skeleton file option reads .hkx natively**, and FO4 skeletons
+  work there now too.
+
+- **HKX import sets the scene frame rate to the animation's** (#386). Animations exported
+  at Blender's default 24 fps used to come out 25% long.
+
+- **Long HKX animations keep every frame** (#386). Animations over 256 frames were off by a
+  frame at each 256-frame block, with frozen frames at the block boundaries and the last
+  frames lost. Fixed on import and export.
+
+- **Skyrim HKX float tracks round-trip** (#386). Visibility and fade switches (hkVis,
+  hkFade) import as animated properties on the armature and export back.
+
+- **Animated scale in nif animations imports and exports** (#429), for objects and bones.
+  Nif scale is uniform; if the X, Y and Z scale differ, export warns and uses one value.
+  FO4 HKX already kept scale.
+
+## Starfield
+
+- **Meshes imported onto a selected armature line up with it.** Importing female hands
+  onto the body's armature, or eyes onto the head's, used to leave them slightly off
+  (hands a few degrees, eyes drawn toward the centre of the head). If you select nothing,
+  import works as before.
+
+- **Skeletons with added bones import in place, at normal size.** SF Extended Skeleton's
+  tail and ear bones came in at the origin, and then 70 times too long. Any converted
+  skeleton also drew enormous bone shapes in pose mode.
+
+- **Alpha settings can take opacity from vertex colors.** The alpha component's "use
+  vertex color" setting and its channel (red or alpha) are imported, previewed and
+  exported. The channel is whatever is plugged into the component's Vertex Color input.
+  Note: on a skin material this makes the whole shape invisible in game (see
+  `sf_racecheck` below). Use an opacity texture there.
+
+- **The alpha and emissive components drive the preview live.** The alpha component
+  computes the alpha (opacity, optionally times vertex color, alpha-tested against the
+  threshold). The emissive component computes the emission (emissive color times tint, on
+  only when Emissive Enable is set). Change their inputs and the viewport follows.
+
+- **A layer's textures are whatever is plugged into it.** Material export found textures
+  by tags it set on import, ignoring the wiring. So an image node you added and plugged
+  into a layer was left out of the .mat, and one you unplugged was still written. Now the
+  wiring decides, and an unplugged texture is removed from the material.
+
+- **A head part's morphs are written once.** A head part with a `_facebones` companion
+  wrote its morph.dat files twice, once for each nif.
+
+## General
+
+- **Effect shaders with the SPECULAR flag keep their material.** These imported with no
+  material at all and exported as lighting shaders. Now the shader and the flag
+  round-trip.
+
+- **"Import mesh only" imports the mesh's own data**: UVs, vertex colors, smooth shading
+  and custom normals. It still leaves out the armature, parenting, bone groups,
+  partitions, LOD groups, material, collision and animation.
+
+## Starfield Convenience Scripts
+
+*In github, not the kit*
+
+- **New: `uv_transfer.py`.** For when you join separate meshes (head, eyes, hands...) into
+  one and give it new UVs, e.g. for a crowd head. It maps the joined mesh's UVs back to
+  the original parts in Blender, then paints each part's textures into the new layout
+  outside Blender. It handles one texture type at a time and can fill a part with a flat
+  colour instead. Normal maps are rotated to follow each UV island. Faces that don't
+  match any part are selected in Blender so you can see them.
+
+- `sf_racecheck.py` has new checks that fail:
+    - hair and beard head parts whose mask (NAM3) isn't registered in the follicle mask
+      list, or points at a texture that isn't there. A .dds named like the mask does
+      nothing on its own.
+    - a material that exists neither as a loose file nor in the game's material database.
+    - an unskinned shape in a head-part or body nif.
+    - a skin material that takes opacity from vertex colors. The whole shape is invisible
+      on a character, even though the Creation Kit draws it.
+    - a skin addon whose Is Skin / Is Skin Hands flag doesn't match its slot. The flag
+      picks the skin-tone texture, so a tail flagged Is Skin Hands takes the hands' colour.
+    - The missing-phenotype-maps warning now names the missing files.
+
+- `sf_texconv.py` converts the rest of a texture set: `_opacity`, `_transmissive`,
+  `_height` and `_id` (BC4) and `_emissive` (BC1 sRGB). They used to be skipped silently.
+
+## PyNifly-level fixes
+
+*For script writers*
+
+- **`shape.textures` is writable** (#436). Assign a slot and it's written to the nif, for
+  lighting and effect shaders. An unknown slot raises KeyError. FO4 textures that come
+  from a material file are read-only (edit the material instead). `set_texture` still
+  works. Side fix: the lighting shader's Greyscale slot is now written; it was dropped.
+
+## Known limitations
+
+- **Skyrim HKX animated scale isn't supported.** FO4 HKX and nif animations keep scale.
+
+- **Path animation is still not imported**, and some vanilla FO4 precombined meshes still
+  crash on import (see 29.1.0).
+
+
 # PyNifly 29.1.0 Release Notes
 
 **Animated bones and animated collisions**
 
-Named animations that move bones now import and export. Vanilla banners, the FO4
+Named animations that move NiNode elements now import and export. Vanilla banners, the FO4
 animatronics, and anything else whose animation drives the bones of a skinned mesh used to
 come in with the animation dropped and a pile of "Target of controller not found"
 warnings. Re-import any of these you've worked on.
 
 ## Animation
 
-- **Animations on bones import onto the armature.** A nif's named animation (a
-  NiControllerManager sequence) that animates nodes built into an armature now lands on
-  the pose bones, and exports back into the same sequence the way vanilla files do.
+- **Animations on bones import as an armature.** A nif's named animation (a
+  NiControllerManager sequence) that moves NiNode elements assembles them into an armature
+  on import. Export re-creates the nodes from the armature bones, preserving round-trip
+  fidelity (cf. Skyrim's banners and FO4's animatrons).
 
-- **A manager's second animation starts from its own beginning**, not from wherever the
-  first one left off.
+- **A NiControllerManager's second animation starts from its own beginning**, not from
+  wherever the first one left off.
 
 - **Animated objects with collision play their animation.** The collision follows the
   object instead of pinning it in place. Static objects are unchanged, so physics previews
-  still work.
+  still work. Formerly, the collision would lock the animated object in place (cf. doors).
 
 ## Starfield
 
-- **Eyes preview correctly**: iris inside the iris radius, sclera outside, as the game
-  draws them.
+- **Eyes preview correctly**: Starfield has a special "eye" material that pulls the iris
+  from one texture, the sclera from aother - with the radius of the iris defined in the
+  material. Import now mimics this setup in Blender.
 
-## Scripts (in github, not the kit)
+## Starfield Convenience Scripts
+
+*In github, not the kit*
 
 - `sf_racecheck.py` no longer needs `--plugin`. Without it, it checks your whole active
   load order, so a plugin that only overrides a race defined somewhere else can be
@@ -33,11 +162,13 @@ warnings. Re-import any of these you've worked on.
 
 - `sf_texconv.py` handles `_metal` textures.
 
-## For script writers
+## PyNifly-level fixes 
+
+*For script writers*
 
 - **`NifFile.close()`**, or `with NifFile(path) as nif:`, frees a nif as soon as you're
   done with it. A dropped NifFile otherwise holds its memory until Python gets around to a
-  full garbage collection, which in a long-running script may be never.
+  full garbage collection, which in a long-running script may be never. 
 
 ## Known limitations
 
