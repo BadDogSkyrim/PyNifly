@@ -1977,6 +1977,146 @@ def TEST_UV_TRANSFER_CLI_PAINT():
                     "the triangle's corner pixel is painted")
 
 
+def _tintbake():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_tintbake
+    return sf_tintbake
+
+
+def TEST_SF_TINTBAKE_COMPOSITE():
+    """sf_tintbake lays tint layers over a skin tone the way the chargen face does.
+
+    A full-colour layer goes on by its own alpha -- what Bad Dog saw in game for
+    dermaesthetics. A mask blends one colour in by mask x intensity x the colour's alpha. A
+    layer at another resolution is resized to the skin tone's."""
+    import numpy as np
+    B = _tintbake()
+    base = np.full((4, 4, 3), 0.5, np.float32)
+    color = np.zeros((4, 4, 4), np.float32)
+    color[..., 0] = 1.0                    # red ...
+    color[0, :, 3] = 1.0                   # ... opaque on the top row
+    color[1, :, 3] = 0.25                  # ... a quarter on the next
+    out = B.composite(base, [(color, None, 1.0)])
+    assert TT.is_eq(tuple(out[0, 0]), (1.0, 0.0, 0.0), "opaque colour replaces")
+    assert TT.is_eq(tuple(np.round(out[1, 0], 4)), (0.625, 0.375, 0.375), "alpha blends")
+    assert TT.is_eq(tuple(out[3, 0]), (0.5, 0.5, 0.5), "zero alpha lets the tone through")
+
+    mask = np.zeros((2, 2, 1), np.float32)     # half-size: resized to the tone's 4x4
+    mask[...] = 1.0
+    out = B.composite(base, [(mask, (0.0, 0.0, 1.0, 0.5), 1.0)])
+    assert TT.is_eq(out.shape, (4, 4, 3), "a smaller layer is resized")
+    assert TT.is_eq(tuple(np.round(out[2, 2], 4)), (0.25, 0.25, 0.75),
+                    "a mask blends its colour by the colour's alpha")
+    out = B.composite(base, [(color, None, 1.0), (mask, (0.0, 0.0, 1.0, 1.0), 1.0)])
+    assert TT.is_eq(tuple(out[0, 0]), (0.0, 0.0, 1.0), "later layers paint over earlier ones")
+
+
+def TEST_SF_TINTBAKE_VARIANTS():
+    """sf_tintbake's variant space and its stable sample.
+
+    Every tone x every layer option x every eye colour, with the dermaesthetic's options taken
+    from the tone's own chargen filter. Option numbers are places in the race's own lists, so
+    excluding one doesn't renumber the rest. The sample keeps the names that hash lowest: the
+    same set every run, and a bigger space only swaps in names that hash lower."""
+    B = _tintbake()
+    opts = B.Options(tones=[('f0', 'h0'), ('f1', 'h1')],
+                     slots={'Complexion1': [('A', 'c1_color.dds'), ('B', 'c2_color.dds')],
+                            'ComplexionMask1': [('M', 'spots_mask.dds')]},
+                     derm=[[('x', 'd0_derm_color.dds')], [('y', 'd1a_color.dds'), ('z', 'd1b_color.dds')]],
+                     eyes=[('Dead', 'dead.dds'), ('Blue', 'blue.dds'), ('Green', 'green.dds')],
+                     stack=['Dermaesthetic', 'ComplexionMask1', 'Complexion1'])
+    r = {'_dir': os.getcwd(), 'eyes': {'code': 'e', 'exclude': ['dead']},
+         'layers': [{'slot': 'Dermaesthetic', 'code': 'd'},
+                    {'slot': 'Complexion1', 'code': 'c', 'optional': True}]}
+    space = B.variant_space(r, opts, [r"x\Crowd_Head_Fox_md1.nif"])
+    names = [v['name'] for v in space]
+    # tone 0: 1 derm x 3 complexions x 2 eyes; tone 1: 2 x 3 x 2
+    assert TT.is_eq(len(space), 6 + 12, "tone x layer options x eyes")
+    assert TT.is_true('Crowd_Head_Fox_md1_sk1_d2_c0_e3' in names, f"named by place: {names[:4]}")
+    assert TT.is_true(not any(n.endswith('_e1') for n in names), "an excluded eye is never used")
+    v = next(v for v in space if v['name'] == 'Crowd_Head_Fox_md1_sk0_d1_c2_e2')
+    assert TT.is_eq(v['layers'], [('Dermaesthetic', 'd0_derm_color.dds', None),
+                                  ('Complexion1', 'c2_color.dds', None)], "the layers it composites")
+    assert TT.is_eq(v['eye'], 'blue.dds', "its eye colour")
+    assert TT.is_true(not next(v for v in space if '_c0_' in v['name'])['layers'][1:],
+                      "'none' composites nothing")
+
+    r['layers'].append({'slot': 'ComplexionMask1', 'code': 'm', 'colors': ['#ff0000', '#00ff00']})
+    masked = B.variant_space(r, opts, [r"x\H.nif"])
+    assert TT.is_true(any(v['name'].endswith('_m1b_e2') for v in masked), "a mask x its colours")
+    r['layers'].pop()
+
+    first = B.pick(space, 5, seed=1)
+    assert TT.is_eq([v['name'] for v in B.pick(space, 5, seed=1)], [v['name'] for v in first],
+                    "the same sample every run")
+    assert TT.is_true([v['name'] for v in B.pick(space, 5, seed=2)] != [v['name'] for v in first],
+                      "another seed, another sample")
+    bigger = B.variant_space(r, opts, [r"x\Crowd_Head_Fox_md1.nif", r"x\Crowd_Head_Fox_md2.nif"])
+    kept = {v['name'] for v in B.pick(bigger, 5, seed=1)} & {v['name'] for v in first}
+    new = [v for v in B.pick(bigger, 5, seed=1) if v['name'] not in kept]
+    assert TT.is_true(all('_md2_' in v['name'] for v in new),
+                      "adding a head only swaps in some of the new head's variants")
+
+
+def TEST_SF_TINTBAKE_RETARGET_NIF():
+    """A variant nif is the crowd head's nif pointing at another material, and nothing else.
+
+    The material is named twice: a header string, and the shape's MaterialID, a CRC of the
+    path. The copy must carry both, and keep the rest -- skin, mesh path, BoneTrn -- intact."""
+    from pyn.sf_materials import material_id
+    B = _tintbake()
+    src = r"tests\SF\meshes\crowd_head_af_md1.nif"
+    old = B.nif_material(src)
+    assert TT.is_eq(old.lower(), r"materials\actors\human\crowd\crowd_af_md1.mat",
+                    "the head's material, from the header strings")
+    new = r"Materials\Actors\FSFFox\Crowd\Variants\Crowd_Head_Fox_md1_sk2_d1_c3_e5.mat"
+    dst = r"tests\Out\TEST_SF_TINTBAKE_RETARGET.nif"
+    B.retarget_nif(src, dst, old, new)
+
+    a, b = NifFile(src), NifFile(dst)
+    assert TT.is_eq(b.shapes[0].shader.name, new, "the shape names the new material")
+    ids = {ed.name: ed.integer_data for ed in b.shapes[0].extra_data()}
+    assert TT.is_eq(ids['MaterialID'], material_id(new), "MaterialID follows the path")
+    assert TT.is_eq(b.shapes[0].mesh_paths(), a.shapes[0].mesh_paths(), "same .mesh files")
+    assert TT.is_eq(b.shapes[0].bone_names, a.shapes[0].bone_names, "same skin")
+    bt = [e for e in b.rootNode.extra_data() if e.blockname == 'BoneTranslations']
+    assert TT.is_eq([n for n, _ in bt[0].translations], ['L_Eye', 'R_Eye'], "BoneTrn kept")
+    raw_a, raw_b = open(src, 'rb').read(), open(dst, 'rb').read()
+    assert TT.is_eq(len(raw_b) - len(raw_a), len(new) - len(old), "only the string changed size")
+
+
+def TEST_SF_TINTBAKE_MATERIAL():
+    """A variant material is the head's crowd material with another colour texture.
+
+    Its own objects get new res: ids in the same namespace, the way vanilla's crowd materials
+    differ from each other; references into the imported templates are left alone."""
+    import json
+    B = _tintbake()
+    src = os.path.join(TT.SF_ASSETS, 'materials', 'actors', 'human', 'crowd', 'Crowd_af_md1.mat')
+    with open(src, encoding='utf-8') as f:
+        doc = json.load(f)
+    fn = r"Materials\Actors\FSFFox\Crowd\Variants\V1.mat"
+    color = r"Data\Textures\Actors\FSFFox\crowd\variants\V1_color.dds"
+    out = B.derive_material(doc, fn, color)
+
+    assert TT.is_eq(out['Filename'], fn, "filename")
+    assert TT.is_eq(B.colour_texture(out), color, "colour texture swapped")
+    own = [o['ID'] for o in doc['Objects'] if 'ID' in o]
+    new = [o['ID'] for o in out['Objects'] if 'ID' in o]
+    assert TT.is_true(own and not set(own) & set(new), f"own ids renewed: {own} -> {new}")
+    assert TT.is_eq([i.split(':')[2:] for i in new], [i.split(':')[2:] for i in own],
+                    "in the same namespace")
+    text_in, text_out = json.dumps(doc), json.dumps(out)
+    refs = {t for t in text_in.split('"') if t.startswith('res:')} - set(own)
+    assert TT.is_true(refs and all(t in text_out for t in refs), "template references kept")
+    for i, o in zip(own, new):
+        assert TT.is_eq(text_in.count(i), text_out.count(o), f"every use of {i} follows it")
+    assert TT.is_true(B.derive_material(doc, fn, color) == out, "deterministic")
+    other = B.derive_material(doc, fn.replace('V1', 'V2'), color)
+    assert TT.is_true(not {o['ID'] for o in other['Objects'] if 'ID' in o} & set(new),
+                      "two variants don't share ids")
+
+
 def TEST_SF_RACECHECK_LOAD_ORDER():
     """sf_racecheck reads a whole load order, and the latest override of a record wins.
 
