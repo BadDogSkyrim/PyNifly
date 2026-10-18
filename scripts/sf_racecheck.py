@@ -29,6 +29,7 @@ Exit code is 1 if anything FAILed, so it can gate a build.
 """
 
 import argparse
+import collections
 import json
 import os
 import struct
@@ -1061,6 +1062,115 @@ def check_face_textures(rep, data, race, phenotypes, regions):
                   "building the kit."])
 
 
+# The stack of face tint slots, found by this name (chargen.md §4.3).
+STACK_TNAM = 'PostBlendFaceCustomizationLayers'
+
+
+def dds_dimensions(path):
+    """(width, height) from a DDS header, or None."""
+    try:
+        with open(path, 'rb') as f:
+            head = f.read(20)
+    except OSError:
+        return None
+    if len(head) < 20 or head[:4] != b'DDS ':
+        return None
+    height, width = struct.unpack_from('<2I', head, 12)
+    return width, height
+
+
+def face_option_groups(avm):
+    """The Simple groups whose textures the face composite can use: every slot the stack names,
+    and its Chargen_ twin (the list the creator offers), with Complex groups -- the per-tone
+    dermaesthetic filters -- opened up."""
+    stack = avm.get((AVM_COMPLEX, STACK_TNAM))
+    if stack is None:
+        return []
+    by_lower = {}
+    for (kind, name), g in avm.items():
+        by_lower.setdefault(name.lower(), []).append((kind, g))
+    out, seen = [], set()
+
+    def add(g, kind):
+        if g is None or id(g) in seen:
+            return
+        seen.add(id(g))
+        if kind == AVM_SIMPLE:
+            out.append(g)
+        elif kind == AVM_COMPLEX:
+            for lnam, vnam in complex_entries(g):
+                child = complex_target(lnam, vnam, avm)
+                if child is not None:
+                    mnam = child.get_subrecord('MNAM')
+                    add(child, mnam.get_uint32() if mnam is not None else None)
+
+    for lnam, vnam in complex_entries(stack):
+        target = complex_target(lnam, vnam, avm)
+        if target is not None:
+            mnam = target.get_subrecord('MNAM')
+            add(target, mnam.get_uint32() if mnam is not None else None)
+        for kind, g in by_lower.get('chargen_' + lnam.lower(), []):
+            add(g, kind)
+    return out
+
+
+def check_face_texture_sizes(rep, data, fctp, avm):
+    """Every texture the face composite uses must be the same size.
+
+    The creator re-composites the face whenever a tint layer changes, from the FCTP base maps
+    and the chosen options. With mixed sizes the face goes BLACK on that first change; all at
+    1024 works, all at 2048 works (Bad Dog, in game 2026-10-18). Vanilla's are all 1024 only
+    because they match -- so a vanilla option left in a group fails against base maps of
+    another size."""
+    area = 'face textures'
+    advice = ("The face goes black the first time a tint layer changes. Any size works, as "
+              "long as the base maps and every option share it (vanilla: all 1024).")
+    base = {}
+    root = data_path(data, 'textures', fctp)
+    if os.path.isdir(root):
+        for dirpath, _dirs, files in os.walk(root):
+            for f in files:
+                if f.lower().endswith('.dds'):
+                    p = os.path.join(dirpath, f)
+                    base[os.path.relpath(p, root)] = dds_dimensions(p)
+    base = {k: v for k, v in base.items() if v}
+    if not base:
+        return
+
+    # The race's own folder sets the size; it has to agree with itself first.
+    counts = collections.Counter(base.values())
+    size = counts.most_common(1)[0][0]
+    fmt = '{0}x{1}'.format
+    if len(counts) > 1:
+        odd = sorted(f"{k}: {fmt(*v)}" for k, v in base.items() if v != size)
+        rep.fail(area, f"the FCTP folder's {len(base)} textures are not all one size: " + ', '.join(
+                     f"{n} at {fmt(*s)}" for s, n in counts.most_common()),
+                 odd[:8] + ([f"(+{len(odd) - 8} more)"] if len(odd) > 8 else []) + [advice])
+
+    # Then every option the creator can lay over it.
+    off = []
+    n_options = 0
+    for g in face_option_groups(avm):
+        wrong = collections.Counter()
+        for _lnam, path in simple_entries(g):
+            if path and is_dds(path) and exists(data, path):
+                dims = dds_dimensions(data_path(data, path))
+                if dims:
+                    n_options += 1
+                    if dims != size:
+                        wrong[dims] += 1
+        if wrong:
+            off.append(f"{g.editor_id or text(g, 'TNAM')} ({plugin_name(g)}): " + ', '.join(
+                f"{n} at {fmt(*s)}" for s, n in wrong.most_common()))
+    if off:
+        rep.fail(area, f"{len(off)} tint group(s) offer options that aren't {fmt(*size)}, the "
+                       f"size of the race's face maps", off[:12]
+                 + ([f"(+{len(off) - 12} more groups)"] if len(off) > 12 else [])
+                 + [advice, "A vanilla option is 1024: at any other size, replace or drop it."])
+    elif len(counts) == 1:
+        rep.ok(area, f"the face maps and all {n_options} tint options are {fmt(*size)}")
+
+
 def check_skin_tones(rep, data, race, avm, own_prefix, sexes=SEXES):
     """RACE -> AVMD chain. Two different lookup rules, and getting either wrong is silent.
 
@@ -1204,6 +1314,81 @@ FOLLICLE_GROUPS = {HDPT_HAIR: 'HairFollicleMask', HDPT_FACIAL_HAIR: 'BeardFollic
 # A Simple group named '<group>_AVMDEXT' extends <group>: Shattered Space adds its scalp masks
 # that way, never overriding HairFollicleMask, and its hair parts' keys resolve only there.
 AVMD_EXTENSION = '_AVMDEXT'
+
+
+def complex_entries(rec):
+    """A Complex group's entries as [(LNAM, VNAM or None)], in order."""
+    pairs = []
+    for sr in rec.subrecords:
+        if sr.signature == 'LNAM':
+            pairs.append([sr.get_string(), None])
+        elif sr.signature == 'VNAM' and pairs and pairs[-1][1] is None:
+            pairs[-1][1] = sr.get_string()
+    return [tuple(p) for p in pairs]
+
+
+def complex_target(lnam, vnam, index):
+    """The group a Complex entry resolves to, or None -- complex_children's rule for one entry."""
+    if vnam:
+        head, _, name = vnam.partition('_')
+        kind = AVM_PREFIX.get(head)
+        return index.get((kind, name)) if kind else None
+    return next((index[(k, lnam)] for k in AVM_KIND_NAME if (k, lnam) in index), None)
+
+
+def check_avm_groups(rep, data, plugins, own_avmds, official):
+    """Every AVMD group the mods define or override must resolve: each Complex entry to a
+    group, each Simple entry's texture to a file.
+
+    These are global lists, found by name, so a broken entry fails silently and for everyone:
+    a stack slot pointed at a group nobody defines just never composites. Vanilla's own copy
+    of a group sets the bar -- the shipped stack has entries that resolve to nothing -- so an
+    entry vanilla's copy can't resolve either isn't the mod's doing. Textures only vanilla's
+    records name are in BA2s, out of sight."""
+    area = 'tint groups'
+    avm = avm_index(plugins)
+    vanilla = avm_index([p for p in plugins
+                         if p.file_path is not None and p.file_path.name.lower() in official])
+    vanilla_paths = {p.lower().replace('/', '\\')
+                     for g in vanilla.values() for _, p in simple_entries(g) if p}
+    n = 0
+    for rec in own_avmds:
+        kind = rec.get_subrecord('MNAM')
+        kind = kind.get_uint32() if kind is not None and kind.size == 4 else None
+        name = text(rec, 'TNAM')
+        who = f"{rec.editor_id or name} ({plugin_name(rec)})"
+        theirs = vanilla.get((kind, name))
+        if kind == AVM_COMPLEX:
+            before = dict(complex_entries(theirs)) if theirs is not None else {}
+            for lnam, vnam in complex_entries(rec):
+                n += 1
+                if complex_target(lnam, vnam, avm) is not None:
+                    continue
+                if lnam in before and before[lnam] == vnam:
+                    rep.info(area, f"{who}: {lnam} -> {vnam} resolves to nothing, as in "
+                                   f"vanilla")
+                    continue
+                detail = ["A Complex entry names its target as '<Kind>_' + TNAM; no group "
+                          "of that kind and name is in the load order."]
+                was = before.get(lnam)
+                if was and complex_target(lnam, was, avm) is not None:
+                    detail.append(f"Vanilla's {name} has {lnam} -> {was}.")
+                rep.fail(area, f"{who}: {lnam} -> {vnam or lnam} matches no group", detail)
+        elif kind == AVM_SIMPLE:
+            missing = []
+            for lnam, path in simple_entries(rec):
+                if not path:
+                    continue
+                n += 1
+                if exists(data, path) or path.lower().replace('/', '\\') in vanilla_paths:
+                    continue
+                missing.append(f"{lnam}: {path}")
+            if missing:
+                rep.fail(area, f"{who}: {len(missing)} texture(s) not found",
+                         missing[:8] + ([f"(+{len(missing) - 8} more)"] if len(missing) > 8
+                                        else []))
+    if n and not any(f[0] == FAIL and f[1] == area for f in rep.findings):
+        rep.ok(area, f"all {n} entries in the mods' AVMD groups resolve")
 
 
 def simple_entries(rec):
@@ -1791,12 +1976,15 @@ def run(args, out):
     check_body(rep, args.data, race, plugins, nif_reader, own_root, sexes)
     check_npcs(rep, race, npcs)
     check_record_texture_paths(rep, own_avmds, npcs)
+    check_avm_groups(rep, args.data, plugins, own_avmds, official)
 
     phenotypes = check_skin_tones(rep, args.data, race, avm, fctp, sexes)
     check_ck_skin_tone_rules(rep, per_sex, avm, npcs, sexes)
     regions = {r for sx in sexes for r in per_sex[sx]['regions']}
     check_face_textures(rep, args.data, race, phenotypes or {sexes[0].lower() + '_default'},
                         regions)
+    if text(race, 'FCTP'):
+        check_face_texture_sizes(rep, args.data, text(race, 'FCTP'), avm)
 
     composed = check_composition(rep, per_sex, own_face, sexes)
 

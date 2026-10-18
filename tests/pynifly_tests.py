@@ -1983,6 +1983,34 @@ def _tintbake():
     return sf_tintbake
 
 
+def TEST_SF_CLOTH_TAGFILE():
+    """Starfield cloth (BSClothExtraData) is a Havok 2019 tagfile that carries its own types, so
+    it reads into named fields with no class definitions supplied.
+
+    The details that took finding: Havok's variable-length ints; a field whose flags have bit
+    0x80 carries one extra value before its offset (hclCollidable.userData); and an array type
+    with bit 0x20 set is inline, its length in the format's high bits (hkVector4 = 4 floats)."""
+    from pyn.havok_tagfile import Tagfile
+    nif = NifFile(os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'mesh', 'hairs',
+                               'ponytail', 'ponytail_hairmesh_f.nif'))
+    tf = Tagfile(nif.cloth_data[0][1])
+    assert TT.is_eq(tf.sdk, '20190200', "SDK version")
+    names = [t.name for t, _f, _o, _c in tf.items[1:] if t is not None]
+    assert TT.is_true('hclClothData' in names and 'hclSimClothData' in names,
+                      f"the cloth classes are found by name: {names[:8]}")
+    sim = tf.item(names.index('hclSimClothData') + 1)
+    g = sim['simulationInfo']['gravity']
+    assert TT.is_eq(len(g), 4, f"gravity is an inline 4-float vector: {g}")
+    assert TT.is_true(g[2] < 0, f"and points down: {g}")
+    assert TT.is_true(isinstance(sim['simulationInfo']['globalDampingPerSecond'], float),
+                      "damping is a float")
+    particles = sim['particleDatas'].get()
+    assert TT.is_true(len(particles) > 0 and {'mass', 'invMass', 'radius', 'friction'}
+                      <= set(particles[0]), f"particles decode with their fields: {particles[:1]}")
+    for i, (t, _f, _o, _c) in enumerate(tf.items[1:], 1):
+        tf.item(i)                      # every item decodes without error
+
+
 def TEST_SF_TINTBAKE_COMPOSITE():
     """sf_tintbake lays tint layers over a skin tone the way the chargen face does.
 
@@ -2058,6 +2086,19 @@ def TEST_SF_TINTBAKE_VARIANTS():
                       "adding a head only swaps in some of the new head's variants")
 
 
+def TEST_SF_TINTBAKE_PER_SEX():
+    """A race lists its hands (HSTT) and body (BSTT) skin-tone groups once per sex, male first,
+    then female. A female recipe must take the female one: the first is the male's hands."""
+    B = _tintbake()
+    assert TT.is_eq(B.for_sex(['FSFFox_Male_Hands', 'FSFFox_Female_Hands'], 'female'),
+                    'FSFFox_Female_Hands', "female takes the second")
+    assert TT.is_eq(B.for_sex(['FSFFox_Male_Hands', 'FSFFox_Female_Hands'], 'male'),
+                    'FSFFox_Male_Hands', "male takes the first")
+    assert TT.is_eq(B.for_sex(['Shared_Hands'], 'female'), 'Shared_Hands',
+                    "a race with one group uses it for both sexes")
+    assert TT.is_eq(B.for_sex([], 'male'), None, "none at all")
+
+
 def TEST_SF_TINTBAKE_RETARGET_NIF():
     """A variant nif is the crowd head's nif pointing at another material, and nothing else.
 
@@ -2115,6 +2156,25 @@ def TEST_SF_TINTBAKE_MATERIAL():
     other = B.derive_material(doc, fn.replace('V1', 'V2'), color)
     assert TT.is_true(not {o['ID'] for o in other['Objects'] if 'ID' in o} & set(new),
                       "two variants don't share ids")
+
+    # A body material has two slot-0 textures (the skin colour, and a mask in a second layer),
+    # so the one to swap is named by path. Case and slashes don't matter.
+    body = os.path.join(TT.SF_ASSETS, 'materials', 'actors', 'human', 'naked_body', 'Female',
+                        'Naked_F_Body.mat')
+    with open(body, encoding='utf-8') as f:
+        doc = json.load(f)
+    tone2 = r"Data\Textures\Actors\human\Naked_Body\NakedBodyF_sk2_color.dds"
+    out = B.derive_material(doc, r"Materials\Test\Body_sk2.mat", tone2,
+                            old=r"data/textures/actors/human/naked_body/nakedbodyf_sk3_color.dds")
+    slot0 = [c['Data']['FileName'] for o in out['Objects'] for c in o.get('Components', [])
+             if c.get('Type') == 'BSMaterial::MRTextureFile' and c.get('Index') == 0]
+    assert TT.is_eq(slot0, [tone2, r"Data\Textures\Actors\Human\naked_body\NakedBodyF_mask.dds"],
+                    "only the named colour texture changes")
+    try:
+        B.derive_material(doc, r"Materials\Test\X.mat", tone2)
+        assert False, "an ambiguous colour slot must be refused"
+    except B.RecipeError:
+        pass
 
 
 def TEST_SF_RACECHECK_LOAD_ORDER():
@@ -2196,6 +2256,157 @@ def TEST_SF_RACECHECK_LOAD_ORDER():
 
         # CONTROL: an EDID nobody defines is not found.
         assert sf_racecheck.find_race(plugins, 'NoSuchRace') is None, "unknown race -> None"
+
+
+def TEST_SF_RACECHECK_AVM_GROUPS():
+    """sf_racecheck checks every AVMD group a mod defines or overrides: each entry of a Complex
+    group must name a group that exists, and each texture a Simple group names must exist.
+
+    These are global lists found by name, so a broken entry fails silently for everyone. Bad
+    Dog's override of ComplexGroup_PostBlendFaceCustomizationLayers pointed the Dermaesthetic
+    slot at SimpleGroup_FSFFoxDermaesthetic, which no plugin defines.
+
+    Vanilla ships 4 of the stack's 26 entries unresolvable (TattooColorMap, ...), so an entry
+    the same group's vanilla copy also can't resolve is not the mod's fault: noted, not failed.
+    Textures only vanilla's own records name are in BA2s and aren't looked for."""
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+    from esplib import Plugin
+
+    TEX = 'textures/actors/rctest/present_color.dds'
+
+    def group(p, edid, kind, name, entries):
+        rec = p.new_record('AVMD', edid)
+        rec.add_subrecord('MNAM', kind.to_bytes(4, 'little'))
+        rec.add_subrecord('TNAM', name.encode() + b'\0')
+        for key, target in entries:
+            rec.add_subrecord('LNAM', key.encode() + b'\0')
+            if target is not None:
+                rec.add_subrecord('VNAM', target.encode() + b'\0')
+
+    def findings(rep, level):
+        return [m + ' ' + str(d) for lv, _a, m, d in rep.findings if lv == level]
+
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, *TEX.split('/')[:-1]))
+        open(os.path.join(d, *TEX.split('/')), 'wb').close()
+
+        base = Plugin.new_plugin(os.path.join(d, 'RCBase.esm'), masters=[], game='fo4',
+                                 is_esm=True)
+        group(base, 'SimpleGroup_Dermaesthetic', R.AVM_SIMPLE, 'Dermaesthetic',
+              [('derm_vanilla', 'textures/actors/human/in_a_ba2_color.dds')])
+        group(base, 'ComplexGroup_Stack', R.AVM_COMPLEX, 'Stack',
+              [('Dermaesthetic', 'SimpleGroup_Dermaesthetic'),
+               ('TattooTint', 'SimpleGroup_TattooTint')])           # broken in "vanilla" too
+        base.save_as(os.path.join(d, 'RCBase.esm'))
+
+        mod = Plugin.new_plugin(os.path.join(d, 'RCMod.esm'), masters=['RCBase.esm'],
+                                game='fo4', is_esm=True)
+        group(mod, 'ComplexGroup_Stack', R.AVM_COMPLEX, 'Stack',     # replaces it by name
+              [('Dermaesthetic', 'SimpleGroup_FoxDermaesthetic'),     # the mod's own break
+               ('TattooTint', 'SimpleGroup_TattooTint'),
+               ('Complexion1', None)])                                # no VNAM: by LNAM
+        group(mod, 'SimpleGroup_Complexion1', R.AVM_SIMPLE, 'Complexion1',
+              [('present', TEX), ('gone', 'textures/actors/rctest/gone_color.dds'),
+               ('vanilla_path', 'textures/actors/human/in_a_ba2_color.dds')])
+        group(mod, 'ComplexGroup_Good', R.AVM_COMPLEX, 'Good',
+              [('a', 'SimpleGroup_Complexion1'), ('b', 'SimpleGroup_Dermaesthetic')])
+        mod.save_as(os.path.join(d, 'RCMod.esm'))
+
+        rep = R.Report()
+        plugins = R.load_plugins(rep, [d], ['RCBase.esm', 'RCMod.esm'])
+        official = {'rcbase.esm'}
+        own = [r for r in R.winning_records(plugins, 'AVMD') if R.plugin_name(r) not in official]
+        r = R.Report()
+        R.check_avm_groups(r, [d], plugins, own, official)
+
+        fails = findings(r, R.FAIL)
+        assert TT.is_eq(len(fails), 2, f"two problems the mod made: {fails}")
+        assert TT.is_true(any('SimpleGroup_FoxDermaesthetic' in f and 'Stack' in f
+                              and 'SimpleGroup_Dermaesthetic' in f for f in fails),
+                          f"the broken stack entry, and what vanilla has there: {fails}")
+        assert TT.is_true(any('gone_color.dds' in f for f in fails),
+                          f"the Simple group's missing texture: {fails}")
+        allfound = ' '.join(findings(r, R.FAIL) + findings(r, R.WARN))
+        assert TT.is_true('TattooTint' not in allfound,
+                          "an entry vanilla's copy can't resolve either is not the mod's fault")
+        assert TT.is_true('in_a_ba2' not in allfound, "a texture vanilla names is in a BA2")
+        assert TT.is_true('Good' not in allfound, "a group whose entries all resolve is clean")
+
+
+def TEST_SF_RACECHECK_FACE_TEXTURE_SIZES():
+    """sf_racecheck fails a face whose textures aren't all one size.
+
+    The creator re-composites the face whenever a tint layer changes, from the race's FCTP base
+    maps and the tint options the stack's slots offer. Bad Dog, in game 2026-10-18: base maps
+    and overlays at mixed sizes turned the face black on the first dermaesthetic change; all at
+    1024 worked, and all at 2048 worked too. So the rule is one size, any size -- vanilla's are
+    all 1024 only because they match. An option in a stack slot's Chargen_ twin counts too."""
+    import struct
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+    from esplib import Plugin
+
+    FCTP = 'actors/rc/faces/chargen'
+
+    def dds(d, rel, size):
+        path = os.path.join(d, *rel.split('/'))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        head = bytearray(128)
+        head[:4] = b'DDS '
+        struct.pack_into('<5I', head, 4, 124, 0, size, size, 0)    # size, flags, height, width
+        open(path, 'wb').write(bytes(head))
+
+    def group(p, edid, kind, name, entries):
+        rec = p.new_record('AVMD', edid)
+        rec.add_subrecord('MNAM', kind.to_bytes(4, 'little'))
+        rec.add_subrecord('TNAM', name.encode() + b'\0')
+        for key, target in entries:
+            rec.add_subrecord('LNAM', key.encode() + b'\0')
+            rec.add_subrecord('VNAM', target.encode() + b'\0')
+
+    def run(d, derm_size, chargen_size):
+        for m in ('sk0_color', 'normal', 'rough', 'ao'):
+            dds(d, f'textures/{FCTP}/male_rc_md1_{m}.dds', 2048)
+        dds(d, 'textures/actors/rc/derm/a_derm_color.dds', derm_size)
+        dds(d, 'textures/actors/rc/derm/b_derm_color.dds', chargen_size)
+        p = Plugin.new_plugin(os.path.join(d, 'RCFace.esm'), masters=[], game='fo4', is_esm=True)
+        group(p, 'ComplexGroup_Stack', R.AVM_COMPLEX, R.STACK_TNAM,
+              [('Dermaesthetic', 'SimpleGroup_Dermaesthetic')])
+        group(p, 'SimpleGroup_Dermaesthetic', R.AVM_SIMPLE, 'Dermaesthetic',
+              [('a', 'textures/actors/rc/derm/a_derm_color.dds')])
+        group(p, 'SimpleGroup_Chargen_Dermaesthetic', R.AVM_SIMPLE, 'Chargen_Dermaesthetic',
+              [('b', 'textures/actors/rc/derm/b_derm_color.dds')])
+        p.save_as(os.path.join(d, 'RCFace.esm'))
+        plugins = R.load_plugins(R.Report(), [d], ['RCFace.esm'])
+        rep = R.Report()
+        R.check_face_texture_sizes(rep, [d], FCTP, R.avm_index(plugins))
+        return rep
+
+    with tempfile.TemporaryDirectory() as d:
+        rep = run(d, 2048, 2048)
+        assert TT.is_eq([f for f in rep.findings if f[0] == R.FAIL], [],
+                        "base maps and options all 2048: clean")
+    with tempfile.TemporaryDirectory() as d:
+        rep = run(d, 4096, 2048)
+        fails = [m + ' ' + str(dt) for lv, _a, m, dt in rep.findings if lv == R.FAIL]
+        assert TT.is_eq(len(fails), 1, f"a 4096 dermaesthetic among 2048 base maps: {fails}")
+        assert TT.is_true("SimpleGroup_Dermaesthetic (" in fails[0] and '4096' in fails[0]
+                          and '2048' in fails[0],
+                          f"names the group, its size, and the face maps' size: {fails}")
+    with tempfile.TemporaryDirectory() as d:
+        rep = run(d, 2048, 1024)
+        fails = [m + ' ' + str(dt) for lv, _a, m, dt in rep.findings if lv == R.FAIL]
+        assert TT.is_true(fails and 'SimpleGroup_Chargen_Dermaesthetic' in fails[0],
+                          f"an option offered only through the Chargen_ twin counts: {fails}")
+    with tempfile.TemporaryDirectory() as d:
+        dds(d, f'textures/{FCTP}/female_rc_md1_normal.dds', 1024)
+        rep = run(d, 2048, 2048)
+        fails = [m + ' ' + str(dt) for lv, _a, m, dt in rep.findings if lv == R.FAIL]
+        assert TT.is_true(any('FCTP' in f and 'normal' in f for f in fails),
+                          f"the race's own face maps must agree with each other: {fails}")
 
 
 def TEST_SF_RACECHECK_FOLLICLE_MASK():

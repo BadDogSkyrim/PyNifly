@@ -17,13 +17,20 @@ for each one writes:
                       They keep the head's .mesh, morph and BoneTrn, so a variant costs only
                       its texture.
 
-and a manifest, <recipe name>.variants.json beside the recipe, that the plugin builder reads to write the
+With a [tail] table, it also writes the race's tail once per skin tone in use, its material
+switched to that tone's body texture: crowds have no skin tones, so a tail that matches its head
+has to be a copy too. The plugin builder gives each head armor the tail for its tone. Run one
+recipe per sex: each bakes that sex's tail, and the builder puts the male tails in the tail
+addons' male model and the female tails in their female model.
+
+It writes a manifest, <recipe name>.variants.json beside the recipe, that the plugin builder reads to write the
 records. Normal, rough, metal and AO are shared by every variant of a head and are not touched.
 
 The recipe (TOML; relative paths are relative to the recipe file):
 
     race = "FSFFoxRace"
     phenotype = "male_fox_md1"        # the face skin-tone entry the faces start from
+    sex = "male"                      # optional: taken from the phenotype's prefix
     plugin = "FSFPlayer_FOX.esm"      # optional: it and its masters; default the active load order
     data = ["C:/Steam/steamapps/common/Starfield/Data", "C:/Modding/Starfield/00StarfieldAssets"]
     heads = "C:/Steam/steamapps/common/Starfield/Data/Meshes/Actors/FSFFox_Crowd/Mesh/Male"
@@ -52,6 +59,13 @@ The recipe (TOML; relative paths are relative to the recipe file):
     [eyes]
     code = "e"
     exclude = ["Dead"]                # EyeColor options never picked
+
+    [tail]                            # optional: a tail per skin tone, to match the heads
+    race = "FSFFoxRace"               # whose skin has the tail (default: the recipe's race)
+    slot = 15                         # the tail addon's body slot
+    nif = "Actors/FSFCanine/Mesh/Tail/CanineMaleTail.nif"   # optional: this sex's tail, under
+                                      # Meshes; default the addon's model for the recipe's sex
+                                      # (MOD2 male, MOD3 female)
 
 A part is painted with "face" (the composite), "hands" (the tone's hands texture), "eyes" (an
 EyeColor option), a texture -- a file path, or a path under the data folders -- or #rrggbb.
@@ -91,6 +105,7 @@ CHARGEN_DERMAESTHETIC = 'Chargen_Dermaesthetic'
 STACK = 'PostBlendFaceCustomizationLayers'
 EYE_COLOR = 'EyeColor'
 FACEBONES = '_facebones'
+TAIL_SLOT = 15                       # the body slot a race's tail addon is on
 
 
 class RecipeError(Exception):
@@ -114,6 +129,9 @@ def load_recipe(path):
     r.setdefault('limit', 40)
     r.setdefault('seed', 1)
     r.setdefault('size', 1024)
+    r.setdefault('sex', 'female' if r['phenotype'].lower().startswith('female') else 'male')
+    if r['sex'] not in ('male', 'female'):
+        raise RecipeError(f"sex must be male or female, not {r['sex']!r}")
     r['data'] = [recipe_path(r, d) for d in r['data']]
     for key in ('heads', 'uvmap', 'out'):
         r[key] = recipe_path(r, r[key])
@@ -136,13 +154,22 @@ class Options:
     slots:  {slot: [(label, path)]} for the tint groups, by name
     derm:   [[(label, path)]] the dermaesthetic options per skin-tone index
     eyes:   [(label, path)]"""
-    def __init__(self, tones, slots, derm, eyes, stack):
+    def __init__(self, tones, slots, derm, eyes, stack, tail=None):
         self.tones, self.slots, self.derm, self.eyes, self.stack = tones, slots, derm, eyes, stack
+        self.tail = tail             # race_tail(), when the recipe asks for tails
 
     def layer(self, slot, tone):
         if slot == DERMAESTHETIC:
             return self.derm[tone] if tone < len(self.derm) else []
         return self.slots.get(slot, [])
+
+
+def for_sex(values, sex):
+    """The value for `sex` from a race field the record repeats per sex (HSTT, BSTT): male
+    first, then female. One value serves both."""
+    if not values:
+        return None
+    return values[1] if sex == 'female' and len(values) > 1 else values[0]
 
 
 def read_options(r):
@@ -169,7 +196,8 @@ def read_options(r):
     if face_grp is None:
         raise RecipeError(f"{r['race']}'s face skin tones have no {r['phenotype']!r}")
     faces = [p for _, p in R.simple_entries(face_grp)]
-    hands = [p for _, p in simple(R.text(race, 'HSTT'))]
+    hands = [p for _, p in simple(for_sex([sr.get_string() for sr in race.get_subrecords('HSTT')],
+                                          r['sex']))]
     if len(hands) != len(faces):
         raise RecipeError(f"{len(faces)} face skin tones but {len(hands)} hands tones")
 
@@ -183,7 +211,37 @@ def read_options(r):
     stack_grp = avm.get((R.AVM_COMPLEX, STACK))
     stack = R.avm_entries(stack_grp) if stack_grp else []
     slots = {name: simple(name) for name in stack}
-    return Options(list(zip(faces, hands)), slots, derm, simple(EYE_COLOR), stack)
+    opts = Options(list(zip(faces, hands)), slots, derm, simple(EYE_COLOR), stack)
+    if 'tail' in r:
+        opts.tail = race_tail(R, plugins, r, simple)
+    return opts
+
+
+def race_tail(R, plugins, r, simple):
+    """The tail on a race's skin, found by its body slot, and the race's body skin tones.
+
+    Crowds have no skin tones, so a crowd head bakes its tone in; a tail has to come in the
+    same tone. This finds the tail addon the player race wears and the body-tone textures its
+    material can be switched between."""
+    t = r['tail']
+    race = R.find_race(plugins, t.get('race', r['race']))
+    if race is None:
+        raise RecipeError(f"tail race {t.get('race', r['race'])!r} is not in the load order")
+    skin = plugins.resolve_form_id(race.get_subrecord('WNAM').get_form_id(), race.plugin)
+    bit = 1 << t.get('slot', TAIL_SLOT)
+    for sr in skin.get_subrecords('MODL'):
+        arma = plugins.resolve_form_id(sr.get_form_id(), skin.plugin)
+        bo = arma.get_subrecord('BO64') if arma is not None else None
+        if bo is not None and struct.unpack('<Q', bytes(bo.data))[0] & bit:
+            break
+    else:
+        raise RecipeError(f"{race.editor_id}'s skin {skin.editor_id} has no addon on body slot "
+                          f"{t.get('slot', TAIL_SLOT)}")
+    # The addon's model for this recipe's sex (male and female tails can differ), unless the
+    # recipe names its own.
+    model = t.get('nif') or R.text(arma, 'MOD3' if r['sex'] == 'female' else 'MOD2')
+    tones = [[p for _, p in simple(sr.get_string())] for sr in race.get_subrecords('BSTT')]
+    return {'addon': arma.editor_id, 'nif': model, 'body_tones': tones}
 
 
 # --- the variants ---------------------------------------------------------------------------
@@ -392,8 +450,15 @@ def retarget_nif(src, dst, old_mat, new_mat):
         f.write(b)
 
 
-def derive_material(doc, filename, color):
+def same_path(a, b):
+    return a.replace('/', '\\').lower() == b.replace('/', '\\').lower()
+
+
+def derive_material(doc, filename, color, old=None):
     """A copy of a .mat document at `filename` whose colour texture is `color`.
+
+    The colour texture is the slot-0 texture, or, in a material with several (a body material
+    keeps a mask in a second layer's slot 0), the one whose path is `old`.
 
     The copy's own objects get new `res:` ids the way vanilla's crowd materials differ from
     each other: same namespace (words 2 and 3), new first word. References into the imported
@@ -402,10 +467,10 @@ def derive_material(doc, filename, color):
     doc = copy.deepcopy(doc)
     own = {o['ID'] for o in doc['Objects'] if 'ID' in o}
     remap = {}
-    for old in own:
-        _, w1, w2, w3 = old.split(':')
-        crc = zlib.crc32(f"{filename.lower()}|{old}".encode()) & 0xffffffff
-        remap[old] = f"res:{crc:08X}:{w2}:{w3}"
+    for rid in own:
+        _, w1, w2, w3 = rid.split(':')
+        crc = zlib.crc32(f"{filename.lower()}|{rid}".encode()) & 0xffffffff
+        remap[rid] = f"res:{crc:08X}:{w2}:{w3}"
 
     def walk(x):
         if isinstance(x, dict):
@@ -421,11 +486,13 @@ def derive_material(doc, filename, color):
     found = 0
     for obj in doc['Objects']:
         for comp in obj.get('Components', []):
-            if comp.get('Type') == 'BSMaterial::MRTextureFile' and comp.get('Index') == 0:
+            if comp.get('Type') == 'BSMaterial::MRTextureFile' and comp.get('Index') == 0 \
+                    and (old is None or same_path(comp['Data']['FileName'], old)):
                 comp['Data']['FileName'] = color
                 found += 1
     if found != 1:
-        raise RecipeError(f"{filename}: the base material has {found} colour textures, not 1")
+        raise RecipeError(f"{filename}: the base material has {found} colour textures"
+                          f"{' named ' + old if old else ''}, not 1")
     return doc
 
 
@@ -453,15 +520,67 @@ def game_rel(path, top):
 
 # --- the bake -------------------------------------------------------------------------------
 
+def data_file(r, *parts):
+    """The first data folder's copy of a game path, or None."""
+    return next((p for p in (under(d, *parts) for d in r['data']) if os.path.exists(p)), None)
+
+
+def load_material(r, mat_rel, who):
+    path = data_file(r, mat_rel)
+    if path is None:
+        raise RecipeError(f"{who}: material {mat_rel} not found under the data folders")
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def write_material(out, mat_game, doc):
+    path = under(out, mat_game)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        json.dump(doc, f, indent=2)
+
+
+def bake_tails(r, tail, tones, log):
+    """One copy of the race's tail per skin tone in `tones`, its material switched to that tone's
+    body texture. Returns {tone: nif path under Meshes}.
+
+    The body-tone group is whichever of the race's groups holds the tail material's current
+    colour texture, so the tail keeps the texture layout it was painted for."""
+    nif = data_file(r, 'Meshes', tail['nif'])
+    if nif is None:
+        raise RecipeError(f"tail nif {tail['nif']} not found under the data folders")
+    mat_rel = nif_material(nif)
+    doc = load_material(r, mat_rel, nif)
+    slot0 = [c['Data']['FileName'] for o in doc['Objects'] for c in o.get('Components', [])
+             if c.get('Type') == 'BSMaterial::MRTextureFile' and c.get('Index') == 0]
+    for group in tail['body_tones']:
+        old = next((s for s in slot0 for g in group if same_path(s, 'Data\\' + g)), None)
+        if old:
+            break
+    else:
+        raise RecipeError(f"{mat_rel}: no colour texture is one of the race's body skin tones")
+    stem = os.path.splitext(os.path.basename(tail['nif']))[0]
+    mat_stem = os.path.splitext(os.path.basename(mat_rel))[0]
+    out = {}
+    for tone in sorted(tones):
+        mat_game = os.path.join(os.path.dirname(mat_rel), 'Variants',
+                                f"{mat_stem}_sk{tone}.mat").replace(os.sep, '\\')
+        write_material(r['out'], mat_game,
+                       derive_material(doc, mat_game, 'Data\\' + group[tone], old=old))
+        nif_rel = os.path.join(os.path.dirname(tail['nif']), 'Variants',
+                               f"{stem}_sk{tone}.nif").replace(os.sep, '\\')
+        dst = under(r['out'], 'Meshes', nif_rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        retarget_nif(nif, dst, mat_rel, mat_game)
+        out[tone] = nif_rel
+        log(f"  tail {nif_rel}")
+    return out
+
+
 def head_info(r, head):
     """Where a head's variant files go, and the material they derive from."""
     mat_rel = nif_material(head)                                   # Materials\...\x.mat
-    mat_file = next((p for p in (under(d, mat_rel) for d in r['data']) if os.path.exists(p)),
-                    None)
-    if mat_file is None:
-        raise RecipeError(f"{head}: material {mat_rel} not found under the data folders")
-    with open(mat_file, encoding='utf-8') as f:
-        doc = json.load(f)
+    doc = load_material(r, mat_rel, head)
     color = colour_texture(doc)                                    # Data\Textures\...\x.dds
     tex_dir = os.path.dirname(color.split('\\', 1)[1] if color.lower().startswith('data\\')
                               else color)
@@ -521,11 +640,7 @@ def bake(r, force=False, dry_run=False, log=print):
             pngs.add(os.path.dirname(png))
 
         color_game = 'Data\\' + os.path.splitext(tex_rel)[0].replace(os.sep, '\\') + '.dds'
-        doc = derive_material(info['doc'], mat_game, color_game)
-        mat_file = under(out, mat_game)
-        os.makedirs(os.path.dirname(mat_file), exist_ok=True)
-        with open(mat_file, 'w', encoding='utf-8', newline='\n') as f:
-            json.dump(doc, f, indent=2)
+        write_material(out, mat_game, derive_material(info['doc'], mat_game, color_game))
 
         nif_file = under(out, 'Meshes', nif_rel)
         os.makedirs(os.path.dirname(nif_file), exist_ok=True)
@@ -536,16 +651,20 @@ def bake(r, force=False, dry_run=False, log=print):
         if companion:
             retarget_nif(companion, under(out, 'Meshes', info['meshes'], name + FACEBONES + '.nif'),
                          info['mat_rel'], mat_game)
-        manifest.append({'name': name, 'head': os.path.basename(v['head']),
+        manifest.append({'name': name, 'head': os.path.basename(v['head']), 'tone': v['tone'],
                          'nif': nif_rel.replace(os.sep, '\\'), 'material': mat_game,
                          'texture': color_game})
         log(f"  {name}")
 
     if pngs:
         convert_dds(pngs, log)
+    result = {'race': r['race'], 'sex': r['sex'], 'variants': manifest}
+    if opts.tail:
+        nifs = bake_tails(r, opts.tail, {v['tone'] for v in chosen}, log)
+        result['tail'] = {'addon': opts.tail['addon'], 'nifs': {str(k): v for k, v in nifs.items()}}
     path = os.path.join(r['_dir'], r['_name'] + '.variants.json')     # not in the mod
     with open(path, 'w', encoding='utf-8', newline='\n') as f:
-        json.dump({'race': r['race'], 'variants': manifest}, f, indent=2)
+        json.dump(result, f, indent=2)
     log(f"Wrote {path}")
     return chosen
 
