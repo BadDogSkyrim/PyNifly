@@ -1962,7 +1962,8 @@ GROUPS = {'RACE', 'ARMO', 'ARMA', 'MRPH', 'HDPT', 'AVMD', 'NPC_', 'FLST', 'OTFT'
 IMPLICIT_MASTERS = ['Starfield.esm']
 OFFICIAL_MASTERS = ['ShatteredSpace.esm', 'Constellation.esm', 'OldMars.esm', 'SFBGS003.esm',
                     'SFBGS004.esm', 'SFBGS006.esm', 'SFBGS007.esm', 'SFBGS008.esm',
-                    'BlueprintShips-Starfield.esm']
+                    'SFBGS00D.esm', 'SFBGS047.esm', 'SFBGS050.esm',
+                    'BlueprintShips-Starfield.esm', 'BlueprintShips-SFBGS050.esm']
 
 
 def _no_string_tables():

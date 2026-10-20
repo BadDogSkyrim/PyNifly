@@ -2495,6 +2495,32 @@ def TEST_SF_TINTBAKE_MATERIAL():
         pass
 
 
+def TEST_SF_RACECHECK_OFFICIAL_PLUGINS():
+    """sf_racecheck loads every official plugin the game does, in xEdit's order.
+
+    The list is xEdit's wbOfficialDLC (wbDefinitionsSF1.pas). Ours was a copy from before
+    SFBGS00D, SFBGS047, SFBGS050 and BlueprintShips-SFBGS050 joined it. SFBGS047 is light, so
+    the plugin builder counted one light plugin too few ahead of FSFNPC_Fox.esm and wrote
+    FE006800 to the batch file where the game has FE007800 (Bad Dog, 2026-10-20)."""
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+
+    xedit = ['ShatteredSpace.esm', 'Constellation.esm', 'OldMars.esm', 'SFBGS003.esm',
+             'SFBGS004.esm', 'SFBGS006.esm', 'SFBGS007.esm', 'SFBGS008.esm', 'SFBGS00D.esm',
+             'SFBGS047.esm', 'SFBGS050.esm', 'BlueprintShips-Starfield.esm',
+             'BlueprintShips-SFBGS050.esm']
+    with tempfile.TemporaryDirectory() as d:
+        for name in ['Starfield.esm'] + xedit + ['FSFNPC_Fox.esm']:
+            open(os.path.join(d, name), 'wb').close()
+        plugins_txt = os.path.join(d, 'Plugins.txt')
+        with open(plugins_txt, 'w') as f:
+            f.write('# comment\n*FSFNPC_Fox.esm\n')
+        order = sf_racecheck.load_order_names([d], plugins_txt=plugins_txt, ccc_file='')
+    assert TT.is_eq(order, ['Starfield.esm'] + xedit + ['FSFNPC_Fox.esm'],
+                    "the game's own plugins in xEdit's order, then Plugins.txt's")
+
+
 def TEST_SF_RACECHECK_LOAD_ORDER():
     """sf_racecheck reads a whole load order, and the latest override of a record wins.
 
