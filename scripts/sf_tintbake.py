@@ -17,6 +17,11 @@ for each one writes:
                       They keep the head's .mesh, morph and BoneTrn, so a variant costs only
                       its texture.
 
+A head's body types are one head: <head>.nif (or <head>_average.nif, as a '_average' shape key
+exports it), <head>_thin.nif and <head>_overweight.nif share one UV layout, so each variant is
+baked once and written as <name>.nif, <name>_thin.nif and <name>_overweight.nif (each with its
+companion), all on the one material. The manifest lists them under "nifs", by body type.
+
 With a [tail] table, it also writes the race's tail once per skin tone in use, its material
 switched to that tone's body texture: crowds have no skin tones, so a tail that matches its head
 has to be a copy too. The plugin builder gives each head armor the tail for its tone. Run one
@@ -256,6 +261,53 @@ def find_heads(folder):
     return [os.path.join(folder, f) for f in names]
 
 
+# Body types, by file-name suffix. Vanilla ships every crowd head as <head>.nif (average),
+# <head>_thin.nif and <head>_overweight.nif. PyNifly writes one nif per '_' shape key -- the key
+# '_' writes the plain one -- and exports from before that said _average for it.
+BODY_SUFFIXES = {'_thin': '_thin', '_overweight': '_overweight', '_average': ''}
+BODY_NAMES = {'': 'average', '_thin': 'thin', '_overweight': 'overweight'}
+
+
+def split_body(stem):
+    """(head name, body suffix) from a nif's name: 'X_Thin' -> ('X', '_thin'), 'X' -> ('X', '')."""
+    for suffix, body in BODY_SUFFIXES.items():
+        if stem.lower().endswith(suffix):
+            return stem[:-len(suffix)], body
+    return stem, ''
+
+
+def group_heads(paths):
+    """{head name: {body suffix: path}}: a head's body types are one head."""
+    out = {}
+    for path in paths:
+        head, body = split_body(os.path.splitext(os.path.basename(path))[0])
+        bodies = out.setdefault(head, {})
+        if body in bodies:
+            raise RecipeError(f"{head} has two {BODY_NAMES[body]} nifs: {bodies[body]}, {path}")
+        bodies[body] = path
+    return out
+
+
+def write_body_nifs(bodies, out, meshes_rel, name, new_mat):
+    """A variant's nifs: each body type's head and its _facebones companion, pointing at the
+    variant's material `new_mat`. Returns {body type: nif path under Meshes}."""
+    written = {}
+    for body, src in sorted(bodies.items()):
+        old_mat = nif_material(src)
+        nif_rel = os.path.join(meshes_rel, name + body + '.nif').replace(os.sep, '\\')
+        dst = under(out, 'Meshes', nif_rel)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        retarget_nif(src, dst, old_mat, new_mat)
+        stem = os.path.splitext(src)[0]
+        companion = next((stem + s for s in (FACEBONES + '.nif', '_faceBones.nif')
+                          if os.path.exists(stem + s)), None)
+        if companion:
+            retarget_nif(companion, under(out, 'Meshes', meshes_rel, name + body + FACEBONES + '.nif'),
+                         old_mat, new_mat)
+        written[BODY_NAMES[body]] = nif_rel
+    return written
+
+
 def is_mask(path):
     return os.path.splitext(path)[0].lower().endswith('_mask')
 
@@ -296,8 +348,8 @@ def variant_space(r, opts, heads):
         raise RecipeError("no eye colours to choose from")
 
     out = []
-    for head in heads:
-        stem = os.path.splitext(os.path.basename(head))[0]
+    for stem, bodies in group_heads(heads).items():
+        head = bodies.get('', next(iter(bodies.values())))      # the average, if there is one
         for tone in tones:
             combos = [[]]
             for ly in r['layers']:
@@ -309,7 +361,8 @@ def variant_space(r, opts, heads):
                 for eye_code, eye in eyes:
                     parts = [stem, f"sk{tone}"] + [ly['code'] + ch[0] for ly, ch in combo]
                     parts.append(r['eyes']['code'] + eye_code)
-                    out.append({'name': '_'.join(parts), 'head': head, 'tone': tone,
+                    out.append({'name': '_'.join(parts), 'head': head, 'bodies': bodies,
+                                'tone': tone,
                                 'layers': [(ly.get('slot'), ch[1], ch[2])
                                            for ly, ch in combo if ch[1]],
                                 'eye': eye})
@@ -595,7 +648,10 @@ def bake(r, force=False, dry_run=False, log=print):
     heads = find_heads(r['heads'])
     space = variant_space(r, opts, heads)
     chosen = pick(space, r['limit'], r['seed'])
-    log(f"{len(space)} combinations over {len(heads)} head(s); baking {len(chosen)}")
+    groups = group_heads(heads)
+    log(f"{len(space)} combinations over {len(groups)} head(s); baking {len(chosen)}")
+    for head, bodies in groups.items():
+        log(f"  {head}: {', '.join(BODY_NAMES[b] for b in sorted(bodies))}")
     if dry_run:
         for v in chosen:
             log(f"  {v['name']}")
@@ -613,7 +669,6 @@ def bake(r, force=False, dry_run=False, log=print):
         name = v['name']
         tex_rel = os.path.join(info['textures'], name + '_color.png')
         mat_game = os.path.join(info['materials'], name + '.mat').replace(os.sep, '\\')
-        nif_rel = os.path.join(info['meshes'], name + '.nif')
         dds = under(out, os.path.splitext(tex_rel)[0] + '.dds')
 
         if force or not os.path.exists(dds):
@@ -642,18 +697,10 @@ def bake(r, force=False, dry_run=False, log=print):
         color_game = 'Data\\' + os.path.splitext(tex_rel)[0].replace(os.sep, '\\') + '.dds'
         write_material(out, mat_game, derive_material(info['doc'], mat_game, color_game))
 
-        nif_file = under(out, 'Meshes', nif_rel)
-        os.makedirs(os.path.dirname(nif_file), exist_ok=True)
-        retarget_nif(v['head'], nif_file, info['mat_rel'], mat_game)
-        stem = os.path.splitext(v['head'])[0]
-        companion = next((stem + s for s in (FACEBONES + '.nif', '_faceBones.nif')
-                          if os.path.exists(stem + s)), None)
-        if companion:
-            retarget_nif(companion, under(out, 'Meshes', info['meshes'], name + FACEBONES + '.nif'),
-                         info['mat_rel'], mat_game)
+        nifs = write_body_nifs(v['bodies'], out, info['meshes'], name, mat_game)
         manifest.append({'name': name, 'head': os.path.basename(v['head']), 'tone': v['tone'],
-                         'nif': nif_rel.replace(os.sep, '\\'), 'material': mat_game,
-                         'texture': color_game})
+                         'nif': nifs.get('average', next(iter(nifs.values()))),
+                         'nifs': nifs, 'material': mat_game, 'texture': color_game})
         log(f"  {name}")
 
     if pngs:

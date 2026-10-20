@@ -1903,6 +1903,274 @@ def TEST_SF_RACECHECK_SKIN_FLAG_SLOT():
     assert TT.is_eq(fails(0, 0x40), [], "an unflagged addon isn't this check's business")
 
 
+def TEST_SF_RACECHECK_VANILLA_MISMATCH():
+    """sf_racecheck warns, not fails, on oddities a mod can't fix or does on purpose.
+
+    - A body morph whose vertex count differs from its model is a FAIL when either is the mod's
+      own: a remeshed body pointing at vanilla's morph. When both are in vanilla's human tree
+      it's a WARN.
+      FSFCanine_AA_Naked_Tail names vanilla's Naked_M_1st.nif (1582 verts) as its 1st person
+      model, with vanilla's male chargen body morph (6464): Bethesda's pairing, not the mod's.
+    - A head part with no MODL is a WARN: FSFCanine_MF_Hair_None has none on purpose, to blank
+      the hair (Bad Dog, 2026-10-19)."""
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+
+    class Sub:
+        def __init__(self, s):
+            self.s = s
+
+        def get_string(self):
+            return self.s
+
+    class Rec:
+        def __init__(self, edid, **subs):
+            self.editor_id, self.subs = edid, subs
+
+        def get_subrecord(self, sig):
+            return Sub(self.subs[sig]) if sig in self.subs else None
+
+    class Morph:
+        num_vertices = 6464
+
+    def levels(rep):
+        return [lv for lv, _a, _m, _d in rep.findings]
+
+    with tempfile.TemporaryDirectory() as d:
+        for m in ('Meshes/Morphs/Human/Male/Chargen/Body', 'Meshes/Morphs/RC/Male/Body'):
+            os.makedirs(os.path.join(d, m))
+            open(os.path.join(d, m, 'morph.dat'), 'wb').close()
+        saved = R.model_mesh_verts, R.MorphFile
+        R.model_mesh_verts = lambda data, rel: 1582
+        R.MorphFile = type('MF', (), {'from_file': staticmethod(lambda f: Morph())})
+        try:
+            def morph_check(model, morph_dir):
+                rep = R.Report()
+                R.check_body_morph(rep, [d], 'probe', 'male 1st person',
+                                   Rec('m', TCMP=morph_dir), model)
+                return levels(rep)
+
+            assert TT.is_eq(morph_check('Actors\\Human\\Mesh\\Naked_Body\\Naked_M_1st.nif',
+                                        'Meshes\\Morphs\\Human\\Male\\Chargen\\Body'),
+                            [R.WARN], "vanilla model + vanilla morph is a WARN")
+            assert TT.is_eq(morph_check('Actors\\RC\\Mesh\\Body_M.nif',
+                                        'Meshes\\Morphs\\Human\\Male\\Chargen\\Body'),
+                            [R.FAIL], "own model + vanilla morph is a FAIL")
+            assert TT.is_eq(morph_check('Actors\\Human\\Mesh\\Naked_Body\\Naked_M_1st.nif',
+                                        'Meshes\\Morphs\\RC\\Male\\Body'),
+                            [R.FAIL], "vanilla model + own morph is a FAIL")
+        finally:
+            R.model_mesh_verts, R.MorphFile = saved
+
+    rep = R.Report()
+    R.check_head_nif(rep, 'unused', Rec('FSFCanine_MF_Hair_None'), None)
+    assert TT.is_eq(levels(rep), [R.WARN], "a head part with no MODL is a WARN")
+
+
+def TEST_SF_RACECHECK_ARMOR_RACE_FIT():
+    """sf_racecheck passes a skin addon that fits the race only through its Armor Race.
+
+    FSFFoxCrowdRace's skin carries vanilla AA_Clothes_Crowd_Sweater_01_NOTPLAYABLE, which lists
+    HumanCrowdRace and MannequinRace but not the fox race. HumanCrowdRace is the fox race's Armor
+    Race, and the crowd foxes render in game wearing that sweater (2026-10-18), so the match
+    through the Armor Race is enough. An addon that fits neither is still a FAIL."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+
+    class Race:
+        def __init__(self, edid):
+            self.editor_id = self.form_id = edid
+
+    class Arma:
+        editor_id, flags = 'AA_Clothes_Crowd_Sweater_01_NOTPLAYABLE', 0
+
+        def get_subrecord(self, sig):
+            return None
+
+    fox, crowd, mannequin = Race('FSFFoxCrowdRace'), Race('HumanCrowdRace'), Race('MannequinRace')
+
+    def fails(armor_race, fits):
+        saved = R.arma_races
+        R.arma_races = lambda arma, plugins: fits
+        try:
+            rep = R.Report()
+            R.check_body_addon(rep, [], fox, Arma(), armor_race, None, None, None, sexes=())
+        finally:
+            R.arma_races = saved
+        return [m for lv, _a, m, _d in rep.findings if lv == R.FAIL]
+
+    assert TT.is_eq(fails(crowd, [crowd, mannequin]), [], "fits through the Armor Race: passes")
+    assert TT.is_eq(fails(crowd, [fox]), [], "fits the race itself: passes")
+    assert TT.is_eq(len(fails(crowd, [mannequin])), 1, "fits neither: FAIL")
+    assert TT.is_eq(len(fails(None, [crowd])), 1, "no Armor Race, not the race: FAIL")
+
+
+def TEST_SF_RACECHECK_CROWD_RACE():
+    """sf_racecheck doesn't hold a crowd race to the chargen rules.
+
+    A crowd race is HumanCrowdRace, or a race whose Armor Race is HumanCrowdRace (FSFFoxCrowdRace).
+    Its head, eyes and arms are one mesh carried by the head armor in the NPC's outfit, so it has
+    no head parts, no separate hands, no tint layers, skin tones or face textures. Vanilla's own
+    crowd skin, Skin_Crowd_Base_Body_NOTPLAYABLE, has a single addon (the sweater)."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+
+    class Sub:
+        def get_form_id(self):
+            return type('F', (), {'value': 1})()
+
+    class Rec:
+        def __init__(self, edid, subs=()):
+            self.editor_id, self.form_id, self.subs, self.plugin = edid, edid, set(subs), None
+
+        def get_subrecord(self, sig):
+            return Sub() if sig in self.subs else None
+
+        def get_subrecords(self, sig):
+            return [Sub()] if sig in self.subs else []
+
+    crowd = Rec('HumanCrowdRace')
+    fox_crowd, fox, human = Rec('FSFFoxCrowdRace', ['RNAM', 'WNAM']), Rec('FSFFoxRace', ['RNAM']), \
+        Rec('HumanRace')
+    skin = Rec('FSFox_Skin_Crowd_Base_Body_NOTPLAYABLE', ['MODL'])
+
+    class Plugins:
+        def resolve_reference(self, rec, sig):
+            return {('FSFFoxCrowdRace', 'RNAM'): crowd, ('FSFFoxRace', 'RNAM'): human,
+                    ('FSFFoxCrowdRace', 'WNAM'): skin}.get((rec.editor_id, sig))
+
+        def resolve_form_id(self, fid, plugin):
+            return None
+
+    plugins = Plugins()
+    assert TT.is_true(R.is_crowd_race(crowd, plugins), "HumanCrowdRace is a crowd race")
+    assert TT.is_true(R.is_crowd_race(fox_crowd, plugins), "Armor Race HumanCrowdRace: crowd")
+    assert TT.is_true(not R.is_crowd_race(fox, plugins), "Armor Race HumanRace: not a crowd")
+    assert TT.is_true(not R.is_crowd_race(human, plugins), "HumanRace: not a crowd")
+
+    def one_addon_warnings(crowd_race):
+        rep = R.Report()
+        R.check_body(rep, [], fox_crowd, plugins, None, None, crowd=crowd_race)
+        return [m for lv, _a, m, _d in rep.findings if lv == R.WARN and 'only 1' in m]
+
+    assert TT.is_eq(len(one_addon_warnings(False)), 1, "a chargen race's one-addon skin warns")
+    assert TT.is_eq(one_addon_warnings(True), [], "a crowd race's one-addon skin is normal")
+
+
+def TEST_SF_RACECHECK_CROWD_HEADS():
+    """sf_racecheck follows a crowd race's heads: NPC -> outfit -> leveled lists -> head armor ->
+    addons -> NIFs, and checks their meshes, materials, textures and _faceBones companions.
+
+    Found on the female fox crowd (2026-10-19): the heads named CrowdHeadF_normal/_rough/_ao.dds,
+    which existed only as .png (no normal map in game), and the _faceBones companion was a
+    chargen face rig with the arms weighted to the biceps only (no hands in game). The game
+    draws a crowd head from its companion, which must be a plain copy of the head.
+
+    A missing texture is a FAIL when it is neither loose nor in any BA2 of the data folders;
+    one in an archive is vanilla's and fine. Problems shared by many heads (forty variants on one
+    material set) are reported once, with the count."""
+    import shutil
+    import struct
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+    from esplib import Plugin
+
+    CROWD = 'Actors/RC_Crowd'
+    fixture = os.path.join('tests', 'SF', 'meshes')
+
+    def put(d, rel, data=b''):
+        path = os.path.join(d, *rel.replace('\\', '/').split('/'))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, 'wb').write(data)
+        return path
+
+    def fake_ba2(path, names):
+        table = b''.join(struct.pack('<H', len(n)) + n.encode() for n in names)
+        open(path, 'wb').write(struct.pack('<4sI4sIQ', b'BTDX', 2, b'GNRL', len(names), 24) + table)
+
+    def u32(v):
+        return v.to_bytes(4, 'little')
+
+    def fid(rec):
+        return rec.form_id.value
+
+    with tempfile.TemporaryDirectory() as d:
+        crowd_nif = os.path.join(fixture, 'crowd_head_af_md1.nif')
+        for name, src in (('Head_A', crowd_nif), ('Head_A_faceBones', crowd_nif),
+                          ('Head_B', crowd_nif), ('Head_B_faceBones', 'felidmalehead.nif'),
+                          ('Tail', crowd_nif)):
+            dst = put(d, f'meshes/{CROWD}/{name}.nif')
+            shutil.copyfile(src if os.sep in src else os.path.join(fixture, src), dst)
+        for mp in NifFile(crowd_nif).shapes[0].mesh_paths():
+            put(d, f'geometries/{mp}.mesh')
+        tex = 'Data\\\\Textures\\\\Actors\\\\RC\\\\crowd\\\\'
+        put(d, 'Materials/Actors/Human/Crowd/Crowd_af_md1.mat', (
+            '{"Objects": [{"Components": ['
+            '{"Type": "BSMaterial::MRTextureFile", "Data": {"FileName": "' + tex + 'head_color.dds"}},'
+            '{"Type": "BSMaterial::MRTextureFile", "Data": {"FileName": "' + tex + 'head_normal.dds"}},'
+            '{"Type": "BSMaterial::MRTextureFile", "Data": {"FileName": '
+            '"Data\\\\Textures\\\\Actors\\\\Human\\\\crowd\\\\vanilla_metal.dds"}}]}]}').encode())
+        put(d, 'Textures/Actors/RC/crowd/head_color.dds')
+        fake_ba2(os.path.join(d, 'Starfield - Textures01.ba2'),
+                 ['textures/actors/human/crowd/vanilla_metal.dds'])
+
+        p = Plugin.new_plugin(os.path.join(d, 'RCCrowd.esm'), masters=[], game='fo4', is_esm=True)
+
+        def rec(sig, edid, *subs):
+            r = p.new_record(sig, edid)
+            for s, data in subs:
+                r.add_subrecord(s, data)
+            return r
+
+        def model(rel):
+            return (rel.replace('/', '\\') + '\0').encode()
+
+        head, tail = ('BO64', (1 << 2).to_bytes(8, 'little')), ('BO64', (1 << 15).to_bytes(8, 'little'))
+        aa_a = rec('ARMA', 'AA_Head_A', head, ('MOD2', model(f'{CROWD}/Head_A.nif')),
+                   ('MOD3', model(f'{CROWD}/Head_F.nif')))
+        aa_b = rec('ARMA', 'AA_Head_B', head, ('MOD2', model(f'{CROWD}/Head_B.nif')))
+        aa_t = rec('ARMA', 'AA_Tail', tail, ('MOD2', model(f'{CROWD}/Tail.nif')))
+        arm_a = rec('ARMO', 'Head_A', head, ('MODL', u32(fid(aa_a))), ('MODL', u32(fid(aa_t))))
+        arm_b = rec('ARMO', 'Head_B', head, ('MODL', u32(fid(aa_b))))
+        sub = rec('LVLI', 'LL_Sub', ('LVLO', u32(1) + u32(fid(arm_b)) + u32(1)))
+        heads = rec('LVLI', 'LL_Heads', ('LVLO', u32(1) + u32(fid(arm_a)) + u32(1)),
+                    ('LVLO', u32(1) + u32(fid(sub)) + u32(1)))
+        outfit = rec('OTFT', 'Outfit', ('INAM', u32(fid(heads))))
+        rec('NPC_', 'Npc_M', ('ACBS', bytes(16)), ('DOFT', u32(fid(outfit))))
+        rec('NPC_', 'Npc_F', ('ACBS', b'\1' + bytes(15)), ('DOFT', u32(fid(outfit))))
+        p.save_as(os.path.join(d, 'RCCrowd.esm'))
+
+        assert TT.is_eq(R.ba2_names(os.path.join(d, 'Starfield - Textures01.ba2')),
+                        {'textures\\actors\\human\\crowd\\vanilla_metal.dds'},
+                        "a BA2's names, lowercased with backslashes")
+
+        plugins = R.load_plugins(R.Report(), [d], ['RCCrowd.esm'])
+        npcs = R.winning_records(plugins, 'NPC_')
+        models = R.crowd_head_models(plugins, npcs)
+        found = {(sx, rel.replace('\\', '/').split('/')[-1], info['head'])
+                 for (sx, rel), info in models.items()}
+        assert TT.is_eq(found, {('MALE', 'Head_A.nif', True), ('MALE', 'Head_B.nif', True),
+                                ('MALE', 'Tail.nif', False), ('FEMALE', 'Head_F.nif', True)},
+                        "every addon of every head armor, nested lists too, by NPC sex")
+
+        rep = R.Report()
+        R.check_crowd_heads(rep, [d], models)
+        fails = [f"{m} {dt}" for lv, _a, m, dt in rep.findings if lv == R.FAIL]
+        assert TT.is_eq(len(fails), 3, f"three problems: {fails}")
+        missing_tex = [f for f in fails if 'head_normal.dds' in f]
+        assert TT.is_true(len(missing_tex) == 1 and '(3 crowd models)' in missing_tex[0],
+                          f"one finding for a texture three models share: {missing_tex}")
+        assert TT.is_true(any('face rig' in f and 'Head_B_faceBones' in f for f in fails),
+                          f"a companion skinned to face bones fails: {fails}")
+        assert TT.is_true(any('not on disk' in f and 'Head_F.nif' in f for f in fails),
+                          f"a missing female head model fails: {fails}")
+        assert TT.is_true(not any('vanilla_metal' in f for _l, _a, m, dt in rep.findings
+                                  for f in [f"{m} {dt}"]),
+                          "a texture in a BA2 is vanilla's: not reported")
+
+
 def TEST_UV_TRANSFER_IMAGE_IO():
     """uv_transfer reads the textures it's given and writes what it paints.
 
@@ -2037,6 +2305,56 @@ def TEST_SF_TINTBAKE_COMPOSITE():
                     "a mask blends its colour by the colour's alpha")
     out = B.composite(base, [(color, None, 1.0), (mask, (0.0, 0.0, 1.0, 1.0), 1.0)])
     assert TT.is_eq(tuple(out[0, 0]), (0.0, 0.0, 1.0), "later layers paint over earlier ones")
+
+
+def TEST_SF_TINTBAKE_BODY_TYPES():
+    """sf_tintbake treats a head's body types as one head.
+
+    Vanilla ships every crowd head three times: <head>.nif (average), <head>_thin.nif and
+    <head>_overweight.nif, each with a _facebones companion. PyNifly writes one nif per '_' shape
+    key, so Bad Dog's export gives _Thin, _average and _Overweight; _average, or no suffix, is the
+    average. A variant is baked once -- one texture, one material -- and written out as a nif per
+    body type, named the vanilla way, each pointing at that material."""
+    import shutil
+    import tempfile
+    B = _tintbake()
+    heads = [r"x\crowdf_fox_md1_average.nif", r"x\crowdf_fox_md1_Thin.nif",
+             r"x\crowdf_fox_md1_Overweight.nif", r"x\Crowd_Head_Fox_md1.nif", r"x\Other_thin.nif"]
+    assert TT.is_eq(B.group_heads(heads), {
+        'crowdf_fox_md1': {'': heads[0], '_thin': heads[1], '_overweight': heads[2]},
+        'Crowd_Head_Fox_md1': {'': heads[3]},
+        'Other': {'_thin': heads[4]}}, "grouped by name without the body suffix")
+
+    opts = B.Options(tones=[('f0', 'h0')], slots={}, derm=[[('x', 'd0_derm_color.dds')]],
+                     eyes=[('Blue', 'blue.dds')], stack=['Dermaesthetic'])
+    r = {'_dir': os.getcwd(), 'eyes': {'code': 'e', 'exclude': []},
+         'layers': [{'slot': 'Dermaesthetic', 'code': 'd'}]}
+    space = B.variant_space(r, opts, heads[:3])
+    assert TT.is_eq([v['name'] for v in space], ['crowdf_fox_md1_sk0_d1_e1'],
+                    "one variant for the three body types, named without a body suffix")
+    assert TT.is_eq(space[0]['bodies'], {'': heads[0], '_thin': heads[1], '_overweight': heads[2]},
+                    "the variant carries every body type's nif")
+
+    src = os.path.join('tests', 'SF', 'meshes', 'crowd_head_af_md1.nif')
+    new = r"Materials\Actors\FSFFox\Crowd\Variants\V1.mat"
+    with tempfile.TemporaryDirectory() as d:
+        bodies = {}
+        for body, fn in (('', 'H_average'), ('_thin', 'H_Thin'), ('_overweight', 'H_Overweight')):
+            bodies[body] = os.path.join(d, 'in', fn + '.nif')
+            os.makedirs(os.path.dirname(bodies[body]), exist_ok=True)
+            shutil.copyfile(src, bodies[body])
+        shutil.copyfile(src, os.path.join(d, 'in', 'H_Thin_faceBones.nif'))
+        written = B.write_body_nifs(bodies, os.path.join(d, 'out'), r"Actors\Fox\Variants", 'V1', new)
+        assert TT.is_eq(written, {'average': r"Actors\Fox\Variants\V1.nif",
+                                  'thin': r"Actors\Fox\Variants\V1_thin.nif",
+                                  'overweight': r"Actors\Fox\Variants\V1_overweight.nif"},
+                        "a nif per body type, named the vanilla way, by body type")
+        for rel in list(written.values()) + [r"Actors\Fox\Variants\V1_thin_facebones.nif"]:
+            path = os.path.join(d, 'out', 'Meshes', *rel.split('\\'))
+            assert TT.is_eq(B.nif_material(path), new, f"{rel} points at the variant's material")
+        assert TT.is_true(not os.path.exists(os.path.join(d, 'out', 'Meshes', 'Actors', 'Fox',
+                                                          'Variants', 'V1_facebones.nif')),
+                          "no companion where the source had none")
 
 
 def TEST_SF_TINTBAKE_VARIANTS():
@@ -2754,6 +3072,22 @@ def TEST_SF_MESH_NAME_LIMITS():
     assert mesh_name_error("x" * MESH_NAME_MAX) is None, "the limit itself is allowed"
     err = mesh_name_error("FSF\\" + "x" * MESH_NAME_MAX)
     assert err and str(MESH_NAME_MAX) in err, f"over the limit is reported with the limit: {err}"
+
+
+def TEST_SF_MESH_NAME_FILE_KEY():
+    """Starfield: a '_'-prefixed shape key's nif gets its own .mesh name.
+
+    The key goes on the end when it fits with room for the facebones '_fb'; otherwise (always, for
+    a vanilla-shaped 41-character name) it's a generated name seeded from the name and the key."""
+    from pyn.sf_meshpath import file_key_mesh_name, MESH_NAME_MAX
+
+    assert file_key_mesh_name(r"FSF\Head", '') == r"FSF\Head", "no key: unchanged"
+    assert file_key_mesh_name(r"FSF\Head", '_Thin') == r"FSF\Head_Thin", "the key on the end"
+    vanilla = r"5e92f7a972e370e371b5\89e46fde2dd94912f86a"
+    thin, fat = file_key_mesh_name(vanilla, '_thin'), file_key_mesh_name(vanilla, '_overweight')
+    assert len({vanilla, thin, fat}) == 3, f"no room: generated, distinct per key: {thin} {fat}"
+    assert all(len(n) + 3 <= MESH_NAME_MAX for n in (thin, fat)), "room left for '_fb'"
+    assert file_key_mesh_name(vanilla, '_thin') == thin, "the same name every export"
 
 
 def TEST_SF_MESH_NAME_UNIQUE():

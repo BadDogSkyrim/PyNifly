@@ -391,6 +391,17 @@ def get_common_shapes(obj_list) -> set:
     return res
 
 
+# A shape key named just '_' is the file key for the plain nif: it writes <name>.nif, from its
+# own shape, beside the <name>_thin.nif etc. the other '_' keys write. Without it, file keys
+# mean only the keyed files are written.
+PLAIN_FILE_KEY = '_'
+
+
+def file_key_suffix(key):
+    """What a file key adds to the file and .mesh names: the key itself, nothing for '_'."""
+    return '' if not key or key == PLAIN_FILE_KEY else key
+
+
 def get_with_uscore(str_list):
     if str_list:
         return list(filter((lambda x: x[0] == '_'), str_list))
@@ -810,7 +821,7 @@ class NifExporter:
         if obj.type == 'ARMATURE':
             self.add_armature(obj)
             for c in obj.children:
-                self.add_object(c)
+                self.add_visible(c)
 
         elif obj.type == 'MESH':
             if 'FO4_CUTPOINT' in obj:
@@ -881,20 +892,36 @@ class NifExporter:
                 # node for it (nifly can't add_block a shape), but still export its LOD-child
                 # meshes. Without this, selecting the object hierarchy (not just the leaf mesh)
                 # routes the Empty through export_node and crashes on add_block(type 1).
-                # Hidden children too: LOD1 and up are hidden on import, and are still slots.
+                # LOD1 and up are hidden on import but still slots: their LOD0 collects them by
+                # name (sf_geometry.lod_group) when it's written, so they needn't be added here.
                 for c in obj.children:
-                    self.add_object(c)
+                    self.add_visible(c)
 
             elif (connectpoint.is_child(obj)) or (not connectpoint.is_connectpoint(obj)):
                 self.grouping_nodes.add(obj)
                 if obj.get('pynBlockName') == 'NiSwitchNode':
                     self.switch_nodes.add(obj)
                 for c in obj.children:
-                    if not c.hide_get():
-                        self.add_object(c)
+                    self.add_visible(c)
 
         if connectpoint.is_connectpoint(obj):
             self.connect_points.add(obj)
+
+
+    def add_visible(self, obj):
+        """Add a child object found under an exported one, unless it's hidden. Hidden objects
+        aren't exported -- an old copy kept under the same parent, say -- and Blender can't put a
+        hidden mesh in edit mode, which export needs. A Starfield LOD slot hidden on import is
+        skipped quietly: it exports with its LOD0."""
+        if not obj.hide_get():
+            self.add_object(obj)
+            return
+        from .sf_geometry import lod_slots
+        slots = lod_slots(obj.name)
+        skipped = self.__dict__.setdefault('_hidden_skipped', set())
+        if not (slots and slots[0] > 0) and obj.name not in skipped:
+            skipped.add(obj.name)
+            log.info(f"Not exporting hidden object {obj.name}")
 
 
     def set_objects(self, objects:list):
@@ -2338,6 +2365,10 @@ class NifExporter:
         # Which file of the set we're writing ('' or '_faceBones'). SF geometry export reads
         # this to give the facebones companion its own external .mesh.
         self.file_suffix = suffix
+        # The suffix of the '_'-prefixed shape key this file is ('' when there are none, or for
+        # the plain-file key '_'). SF geometry export puts it on the .mesh name: each key's nif
+        # is its own geometry.
+        self.file_key = file_key_suffix(sk)
         # A Starfield facebones armature with no face bones -- a crowd head's -- writes the
         # companion as vanilla crowds ship it: the same nif again, on the same .mesh.
         self.sf_companion_copy = (
@@ -2481,7 +2512,7 @@ class NifExporter:
         self.trippath = os.path.join(os.path.dirname(self.filepath), fname_ext[0]) + ".tri"
 
         for sk in shape_keys:
-            fbasename = fname_ext[0] + sk + suffix
+            fbasename = fname_ext[0] + file_key_suffix(sk) + suffix
             fnamefull = fbasename + fname_ext[1]
             fpath = os.path.join(os.path.dirname(self.filepath), fnamefull)
 

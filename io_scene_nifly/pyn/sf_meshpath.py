@@ -94,6 +94,25 @@ def resolve_mesh_name(stored, obj_name, seed_path):
     return parts[0] + SEP + sanitize_mesh_component(obj_name)
 
 
+# Room kept under the cap for the facebones companion's own-.mesh suffix.
+FACEBONES_MESH_SUFFIX = '_fb'
+
+
+def file_key_mesh_name(mesh_name, key):
+    """The meshName for the file a '_'-prefixed shape key writes (``_thin`` -> crowdhead_thin.nif).
+
+    Each such file is its own geometry, so it needs its own .mesh: `mesh_name` with the key on
+    the end (``FSF\\Head`` -> ``FSF\\Head_thin``). When that, plus room for the facebones '_fb',
+    would pass the cap -- a vanilla-shaped 41-character name always does -- it's a generated name
+    seeded from `mesh_name` and `key` instead: unique, but no longer readable."""
+    if not key:
+        return mesh_name
+    keyed = mesh_name + sanitize_mesh_component(key)
+    if len(keyed) + len(FACEBONES_MESH_SUFFIX) <= MESH_NAME_MAX:
+        return keyed
+    return generate_mesh_name(mesh_name, key)
+
+
 def mesh_name_error(name):
     """Return a message if `name` can't be used as a meshName, else None. Currently the
     46-character cap, which silently makes the shape invisible in game."""

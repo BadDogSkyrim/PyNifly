@@ -2150,6 +2150,147 @@ def TEST_SF_FACEBONES_FLAG_CROWD():
 
 
 @TT.category('STARFIELD')
+def TEST_SF_FILE_KEY_MESHES():
+    """Each '_'-prefixed shape key writes its own nif AND its own .mesh files.
+
+    The fox crowd head was exported with _Thin/_average/_Overweight keys for the three body types:
+    three nifs came out, all pointing at one .mesh, which each wrote over the last -- every body
+    type got the last one's geometry. The key goes on the .mesh name ('FSF\\Head_thin'); a name
+    with no room for it under the 46-character cap gets a hash of name + key instead. A crowd
+    head's companion is a copy of its own key's nif, on that key's .mesh."""
+    from pyn.sf_meshpath import MESH_NAME_MAX
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'male',
+                            'crowd_head_af_md1.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_FILE_KEY_MESHES\meshes\crowdhead.nif")
+    outdir = os.path.dirname(os.path.dirname(outfile))
+    if os.path.exists(outdir):
+        shutil.rmtree(outdir)
+    os.makedirs(os.path.dirname(outfile))
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    lods = [o for o in bpy.data.objects if o.type == 'MESH']
+    for obj in lods:
+        obj.shape_key_add(name='Basis')
+        for i, key in enumerate(('_thin', '_overweight')):
+            sk = obj.shape_key_add(name=key)
+            for p in sk.data:
+                p.co.x += 0.5 * (i + 1)
+    lod0 = bpy.data.objects["crowd_head_af_md1:0:LOD0"]
+    lod0.pyn_sf_geometry.mesh_path = 'FSF'
+    crowd_arma = next(m.object for m in lod0.modifiers if m.type == 'ARMATURE')
+    crowd_arma.pyn_facebones = True
+
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    paths = {}
+    for key in ('_thin', '_overweight'):
+        nif = os.path.join(outdir, 'meshes', f'crowdhead{key}.nif')
+        assert TT.is_true(os.path.exists(nif), f"wrote {nif}")
+        paths[key] = pyn.NifFile(nif).shapes[0].mesh_paths()
+        fb = pyn.NifFile(os.path.join(outdir, 'meshes', f'crowdhead{key}_faceBones.nif'))
+        assert TT.is_eq(fb.shapes[0].mesh_paths(), paths[key][:1],
+                        f"the {key} companion is on the {key} nif's own .mesh")
+    assert TT.is_eq(paths['_thin'][0], 'FSF\\crowd_head_af_md1_0_LOD0_thin',
+                    "an explicit folder gets the key on the shape's name")
+    for slot, (thin, fat) in enumerate(zip(paths['_thin'], paths['_overweight'])):
+        assert TT.is_true(thin != fat, f"slot {slot}: each key has its own .mesh ({thin})")
+        for name in (thin, fat):
+            assert TT.is_true(len(name) <= MESH_NAME_MAX, f"slot {slot}: {name} fits the cap")
+            assert TT.is_true(os.path.exists(os.path.join(outdir, 'geometries', name + '.mesh')),
+                              f"slot {slot}: {name}.mesh was written")
+    thin0, fat0 = (open(os.path.join(outdir, 'geometries', paths[k][0] + '.mesh'), 'rb').read()
+                   for k in ('_thin', '_overweight'))
+    assert TT.is_true(thin0 != fat0, "the two .mesh files hold different geometry")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_FILE_KEY_PLAIN():
+    """A shape key named just '_' writes the plain nif -- no suffix -- from its own shape.
+
+    With file keys, only keyed files are written, so the body types had to be _thin, _overweight
+    and an invented _average. '_' gives vanilla's names directly: crowdhead.nif,
+    crowdhead_thin.nif, crowdhead_overweight.nif, each on its own .mesh, the plain one named as
+    if there were no keys."""
+    import numpy as np
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'male',
+                            'crowd_head_af_md1.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_FILE_KEY_PLAIN\meshes\crowdhead.nif")
+    outdir = os.path.dirname(os.path.dirname(outfile))
+    if os.path.exists(outdir):
+        shutil.rmtree(outdir)
+    os.makedirs(os.path.dirname(outfile))
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    for obj in [o for o in bpy.data.objects if o.type == 'MESH']:
+        obj.shape_key_add(name='Basis')
+        for key, dx in (('_', 0.75), ('_thin', 0.25), ('_overweight', 1.25)):
+            sk = obj.shape_key_add(name=key, from_mix=False)
+            for p in sk.data:
+                p.co.x += dx
+    lod0 = bpy.data.objects["crowd_head_af_md1:0:LOD0"]
+    lod0.pyn_sf_geometry.mesh_path = 'FSF'
+    next(m.object for m in lod0.modifiers if m.type == 'ARMATURE').pyn_facebones = True
+
+    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    meshdir = os.path.dirname(outfile)
+    assert TT.is_eq(sorted(f for f in os.listdir(meshdir)
+                           if f.endswith('.nif') and not f.lower().endswith('_facebones.nif')),
+                    ['crowdhead.nif', 'crowdhead_overweight.nif', 'crowdhead_thin.nif'],
+                    "the '_' key writes the plain nif, the others their suffixed ones")
+    centres = {}
+    for key, name in (('_', 'crowdhead'), ('_thin', 'crowdhead_thin'),
+                      ('_overweight', 'crowdhead_overweight')):
+        shape = pyn.NifFile(os.path.join(meshdir, name + '.nif')).shapes[0]
+        mp = shape.mesh_paths()[0]
+        if key == '_':
+            assert TT.is_eq(mp, 'FSF\\crowd_head_af_md1_0_LOD0', "the plain nif's .mesh has no suffix")
+        with open(os.path.join(outdir, 'geometries', mp + '.mesh'), 'rb') as f:
+            shape.load_mesh(f.read(), 0)
+        centres[key] = np.mean(np.array(shape.verts), axis=0)
+    to_thin = centres['_'] - centres['_thin']
+    span = centres['_overweight'] - centres['_thin']
+    assert TT.is_true(np.dot(to_thin, span) > 0 and np.linalg.norm(to_thin) < np.linalg.norm(span),
+                      f"the plain nif is the '_' shape, between thin and overweight: {centres}")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_HIDDEN_NOT_EXPORTED():
+    """A hidden object isn't exported, except a LOD slot hidden on import, which exports with its
+    LOD0.
+
+    Exporting a root took every child of a BSGeometry, hidden or not: a hidden old copy of the fox
+    crowd head under the same parent went into the export, and the GUI export died putting it in
+    edit mode ("mode_set.poll() Context missing active object"). The crowd head's LOD1+ are
+    hidden on import and must still fill their slots."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'male',
+                            'crowd_head_af_md1.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_HIDDEN_NOT_EXPORTED\meshes\crowdhead.nif",
+                            output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    lod0 = bpy.data.objects["crowd_head_af_md1:0:LOD0"]
+    assert TT.is_true(any(o.hide_get() for o in lod0.parent.children),
+                      "the further LODs are hidden on import")
+    old = lod0.copy()
+    old.data = lod0.data.copy()
+    old.name = "crowd_head_old"
+    bpy.context.scene.collection.objects.link(old)
+    old.parent = lod0.parent
+    old.hide_set(True)
+
+    BD.ObjectSelect([o for o in bpy.data.objects if not o.hide_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq([s.name for s in nif.shapes], ['crowd_head_af_md1:0'],
+                    "the hidden copy isn't exported")
+    assert TT.is_eq(len(nif.shapes[0].mesh_paths()), 4, "the hidden LODs still fill their slots")
+
+
+@TT.category('STARFIELD')
 def TEST_SF_FACEBONES_FLAG_OFF():
     """An armature marked NOT facebones is an ordinary armature even though its bone names say
     otherwise: the shape is skinned to it in the plain nif, and no companion is written."""

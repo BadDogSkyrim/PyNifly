@@ -14,7 +14,7 @@ from .. import __package__ as base_package
 from .. import blender_defs as BD
 from ..pyn.niflytools import find_referenced_file, texture_path
 from ..pyn.sf_meshpath import (sanitize_mesh_component, resolve_mesh_name, mesh_name_error,
-                               unique_mesh_name)
+                               unique_mesh_name, file_key_mesh_name)
 from ..gamefinder import find_game
 
 log = logging.getLogger("pynifly")
@@ -300,6 +300,9 @@ def _member_mesh_name(exporter, obj, slot):
         # and pinned across re-exports (a later .blend rename then can't move the .mesh).
         from . import pyn_props
         pyn_props.set_group(obj, 'pyn_sf_geometry', mesh_path=mesh_name, lod_slot=slot)
+    # Each '_'-prefixed shape key writes a nif of its own geometry, so it gets a .mesh of its own.
+    # The stored path stays the keyless base every key derives from.
+    mesh_name = file_key_mesh_name(mesh_name, getattr(exporter, 'file_key', ''))
     # The facebones companion nif needs its OWN .mesh: same positions, different skin (vanilla
     # ships the pair as two distinct geometry files). Suffix the name we write with rather than
     # the stored property, so the base path stays authoritative and round-trips unchanged.

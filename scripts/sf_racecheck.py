@@ -184,15 +184,20 @@ def mesh_vertex_count(path):
     return vcount
 
 
-def resolve_mesh(data, mesh_name):
-    """A NIF's meshName -> a path under Data. Names come with or without the geometries
+def mesh_rel(mesh_name):
+    """A NIF's meshName -> its Data-relative path. Names come with or without the geometries
     prefix and with or without the .mesh extension."""
     n = mesh_name.replace('/', '\\')
     if not n.lower().startswith('geometries\\'):
         n = 'geometries\\' + n
     if not n.lower().endswith('.mesh'):
         n += '.mesh'
-    return data_path(data, n)
+    return n
+
+
+def resolve_mesh(data, mesh_name):
+    """A NIF's meshName -> a path under Data."""
+    return data_path(data, mesh_rel(mesh_name))
 
 
 # --- morph checks ---------------------------------------------------------------------------
@@ -511,7 +516,8 @@ def check_head_nif(rep, data, hdpt, nif_reader):
     """The NIF a head part names, its external .mesh, and the facebones pair."""
     modl = text(hdpt, 'MODL')
     if not modl:
-        rep.fail('nif', f"{hdpt.editor_id}: head part has no MODL")
+        # Odd, but done on purpose: a "no hair" part with no model blanks the hair.
+        rep.warn('nif', f"{hdpt.editor_id}: head part has no MODL")
         return
     if not exists(data, 'meshes', modl):
         rep.fail('nif', f"{hdpt.editor_id}: MODL not on disk", modl)
@@ -632,6 +638,69 @@ def material_db(data):
     return None
 
 
+_archive_names = {}
+
+
+def ba2_names(path):
+    """The file names a BA2 holds, lowercased with backslashes. Only the name table is read:
+    the header gives the file count (at 12) and the table's offset (at 16), and the table is a
+    u16 length + name per file, the same in every BTDX version."""
+    with open(path, 'rb') as f:
+        magic, _ver, _kind, count, offset = struct.unpack('<4sI4sIQ', f.read(24))
+        if magic != b'BTDX':
+            return set()
+        f.seek(offset)
+        raw = f.read()
+    names, pos = set(), 0
+    for _ in range(count):
+        n = struct.unpack_from('<H', raw, pos)[0]
+        names.add(raw[pos + 2:pos + 2 + n].decode('utf-8', 'replace').lower().replace('/', '\\'))
+        pos += 2 + n
+    return names
+
+
+def archive_names(data):
+    """Every file name in the BA2s of the --data folders. A path in here exists, even though it
+    isn't loose -- which is how to tell a vanilla asset from one a mod forgot to make."""
+    key = tuple(data)
+    if key not in _archive_names:
+        names = set()
+        for d in data:
+            if not os.path.isdir(d):
+                continue
+            for fn in os.listdir(d):
+                if fn.lower().endswith('.ba2'):
+                    try:
+                        names |= ba2_names(os.path.join(d, fn))
+                    except (OSError, struct.error):
+                        pass
+        _archive_names[key] = names
+    return _archive_names[key]
+
+
+def asset_exists(data, rel):
+    """Whether a Data-relative path is loose in a --data folder or inside one of its BA2s."""
+    return exists(data, rel) or rel.lower().replace('/', '\\') in archive_names(data)
+
+
+def material_textures(doc):
+    """(object name, Data-relative path) for every texture a parsed .mat names."""
+    for o in doc.get('Objects', []):
+        name = next((c['Data'].get('Name') for c in o.get('Components', [])
+                     if c.get('Type', '').endswith('CTName')), '?')
+        for c in o.get('Components', []):
+            if not c.get('Type', '').endswith('MRTextureFile'):
+                continue
+            fn = c.get('Data', {}).get('FileName', '')
+            if not fn:
+                continue
+            rel = fn.replace('/', '\\')
+            # Material texture paths carry a leading "Data\", the way vanilla writes them.
+            if rel.lower().startswith('data\\'):
+                rel = rel[5:]
+            yield name, rel
+
+
 def check_material(rep, data, mat_rel, own_root, seen):
     """A shape's `.mat`: does it exist, is it game-valid, do its textures exist?
 
@@ -685,26 +754,14 @@ def check_material(rep, data, mat_rel, own_root, seen):
     check_shader_settings(rep, data, mat_rel, path)
 
     missing_own, missing_other, not_dds = [], [], []
-    for o in objects:
-        name = next((c['Data'].get('Name') for c in o.get('Components', [])
-                     if c.get('Type', '').endswith('CTName')), '?')
-        for c in o.get('Components', []):
-            if not c.get('Type', '').endswith('MRTextureFile'):
-                continue
-            fn = c.get('Data', {}).get('FileName', '')
-            if not fn:
-                continue
-            rel = fn.replace('/', '\\')
-            # Material texture paths carry a leading "Data\", the way vanilla writes them.
-            if rel.lower().startswith('data\\'):
-                rel = rel[5:]
-            if not is_dds(rel):
-                not_dds.append(f"{name}: {rel}")
-            if exists(data, rel):
-                continue
-            norm = rel.lower()
-            (missing_own if own_root and own_root in norm
-             else missing_other).append(f"{name}: {rel}")
+    for name, rel in material_textures(doc):
+        if not is_dds(rel):
+            not_dds.append(f"{name}: {rel}")
+        if exists(data, rel):
+            continue
+        norm = rel.lower()
+        (missing_own if own_root and own_root in norm
+         else missing_other).append(f"{name}: {rel}")
 
     if not_dds:
         rep.fail('materials', f"{mat_rel}: {len(not_dds)} texture path(s) are not .dds",
@@ -841,7 +898,186 @@ def arma_races(arma, plugins):
     return out
 
 
-def check_body(rep, data, race, plugins, nif_reader, own_root, sexes=SEXES):
+CROWD_RACE = 'HumanCrowdRace'
+
+
+def is_crowd_race(race, plugins):
+    """Whether `race` is a crowd race: HumanCrowdRace, or one using it as its Armor Race. A crowd
+    actor's head, eyes and arms are one mesh carried by the head armor in its outfit, so the
+    chargen machinery -- head parts, hands, tint layers, skin tones, face textures -- isn't used."""
+    if race.editor_id == CROWD_RACE:
+        return True
+    armor_race = plugins.resolve_reference(race, 'RNAM')
+    return armor_race is not None and armor_race.editor_id == CROWD_RACE
+
+
+BIPED_HEAD = 1 << 2                 # BO64 bit of the head slot, where crowd heads go
+
+
+def biped_slots(rec):
+    sr = rec.get_subrecord('BO64') if rec is not None else None
+    return int.from_bytes(bytes(sr.data)[:8], 'little') if sr is not None else 0
+
+
+def outfit_armors(plugins, outfit):
+    """The armors an outfit can put on: its items, with leveled lists opened all the way down.
+    An outfit's INAM is an array of form IDs; a list's LVLO is {level, form ID, count}."""
+    out, seen = [], set()
+
+    def visit(rec):
+        if rec is None or id(rec) in seen:
+            return
+        seen.add(id(rec))
+        if rec.signature == 'ARMO':
+            out.append(rec)
+        elif rec.signature == 'LVLI':
+            for sr in rec.get_subrecords('LVLO'):
+                visit(plugins.resolve_form_id(sr.get_form_id(4), rec.plugin))
+
+    for sr in outfit.get_subrecords('INAM'):
+        for i in range(sr.size // 4):
+            visit(plugins.resolve_form_id(sr.get_form_id(i * 4), outfit.plugin))
+    return out
+
+
+def crowd_head_models(plugins, npcs):
+    """The models a crowd race's actors wear on their heads, {(sex, model): info}.
+
+    A crowd actor's head is clothing: its outfit holds a head list, the list holds head armors
+    (head slot), and each armor's addons name a model per sex. Every addon counts -- a fox crowd
+    head armor also carries its tail -- and info['head'] says whether the addon itself is in the
+    head slot (only those have a _faceBones companion). info['armors'] names the armors."""
+    out = {}
+    for npc in npcs:
+        sex = npc_sex(npc)
+        outfit = plugins.resolve_reference(npc, 'DOFT') if npc.get_subrecord('DOFT') else None
+        if sex is None or outfit is None:
+            continue
+        for armo in outfit_armors(plugins, outfit):
+            if not biped_slots(armo) & BIPED_HEAD:
+                continue
+            for sr in armo.get_subrecords('MODL'):
+                arma = plugins.resolve_form_id(sr.get_form_id(), armo.plugin)
+                rel = text(arma, 'MOD2' if sex == 'MALE' else 'MOD3')
+                if rel:
+                    info = out.setdefault((sex, rel), {
+                        'head': bool(biped_slots(arma) & BIPED_HEAD), 'armors': set()})
+                    info['armors'].add(armo.editor_id)
+    return out
+
+
+# Advice for each crowd-head finding, said once however many heads share it.
+CROWD_ADVICE = {
+    'model': "The addon names a NIF that isn't loose or in any archive: that head is invisible.",
+    'mesh': "The NIF's geometry lives in this external .mesh; without it the shape is invisible.",
+    'material': "Not a loose file, and not in the game's materialsbeta.cdb.",
+    'no material db': "Add a folder of unpacked vanilla assets to --data to check these.",
+    'texture': "Not loose and not in any BA2. A missing albedo renders black, a missing normal "
+               "flat. A .png beside it doesn't count: convert it to .dds.",
+    'companion': "Every vanilla crowd head has a <name>_facebones.nif companion, a plain copy "
+                 "of the head, and the game draws the crowd head from it.",
+    'face rig': "The crowd skeleton has no face bones. A crowd head's companion must be a plain "
+                "copy of the head NIF, not a chargen face rig: copy the head over it.",
+}
+
+
+def check_crowd_heads(rep, data, models):
+    """The crowd heads' NIFs, meshes, materials, textures and _faceBones companions.
+
+    Forty variants of one head share their mesh, textures and companion layout, so each problem
+    is reported once, with how many models have it and a few examples."""
+    try:
+        from pyn.pynifly import NifFile
+    except Exception:
+        return                                  # run() already warned the DLL is missing
+    area = 'crowd heads'
+    if not models:
+        rep.warn(area, "no crowd heads found",
+                 "No NPC of this race has a default outfit with a head-slot armor in it.")
+        return
+    found = collections.defaultdict(lambda: collections.defaultdict(set))  # key -> item -> models
+    db = material_db(data)
+    materials = {}                              # mat path -> its textures, or None
+
+    def textures_of(mat):
+        if mat not in materials:
+            materials[mat] = None
+            path = data_path(data, mat)
+            if os.path.exists(path):
+                try:
+                    with open(path, encoding='utf-8') as f:
+                        materials[mat] = [rel for _n, rel in material_textures(json.load(f))]
+                except (OSError, ValueError):
+                    pass
+        return materials[mat]
+
+    def inspect(rel, who, head):
+        if not asset_exists(data, os.path.join('meshes', rel)):
+            found[(FAIL, 'model', "model not on disk")][rel].add(who)
+            return
+        path = data_path(data, 'meshes', rel)
+        if not os.path.exists(path):
+            return                              # vanilla, in a BA2: nothing to read
+        try:
+            nif = NifFile(path)
+        except Exception as e:
+            rep.warn(area, f"{rel}: could not be read: {e}")
+            return
+        for s in nif.shapes:
+            for mp in s.mesh_paths():
+                if mp and not asset_exists(data, mesh_rel(mp)):
+                    found[(FAIL, 'mesh', "external .mesh missing")][mp].add(who)
+            mat = s.shader.name if s.shader else None
+            if not mat:
+                continue
+            if textures_of(mat) is None and not os.path.exists(data_path(data, mat)):
+                if db is None:
+                    found[(WARN, 'no material db', "material not loose, and no "
+                                                   "materialsbeta.cdb to look it up in")][mat].add(who)
+                elif db.material_dbid(mat) is None:
+                    found[(FAIL, 'material', "material does not exist")][mat].add(who)
+                continue
+            for tex in textures_of(mat) or []:
+                if not asset_exists(data, tex):
+                    found[(FAIL, 'texture', "texture does not exist")][tex].add(who)
+        if not head:
+            return
+        folder, stem = os.path.split(path)
+        stem = os.path.splitext(stem)[0].lower()
+        companion = next((f for f in os.listdir(folder)
+                          if f.lower() == stem + '_facebones.nif'), None)
+        if companion is None:
+            found[(WARN, 'companion', "no _faceBones companion")][rel].add(who)
+            return
+        comp_rel = os.path.join(os.path.dirname(rel), companion)
+        try:
+            face_bones = sum(b.lower().startswith('facebone')
+                             for s in NifFile(os.path.join(folder, companion)).shapes
+                             for b in s.bone_names)
+        except Exception:
+            face_bones = 0
+        if face_bones:
+            found[(FAIL, 'face rig', "_faceBones companion is a face rig")][
+                f"{comp_rel} ({face_bones} face bones)"].add(who)
+        inspect(comp_rel, who, False)
+
+    for (sex, rel), info in sorted(models.items()):
+        inspect(rel, rel, info['head'])
+
+    for (level, kind, msg), items in sorted(found.items(), key=lambda kv: kv[0][1]):
+        heads = set().union(*items.values())
+        n = len(heads)
+        shown = sorted(items)[:6]
+        more = [f"(+{len(items) - len(shown)} more)"] if len(items) > len(shown) else []
+        example = [] if len(items) > 1 or len(heads) == 1 else [f"e.g. {sorted(heads)[0]}"]
+        rep.add(level, area, f"{msg} ({n} crowd model{'s' if n != 1 else ''})",
+                shown + more + example + [CROWD_ADVICE[kind]])
+    if not found:
+        rep.ok(area, f"{len(models)} crowd head model(s): models, meshes, materials, "
+                     f"textures and companions all resolve")
+
+
+def check_body(rep, data, race, plugins, nif_reader, own_root, sexes=SEXES, crowd=False):
     """The race's skin: WNAM -> ARMO -> its ARMA addons -> the body and hand NIFs.
 
     A head part is named by the race directly, but the body is reached through an armor
@@ -858,8 +1094,8 @@ def check_body(rep, data, race, plugins, nif_reader, own_root, sexes=SEXES):
     rep.ok('body', f"skin ARMO {armo.editor_id!r}")
 
     # 'Armor Race' redirects armor lookups at another race; a custom race normally sets it
-    # to HumanRace so vanilla clothing fits. Its own skin addons then have two races to
-    # satisfy, and vanilla is no help in deciding which -- so require both and say why.
+    # to HumanRace so vanilla clothing fits. A skin addon that lists either race is used (the
+    # Armor Race alone is verified in game); listing only the race itself gets a warning.
     armor_race = plugins.resolve_reference(race, 'RNAM')
     if armor_race is race:
         armor_race = None
@@ -871,7 +1107,7 @@ def check_body(rep, data, race, plugins, nif_reader, own_root, sexes=SEXES):
         rep.fail('body', f"{armo.editor_id}: skin ARMO lists no armor addons",
                  "The actor has no body at all.")
         return
-    if len(addons) < 2:
+    if len(addons) < 2 and not crowd:            # a crowd's hands come with its head armor
         rep.warn('body', f"{armo.editor_id}: only {len(addons)} armor addon",
                  "Vanilla skin carries a body addon and a hands addon; hands are a "
                  "separate biped slot and will be missing without their own.")
@@ -923,8 +1159,15 @@ def check_body_addon(rep, data, race, arma, armor_race, plugins, nif_reader, own
 
     usable = arma_races(arma, plugins)
     fits = ', '.join(sorted(r.editor_id or str(r.form_id) for r in usable)) or '(none)'
-    if race not in usable:
-        rep.fail('body', f"{who}: this race is not in the addon's race list",
+    if race not in usable and armor_race is not None and armor_race in usable:
+        # Enough on its own: HumanCorpseRace's skin names only its Armor Race, and a fox crowd
+        # race renders vanilla's crowd sweater, which lists HumanCrowdRace, its Armor Race.
+        rep.ok('body', f"{who}: the race's Armor Race {armor_race.editor_id} is in the "
+                       f"addon's race list")
+    elif race not in usable:
+        rep.fail('body', f"{who}: neither this race nor its Armor Race is in the addon's "
+                         f"race list" if armor_race is not None else
+                         f"{who}: this race is not in the addon's race list",
                  [f"addon fits: {fits}",
                   f"add {race.editor_id} to its Race or Additional Races.",
                   "An addon the race does not match is skipped without a word -- that "
@@ -981,8 +1224,21 @@ def check_body_model(rep, data, arma, who, modl, morph, label, plugins, nif_read
     check_body_morph(rep, data, who, label, rec, rel)
 
 
+def is_vanilla_human(rel):
+    """Whether a model or morph path is in vanilla's human tree: Actors\\Human*\\... or
+    Meshes\\Morphs\\Human*\\... A mod's own files sit under its species' folders."""
+    parts = [p for p in rel.lower().replace('/', '\\').split('\\') if p]
+    for anchor in ('actors', 'morphs'):
+        if anchor in parts:
+            at = parts.index(anchor) + 1
+            return at < len(parts) and parts[at].startswith('human')
+    return False
+
+
 def check_body_morph(rep, data, who, label, mrph_rec, model_rel):
-    """A body morph's vertex count against the model it morphs."""
+    """A body morph's vertex count against the model it morphs. A mismatch is the mod's to fix
+    unless both are vanilla's: an addon naming vanilla's 1st person body with vanilla's chargen
+    morph keeps Bethesda's own mismatched pairing."""
     verts = model_mesh_verts(data, model_rel)
     for sig in ('TCMP', 'TMPP'):
         d = text(mrph_rec, sig)
@@ -1000,6 +1256,11 @@ def check_body_morph(rep, data, who, label, mrph_rec, model_rel):
         if verts is None:
             rep.info('body', f"{who}: {label} morph has {m.num_vertices} verts "
                              f"(model count unknown)")
+        elif m.num_vertices != verts and is_vanilla_human(model_rel) and is_vanilla_human(d):
+            rep.warn('body', f"{who}: {label} morph has {m.num_vertices} verts, the model "
+                             f"has {verts}",
+                     [d, "Both the model and the morph are vanilla's, paired this way by "
+                         "Bethesda; nothing for this mod to fix."])
         elif m.num_vertices != verts:
             rep.fail('body', f"{who}: {label} morph has {m.num_vertices} verts, the model "
                              f"has {verts}",
@@ -1693,7 +1954,7 @@ def check_race_misc(rep, race):
 # into a second, and every record type we follow by formID is here: the vanilla body morphs
 # an armor addon points at, armor or head records a race reuses wholesale, and the form lists
 # a head part's Valid Races goes through.
-GROUPS = {'RACE', 'ARMO', 'ARMA', 'MRPH', 'HDPT', 'AVMD', 'NPC_', 'FLST'}
+GROUPS = {'RACE', 'ARMO', 'ARMA', 'MRPH', 'HDPT', 'AVMD', 'NPC_', 'FLST', 'OTFT', 'LVLI'}
 
 # What the game loads before anything in Plugins.txt, in this order, whether or not it is
 # listed there. Starfield.esm, then the official masters -- xEdit's wbOfficialDLC in
@@ -1968,15 +2229,27 @@ def run(args, out):
                                    f"ambiguous", sorted(dupes))
 
     per_sex = split_by_sex(race)
+    crowd = is_crowd_race(race, plugins)
 
     check_race_misc(rep, race)
-    own_face = check_head_parts(rep, data=args.data, race=race, nif_reader=nif_reader,
-                                per_sex=per_sex, plugins=plugins, official=official,
-                                sexes=sexes, avm=avm)
-    check_body(rep, args.data, race, plugins, nif_reader, own_root, sexes)
-    check_npcs(rep, race, npcs)
+    if crowd:
+        rep.info('race', f"crowd race (Armor Race {CROWD_RACE}): head, eyes and arms come from "
+                         f"the head armor, so the head part, tint, skin tone and face texture "
+                         f"checks are skipped")
+    else:
+        own_face = check_head_parts(rep, data=args.data, race=race, nif_reader=nif_reader,
+                                    per_sex=per_sex, plugins=plugins, official=official,
+                                    sexes=sexes, avm=avm)
+    check_body(rep, args.data, race, plugins, nif_reader, own_root, sexes, crowd=crowd)
+    if not crowd:
+        check_npcs(rep, race, npcs)
     check_record_texture_paths(rep, own_avmds, npcs)
     check_avm_groups(rep, args.data, plugins, own_avmds, official)
+
+    if crowd:
+        check_crowd_heads(rep, args.data, crowd_head_models(plugins, npcs))
+        n_fail = rep.render(args.verbose, out)
+        return (1 if n_fail else 0), rep.summary()
 
     phenotypes = check_skin_tones(rep, args.data, race, avm, fctp, sexes)
     check_ck_skin_tone_rules(rep, per_sex, avm, npcs, sexes)
