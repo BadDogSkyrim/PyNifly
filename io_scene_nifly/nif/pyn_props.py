@@ -712,9 +712,14 @@ _register_handwired_group('PynSFGeometryProps', 'pyn_sf_geometry',
 # than a directory rule because the shape name is an INTERIOR segment here (the filename is always
 # morph.dat) and its position varies: vanilla puts chargen/performance before the part,
 # meshes\morphs\Human\Male\Chargen\Head\morph.dat, while other layouts put it after.
+#
+# crowd marks a crowd head: export writes only the performance morph.dat, holding vanilla's 11
+# crowd keys with each R key merged into its L, averaged where both move a vertex
+# (pyn.sf_morph.crowd_morph_deltas), and no chargen.
 _register_handwired_group('PynSFMorphProps', 'pyn_sf_morph',
     {'chargen_path': bpy.props.StringProperty(name='chargen_path', default='', subtype='FILE_PATH'),
-     'performance_path': bpy.props.StringProperty(name='performance_path', default='', subtype='FILE_PATH')},
+     'performance_path': bpy.props.StringProperty(name='performance_path', default='', subtype='FILE_PATH'),
+     'crowd': bpy.props.BoolProperty(name='crowd', default=False)},
     'Starfield Morphs')
 
 

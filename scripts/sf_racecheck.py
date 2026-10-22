@@ -503,6 +503,48 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
     return own_face
 
 
+# The creator offers only the head parts on these lists (hardcoded FormIDs 0003D9AF / 0003D9B0,
+# found here by EditorID so a mod's override is what's read). A part's RNAM Valid Races only says
+# who may wear it. The types the vanilla lists hold: eyes, hair, facial hair, eyebrows, jewelry,
+# eyelashes -- faces, teeth and the rest come from the race, not the menu.
+CHARGEN_OPTIONS = {'MALE': 'HeadPartsChargenOptionsMale', 'FEMALE': 'HeadPartsChargenOptionsFemale'}
+CHARGEN_OPTION_TYPES = {HDPT_RIGHT_EYE, HDPT_HAIR, HDPT_FACIAL_HAIR, 6, 7, HDPT_LEFT_EYE, 13}
+HDPT_PLAYABLE, HDPT_MALE, HDPT_FEMALE, HDPT_EXTRA_PART = 0x01, 0x02, 0x04, 0x10
+HDPT_SEX_FLAG = {'MALE': HDPT_MALE, 'FEMALE': HDPT_FEMALE}
+
+
+def check_chargen_options(rep, parts, plugins, sexes=SEXES):
+    """WARN for each playable head part of a menu type that its sex's chargen list doesn't offer.
+    It renders on an NPC that has it, but the player can never pick it. Extra parts (pulled in by
+    another part) are skipped."""
+    lists = {f.editor_id: f for f in winning_records(plugins, 'FLST')
+             if f.editor_id in CHARGEN_OPTIONS.values()}
+    for sx in sexes:
+        flst = lists.get(CHARGEN_OPTIONS[sx])
+        if flst is None:
+            rep.info('chargen', f"{CHARGEN_OPTIONS[sx]} not loaded; chargen choices not checked")
+            continue
+        offered = {id(plugins.resolve_form_id(e.get_form_id(), flst.plugin))
+                   for e in flst.get_subrecords('LNAM')}
+        missing = []
+        for h in parts:
+            data, pnam = h.get_subrecord('DATA'), h.get_subrecord('PNAM')
+            flags = data.data[0] if data and data.data else 0
+            if (not flags & HDPT_PLAYABLE or flags & HDPT_EXTRA_PART
+                    or not flags & HDPT_SEX_FLAG[sx]
+                    or pnam is None or pnam.get_uint32() not in CHARGEN_OPTION_TYPES):
+                continue
+            if id(h) not in offered:
+                missing.append(h.editor_id or '?')
+        if missing:
+            rep.warn('chargen', f"{sx.lower()}: {len(missing)} playable head part(s) not on "
+                                f"{CHARGEN_OPTIONS[sx]} ({flst.form_id}, winning copy in "
+                                f"{plugin_name(flst)}), so chargen won't offer them",
+                     sorted(missing))
+        else:
+            rep.ok('chargen', f"{sx.lower()}: every playable head part is on {CHARGEN_OPTIONS[sx]}")
+
+
 def is_eye(hdpt, stem):
     """An eye head part, by type or by the *_righteye / *_lefteye naming vanilla uses."""
     pnam = hdpt.get_subrecord('PNAM')
@@ -2241,6 +2283,7 @@ def run(args, out):
         own_face = check_head_parts(rep, data=args.data, race=race, nif_reader=nif_reader,
                                     per_sex=per_sex, plugins=plugins, official=official,
                                     sexes=sexes, avm=avm)
+        check_chargen_options(rep, race_head_parts(race, plugins, official), plugins, sexes)
     check_body(rep, args.data, race, plugins, nif_reader, own_root, sexes, crowd=crowd)
     if not crowd:
         check_npcs(rep, race, npcs)

@@ -20,7 +20,8 @@ from .. import blender_defs as BD
 from .. import bl_info
 from ..pyn.sf_morph import (MorphFile, MAX_KEYS, is_expression_morph, morph_key_name,
                             morph_relpath, resolve_morph_output, swap_morph_tree,
-                            substitute_shape, unique_morph_path, SHAPE_TOKEN)
+                            substitute_shape, unique_morph_path, with_morph_filename,
+                            crowd_morph_deltas, SHAPE_TOKEN)
 
 log = logging.getLogger("pynifly")
 
@@ -34,13 +35,29 @@ def _key_deltas(kb, base, n, scale, epsilon):
     return {int(vi): (float(d[vi, 0]), float(d[vi, 1]), float(d[vi, 2])) for vi in moved}
 
 
-def _pack_groups(named_deltas, nverts):
+# Shape keys never written to a morph.dat, as for .tri files: '*' marks a working key (ear poses,
+# eye placement), '_' a file key (it writes its own nif, not a morph).
+SKIP_KEY_PREFIXES = ('*', '_')
+
+
+def _pack_groups(named_deltas, nverts, crowd=False):
     """Split {key_name: {vert_index: (dx,dy,dz)}} into chargen vs performance MorphFiles by
     is_expression_morph. `nverts` is the morph's vertex count -- for a nif export this MUST be the
     exported .mesh's post-split count (see build_morphs_from_split), not the raw Blender count.
+    `crowd`: a crowd head -- the performance file holds only the crowd keys, no chargen file.
     Returns {'chargen': MorphFile|None, 'performance': MorphFile|None}."""
+    if crowd:
+        deltas, missing = crowd_morph_deltas(
+            {n: d for n, d in named_deltas.items() if n[:1] not in SKIP_KEY_PREFIXES})
+        if missing:
+            log.warning(f"No shape keys for crowd morph(s) {', '.join(missing)} (or their R "
+                        f"partners); the crowd face won't animate those")
+        perf = MorphFile.from_deltas(list(deltas), nverts, deltas) if deltas else None
+        return {'chargen': None, 'performance': perf}
     groups = {'chargen': ([], {}), 'performance': ([], {})}
     for name, d in named_deltas.items():
+        if name[:1] in SKIP_KEY_PREFIXES:
+            continue
         which = 'performance' if is_expression_morph(name) else 'chargen'
         # Write the cleaned name: the game looks morphs up by exact string, so a shape key
         # with stray whitespace would be written as a name nothing can ever match.
@@ -62,7 +79,7 @@ def _pack_groups(named_deltas, nverts):
     return out
 
 
-def build_morphs(obj, scale=1.0, epsilon=1e-4):
+def build_morphs(obj, scale=1.0, epsilon=1e-4, crowd=False):
     """Split `obj`'s shape keys into performance vs chargen MorphFiles by is_expression_morph, over
     the RAW Blender vertices. Used by the standalone morph operator, where no mesh export is in play.
     A NIF export must use build_morphs_from_split instead -- its .mesh export splits verts at seams,
@@ -83,10 +100,10 @@ def build_morphs(obj, scale=1.0, epsilon=1e-4):
 
     named_deltas = {kb.name: _key_deltas(kb, base, n, scale, epsilon)
                     for kb in keys.key_blocks if kb.name != "Basis"}
-    return _pack_groups(named_deltas, n)
+    return _pack_groups(named_deltas, n, crowd)
 
 
-def build_morphs_from_split(morphdict, scale=1.0, epsilon=1e-4):
+def build_morphs_from_split(morphdict, scale=1.0, epsilon=1e-4, crowd=False):
     """Build chargen/performance MorphFiles from a NIF export's SPLIT `morphdict`: absolute morphed
     positions per RENDER vertex (1:1 with the exported .mesh), keyed by Blender shape-key name and
     including 'Basis'. The .mesh export duplicates a vertex wherever a UV/normal seam requires it
@@ -106,7 +123,7 @@ def build_morphs_from_split(morphdict, scale=1.0, epsilon=1e-4):
         moved = np.nonzero(np.abs(d).max(axis=1) > epsilon)[0]
         named_deltas[name] = {int(vi): (float(d[vi, 0]), float(d[vi, 1]), float(d[vi, 2]))
                               for vi in moved}
-    return _pack_groups(named_deltas, len(b))
+    return _pack_groups(named_deltas, len(b), crowd)
 
 
 def resolve_morph_paths(obj, dialog_path):
@@ -124,8 +141,8 @@ def resolve_morph_paths(obj, dialog_path):
 
     # Substitute '{shape}' BEFORE deriving the sibling, so a path derived by swapping carries the
     # shape's name too rather than a leftover token.
-    cp = substitute_shape(cp, obj.name)
-    pp = substitute_shape(pp, obj.name)
+    cp = with_morph_filename(substitute_shape(cp, obj.name))
+    pp = with_morph_filename(substitute_shape(pp, obj.name))
 
     # Derive the missing sibling from the other (swap chargen<->performance in the stored path).
     if cp and not pp:
@@ -166,12 +183,14 @@ def write_sf_morphs(obj, anchor_path, morphdict=None, used_paths=None):
     shape; a collision is suffixed and warned about rather than overwriting."""
     if obj.data.shape_keys is None:
         return []
-    morphs = build_morphs_from_split(morphdict) if morphdict else build_morphs(obj)
+    grp = getattr(obj, 'pyn_sf_morph', None)
+    crowd = bool(getattr(grp, 'crowd', False)) if grp else False
+    morphs = (build_morphs_from_split(morphdict, crowd=crowd) if morphdict
+              else build_morphs(obj, crowd=crowd))
     if morphs['chargen'] is None and morphs['performance'] is None:
         return []
     # Snapshot the group's stored paths before we resolve, so we only fill the ones the user
     # left empty -- an explicit path must survive a re-export unchanged.
-    grp = getattr(obj, 'pyn_sf_morph', None)
     had = {'chargen': (getattr(grp, 'chargen_path', '') if grp else '') or '',
            'performance': (getattr(grp, 'performance_path', '') if grp else '') or ''}
     cp, pp = resolve_morph_paths(obj, anchor_path)

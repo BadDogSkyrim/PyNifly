@@ -438,19 +438,22 @@ def resolve_material_output_path(nif_filepath, mat_ref):
 def write_sf_materials(exporter):
     """Write a loose .mat for each exported SF material, recovered from its shader graph (called
     after nif.save()). Only materials with a recoverable SF graph (shader model or layers) are
-    written; the file lands in the output tree, not over the source material."""
+    written; the file lands in the output tree, not over the source material. Each output file is
+    written once per export: the other nifs of a file set use the same materials."""
     from . import shader_io
     from ..pyn import sf_materials
-    seen = set()
+    written = exporter.sf_mats_written
     for mat in getattr(exporter, '_sf_materials', []):
         mat_ref = mat.get('BSLSP_Shader_Name', '')
-        if not mat_ref or mat_ref in seen:
+        if not mat_ref:
             continue
-        seen.add(mat_ref)
+        out_path = resolve_material_output_path(exporter.nif.filepath, mat_ref)
+        if os.path.normcase(out_path) in written:
+            continue
+        written.add(os.path.normcase(out_path))
         data = shader_io.recover_sf_material(mat)
         if not data or (not data.get('layers') and not data['settings'].get('shader_model')):
             continue
-        out_path = resolve_material_output_path(exporter.nif.filepath, mat_ref)
         # A material imported from a .mat PyNifly couldn't find has no layers and nothing carried,
         # so writing it would replace a good file with a stub. Refuse rather than clobber.
         if os.path.exists(out_path) and not data.get('layers'):

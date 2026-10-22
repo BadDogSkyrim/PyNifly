@@ -468,6 +468,9 @@ class NifExporter:
         self.arma_game = []
         self.bodytri_written = False
         self.objs_written = ReprObjectCollection()
+        # Starfield loose .mat files already written by this export. Every nif of a file set
+        # (file keys, _faceBones) shares its materials; each is written once.
+        self.sf_mats_written = set()
 
         self.message_log = []
 

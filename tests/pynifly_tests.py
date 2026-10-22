@@ -2327,10 +2327,10 @@ def TEST_SF_TINTBAKE_BODY_TYPES():
 
     opts = B.Options(tones=[('f0', 'h0')], slots={}, derm=[[('x', 'd0_derm_color.dds')]],
                      eyes=[('Blue', 'blue.dds')], stack=['Dermaesthetic'])
-    r = {'_dir': os.getcwd(), 'eyes': {'code': 'e', 'exclude': []},
+    r = {'_dir': os.getcwd(), 'eyes': {'code': 'e'},
          'layers': [{'slot': 'Dermaesthetic', 'code': 'd'}]}
     space = B.variant_space(r, opts, heads[:3])
-    assert TT.is_eq([v['name'] for v in space], ['crowdf_fox_md1_sk0_d1_e1'],
+    assert TT.is_eq([v['name'] for v in space], ['crowdf_fox_md1_sk0_d1e1'],
                     "one variant for the three body types, named without a body suffix")
     assert TT.is_eq(space[0]['bodies'], {'': heads[0], '_thin': heads[1], '_overweight': heads[2]},
                     "the variant carries every body type's nif")
@@ -2357,6 +2357,252 @@ def TEST_SF_TINTBAKE_BODY_TYPES():
                           "no companion where the source had none")
 
 
+def TEST_SF_TINTBAKE_BEARDS():
+    """sf_tintbake's beards: each variant gets one of its head's fitted beards, or none.
+
+    A crowd head's jaw and chin are baked into its mesh (no chargen morphs on a crowd actor), so
+    a beard is exported per head and body type, into the heads folder's Beards\\ beside them:
+    <head>_<beard>[_thin|_overweight].nif. How many variants have one is the race's choice:
+    `percent`, 100 always and 0 never, in between a stable pick by name. The beard is a
+    record-level choice -- its colour comes from its addon's AVM group, not the face texture --
+    so a variant's texture, material and nif are named by its beard-less base."""
+    import tempfile
+    B = _tintbake()
+    opts = B.Options(tones=[('f0', 'h0')], slots={}, derm=[[('x', 'd0_derm_color.dds')]],
+                     eyes=[('Blue', 'blue.dds')], stack=['Dermaesthetic'])
+
+    def recipe(**beards):
+        return {'_dir': os.getcwd(), 'eyes': {'code': 'e'}, 'seed': 1,
+                'layers': [{'slot': 'Dermaesthetic', 'code': 'd'}],
+                'beards': {'code': 'b', 'percent': 100, 'folder': 'Beards', **beards}}
+
+    with tempfile.TemporaryDirectory() as d:
+        heads = []
+        for name in ('Fox_md1', 'Fox_md1_thin', 'Fox_md10'):
+            heads.append(os.path.join(d, name + '.nif'))
+            open(heads[-1], 'wb').close()
+        os.makedirs(os.path.join(d, 'Beards'))
+        for name in ('Fox_md1_Ruff01', 'Fox_md1_Ruff01_thin', 'Fox_md1_Ruff01_faceBones',
+                     'Fox_md10_Ruff02'):
+            open(os.path.join(d, 'Beards', name + '.nif'), 'wb').close()
+
+        found = B.find_beards(d, recipe()['beards'], ['Fox_md1', 'Fox_md10'])
+        assert TT.is_eq({h: {b: sorted(bodies) for b, bodies in bs.items()} for h, bs in found.items()},
+                        {'Fox_md1': {'Ruff01': ['', '_thin']}, 'Fox_md10': {'Ruff02': ['']}},
+                        "paired by the longest head name; companions skipped; body types split off")
+
+        space = B.variant_space(recipe(), opts, heads, found)
+        names = sorted(v['name'] for v in space)
+        assert TT.is_eq(names, ['Fox_md10_sk0_d1e1bRuff02', 'Fox_md1_sk0_d1e1bRuff01'],
+                        "percent 100: one variant per base, every one with its head's beard")
+        v = next(v for v in space if v['name'] == 'Fox_md1_sk0_d1e1bRuff01')
+        assert TT.is_eq((v['base'], v['beard']), ('Fox_md1_sk0_d1e1', 'Ruff01'),
+                        "the beard-less base names the texture, material and nifs")
+        assert TT.is_eq(sorted(v['beard_nifs']), ['', '_thin'], "the beard's nif per body type")
+
+        never = B.variant_space(recipe(percent=0), opts, heads, found)
+        assert TT.is_eq(sorted(v['name'] for v in never),
+                        ['Fox_md10_sk0_d1e1b0', 'Fox_md1_sk0_d1e1b0'], "percent 0: no beards")
+        none = never[0]
+        assert TT.is_eq((none['base'][-8:], none['beard'], none['beard_nifs']),
+                        ('sk0_d1e1', None, {}), "no beard")
+
+        many = B.Options(tones=[('f0', 'h0')], slots={}, derm=[[('x', 'd0_derm_color.dds')]],
+                         eyes=[(f'E{i}', f'e{i}.dds') for i in range(40)], stack=['Dermaesthetic'])
+        half = B.variant_space(recipe(percent=50), many, heads, found)
+        bearded = [v for v in half if v['beard']]
+        assert TT.is_eq(len(half), 80, "still one variant per base")
+        assert TT.is_true(20 <= len(bearded) <= 60, f"percent 50: a mix ({len(bearded)} of 80)")
+        assert TT.is_eq([v['name'] for v in B.variant_space(recipe(percent=50), many, heads, found)],
+                        [v['name'] for v in half], "the same pick every run")
+
+        os.makedirs(os.path.join(d, 'bare'))
+        bare = os.path.join(d, 'bare', 'Fox_md2.nif')
+        open(bare, 'wb').close()
+        said = []
+        mixed = B.variant_space(recipe(), opts, heads + [bare], found, log=said.append)
+        assert TT.is_true(mixed and all(v['beard'] for v in mixed),
+                          "percent 100: a head with no beard is left out, the rest baked")
+        assert TT.is_true(not any('Fox_md2' in v['name'] for v in mixed), "Fox_md2 left out")
+        assert TT.is_true(any('Fox_md2' in s for s in said), f"and a warning names it: {said}")
+        try:
+            B.variant_space(recipe(), opts, [bare], found, log=said.append)
+            raise AssertionError("no head with a beard at all should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('beard' in str(e), f"says why: {e}")
+        assert TT.is_true(all(v['beard'] is None
+                              for v in B.variant_space(recipe(percent=99), opts, [bare], found)),
+                          "under 100, a head with no beards just goes without")
+        for bad in (-1, 101, 'lots'):
+            try:
+                B.check_beards_cfg({'code': 'b', 'percent': bad, 'folder': 'Beards'})
+                raise AssertionError(f"percent {bad!r} should be refused")
+            except B.RecipeError:
+                pass
+
+        no_beards = {k: v for k, v in recipe().items() if k != 'beards'}
+        assert TT.is_eq(B.variant_space(no_beards, opts, heads[:2])[0]['name'], 'Fox_md1_sk0_d1e1',
+                        "no [beards]: no beard dimension, names as before")
+
+        os.remove(os.path.join(d, 'Beards', 'Fox_md1_Ruff01_thin.nif'))
+        try:
+            B.variant_space(recipe(), opts, heads, B.find_beards(d, recipe()['beards'],
+                                                                 ['Fox_md1', 'Fox_md10']))
+            raise AssertionError("a beard missing a body type its head has should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('thin' in str(e) and 'Ruff01' in str(e), f"says which: {e}")
+
+        open(os.path.join(d, 'Beards', 'Wolf_md1_Ruff01.nif'), 'wb').close()
+        try:
+            B.find_beards(d, recipe()['beards'], ['Fox_md1', 'Fox_md10'])
+            raise AssertionError("a beard for no known head should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('Wolf_md1_Ruff01' in str(e), f"names the file: {e}")
+
+
+def TEST_SF_TINTBAKE_TEETH():
+    """sf_tintbake's teeth: a part painted "teeth" takes an option from the race's
+    TeethCustomization group, a dimension like the eyes, named _t<n>.
+
+    The mouth used to be one fixed texture named in [parts]; the fox offers Teeth_Clean and
+    Teeth_Dirty. With no part painted "teeth" there's no teeth dimension and names don't change."""
+    B = _tintbake()
+    opts = B.Options(tones=[('f0', 'h0')], slots={}, derm=[[('x', 'd0_derm_color.dds')]],
+                     eyes=[('Blue', 'blue.dds'), ('Green', 'green.dds')], stack=['Dermaesthetic'],
+                     teeth=[('Teeth_Clean', 'clean.dds'), ('Teeth_Dirty', 'dirty.dds')])
+    r = {'_dir': os.getcwd(), 'eyes': {'code': 'e'},
+         'teeth': {'code': 't'},
+         'layers': [{'slot': 'Dermaesthetic', 'code': 'd'}],
+         'parts': {'Head': 'face', 'Mouth': 'teeth', 'Tongue': 'teeth'}}
+    space = B.variant_space(r, opts, [r"x\Crowd_Fox_md1.nif"])
+    assert TT.is_eq(sorted(v['name'] for v in space),
+                    ['Crowd_Fox_md1_sk0_d1e1t1', 'Crowd_Fox_md1_sk0_d1e1t2',
+                     'Crowd_Fox_md1_sk0_d1e2t1', 'Crowd_Fox_md1_sk0_d1e2t2'],
+                    "eyes x teeth, teeth after the eyes")
+    v = next(v for v in space if v['name'].endswith('e2t2'))
+    assert TT.is_eq(v['teeth'], 'dirty.dds', "the variant carries its teeth texture")
+
+    r['teeth']['weights'] = {'teeth_dirty': 0}
+    assert TT.is_eq(sorted(v['name'] for v in B.variant_space(r, opts, [r"x\Crowd_Fox_md1.nif"])),
+                    ['Crowd_Fox_md1_sk0_d1e1t1', 'Crowd_Fox_md1_sk0_d1e2t1'],
+                    "weight 0 by label, case-insensitive: never used; numbers keep their places")
+
+    r['teeth']['weights'] = {'Teeth_Clean': 0, 'Teeth_Dirty': 0}
+    try:
+        B.variant_space(r, opts, [r"x\Crowd_Fox_md1.nif"])
+        raise AssertionError("a teeth part with no teeth options should be refused")
+    except B.RecipeError:
+        pass
+
+    r['parts'] = {'Head': 'face', 'Mouth': 'mouth.dds'}
+    names = sorted(v['name'] for v in B.variant_space(r, opts, [r"x\Crowd_Fox_md1.nif"]))
+    assert TT.is_eq(names, ['Crowd_Fox_md1_sk0_d1e1', 'Crowd_Fox_md1_sk0_d1e2'],
+                    "no part painted 'teeth': no teeth dimension, names as before")
+
+
+def TEST_SF_TINTBAKE_RECIPE_KEYS():
+    """sf_tintbake refuses a recipe table or key it doesn't know, naming the likely one.
+
+    Unknown names were ignored: a recipe with [beard] for [beards] baked with no beards, and
+    nothing said why."""
+    import tempfile
+    B = _tintbake()
+    head = '''race = "R"\nphenotype = "male_fox_md1"\ndata = ["."]\nheads = "h"\nuvmap = "u.npz"
+out = "o"\nparts = { "Head" = "face" }\n'''
+
+    def load(text):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'r.toml')
+            with open(p, 'w', encoding='utf-8') as f:
+                f.write(head + text)
+            return B.load_recipe(p)
+
+    r = load('[eyes]\ncode = "e"\nweights = { Dead = 0 }\n[[layers]]\nslot = "S"\ncode = "d"\n'
+             'optional = true\n[beards]\npercent = 40\ncolors = "C"\n[tail]\nslot = 15\n')
+    assert TT.is_eq(r['beards']['percent'], 40, "a recipe using only known names loads")
+
+    for text, bad, hint in (('[beard]\npercent = 100\n', 'beard', 'beards'),
+                            ('[eyes]\nexlcude = ["Dead"]\n', 'exlcude', None),
+                            ('[[layers]]\nslot = "S"\ncode = "d"\noptinal = true\n', 'optinal', 'optional'),
+                            ('limt = 40\n', 'limt', 'limit')):
+        try:
+            load(text)
+            raise AssertionError(f"{bad!r} should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true(bad in str(e), f"names {bad!r}: {e}")
+            if hint:
+                assert TT.is_true(hint in str(e), f"suggests {hint!r}: {e}")
+
+
+def TEST_SF_TINTBAKE_WEIGHTS():
+    """sf_tintbake's option weights: `weights = { Label = n }` in an option table makes an option
+    more or less likely in the sample; unlisted options weigh 50; 0 is never.
+
+    A variant weighs the product of its options' weights, and the sample is a weighted pick that
+    stays stable -- same recipe and seed, same set. All weights equal picks exactly the set the
+    unweighted pick did, so recipes without weights don't reshuffle."""
+    import hashlib
+    B = _tintbake()
+    opts = B.Options(tones=[('f0', 'h0'), ('f1', 'h1')], slots={'Complexion1': [('A', 'a.dds'), ('B', 'b.dds')]},
+                     derm=[[('x', 'd0.dds')], [('y', 'd1.dds')]],
+                     eyes=[(f'E{i}', f'e{i}.dds') for i in range(10)] + [('Dead', 'dead.dds')],
+                     stack=['Dermaesthetic', 'Complexion1'],
+                     teeth=[('Teeth_Clean', 'clean.dds'), ('Teeth_Dirty', 'dirty.dds'),
+                            ('Teeth_Weird', 'weird.dds')])
+    heads = [rf"x\Crowd_Fox_md{i}.nif" for i in range(4)]
+
+    def recipe(**kw):
+        r = {'_dir': os.getcwd(), 'eyes': {'code': 'e'}, 'teeth': {'code': 't'}, 'seed': 1,
+             'layers': [{'slot': 'Dermaesthetic', 'code': 'd'},
+                        {'slot': 'Complexion1', 'code': 'c', 'optional': True}],
+             'parts': {'Head': 'face', 'Mouth': 'teeth'}}
+        for k, v in kw.items():
+            r[k]['weights'] = v
+        return r
+
+    # Unweighted: same pick as the plain hash-lowest pick.
+    space = B.variant_space(recipe(), opts, heads)
+    assert TT.is_true(all(v['weight'] == 50 ** 4 for v in space), "unlisted options weigh 50 each")
+    plain = sorted(sorted(space, key=lambda v: hashlib.sha256(f"1:{v['name']}".encode()).digest())[:40],
+                   key=lambda v: v['name'])
+    assert TT.is_eq([v['name'] for v in B.pick(space, 40, 1)], [v['name'] for v in plain],
+                    "equal weights: the unweighted sample, unchanged")
+
+    # 80 / 20 / 0.
+    space = B.variant_space(recipe(teeth={'Teeth_Clean': 80, 'Teeth_Dirty': 20, 'Teeth_Weird': 0}),
+                            opts, heads)
+    assert TT.is_true(not any(v['name'].endswith('t3') for v in space), "weight 0: not in the space")
+    chosen = B.pick(space, 40, 1)
+    clean = sum(v['name'].endswith('t1') for v in chosen)
+    assert TT.is_true(clean >= 26, f"80/20 teeth: mostly clean ({clean} of 40)")
+    assert TT.is_eq([v['name'] for v in B.pick(space, 40, 1)], [v['name'] for v in chosen], "stable")
+
+    # Dead = 0 alone: the rest stay equal at 50; 'none' weighs an optional layer's no-option.
+    space = B.variant_space(recipe(eyes={'Dead': 0}), opts, heads)
+    assert TT.is_true(not any('e11' in v['name'].split('_')[-1] for v in space), "Dead never")
+    assert TT.is_true(all(v['weight'] == 50 ** 4 for v in space), "the other eyes stay at 50")
+    r = recipe()
+    r['layers'][1]['weights'] = {'none': 0}
+    assert TT.is_true(not any('c0' in v['name'].split('_')[-1] for v in B.variant_space(r, opts, heads)),
+                      "'none' is an optional layer's label")
+
+    for bad, why in (({'Teeth_Clen': 80}, "a label the race doesn't offer"),
+                     ({'Teeth_Clean': -1}, "a negative weight"),
+                     ({'Teeth_Clean': 'lots'}, "a weight that isn't a number")):
+        try:
+            B.variant_space(recipe(teeth=bad), opts, heads)
+            raise AssertionError(f"{why} should be refused")
+        except B.RecipeError:
+            pass
+    r = recipe()
+    r['eyes']['exclude'] = ['Dead']
+    try:
+        B.variant_space(r, opts, heads)
+        raise AssertionError("exclude should be refused, pointing at weights")
+    except B.RecipeError as e:
+        assert TT.is_true('weights' in str(e), f"says what to use instead: {e}")
+
+
 def TEST_SF_TINTBAKE_VARIANTS():
     """sf_tintbake's variant space and its stable sample.
 
@@ -2371,25 +2617,25 @@ def TEST_SF_TINTBAKE_VARIANTS():
                      derm=[[('x', 'd0_derm_color.dds')], [('y', 'd1a_color.dds'), ('z', 'd1b_color.dds')]],
                      eyes=[('Dead', 'dead.dds'), ('Blue', 'blue.dds'), ('Green', 'green.dds')],
                      stack=['Dermaesthetic', 'ComplexionMask1', 'Complexion1'])
-    r = {'_dir': os.getcwd(), 'eyes': {'code': 'e', 'exclude': ['dead']},
+    r = {'_dir': os.getcwd(), 'eyes': {'code': 'e', 'weights': {'dead': 0}},
          'layers': [{'slot': 'Dermaesthetic', 'code': 'd'},
                     {'slot': 'Complexion1', 'code': 'c', 'optional': True}]}
     space = B.variant_space(r, opts, [r"x\Crowd_Head_Fox_md1.nif"])
     names = [v['name'] for v in space]
     # tone 0: 1 derm x 3 complexions x 2 eyes; tone 1: 2 x 3 x 2
     assert TT.is_eq(len(space), 6 + 12, "tone x layer options x eyes")
-    assert TT.is_true('Crowd_Head_Fox_md1_sk1_d2_c0_e3' in names, f"named by place: {names[:4]}")
+    assert TT.is_true('Crowd_Head_Fox_md1_sk1_d2c0e3' in names, f"named by place: {names[:4]}")
     assert TT.is_true(not any(n.endswith('_e1') for n in names), "an excluded eye is never used")
-    v = next(v for v in space if v['name'] == 'Crowd_Head_Fox_md1_sk0_d1_c2_e2')
+    v = next(v for v in space if v['name'] == 'Crowd_Head_Fox_md1_sk0_d1c2e2')
     assert TT.is_eq(v['layers'], [('Dermaesthetic', 'd0_derm_color.dds', None),
                                   ('Complexion1', 'c2_color.dds', None)], "the layers it composites")
     assert TT.is_eq(v['eye'], 'blue.dds', "its eye colour")
-    assert TT.is_true(not next(v for v in space if '_c0_' in v['name'])['layers'][1:],
+    assert TT.is_true(not next(v for v in space if 'c0e' in v['name'])['layers'][1:],
                       "'none' composites nothing")
 
     r['layers'].append({'slot': 'ComplexionMask1', 'code': 'm', 'colors': ['#ff0000', '#00ff00']})
     masked = B.variant_space(r, opts, [r"x\H.nif"])
-    assert TT.is_true(any(v['name'].endswith('_m1b_e2') for v in masked), "a mask x its colours")
+    assert TT.is_true(any(v['name'].endswith('m1be2') for v in masked), "a mask x its colours")
     r['layers'].pop()
 
     first = B.pick(space, 5, seed=1)
@@ -2428,7 +2674,7 @@ def TEST_SF_TINTBAKE_RETARGET_NIF():
     old = B.nif_material(src)
     assert TT.is_eq(old.lower(), r"materials\actors\human\crowd\crowd_af_md1.mat",
                     "the head's material, from the header strings")
-    new = r"Materials\Actors\FSFFox\Crowd\Variants\Crowd_Head_Fox_md1_sk2_d1_c3_e5.mat"
+    new = r"Materials\Actors\FSFFox\Crowd\Variants\Crowd_Head_Fox_md1_sk2_d1c3e5.mat"
     dst = r"tests\Out\TEST_SF_TINTBAKE_RETARGET.nif"
     B.retarget_nif(src, dst, old, new)
 
@@ -2879,6 +3125,63 @@ def TEST_SF_RACECHECK_FOLLICLE_MASK():
         assert TT.is_ge(checked, 115, "every vanilla hair/beard mask was actually checked")
 
 
+def TEST_SF_RACECHECK_CHARGEN_OPTIONS():
+    """sf_racecheck warns about a playable head part chargen never offers.
+
+    The creator lists only what's on HeadPartsChargenOptionsMale [FLST:0003D9AF] / ...Female
+    [0003D9B0]; a part's own Valid Races list just says who may wear it. FSFFox_Male_Ruff04
+    rendered fine and couldn't be picked, because it wasn't on the male list. Extra parts (pulled
+    in by another part) and types the creator doesn't list (faces, teeth) aren't expected there.
+    """
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+    from esplib import Plugin
+
+    HAIR, BEARD, FACE = 3, 4, 1
+    PLAYABLE, MALE, FEMALE, EXTRA = 0x01, 0x02, 0x04, 0x10
+
+    def part(p, edid, pnam, flags):
+        rec = p.new_record('HDPT', edid)
+        rec.add_subrecord('DATA', bytes([flags]))
+        rec.add_subrecord('PNAM', pnam.to_bytes(4, 'little'))
+        return rec
+
+    def warns(rep):
+        return [(m, d) for lv, _area, m, d in rep.findings if lv == sf_racecheck.WARN]
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Plugin.new_plugin(os.path.join(d, 'RCOpts.esm'), masters=[], game='fo4', is_esm=True)
+        listed = part(p, 'RCRuffListed', BEARD, PLAYABLE | MALE)
+        part(p, 'RCRuffUnlisted', BEARD, PLAYABLE | MALE)
+        part(p, 'RCHairFemUnlisted', HAIR, PLAYABLE | FEMALE)
+        part(p, 'RCRuffXP', BEARD, PLAYABLE | MALE | EXTRA)
+        part(p, 'RCRuffNotPlayable', BEARD, MALE)
+        part(p, 'RCFace', FACE, PLAYABLE | MALE)
+        male = p.new_record('FLST', 'HeadPartsChargenOptionsMale')
+        male.add_subrecord('LNAM', listed.form_id.value.to_bytes(4, 'little'))
+        p.new_record('FLST', 'HeadPartsChargenOptionsFemale')
+        p.save_as(os.path.join(d, 'RCOpts.esm'))
+
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [d], ['RCOpts.esm'])
+        parts = sf_racecheck.winning_records(plugins, 'HDPT')
+
+        r = sf_racecheck.Report()
+        sf_racecheck.check_chargen_options(r, parts, plugins)
+        w = warns(r)
+        assert TT.is_eq(len(w), 2, f"one warning per sex with something missing: {w}")
+        text = str(w)
+        assert 'RCRuffUnlisted' in text and 'HeadPartsChargenOptionsMale' in text, text
+        assert 'RCHairFemUnlisted' in text and 'HeadPartsChargenOptionsFemale' in text, text
+        for quiet in ('RCRuffListed', 'RCRuffXP', 'RCRuffNotPlayable', 'RCFace'):
+            assert quiet not in text, f"{quiet} isn't expected on the list: {text}"
+
+        r = sf_racecheck.Report()
+        sf_racecheck.check_chargen_options(r, parts, plugins, sexes=('MALE',))
+        assert 'RCHairFemUnlisted' not in str(warns(r)), "--sex male leaves the female list alone"
+
+
 def TEST_SF_RACECHECK_PHENOTYPE_MAPS():
     """sf_racecheck names the missing face maps of a non-default phenotype.
 
@@ -3174,6 +3477,56 @@ def TEST_SF_MORPH_SHAPE_TOKEN():
     used[p] = "Head"
     assert unique_morph_path(p, used) == \
         "meshes/morphs/FSF/male/chargen/Head_1/morph.dat", "second suffixes the parent dir"
+
+
+def TEST_SF_MORPH_CROWD_KEYS():
+    """Starfield: a crowd head's morph is vanilla's 11 crowd keys, each L key merged with its R
+    (a vertex both sides move gets the average).
+
+    Vanilla's crowd morph (human_crowd\\<sex>\\performance) has only these 11, and its L keys
+    move both sides of the face. We merge R into L rather than mirroring L, since we don't know
+    how symmetric the head is."""
+    from pyn.sf_morph import crowd_morph_deltas, CROWD_MORPHS
+
+    assert len(CROWD_MORPHS) == 11 and 'browLowererL' in CROWD_MORPHS and 'jawOpen' in CROWD_MORPHS
+    named = {
+        'jawOpen': {0: (0.0, 0.0, 1.0)},
+        'browLowererL': {1: (0.0, 0.0, -1.0), 5: (1.0, 0.0, 0.0)},
+        'browLowererR': {2: (0.0, 0.0, -1.0), 5: (0.5, 0.0, 0.0)},
+        'cheekRaiseR ': {3: (0.0, 1.0, 0.0)},          # only the R side, stray whitespace
+        'lipFunnel': {4: (1.0, 0.0, 0.0)},              # performance, but not a crowd key
+        'Overweight': {4: (0.0, 1.0, 0.0)},             # chargen
+    }
+    out, missing = crowd_morph_deltas(named)
+    assert list(out) == [k for k in CROWD_MORPHS if k in ('jawOpen', 'browLowererL', 'cheekRaiseL')], \
+        f"crowd keys only, in vanilla order: {list(out)}"
+    assert out['jawOpen'] == {0: (0.0, 0.0, 1.0)}
+    assert out['browLowererL'] == {1: (0.0, 0.0, -1.0), 2: (0.0, 0.0, -1.0), 5: (0.75, 0.0, 0.0)}, \
+        "R merged into L, averaged where both move a vertex"
+    assert out['cheekRaiseL'] == {3: (0.0, 1.0, 0.0)}, "an R alone still makes the L key"
+    assert set(missing) == set(CROWD_MORPHS) - set(out), missing
+
+
+def TEST_SF_MORPH_FILENAME():
+    """Starfield: a morph path that doesn't end in morph.dat is a directory; export adds the file.
+
+    The filename is always morph.dat, so a path typed without it can only mean the folder."""
+    from pyn.sf_morph import with_morph_filename
+
+    assert with_morph_filename(r"meshes\morphs\FSF\male\chargen\Head") == \
+        r"meshes\morphs\FSF\male\chargen\Head\morph.dat"
+    assert with_morph_filename("meshes/morphs/FSF/male/chargen/Head") == \
+        "meshes/morphs/FSF/male/chargen/Head/morph.dat"
+    # A trailing separator doesn't double up.
+    assert with_morph_filename("meshes\\morphs\\FSF\\Head\\") == "meshes\\morphs\\FSF\\Head\\morph.dat"
+    assert with_morph_filename("meshes/morphs/FSF/Head/") == "meshes/morphs/FSF/Head/morph.dat"
+    # Already there (any case): unchanged.
+    for p in (r"meshes\morphs\FSF\chargen\Head\morph.dat", "meshes/morphs/x/MORPH.DAT"):
+        assert with_morph_filename(p) == p
+    # Some other .dat was a deliberate file pick: left alone.
+    assert with_morph_filename(r"C:\out\body_morph.dat") == r"C:\out\body_morph.dat"
+    # Unset stays unset.
+    assert with_morph_filename("") == ""
 
 
 def TEST_SF_MAT_PARSE():

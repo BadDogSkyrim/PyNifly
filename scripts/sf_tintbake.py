@@ -47,11 +47,12 @@ The recipe (TOML; relative paths are relative to the recipe file):
     size = 1024                       # colour texture size
 
     [parts]                           # what each part of the uv map is painted with
-    "CanineMaleHead.COMBINED:CanineMaleHead.Mat" = "face"
+    "CanineMaleHead" = "face"
     "CanineLeftEye" = "eyes"
     "CanineRightEye" = "eyes"
     "CanineHands" = "hands"
-    "CanineMaleHead.COMBINED:CanineTeeth.Mat" = "Textures/Actors/FSFCanine/faces/Teeth/CanineMaleMouth_color.dds"
+    "CanineMaleMouth" = "teeth"
+    "CanineMaleTongue" = "teeth"
 
     [[layers]]                        # composited over the skin tone in stack order
     slot = "Dermaesthetic"            # options: the tone's chargen filter, as the creator offers
@@ -60,10 +61,21 @@ The recipe (TOML; relative paths are relative to the recipe file):
     slot = "Complexion1"              # options: the group of that name
     code = "c"
     optional = true                   # "none" is an option too
+    weights = { none = 100 }          # optional, any option table: see Weights below
 
     [eyes]
     code = "e"
-    exclude = ["Dead"]                # EyeColor options never picked
+    weights = { Dead = 0 }            # EyeColor options; 0 = never picked
+
+    [teeth]                           # used when a part is painted "teeth"
+    code = "t"
+    weights = { Teeth_Clean = 80, Teeth_Dirty = 20 }   # TeethCustomization options
+
+    [beards]                          # optional: a beard per variant, fitted to its head
+    code = "b"
+    percent = 50                      # about how many variants have one: 100 all, 0 none
+    folder = "Beards"                 # under `heads`: <head>_<beard>[_thin|_overweight].nif
+    colors = "FSFFox_Crowd_Beard_Colors"   # the Simple AVM group its addon names (colour)
 
     [tail]                            # optional: a tail per skin tone, to match the heads
     race = "FSFFoxRace"               # whose skin has the tail (default: the recipe's race)
@@ -73,13 +85,27 @@ The recipe (TOML; relative paths are relative to the recipe file):
                                       # (MOD2 male, MOD3 female)
 
 A part is painted with "face" (the composite), "hands" (the tone's hands texture), "eyes" (an
-EyeColor option), a texture -- a file path, or a path under the data folders -- or #rrggbb.
+EyeColor option), "teeth" (a TeethCustomization option), a texture -- a file path, or a path
+under the data folders -- or #rrggbb.
 A layer can name `files = [...]` instead of using the race's options, and a mask layer
 (*_mask textures) takes `colors = ["#rrggbb", ...]`.
 
-Names say what is in them: Crowd_Head_Fox_md1_sk2_d1_c3_e5 is head Crowd_Head_Fox_md1, skin
-tone 2, option 1 of layer d, option 3 of layer c (0 = none), eye colour 5. Option numbers count
-from 1 in the race's own lists, so they don't move when the recipe excludes something.
+Names say what is in them: Crowd_Head_Fox_md1_sk2_d1c3e5 is head Crowd_Head_Fox_md1, skin
+tone 2, option 1 of layer d, option 3 of layer c (0 = none), eye colour 5; a part painted
+"teeth" adds t<n>, the teeth option. With [beards] bRuff01 (or b0, none) follows; the beard
+doesn't change the texture, so the texture, material and nifs are named without it. Each variant gets one of its head's beards or none,
+`percent` of the time, picked stably by name.
+
+Beards: a crowd head's jaw and chin are in its mesh, and nothing morphs a beard to fit, so each
+beard is exported per head and body type into `heads`\\Beards. Its colour comes from the AVM
+group its addon names (`colors`), not the face texture; the plugin builder makes the addon. Option numbers count
+from 1 in the race's own lists, so they don't move when the recipe weights one 0.
+
+Weights: `weights = { Label = n }` in [eyes], [teeth] or a [[layers]] entry makes an option more
+or less likely. Labels are the race's (case doesn't matter), "none" for an optional layer's
+no-option, a file's name for `files`. Weights are relative; an option not named weighs 50, and 0
+means never. A variant weighs its options' weights multiplied, and the `limit` sample is a
+weighted pick: the same set every run, and with no weights the same set as ever.
 
 Layers composite the way the chargen face does, in the stack's order: a full-colour layer
 (*_color) is laid over what's below by its own alpha (proven in game for dermaesthetics); a mask
@@ -88,7 +114,9 @@ layer blends its colour in by mask x intensity (not yet proven against a vanilla
 import argparse
 import copy
 import hashlib
+import itertools
 import json
+import math
 import os
 import struct
 import sys
@@ -104,11 +132,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'io_scene_nifly'))
 import uv_transfer                                  # noqa: E402
 from pyn.sf_materials import material_id            # noqa: E402
 
-ROLES = ('face', 'hands', 'eyes')
+ROLES = ('face', 'hands', 'eyes', 'teeth')
 DERMAESTHETIC = 'Dermaesthetic'
 CHARGEN_DERMAESTHETIC = 'Chargen_Dermaesthetic'
 STACK = 'PostBlendFaceCustomizationLayers'
 EYE_COLOR = 'EyeColor'
+TEETH = 'TeethCustomization'
 FACEBONES = '_facebones'
 TAIL_SLOT = 15                       # the body slot a race's tail addon is on
 
@@ -119,9 +148,47 @@ class RecipeError(Exception):
 
 # --- the recipe -----------------------------------------------------------------------------
 
+# Every name a recipe may use, per table ('' the top level, 'layers' each [[layers]] entry).
+# [parts] keys are the uv map's part names, so they're free. Anything else is a typo the bake
+# would otherwise ignore -- [beard] for [beards] baked no beards and said nothing.
+RECIPE_KEYS = {
+    '': {'race', 'phenotype', 'sex', 'plugin', 'data', 'heads', 'uvmap', 'out', 'tones', 'limit',
+         'seed', 'size', 'parts', 'layers', 'eyes', 'teeth', 'beards', 'tail'},
+    'layers': {'slot', 'code', 'optional', 'files', 'colors', 'weights'},
+    'eyes': {'code', 'weights'},
+    'teeth': {'code', 'weights'},
+    'beards': {'code', 'percent', 'folder', 'colors'},
+    'tail': {'race', 'slot', 'nif'},
+}
+
+
+def check_recipe_keys(r):
+    """Refuse a table or key RECIPE_KEYS doesn't know, suggesting the close one."""
+    import difflib
+
+    def check(keys, where, known):
+        for k in keys:
+            if k == 'exclude' and 'weights' in known:
+                raise RecipeError(f"{where}: `exclude` is replaced by weights -- give those "
+                                  f"options 0, e.g. weights = {{ Dead = 0 }}")
+            if k not in known:
+                close = difflib.get_close_matches(k, known, n=1)
+                raise RecipeError(f"{where}: unknown {k!r}"
+                                  + (f" -- did you mean {close[0]!r}?" if close else
+                                     f"; known: {', '.join(sorted(known))}"))
+
+    check(r, 'recipe', RECIPE_KEYS[''])
+    for table in ('eyes', 'teeth', 'beards', 'tail'):
+        if isinstance(r.get(table), dict):
+            check(r[table], f"[{table}]", RECIPE_KEYS[table])
+    for i, ly in enumerate(r.get('layers') or [], 1):
+        check(ly, f"[[layers]] #{i}", RECIPE_KEYS['layers'])
+
+
 def load_recipe(path):
     with open(path, 'rb') as f:
         r = tomllib.load(f)
+    check_recipe_keys(r)
     r['_dir'] = os.path.dirname(os.path.abspath(path))
     r['_name'] = os.path.splitext(os.path.basename(path))[0]
     for key in ('race', 'phenotype', 'data', 'heads', 'uvmap', 'out', 'parts'):
@@ -130,7 +197,8 @@ def load_recipe(path):
     r.setdefault('layers', [])
     r.setdefault('eyes', {})
     r['eyes'].setdefault('code', 'e')
-    r['eyes'].setdefault('exclude', [])
+    r.setdefault('teeth', {})
+    r['teeth'].setdefault('code', 't')
     r.setdefault('limit', 40)
     r.setdefault('seed', 1)
     r.setdefault('size', 1024)
@@ -140,7 +208,13 @@ def load_recipe(path):
     r['data'] = [recipe_path(r, d) for d in r['data']]
     for key in ('heads', 'uvmap', 'out'):
         r[key] = recipe_path(r, r[key])
-    codes = [ly.get('code') for ly in r['layers']] + [r['eyes']['code']]
+    if 'beards' in r:
+        r['beards'].setdefault('code', 'b')
+        r['beards'].setdefault('percent', 50)
+        r['beards'].setdefault('folder', 'Beards')
+        check_beards_cfg(r['beards'])
+    codes = [ly.get('code') for ly in r['layers']] + [r['eyes']['code']] +         ([r['teeth']['code']] if uses_teeth(r) else []) + \
+        ([r['beards']['code']] if 'beards' in r else [])
     if any(not c for c in codes) or len(set(codes)) != len(codes):
         raise RecipeError(f"every layer needs its own code: {codes}")
     return r
@@ -158,9 +232,11 @@ class Options:
     tones:  [(face, hands)] by skin-tone index
     slots:  {slot: [(label, path)]} for the tint groups, by name
     derm:   [[(label, path)]] the dermaesthetic options per skin-tone index
-    eyes:   [(label, path)]"""
-    def __init__(self, tones, slots, derm, eyes, stack, tail=None):
+    eyes:   [(label, path)]
+    teeth:  [(label, path)]"""
+    def __init__(self, tones, slots, derm, eyes, stack, tail=None, teeth=None):
         self.tones, self.slots, self.derm, self.eyes, self.stack = tones, slots, derm, eyes, stack
+        self.teeth = teeth or []
         self.tail = tail             # race_tail(), when the recipe asks for tails
 
     def layer(self, slot, tone):
@@ -216,7 +292,8 @@ def read_options(r):
     stack_grp = avm.get((R.AVM_COMPLEX, STACK))
     stack = R.avm_entries(stack_grp) if stack_grp else []
     slots = {name: simple(name) for name in stack}
-    opts = Options(list(zip(faces, hands)), slots, derm, simple(EYE_COLOR), stack)
+    opts = Options(list(zip(faces, hands)), slots, derm, simple(EYE_COLOR), stack,
+                   teeth=simple(TEETH))
     if 'tail' in r:
         opts.tail = race_tail(R, plugins, r, simple)
     return opts
@@ -288,6 +365,35 @@ def group_heads(paths):
     return out
 
 
+def find_beards(heads_folder, cfg, head_names):
+    """{head: {beard: {body suffix: path}}} from the heads folder's beard folder.
+
+    A beard is exported per head and body type -- a crowd head's jaw and chin are in its mesh,
+    and nothing morphs a beard to fit -- named <head>_<beard>[_thin|_overweight].nif. The head
+    is the longest known head name followed by '_', so md1 and md10 don't collide."""
+    folder = os.path.join(heads_folder, cfg['folder'])
+    if not os.path.isdir(folder):
+        return {}
+    by_len = sorted(head_names, key=len, reverse=True)
+    out = {}
+    for f in sorted(os.listdir(folder)):
+        stem, ext = os.path.splitext(f)
+        if ext.lower() != '.nif' or stem.lower().endswith(FACEBONES):
+            continue
+        name, body = split_body(stem)
+        head = next((h for h in by_len if name.lower().startswith(h.lower() + '_')), None)
+        if head is None:
+            raise RecipeError(f"{os.path.join(folder, f)}: names no head in {heads_folder} "
+                              f"(beards are <head>_<beard>.nif)")
+        beard = name[len(head) + 1:]
+        bodies = out.setdefault(head, {}).setdefault(beard, {})
+        if body in bodies:
+            raise RecipeError(f"{head}'s {beard} has two {BODY_NAMES[body]} nifs: "
+                              f"{bodies[body]}, {os.path.join(folder, f)}")
+        bodies[body] = os.path.join(folder, f)
+    return out
+
+
 def write_body_nifs(bodies, out, meshes_rel, name, new_mat):
     """A variant's nifs: each body type's head and its _facebones companion, pointing at the
     variant's material `new_mat`. Returns {body type: nif path under Meshes}."""
@@ -312,43 +418,138 @@ def is_mask(path):
     return os.path.splitext(path)[0].lower().endswith('_mask')
 
 
-def layer_choices(r, ly, opts, tone):
-    """A layer's choices for one skin tone: [(code, path or None, colour or None)].
-
-    The code is the option's 1-based place in the race's list (0 for "none"); a mask layer's
-    is that plus a letter for the colour."""
+def layer_options(r, ly, opts, tone):
+    """A layer's options for one skin tone: [(label, path)], the label what `weights` names --
+    the race's label, or a `files` entry's file name without its extension."""
     if 'files' in ly:
-        found = [(f"{i}", recipe_path(r, f)) for i, f in enumerate(ly['files'], 1)]
-    else:
-        if ly['slot'] not in opts.stack and ly['slot'] != DERMAESTHETIC:
-            raise RecipeError(f"{ly['slot']!r} is not a slot in {STACK}")
-        found = [(f"{i}", p) for i, (_, p) in enumerate(opts.layer(ly['slot'], tone), 1)]
-    out = [('0', None, None)] if ly.get('optional') else []
-    for code, path in found:
+        return [(os.path.splitext(os.path.basename(f))[0], recipe_path(r, f)) for f in ly['files']]
+    if ly['slot'] not in opts.stack and ly['slot'] != DERMAESTHETIC:
+        raise RecipeError(f"{ly['slot']!r} is not a slot in {STACK}")
+    return opts.layer(ly['slot'], tone)
+
+
+def layer_choices(r, ly, opts, tone):
+    """A layer's choices for one skin tone: [(code, path or None, colour or None, weight)],
+    leaving out the ones weighted 0.
+
+    The code is the option's 1-based place in the race's list (0 for "none", whose label in
+    `weights` is "none"); a mask layer's is that plus a letter for the colour, and its colours
+    share the option's weight."""
+    found = layer_options(r, ly, opts, tone)
+    labels = (['none'] if ly.get('optional') else []) + [lab for lab, _ in found]
+    # A dermaesthetic's options differ by tone, so a label is known if any tone offers it.
+    known = {'none'} | {lab for t in range(len(opts.tones)) for lab, _ in layer_options(r, ly, opts, t)}
+    weights = dict(zip(labels, option_weights(ly, labels, f"layer {ly.get('code')}", known)))
+    out = [('0', None, None, weights['none'])] if ly.get('optional') else []
+    for i, (label, path) in enumerate(found, 1):
+        code, w = f"{i}", weights[label]
         if is_mask(path):
             colors = ly.get('colors')
             if not colors:
                 raise RecipeError(f"layer {ly['code']}: {path} is a mask; give `colors`")
-            out += [(code + 'abcdefghijklmnopqrstuvwxyz'[j], path, c)
+            out += [(code + 'abcdefghijklmnopqrstuvwxyz'[j], path, c, w)
                     for j, c in enumerate(colors)]
         else:
-            out.append((code, path, None))
-    return out
+            out.append((code, path, None, w))
+    return [ch for ch in out if ch[3] > 0]
 
 
-def variant_space(r, opts, heads):
-    """Every variant the recipe allows, as dicts with the name and what goes into it."""
+# An option `weights` doesn't name weighs this. Weights are relative, so naming one option 80
+# and another 20 makes them 80:20, and an unnamed third sits between them at 50.
+DEFAULT_WEIGHT = 50
+
+
+def option_weights(table, labels, what, known=None):
+    """The weight of each of `labels` from `table`'s `weights = { Label = n }`: unnamed options
+    DEFAULT_WEIGHT, 0 never. Labels match case-insensitively; one the options don't have
+    (`known`, default `labels`) is refused, as is a weight that isn't a number >= 0."""
+    if 'exclude' in table:
+        raise RecipeError(f"{what}: `exclude` is replaced by weights -- give those options 0, "
+                          f"e.g. weights = {{ {(table['exclude'] or ['Dead'])[0]} = 0 }}")
+    given = table.get('weights') or {}
+    known = {k.lower() for k in (known if known is not None else labels)}
+    unknown = [k for k in given if k.lower() not in known]
+    if unknown:
+        raise RecipeError(f"{what}: weights name {', '.join(unknown)}, which isn't an option; "
+                          f"the options are {', '.join(labels)}")
+    for k, w in given.items():
+        if isinstance(w, bool) or not isinstance(w, (int, float)) or w < 0:
+            raise RecipeError(f"{what}: weight of {k} must be a number >= 0, not {w!r}")
+    low = {k.lower(): w for k, w in given.items()}
+    return [low.get(lab.lower(), DEFAULT_WEIGHT) for lab in labels]
+
+
+def uses_teeth(r):
+    """Does any part paint with the race's teeth options? Only then are teeth a dimension, so a
+    recipe that paints the mouth one fixed texture keeps its names."""
+    return 'teeth' in (r.get('parts') or {}).values()
+
+
+def check_beards_cfg(cfg):
+    """[beards] percent is a whole number 0..100: 100 every variant has a beard, 0 none does."""
+    p = cfg.get('percent')
+    if isinstance(p, bool) or not isinstance(p, int) or not 0 <= p <= 100:
+        raise RecipeError(f"[beards] percent must be a whole number from 0 to 100, not {p!r}")
+
+
+def _unit(seed, tag, name):
+    """A stable number in [0, 1) from the seed and a name: the same pick every run."""
+    h = hashlib.sha256(f"{seed}:{tag}:{name}".encode()).digest()
+    return int.from_bytes(h[:8], 'big') / 2 ** 64
+
+
+def beard_choice(r, stem, bodies, beards, base):
+    """The variant `base`'s beard: (code, beard name or None, {body suffix: nif}).
+
+    With [beards], about `percent` of a head's variants get one of its fitted beards -- 100 all,
+    0 none -- picked stably from the base name, so the same recipe gives the same beards."""
+    cfg = r.get('beards')
+    if cfg is None:
+        return None, None, {}
+    mine = sorted((beards or {}).get(stem, {}).items())
+    for beard, nifs in mine:
+        missing = [BODY_NAMES[b] for b in bodies if b not in nifs]
+        if missing:
+            raise RecipeError(f"{stem}'s beard {beard} has no {', '.join(missing)} nif; a beard "
+                              f"is fitted per body type")
+    seed = r.get('seed', 1)
+    if not mine or _unit(seed, 'beard', base) >= cfg['percent'] / 100:
+        return cfg['code'] + '0', None, {}
+    beard, nifs = mine[int(_unit(seed, 'which', base) * len(mine))]
+    return cfg['code'] + beard, beard, nifs
+
+
+def variant_space(r, opts, heads, beards=None, log=print):
+    """Every variant the recipe allows, as dicts with the name and what goes into it.
+
+    `beards` is find_beards(): with a [beards] table each variant also gets a beard or none
+    (beard_choice). The beard doesn't change the texture, so 'base' -- the name without the
+    beard -- names the baked texture, material and nifs. At percent 100 a head with no beard
+    fitted is left out, with a warning to `log`; none left at all is an error."""
     tones = r.get('tones', list(range(len(opts.tones))))
     bad = [t for t in tones if not 0 <= t < len(opts.tones)]
     if bad:
         raise RecipeError(f"skin tone(s) {bad} out of range 0..{len(opts.tones) - 1}")
-    exclude = {e.lower() for e in r['eyes']['exclude']}
-    eyes = [(f"{i}", p) for i, (lab, p) in enumerate(opts.eyes, 1) if lab.lower() not in exclude]
+    def weighted(table, options, what):
+        ws = option_weights(table, [lab for lab, _ in options], what)
+        return [(f"{i}", p, w) for i, ((_, p), w) in enumerate(zip(options, ws), 1) if w > 0]
+
+    eyes = weighted(r['eyes'], opts.eyes, '[eyes]')
     if not eyes:
         raise RecipeError("no eye colours to choose from")
+    teeth = [(None, None, 1)]
+    if uses_teeth(r):
+        teeth = weighted(r['teeth'], opts.teeth, '[teeth]')
+        if not teeth:
+            raise RecipeError(f"a part is painted 'teeth' but {TEETH} offers nothing to choose")
 
     out = []
+    cfg = r.get('beards')
+    skipped = []
     for stem, bodies in group_heads(heads).items():
+        if cfg is not None and cfg['percent'] >= 100 and not (beards or {}).get(stem):
+            skipped.append(stem)
+            continue
         head = bodies.get('', next(iter(bodies.values())))      # the average, if there is one
         for tone in tones:
             combos = [[]]
@@ -358,24 +559,46 @@ def variant_space(r, opts, heads):
                     raise RecipeError(f"layer {ly['code']} has no options for skin tone {tone}")
                 combos = [c + [(ly, ch)] for c in combos for ch in choices]
             for combo in combos:
-                for eye_code, eye in eyes:
-                    parts = [stem, f"sk{tone}"] + [ly['code'] + ch[0] for ly, ch in combo]
-                    parts.append(r['eyes']['code'] + eye_code)
-                    out.append({'name': '_'.join(parts), 'head': head, 'bodies': bodies,
+                for (eye_code, eye, eye_w), (teeth_code, tooth, teeth_w) in \
+                        itertools.product(eyes, teeth):
+                    # The option codes run together (d1c1e5t1): a code is letters, an option
+                    # number digits, so they still read apart, and names stay short.
+                    codes = [ly['code'] + ch[0] for ly, ch in combo]
+                    codes.append(r['eyes']['code'] + eye_code)
+                    if teeth_code:
+                        codes.append(r['teeth']['code'] + teeth_code)
+                    base = f"{stem}_sk{tone}_{''.join(codes)}"
+                    beard_code, beard, beard_nifs = beard_choice(r, stem, bodies, beards, base)
+                    weight = eye_w * teeth_w
+                    for _, ch in combo:
+                        weight *= ch[3]
+                    out.append({'name': base + (beard_code or ''), 'weight': weight,
+                                'base': base, 'stem': stem, 'head': head, 'bodies': bodies,
                                 'tone': tone,
                                 'layers': [(ly.get('slot'), ch[1], ch[2])
                                            for ly, ch in combo if ch[1]],
-                                'eye': eye})
+                                'eye': eye, 'teeth': tooth, 'beard': beard,
+                                'beard_nifs': beard_nifs})
+    if skipped:
+        if not out:
+            raise RecipeError(f"no head has a beard in {cfg['folder']}, and the recipe gives "
+                              f"every variant one (percent = 100)")
+        log(f"WARNING: left out {', '.join(skipped)}: no beard in {cfg['folder']}, and the "
+            f"recipe gives every variant one (percent = 100)")
     return out
 
 
 def pick(variants, limit, seed):
-    """The `limit` variants whose names hash lowest under `seed`.
+    """`limit` variants, a weighted pick by each variant's 'weight' (default 1).
 
-    Random-looking but stable: the same recipe picks the same set every time, and adding a head
-    or an option only brings in the few new names that hash lower, instead of reshuffling."""
+    Random-looking but stable: each name hashes under `seed` to a number u in [0, 1), and the
+    `limit` lowest -ln(1 - u) / weight win -- a weighted draw without replacement, the same set
+    every time. -ln(1 - u) rises with u, so when the weights are equal it keeps the names that
+    hash lowest, as the unweighted pick did. Adding a head or an option only brings in the few
+    new names that beat the old ones, instead of reshuffling."""
     def key(v):
-        return hashlib.sha256(f"{seed}:{v['name']}".encode()).digest()
+        u = int.from_bytes(hashlib.sha256(f"{seed}:{v['name']}".encode()).digest(), 'big') / 2 ** 256
+        return -math.log1p(-u) / v.get('weight', 1)
     return sorted(sorted(variants, key=key)[:limit], key=lambda v: v['name'])
 
 
@@ -643,15 +866,31 @@ def head_info(r, head):
             'textures': os.path.join(tex_dir, 'variants')}
 
 
+def manifest_entry(v, nifs, mat_game, color_game):
+    """A variant's manifest entry. 'nifs' (by body type) are the baked head; 'beard_nifs' (by
+    body type, paths under Meshes) the beard fitted to it, used as exported."""
+    entry = {'name': v['name'], 'head': os.path.basename(v['head']), 'tone': v['tone'],
+             'nif': nifs.get('average', next(iter(nifs.values()))),
+             'nifs': nifs, 'material': mat_game, 'texture': color_game}
+    if v.get('beard'):
+        entry['beard'] = v['beard']
+        entry['beard_nifs'] = {BODY_NAMES[b]: game_rel(p, 'Meshes')
+                               for b, p in sorted(v['beard_nifs'].items())}
+    return entry
+
+
 def bake(r, force=False, dry_run=False, log=print):
     opts = read_options(r)
     heads = find_heads(r['heads'])
-    space = variant_space(r, opts, heads)
-    chosen = pick(space, r['limit'], r['seed'])
     groups = group_heads(heads)
+    beards = find_beards(r['heads'], r['beards'], list(groups)) if 'beards' in r else None
+    space = variant_space(r, opts, heads, beards, log=log)
+    chosen = pick(space, r['limit'], r['seed'])
     log(f"{len(space)} combinations over {len(groups)} head(s); baking {len(chosen)}")
     for head, bodies in groups.items():
-        log(f"  {head}: {', '.join(BODY_NAMES[b] for b in sorted(bodies))}")
+        fitted = sorted((beards or {}).get(head, {}))
+        log(f"  {head}: {', '.join(BODY_NAMES[b] for b in sorted(bodies))}"
+            + (f"; beards {', '.join(fitted) or 'none'}" if beards is not None else ''))
     if dry_run:
         for v in chosen:
             log(f"  {v['name']}")
@@ -663,13 +902,19 @@ def bake(r, force=False, dry_run=False, log=print):
     if missing:
         raise RecipeError(f"[parts] doesn't say what paints: {', '.join(missing)}")
     cache, infos, manifest, pngs = {}, {}, [], set()
+    baked = {}                           # base name -> its nifs: one bake serves every beard
     out = r['out']
     for v in chosen:
         info = infos.setdefault(v['head'], head_info(r, v['head']))
-        name = v['name']
+        name = v['base']                 # the beard doesn't change the texture
         tex_rel = os.path.join(info['textures'], name + '_color.png')
         mat_game = os.path.join(info['materials'], name + '.mat').replace(os.sep, '\\')
         dds = under(out, os.path.splitext(tex_rel)[0] + '.dds')
+        color_game = 'Data\\' + os.path.splitext(tex_rel)[0].replace(os.sep, '\\') + '.dds'
+        if name in baked:
+            manifest.append(manifest_entry(v, baked[name], mat_game, color_game))
+            log(f"  {v['name']} (shares {name})")
+            continue
 
         if force or not os.path.exists(dds):
             face, hands = opts.tones[v['tone']]
@@ -684,6 +929,8 @@ def bake(r, force=False, dry_run=False, log=print):
                     textures[part] = load_texture(r, hands, cache)
                 elif role == 'eyes':
                     textures[part] = load_texture(r, v['eye'], cache)
+                elif role == 'teeth':
+                    textures[part] = load_texture(r, v['teeth'], cache)
                 elif role.startswith('#'):
                     textures[part] = parse_color(role)[:3]
                 else:
@@ -694,18 +941,17 @@ def bake(r, force=False, dry_run=False, log=print):
             uv_transfer.save_image(img[..., :3], png)
             pngs.add(os.path.dirname(png))
 
-        color_game = 'Data\\' + os.path.splitext(tex_rel)[0].replace(os.sep, '\\') + '.dds'
         write_material(out, mat_game, derive_material(info['doc'], mat_game, color_game))
 
-        nifs = write_body_nifs(v['bodies'], out, info['meshes'], name, mat_game)
-        manifest.append({'name': name, 'head': os.path.basename(v['head']), 'tone': v['tone'],
-                         'nif': nifs.get('average', next(iter(nifs.values()))),
-                         'nifs': nifs, 'material': mat_game, 'texture': color_game})
-        log(f"  {name}")
+        baked[name] = write_body_nifs(v['bodies'], out, info['meshes'], name, mat_game)
+        manifest.append(manifest_entry(v, baked[name], mat_game, color_game))
+        log(f"  {v['name']}")
 
     if pngs:
         convert_dds(pngs, log)
     result = {'race': r['race'], 'sex': r['sex'], 'variants': manifest}
+    if 'beards' in r and r['beards'].get('colors'):
+        result['beard_colors'] = r['beards']['colors']
     if opts.tail:
         nifs = bake_tails(r, opts.tail, {v['tone'] for v in chosen}, log)
         result['tail'] = {'addon': opts.tail['addon'], 'nifs': {str(k): v for k, v in nifs.items()}}

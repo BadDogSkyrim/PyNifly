@@ -2456,6 +2456,49 @@ def TEST_SF_FACEBONES_EXPORT():
 
 @TT.category('STARFIELD')
 @TT.expect_errors(('Could not find SF texture',))
+def TEST_SF_MAT_WRITTEN_ONCE():
+    """Starfield: one export writes each loose .mat once, however many nifs use it.
+
+    A head with '_', '_thin' and '_overweight' file keys writes three nifs on one material; it was
+    written three times, once per nif."""
+    import logging
+    testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_MAT_WRITTEN_ONCE\meshes\body.nif")
+    outdir = os.path.dirname(os.path.dirname(outfile))
+    if os.path.exists(outdir):
+        shutil.rmtree(outdir)
+    os.makedirs(os.path.dirname(outfile))
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    body = TTB.find_shape("Naked_F:0:LOD0")
+    body.shape_key_add(name='Basis', from_mix=False)
+    for key in ('_', '_thin', '_overweight'):
+        body.shape_key_add(name=key, from_mix=False)
+
+    class Count(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.INFO)
+            self.mats = []
+        def emit(self, record):
+            if record.getMessage().startswith('Wrote loose .mat'):
+                self.mats.append(record.getMessage())
+    counter = Count()
+    logging.getLogger('pynifly').addHandler(counter)
+    try:
+        BD.ObjectSelect(list(bpy.context.scene.objects))
+        bpy.context.view_layer.objects.active = body
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game="SF", write_sf_materials=True)
+    finally:
+        logging.getLogger('pynifly').removeHandler(counter)
+
+    meshdir = os.path.dirname(outfile)
+    assert TT.is_eq(sorted(f for f in os.listdir(meshdir) if f.endswith('.nif')),
+                    ['body.nif', 'body_overweight.nif', 'body_thin.nif'], "three nifs written")
+    assert TT.is_eq(len(counter.mats), 1, f"the shared material written once: {counter.mats}")
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(('Could not find SF texture',))
 def TEST_SF_EXPORT():
     """Starfield round-trip: import a BSGeometry body, export it (NIF + external .mesh),
     re-import the result and confirm geometry, bones, and weights survive.
@@ -2795,6 +2838,120 @@ def TEST_SF_MORPH_SHAPE_TOKEN_EXPORT():
     # overwrite it with the resolved path or the next shape would inherit this one's name.
     assert "{shape}" in obj.pyn_sf_morph.chargen_path, \
         f"the token is not stomped by the write-back: {obj.pyn_sf_morph.chargen_path!r}"
+
+
+@TT.category('STARFIELD')
+def TEST_SF_MORPH_SKIP_HELPER_KEYS():
+    """Starfield: shape keys starting with '*' or '_' never go into a morph.dat.
+
+    '*' marks a working key (ear poses, eye placement) and '_' a file key; the .tri export
+    already skipped both, the morph.dat export didn't (Ruff04 shipped *CanineEarBackR etc.)."""
+    import os
+    from pyn.sf_morph import MorphFile
+
+    me = bpy.data.meshes.new("sfhelpermesh")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)], [], [(0, 1, 3, 2)])
+    me.update()
+    obj = bpy.data.objects.new("RuffHelpers", me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.shape_key_add(name="Basis")
+    obj.shape_key_add(name="jawOpen").data[0].co.z += 1.0        # -> performance
+    obj.shape_key_add(name="Overweight").data[1].co.x += 0.5     # -> chargen
+    obj.shape_key_add(name="*CanineEarBackR").data[2].co.y += 0.5
+    obj.shape_key_add(name="_thin").data[3].co.x -= 0.5
+
+    out = TTB.test_file(r"tests\Out\TEST_SF_MORPH_SKIP_HELPER_KEYS\meshes\ruff.nif", output=True)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    obj.pyn_sf_morph.chargen_path = r"meshes\morphs\FSF\chargen\Ruff\morph.dat"
+    obj.pyn_sf_morph.performance_path = ""
+
+    BD.ObjectSelect([obj])
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.export_scene.pyniflysfmorph(filepath=out)
+
+    root = os.path.dirname(os.path.dirname(out))
+    cp = os.path.join(root, "meshes", "morphs", "FSF", "chargen", "Ruff", "morph.dat")
+    pp = os.path.join(root, "meshes", "morphs", "FSF", "performance", "Ruff", "morph.dat")
+    assert MorphFile.from_file(cp).morph_names == ["Overweight"], \
+        f"helper keys left out of chargen: {MorphFile.from_file(cp).morph_names}"
+    assert MorphFile.from_file(pp).morph_names == ["jawOpen"]
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(('crowd morph',))
+def TEST_SF_MORPH_CROWD_EXPORT():
+    """Starfield: a head flagged Crowd writes only a performance morph.dat with vanilla's 11
+    crowd keys, each L key carrying its R partner's movement; no chargen file."""
+    import os
+    from pyn.sf_morph import MorphFile
+
+    me = bpy.data.meshes.new("sfcrowdmesh")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)], [], [(0, 1, 3, 2)])
+    me.update()
+    obj = bpy.data.objects.new("CrowdHead", me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.shape_key_add(name="Basis", from_mix=False)
+    obj.shape_key_add(name="jawOpen", from_mix=False).data[0].co.z += 1.0
+    obj.shape_key_add(name="browLowererL", from_mix=False).data[1].co.z -= 1.0
+    obj.shape_key_add(name="browLowererR", from_mix=False).data[2].co.z -= 1.0
+    obj.shape_key_add(name="lipFunnel", from_mix=False).data[3].co.x += 1.0      # not a crowd key
+    obj.shape_key_add(name="Overweight", from_mix=False).data[3].co.y += 1.0     # chargen
+
+    out = TTB.test_file(r"tests\Out\TEST_SF_MORPH_CROWD_EXPORT\meshes\crowd.nif", output=True)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    obj.pyn_sf_morph.chargen_path = ""
+    obj.pyn_sf_morph.performance_path = r"meshes\morphs\FSF_Crowd\male\performance\morph.dat"
+    obj.pyn_sf_morph.crowd = True
+
+    BD.ObjectSelect([obj])
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.export_scene.pyniflysfmorph(filepath=out)
+
+    root = os.path.dirname(os.path.dirname(out))
+    pp = os.path.join(root, "meshes", "morphs", "FSF_Crowd", "male", "performance", "morph.dat")
+    cp = os.path.join(root, "meshes", "morphs", "FSF_Crowd", "male", "chargen", "morph.dat")
+    assert os.path.isfile(pp), f"crowd morph written to the performance path: {pp}"
+    assert not os.path.exists(cp), "no chargen morph for a crowd head"
+    mf = MorphFile.from_file(pp)
+    assert mf.morph_names == ["browLowererL", "jawOpen"], f"vanilla's order: {mf.morph_names}"
+    brow = mf.key_deltas()["browLowererL"]
+    assert set(brow) == {1, 2}, f"browLowererL moves both sides: {sorted(brow)}"
+
+
+@TT.category('STARFIELD')
+def TEST_SF_MORPH_DIR_PATH_EXPORT():
+    """Starfield: morph paths given as folders (no morph.dat on the end) get morph.dat added.
+
+    Without it the morph was written to a file named after the folder, which the MRPH record
+    can't point at."""
+    import os
+    from pyn.sf_morph import MorphFile
+
+    me = bpy.data.meshes.new("sfdirmesh")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)], [], [(0, 1, 3, 2)])
+    me.update()
+    obj = bpy.data.objects.new("RuffDir", me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.shape_key_add(name="Basis")
+    obj.shape_key_add(name="jawOpen").data[0].co.z += 1.0        # -> performance
+    obj.shape_key_add(name="Overweight").data[1].co.x += 0.5     # -> chargen
+
+    out = TTB.test_file(r"tests\Out\TEST_SF_MORPH_DIR_PATH_EXPORT\meshes\ruff.nif", output=True)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    obj.pyn_sf_morph.chargen_path = r"meshes\morphs\FSF\chargen\Ruff"
+    obj.pyn_sf_morph.performance_path = "meshes\\morphs\\FSF\\performance\\Ruff\\"
+
+    BD.ObjectSelect([obj])
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.export_scene.pyniflysfmorph(filepath=out)
+
+    root = os.path.dirname(os.path.dirname(out))
+    cp = os.path.join(root, "meshes", "morphs", "FSF", "chargen", "Ruff", "morph.dat")
+    pp = os.path.join(root, "meshes", "morphs", "FSF", "performance", "Ruff", "morph.dat")
+    assert os.path.isfile(cp), f"chargen morph.dat added to the folder: {cp}"
+    assert os.path.isfile(pp), f"performance morph.dat added to the folder: {pp}"
+    assert MorphFile.from_file(cp).morph_names == ["Overweight"]
+    assert MorphFile.from_file(pp).morph_names == ["jawOpen"]
 
 
 @TT.category('STARFIELD')

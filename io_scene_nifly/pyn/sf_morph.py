@@ -116,6 +116,39 @@ def is_expression_morph(name):
     return morph_key_name(name) in SF_EXPRESSION_MORPHS
 
 
+# A crowd head's morph: vanilla's human_crowd\<sex>\performance\morph.dat holds exactly these 11
+# keys, in this order, and nothing else -- crowds have no chargen values and the crowd face
+# animation drives only these. Its L keys move BOTH sides of the face (checked against the male
+# crowd mesh, 2026-10-21), so ours take in the head's R partner: each vertex gets whichever side
+# moves it, the average where both do. Merged rather than mirrored: the head needn't be symmetric.
+CROWD_MORPHS = ('browLowererL', 'eyeDown', 'c_eyeDown_eyeClosedL', 'jawOpen', 'cheekRaiseL',
+                'eyeClosedL', 'lipPucker', 'lipCornerInL', 'lipCornerPullL', 'lipPress',
+                'outerBrowRaiseL')
+
+
+def crowd_morph_deltas(named_deltas):
+    """Reduce {key name: {vert: (dx, dy, dz)}} to the crowd morph: the CROWD_MORPHS keys present,
+    in that order, each L key merged with its R partner -- averaged on a vertex both move -- and
+    either alone is enough. Returns
+    (deltas, missing), `missing` the crowd keys the head has neither side of."""
+    by_name = {morph_key_name(n): d for n, d in named_deltas.items()}
+    out, missing = {}, []
+    for key in CROWD_MORPHS:
+        sides = [by_name.get(key)]
+        if key.endswith('L'):
+            sides.append(by_name.get(key[:-1] + 'R'))
+        sides = [s for s in sides if s is not None]
+        if not sides:
+            missing.append(key)
+            continue
+        merged = {}
+        for vi in set().union(*sides):
+            ds = [s[vi] for s in sides if vi in s]
+            merged[vi] = tuple(sum(c) / len(ds) for c in zip(*ds))
+        out[key] = dict(sorted(merged.items()))
+    return out, missing
+
+
 # --- morph.dat path handling (store relative-to-'meshes' so morphs re-home with the nif) -------
 # A morph.dat lives under Data/meshes/morphs/...; the nif under Data/meshes/.... Both share the
 # 'meshes' root, so storing the morph path from 'meshes' onward lets export re-home it under a new
@@ -177,6 +210,20 @@ def substitute_shape(path, shape_name):
         return path
     from .sf_meshpath import sanitize_mesh_component
     return path.replace(SHAPE_TOKEN, sanitize_mesh_component(shape_name))
+
+
+MORPH_FILENAME = 'morph.dat'
+
+
+def with_morph_filename(path):
+    """`path` with 'morph.dat' added if it names a folder. The game's filename is always morph.dat,
+    so a path whose last part isn't a .dat file is the folder the morph goes in; the filename is
+    added in the path's own separator style. A path naming some other .dat is left alone -- that
+    was a deliberate pick."""
+    if not path or path.replace('\\', '/').rsplit('/', 1)[-1].lower().endswith('.dat'):
+        return path
+    sep = '\\' if '\\' in path else '/'
+    return path.rstrip('\\/') + sep + MORPH_FILENAME
 
 
 def unique_morph_path(path, used):
