@@ -2442,7 +2442,8 @@ class NifImporter():
                 self.set_bone_poses(arma, self.nif, new_bones)
             bpy.ops.object.mode_set(mode = 'OBJECT')
 
-        BD.ObjectSelect([obj])
+        if obj.visible_get():           # a Starfield LOD slot is already hidden; can't select it
+            BD.ObjectSelect([obj])
         mod = obj.modifiers.new("Armature", "ARMATURE")
         mod.object = arma
 
@@ -3111,9 +3112,10 @@ class ImportNIF(bpy.types.Operator, ImportHelper):
                 )
             imp.execute()
 
-            # Cleanup. Select all shapes imported, except the root node.
-            objlist = [x for x in imp.objects_created.blender_objects() 
-                        if x.type=='MESH' and not x.name.endswith(':BBX')]
+            # Cleanup. Select all shapes imported, except the root node and the ones import hid
+            # (Starfield LOD slots).
+            objlist = [x for x in imp.objects_created.blender_objects()
+                        if x.type=='MESH' and not x.name.endswith(':BBX') and x.visible_get()]
             if (not objlist) and imp.armature:
                 objlist = [imp.armature]
             BD.highlight_objects(objlist, context)

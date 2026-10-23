@@ -596,3 +596,72 @@ def TEST_IMPORT_MESH_ONLY_UV():
     assert TT.is_equiv(max(got_u), max(us), "UV range matches the file (u max)", e=0.001)
     assert TT.is_equiv(min(got_v), min(vs), "UV range matches the file (v min)", e=0.001)
     assert TT.is_equiv(max(got_v), max(vs), "UV range matches the file (v max)", e=0.001)
+
+
+def _tri_obj(name, parent=None, location=(0, 0, 0)):
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
+    me.uv_layers.new()
+    me.update()
+    o = bpy.data.objects.new(name, me)
+    bpy.context.scene.collection.objects.link(o)
+    o.parent = parent
+    o.location = location
+    return o
+
+
+@TT.category('SKYRIMSE', 'XFORM')
+def TEST_EXPORT_SELECTED_CHILD_BRINGS_ROOT():
+    """Exporting a shape that sits under a nif root (directly, or through nodes) exports the root
+    and everything visible under it, as if the root were selected. Hidden siblings stay out --
+    hiding is how to leave something out of this export."""
+    outfile = TTB.test_file(r"tests\Out\TEST_EXPORT_SELECTED_CHILD_BRINGS_ROOT.nif", output=True)
+    root = bpy.data.objects.new("ChildRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    root['pynRoot'] = True
+    node = bpy.data.objects.new("SubNode", None)
+    bpy.context.scene.collection.objects.link(node)
+    node.parent = root
+    _tri_obj("ShapeA", root)
+    deep = _tri_obj("ShapeB", node, (0, 0, 5))
+    _tri_obj("ShapeHidden", root).hide_set(True)
+
+    BD.ObjectSelect([deep], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', intuit_defaults=False)
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq(sorted(s.name for s in nif.shapes), ['ShapeA', 'ShapeB'],
+                    "the whole root came along, minus the hidden shape")
+    assert TT.is_eq(nif.shape_dict['ShapeB'].parent.name, 'SubNode',
+                    "the node between root and shape is kept")
+
+
+@TT.category('SKYRIMSE', 'XFORM')
+@TT.expect_errors(('parented to mesh',))
+def TEST_EXPORT_MESH_PARENT_FLATTENED():
+    """A shape parented to another mesh (FSFFox_Ruff04 under CanineMaleHead) exports by itself,
+    under the nif root at its world position: no node for the parent mesh -- a game head part
+    wants its geometry right under the root -- and the parent's root doesn't come along."""
+    outfile = TTB.test_file(r"tests\Out\TEST_EXPORT_MESH_PARENT_FLATTENED.nif", output=True)
+    root = bpy.data.objects.new("HeadRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    root['pynRoot'] = True
+    head = _tri_obj("Head", root, (0, 0, 10))
+    ruff = _tri_obj("Ruff", head, (0, 0, 1))
+    bpy.context.view_layer.update()
+
+    BD.ObjectSelect([ruff], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', intuit_defaults=False)
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq([s.name for s in nif.shapes], ['Ruff'], "only the selected shape")
+    assert TT.is_true('Head' not in nif.nodes, f"no node for the parent mesh: {list(nif.nodes)}")
+    shape = nif.shapes[0]
+    assert TT.is_eq(shape.parent.name, nif.rootNode.name, "the shape sits right under the root")
+    assert TT.is_equiv(shape.transform.translation, (0, 0, 11), "at its world position")
+
+    # Its sticky settings are its own, not the head nif's: the lookup stops at the mesh too.
+    assert TT.is_eq(pyn_props.find_settings_root(ruff).name, 'Ruff',
+                    "settings anchor stops at the mesh parent")
+    assert TT.is_eq(pyn_props.find_settings_root(head).name, 'HeadRoot',
+                    "the head's own settings still live on its root")

@@ -202,6 +202,50 @@ def resolve_mesh(data, mesh_name):
 
 # --- morph checks ---------------------------------------------------------------------------
 
+ZERO_RECORD_CRASH = ("No key moves a vertex. The CK's MorphRenderPass logs \"invalid buffers\" "
+                     "and crashes on it.")
+
+
+def check_part_morphs(rep, data, hdpt, plugins):
+    """A head part's morphs -- facial hair, eyebrows, ears, anything but the race's face, which
+    check_morphs judges against the race's declared keys.
+
+    Unlike the face, a part may leave keys empty (vanilla beards leave 9+), so only a file with
+    no morph data at all is a failure: the CK crashes on it. A part with no MNAM has no morphs."""
+    pnam = hdpt.get_subrecord('PNAM')
+    if pnam is not None and pnam.get_uint32() == HDPT_FACE:
+        return
+    if hdpt.get_subrecord('MNAM') is None:
+        return
+    who = hdpt.editor_id or '?'
+    mrph = plugins.resolve_reference(hdpt, 'MNAM')
+    if mrph is None:
+        rep.fail('morphs', f"{who}: MNAM points at no MRPH record")
+        return
+    verts = model_mesh_verts(data, text(hdpt, 'MODL'))
+    for sig, label in (('TCMP', 'chargen'), ('TMPP', 'performance')):
+        rel = text(mrph, sig)
+        if not rel:
+            continue
+        f = data_path(data, rel, 'morph.dat')
+        if not os.path.exists(f):
+            rep.fail('morphs', f"{who}: no {label} morph.dat", rel)
+            continue
+        try:
+            m = MorphFile.from_file(f)
+        except Exception as e:
+            rep.fail('morphs', f"{who}: {label} morph.dat could not be read: {e}", f)
+            continue
+        if not m.records:
+            rep.fail('morphs', f"{who}: {label} morph.dat has {len(m.morph_names)} keys and no "
+                               f"morph data -- crashes the CK", [rel, ZERO_RECORD_CRASH])
+        elif verts is not None and m.num_vertices != verts:
+            rep.fail('morphs', f"{who}: {label} morph has {m.num_vertices} verts, its mesh has "
+                               f"{verts}", rel)
+        else:
+            rep.ok('morphs', f"{who}: {label} morph ({len(m.morph_names)} keys)")
+
+
 def check_morphs(rep, data, mrph, declared_names, head_verts, composed_names=None):
     """The single most expensive class of bug: morphs the engine cannot use."""
     if mrph is None:
@@ -230,6 +274,11 @@ def check_morphs(rep, data, mrph, declared_names, head_verts, composed_names=Non
             m = MorphFile.from_file(f)
         except Exception as e:
             rep.fail('morphs', f"{label}: morph.dat could not be read: {e}", f)
+            continue
+
+        if not m.records:
+            rep.fail('morphs', f"{label}: morph.dat has {len(m.morph_names)} keys and no morph "
+                               f"data -- crashes the CK", [rel, ZERO_RECORD_CRASH])
             continue
 
         deltas = m.key_deltas()
@@ -482,6 +531,7 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
                 own_face[sx] = hdpt
             seen.add(id(hdpt))
             check_head_nif(rep, data, hdpt, nif_reader)
+            check_part_morphs(rep, data, hdpt, plugins)
             if avm is not None:
                 check_follicle_mask(rep, data, hdpt, avm, official)
 
@@ -494,6 +544,7 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
                sorted(h.editor_id or '?' for h in extra)[:8])
         for hdpt in extra:
             check_head_nif(rep, data, hdpt, nif_reader)
+            check_part_morphs(rep, data, hdpt, plugins)
             if avm is not None:
                 check_follicle_mask(rep, data, hdpt, avm, official)
 

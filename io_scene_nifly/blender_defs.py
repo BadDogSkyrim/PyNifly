@@ -113,6 +113,30 @@ def ObjectSelect(objlist, deselect=True, active=True):
             bpy.context.view_layer.objects.active = o1
         except (RuntimeError, ReferenceError):
             pass
+    # Say which objects didn't take. Swallowed silently, the failure surfaces much later as an
+    # unrelated-looking "mode_set.poll() Context missing active object".
+    for o in (objlist if hasattr(objlist, "__iter__") else [objlist]):
+        try:
+            if not o.select_get():
+                log.warning(f"Could not select {o.name}: {_unselectable_reason(o)}")
+        except (RuntimeError, ReferenceError):
+            pass
+
+
+def _unselectable_reason(obj):
+    """Why Blender won't select `obj`, in the UI's terms."""
+    vl = bpy.context.view_layer
+    if obj.name not in vl.objects:
+        return "it isn't in the view layer (its collection is excluded)"
+    if obj.hide_viewport:
+        return "it's disabled in viewports"
+    if obj.hide_get():
+        return "it's hidden"
+    if not obj.visible_get():
+        return "its collection is hidden"
+    if obj.hide_select:
+        return "it's marked unselectable"
+    return "unknown reason"
 
 
 def ObjectActive(obj):

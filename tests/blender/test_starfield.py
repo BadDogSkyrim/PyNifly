@@ -520,7 +520,7 @@ def TEST_SF_LOD_ROUNDTRIP():
     outfile = TTB.test_file(r"tests\Out\TEST_SF_LOD_ROUNDTRIP.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
-    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF')
 
     nif = pyn.NifFile(outfile)
@@ -2054,7 +2054,7 @@ def TEST_SF_BONETRANS_ROUNDTRIP():
     lod0, arma, block, markers = _crowd_head_with_markers()
     arma.pyn_facebones = True             # a crowd head: the companion is a copy of the nif
 
-    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
 
     for path in (outfile, outfile_fb):
@@ -2070,7 +2070,7 @@ def TEST_SF_BONETRANS_ROUNDTRIP():
     m = markers['L_Eye'].matrix_world.copy()
     m.translation.z += 0.01 * HAVOC_SCALE_FACTOR
     markers['L_Eye'].matrix_world = m
-    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
     got = _bone_translations(outfile)['BoneTrn']['L_Eye']
     want = VANILLA_AF_MD1_EYES['L_Eye']
@@ -2086,7 +2086,7 @@ def TEST_SF_BONETRANS_NONE():
     lod0, arma, block, markers = _crowd_head_with_markers()
     for o in list(markers.values()) + [block]:
         bpy.data.objects.remove(o)
-    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
     assert TT.is_eq(_bone_translations(outfile), {}, "no BoneTranslations written")
 
@@ -2134,7 +2134,7 @@ def TEST_SF_FACEBONES_FLAG_CROWD():
     decoy = _face_rig("ChargenFaceRig", parent=crowd_arma.parent)
     lod0.modifiers.new("FaceRig", 'ARMATURE').object = decoy
 
-    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
 
     plain = pyn.NifFile(outfile).shapes[0]
@@ -2180,7 +2180,7 @@ def TEST_SF_FILE_KEY_MESHES():
     crowd_arma = next(m.object for m in lod0.modifiers if m.type == 'ARMATURE')
     crowd_arma.pyn_facebones = True
 
-    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
 
     paths = {}
@@ -2232,7 +2232,7 @@ def TEST_SF_FILE_KEY_PLAIN():
     lod0.pyn_sf_geometry.mesh_path = 'FSF'
     next(m.object for m in lod0.modifiers if m.type == 'ARMATURE').pyn_facebones = True
 
-    BD.ObjectSelect([o for o in bpy.data.objects], active=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
 
     meshdir = os.path.dirname(outfile)
@@ -2288,6 +2288,85 @@ def TEST_SF_HIDDEN_NOT_EXPORTED():
     assert TT.is_eq([s.name for s in nif.shapes], ['crowd_head_af_md1:0'],
                     "the hidden copy isn't exported")
     assert TT.is_eq(len(nif.shapes[0].mesh_paths()), 4, "the hidden LODs still fill their slots")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_HIDDEN_KINDS_NOT_EXPORTED():
+    """Every way of hiding an object keeps it out of the export, not just the eye icon: disabled
+    in viewports, in a hidden collection, in a collection excluded from the view layer. Blender
+    can't put any of them in edit mode either."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human_crowd', 'mesh', 'male',
+                            'crowd_head_af_md1.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_HIDDEN_KINDS_NOT_EXPORTED\meshes\crowdhead.nif",
+                            output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    lod0 = bpy.data.objects["crowd_head_af_md1:0:LOD0"]
+
+    def copy(name, coll):
+        o = lod0.copy()
+        o.data = lod0.data.copy()
+        o.name = name
+        coll.objects.link(o)
+        o.parent = lod0.parent
+        return o
+
+    scene = bpy.context.scene
+    copy("crowd_head_disabled", scene.collection).hide_viewport = True
+    hidden_coll = bpy.data.collections.new("HiddenColl")
+    scene.collection.children.link(hidden_coll)
+    copy("crowd_head_hiddencoll", hidden_coll)
+    hidden_coll.hide_viewport = True
+    excluded_coll = bpy.data.collections.new("ExcludedColl")
+    scene.collection.children.link(excluded_coll)
+    copy("crowd_head_excluded", excluded_coll)
+    bpy.context.view_layer.layer_collection.children["ExcludedColl"].exclude = True
+
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq([s.name for s in nif.shapes], ['crowd_head_af_md1:0'],
+                    "no hidden copy is exported, however it's hidden")
+    assert TT.is_eq(len(nif.shapes[0].mesh_paths()), 4, "the hidden LODs still fill their slots")
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(('Could not select',))
+def TEST_OBJECTSELECT_REPORTS_FAILURE():
+    """ObjectSelect says so when an object can't be selected. It used to swallow the failure, and
+    the export died later on an unrelated-looking "mode_set.poll() Context missing active
+    object"."""
+    import logging
+    seen = []
+
+    class Grab(logging.Handler):
+        def emit(self, record):
+            seen.append((record.levelno, record.getMessage()))
+
+    me = bpy.data.meshes.new("selmesh")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [], [(0, 1, 2)])
+    shown = bpy.data.objects.new("SelShown", me)
+    hidden = bpy.data.objects.new("SelHidden", me)
+    disabled = bpy.data.objects.new("SelDisabled", me)
+    for o in (shown, hidden, disabled):
+        bpy.context.scene.collection.objects.link(o)
+    hidden.hide_set(True)
+    disabled.hide_viewport = True
+
+    grab = Grab()
+    logging.getLogger("pynifly").addHandler(grab)
+    try:
+        BD.ObjectSelect([shown])
+        assert TT.is_eq(seen, [], "a visible object selects quietly")
+        BD.ObjectSelect([hidden, disabled])
+    finally:
+        logging.getLogger("pynifly").removeHandler(grab)
+
+    warned = [m for lv, m in seen if lv == logging.WARNING]
+    assert TT.is_eq(len(warned), 2, f"one warning per object that couldn't be selected: {seen}")
+    assert 'SelHidden' in warned[0] and 'hidden' in warned[0], warned[0]
+    assert 'SelDisabled' in warned[1] and 'disabled' in warned[1], warned[1]
 
 
 @TT.category('STARFIELD')
@@ -2875,6 +2954,46 @@ def TEST_SF_MORPH_SKIP_HELPER_KEYS():
     assert MorphFile.from_file(cp).morph_names == ["Overweight"], \
         f"helper keys left out of chargen: {MorphFile.from_file(cp).morph_names}"
     assert MorphFile.from_file(pp).morph_names == ["jawOpen"]
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(('no morph data',))
+def TEST_SF_MORPH_EMPTY_NOT_WRITTEN():
+    """Starfield: a morph group whose keys move no vertex isn't written. Its morph.dat would have
+    keys but zero records, and the CK crashes on it ("invalid buffers" in MorphRenderPass; Ruff01's
+    123 unfilled keys). One real key alongside empty ones is fine -- vanilla beards do that."""
+    import os
+    from pyn.sf_morph import MorphFile
+
+    me = bpy.data.meshes.new("sfemptymesh")
+    me.from_pydata([(0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 0)], [], [(0, 1, 3, 2)])
+    me.update()
+    obj = bpy.data.objects.new("RuffEmpty", me)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.shape_key_add(name="Basis")
+    obj.shape_key_add(name="Overweight")                         # chargen, empty
+    obj.shape_key_add(name="Thin")                               # chargen, empty
+    obj.shape_key_add(name="jawOpen").data[0].co.z += 1.0        # performance, real
+    obj.shape_key_add(name="lipPress")                           # performance, empty
+
+    out = TTB.test_file(r"tests\Out\TEST_SF_MORPH_EMPTY_NOT_WRITTEN\meshes\ruff.nif", output=True)
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    obj.pyn_sf_morph.chargen_path = r"meshes\morphs\FSF\chargen\Ruff\morph.dat"
+    obj.pyn_sf_morph.performance_path = ""
+
+    root = os.path.dirname(os.path.dirname(out))
+    cp = os.path.join(root, "meshes", "morphs", "FSF", "chargen", "Ruff", "morph.dat")
+    pp = os.path.join(root, "meshes", "morphs", "FSF", "performance", "Ruff", "morph.dat")
+    if os.path.exists(cp):
+        os.remove(cp)
+
+    BD.ObjectSelect([obj])
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.export_scene.pyniflysfmorph(filepath=out)
+
+    assert not os.path.exists(cp), f"empty chargen morph written: {cp}"
+    assert MorphFile.from_file(pp).morph_names == ["jawOpen", "lipPress"], \
+        f"partly-empty performance morph: {MorphFile.from_file(pp).morph_names}"
 
 
 @TT.category('STARFIELD')

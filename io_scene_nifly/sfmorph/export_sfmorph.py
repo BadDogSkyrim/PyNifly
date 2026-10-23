@@ -200,6 +200,13 @@ def write_sf_morphs(obj, anchor_path, morphdict=None, used_paths=None):
         mf = morphs[which]
         if mf is None:
             continue
+        # Keys but zero records: the CK crashes rendering it ("invalid buffers" in
+        # MorphRenderPass). Some empty keys among real ones are normal; all empty is not.
+        if not mf.records:
+            log.error(f"'{obj.name}': {len(mf.morph_names)} {which} shape key(s) but no morph "
+                      f"data -- none moves a vertex. Not writing the {which} morph.dat; a head "
+                      f"part's MRPH pointing at one would crash the Creation Kit.")
+            continue
         if not path:
             log.warning(f"{len(mf.morph_names)} {which} morph(s) but no {which} output path "
                         f"(set {obj.name}.pyn_sf_morph.{which}_path)")

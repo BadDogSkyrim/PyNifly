@@ -403,8 +403,8 @@ def TEST_IMP_EXP_SKY(game, blendxf, pretty):
                                  intuit_defaults=False)
 
     nifout = pyn.NifFile(outfile)
-    # Exported with the armor selected; gets a default root node nmae.
-    assert TT.is_eq(nifout.rootNode.name, "Scene Root"), "Root node name in output nif"
+    # Exported with the armor selected: its nif root comes along, so the renamed root is used.
+    assert TT.is_eq(nifout.rootNode.name, "ArmorRoot"), "Root node name in output nif"
 
     armorout = nifout.shape_dict['Armor']
     assert nifout.game == game, f"Wrote correct game format: {nifout.game} == {game}"
@@ -1084,8 +1084,8 @@ def TEST_EXPORT_WEIGHTS():
     # Simple test to see that when vertex groups are associated with bone weights they are
     # written correctly.
     # 
-    # Also check that when we have multiple objects under a skeleton and only select one,
-    # only that one gets written. 
+    # Also check that when we have multiple objects under a root and hide all but one, only
+    # that one gets written. (Selecting a shape exports its whole root; hiding leaves one out.)
     testfile = TTB.test_file(r"tests\Skyrim\test.nif")
     filepath_armor = TTB.test_file("tests/out/testArmorSkyrim02.nif")
     filepath_armor_fo = TTB.test_file(r"tests\Out\testArmorFO02.nif")
@@ -1098,6 +1098,7 @@ def TEST_EXPORT_WEIGHTS():
     assert 'NPC Foot.L' in the_armor.vertex_groups, f"ERROR: Left foot is in the groups: {the_armor.vertex_groups}"
     
     # Export armor only
+    the_body.hide_set(True)
     bpy.ops.object.select_all(action='DESELECT')
     the_armor.select_set(True)
     bpy.context.view_layer.objects.active = the_armor
@@ -1116,6 +1117,8 @@ def TEST_EXPORT_WEIGHTS():
     assert os.path.exists(filepath_armor_fo), f"ERROR: File {filepath_armor_fo} not created"
 
     # Write body 
+    the_body.hide_set(False)
+    the_armor.hide_set(True)
     bpy.ops.object.select_all(action='DESELECT')
     the_body.select_set(True)
     bpy.context.view_layer.objects.active = the_body

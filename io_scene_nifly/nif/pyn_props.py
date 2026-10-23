@@ -845,6 +845,9 @@ def find_settings_root(obj):
     back to the topmost ancestor so those objects still get sticky settings; returning None
     here meant write_export_settings silently dropped every root-level field, so options like
     'export materials' could never stick for a shape that wasn't imported from a nif.
+
+    A mesh parent stops the walk: a shape parented to another mesh exports on its own (see
+    export_nif.nif_root_above), so the other mesh's nif settings aren't its settings.
     """
     o = obj
     topmost = obj
@@ -853,6 +856,8 @@ def find_settings_root(obj):
             return o
         topmost = o
         o = o.parent
+        if o is not None and o.type == 'MESH':
+            break
     return topmost
 
 

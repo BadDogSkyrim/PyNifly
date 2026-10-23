@@ -3125,6 +3125,96 @@ def TEST_SF_RACECHECK_FOLLICLE_MASK():
         assert TT.is_ge(checked, 115, "every vanilla hair/beard mask was actually checked")
 
 
+def TEST_SF_RACECHECK_PART_MORPHS():
+    """sf_racecheck checks every head part's morphs, not just the face's.
+
+    A morph.dat whose keys are all empty has zero records and crashes the CK
+    (MorphRenderPass "invalid buffers"); FSFFox_Ruff01 shipped one and nothing caught it, because
+    only the race's Face part was checked. Some empty keys among real ones are normal on a
+    beard or hair (vanilla beards have 9+), so those aren't reported.
+    """
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+    from esplib import Plugin
+    from pyn.sf_morph import MorphFile
+
+    BEARD, FACE = 4, 1
+
+    def morph(d, rel, names, deltas):
+        full = os.path.join(d, *rel.split('\\'))
+        os.makedirs(full)
+        MorphFile.from_deltas(names, 4, deltas).to_file(os.path.join(full, 'morph.dat'))
+
+    def part(p, edid, pnam, chargen=None, perf=None):
+        rec = p.new_record('HDPT', edid)
+        rec.add_subrecord('PNAM', pnam.to_bytes(4, 'little'))
+        if chargen or perf:
+            m = p.new_record('MRPH', edid + 'Morph')
+            if chargen:
+                m.add_subrecord('TCMP', chargen.encode() + b'\0')
+            if perf:
+                m.add_subrecord('TMPP', perf.encode() + b'\0')
+            rec.add_subrecord('MNAM', m.form_id.value.to_bytes(4, 'little'))
+
+    def findings(rep, level):
+        return [(m, dt) for lv, _area, m, dt in rep.findings if lv == level]
+
+    real = {'jawOpen': {0: (0.0, 0.0, 1.0)}}
+    with tempfile.TemporaryDirectory() as d:
+        morph(d, 'Meshes\\Morphs\\RC\\chargen\\Empty', ['Overweight', 'Thin'], {})
+        morph(d, 'Meshes\\Morphs\\RC\\performance\\Partial', ['jawOpen', 'lipPress'], real)
+        morph(d, 'Meshes\\Morphs\\RC\\chargen\\Partial', ['Overweight', 'Thin'],
+              {'Thin': {1: (1.0, 0.0, 0.0)}})
+        os.makedirs(os.path.join(d, 'Meshes', 'Morphs', 'RC', 'chargen', 'NoDat'))
+
+        p = Plugin.new_plugin(os.path.join(d, 'RCMorph.esm'), masters=[], game='fo4',
+                              is_esm=True)
+        part(p, 'RCRuffEmpty', BEARD, chargen='Meshes\\Morphs\\RC\\chargen\\Empty',
+             perf='Meshes\\Morphs\\RC\\performance\\Partial')
+        part(p, 'RCRuffPartial', BEARD, chargen='Meshes\\Morphs\\RC\\chargen\\Partial',
+             perf='Meshes\\Morphs\\RC\\performance\\Partial')
+        part(p, 'RCRuffNoDat', BEARD, chargen='Meshes\\Morphs\\RC\\chargen\\NoDat')
+        part(p, 'RCRuffNoMorph', BEARD)
+        part(p, 'RCFace', FACE, chargen='Meshes\\Morphs\\RC\\chargen\\Empty')
+        p.save_as(os.path.join(d, 'RCMorph.esm'))
+
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [d], ['RCMorph.esm'])
+        parts = {h.editor_id: h for h in sf_racecheck.winning_records(plugins, 'HDPT')}
+
+        def check(edid):
+            r = sf_racecheck.Report()
+            sf_racecheck.check_part_morphs(r, [d], parts[edid], plugins)
+            return r
+
+        r = check('RCRuffEmpty')
+        fails = findings(r, sf_racecheck.FAIL)
+        assert TT.is_eq(len(fails), 1, f"a zero-record chargen morph.dat is one FAIL: {fails}")
+        assert 'RCRuffEmpty' in str(fails[0]) and 'CK' in str(fails[0]), \
+            f"the failure names the part and says it crashes the CK: {fails}"
+
+        r = check('RCRuffPartial')
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL) + findings(r, sf_racecheck.WARN), [],
+                        "some empty keys among real ones are normal on a beard")
+
+        r = check('RCRuffNoDat')
+        fails = findings(r, sf_racecheck.FAIL)
+        assert TT.is_eq(len(fails), 1, f"a TCMP folder with no morph.dat is a FAIL: {fails}")
+
+        for quiet in ('RCRuffNoMorph', 'RCFace'):
+            r = check(quiet)
+            assert TT.is_eq(r.findings, [], f"{quiet}: nothing to check here "
+                                            f"(no morph; the face has its own check)")
+
+        # The face's own check catches a zero-record file too, not only its empty keys.
+        r = sf_racecheck.Report()
+        sf_racecheck.check_morphs(r, [d], plugins.resolve_reference(parts['RCFace'], 'MNAM'),
+                                  None, None)
+        assert 'CK' in str(findings(r, sf_racecheck.FAIL)), \
+            f"the face's zero-record morph.dat says it crashes the CK: {r.findings}"
+
+
 def TEST_SF_RACECHECK_CHARGEN_OPTIONS():
     """sf_racecheck warns about a playable head part chargen never offers.
 

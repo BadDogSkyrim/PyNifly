@@ -96,6 +96,27 @@ def trim_weights(weights, arma, max_weights=4):
         return dict(weights)
 
 
+def nif_root_above(obj):
+    """The nif root (pynRoot) `obj` sits under, reached through nodes and armatures only, or None.
+    A mesh in the way stops the walk: a shape parented to another mesh belongs to its own export,
+    not the other mesh's nif (FSFFox_Ruff04 under CanineMaleHead)."""
+    p = obj.parent
+    while p is not None and p.type in ('EMPTY', 'ARMATURE'):
+        if 'pynRoot' in p:
+            return p
+        p = p.parent
+    return None
+
+
+def mesh_ancestor(obj):
+    """The nearest mesh `obj` is parented under, or None. A nif can't hold a shape under a shape,
+    so export drops it from the chain and places `obj` relative to that mesh's parent."""
+    p = obj.parent
+    while p is not None and p.type != 'MESH':
+        p = p.parent
+    return p
+
+
 def has_uniform_scale(obj):
     """ Determine whether an object has uniform scale """
     return NearEqual(obj.scale[0], obj.scale[1]) and NearEqual(obj.scale[1], obj.scale[2])
@@ -915,8 +936,9 @@ class NifExporter:
         """Add a child object found under an exported one, unless it's hidden. Hidden objects
         aren't exported -- an old copy kept under the same parent, say -- and Blender can't put a
         hidden mesh in edit mode, which export needs. A Starfield LOD slot hidden on import is
-        skipped quietly: it exports with its LOD0."""
-        if not obj.hide_get():
+        skipped quietly: it exports with its LOD0. Hidden is any way Blender hides it: the eye,
+        disabled in viewports, a hidden collection, a collection excluded from the view layer."""
+        if obj.visible_get():
             self.add_object(obj)
             return
         from .sf_geometry import lod_slots
@@ -932,10 +954,12 @@ class NifExporter:
         Set the objects to export from the given list of objects 
         """
         for x in objects:
-            if not x.hide_get():
+            if x.visible_get():
                 self.add_object(x)
-                if "pynRoot" in x:
-                    self.root_object = x
+                root = x if "pynRoot" in x else nif_root_above(x)
+                if root is not None and root.visible_get():
+                    self.add_object(root)
+                    self.root_object = root
         self.connect_points.add_all(objects)
         self.file_keys = get_with_uscore(get_common_shapes(self.objects))
 
@@ -1782,9 +1806,18 @@ class NifExporter:
         Returns the handle of the nif node that should be the parent of the shape (may be
         None).
         """
-        # ancestors list contains all parents from root to obj's immediate parent
+        # ancestors list contains all parents from root to obj's immediate parent -- above any
+        # mesh it's parented to, which can't be a nif node (see mesh_ancestor).
         ancestors = []
         p = obj.parent
+        m = mesh_ancestor(obj)
+        if m is not None:
+            warned = self.__dict__.setdefault('_mesh_parent_warned', set())
+            if obj.name not in warned:
+                warned.add(obj.name)
+                log.warning(f"{obj.name} is parented to mesh {m.name}, which a nif can't do; "
+                            f"exporting it without {m.name}, at the same position")
+            p = m.parent
         while p:
             if p.type != 'ARMATURE': ancestors.insert(0, p)
             p = p.parent
@@ -1969,8 +2002,14 @@ class NifExporter:
         transform, adjusted for export scale and non-uniform scale (both of
         which are baked into the verts instead).
         """
-        # Using local transform because the shapes will be parented in the nif.
-        new_xform = obj.matrix_local * (1/self.scale)
+        # Using local transform because the shapes will be parented in the nif. A mesh parent
+        # isn't written (export_shape_parents), so then it's relative to that mesh's parent.
+        local = obj.matrix_local
+        m = mesh_ancestor(obj)
+        if m is not None:
+            local = (m.parent.matrix_world.inverted() @ obj.matrix_world if m.parent
+                     else obj.matrix_world)
+        new_xform = local * (1/self.scale)
         if not has_uniform_scale(obj):
             # Non-uniform scale was applied to the verts, so use 1.0 for the scale.
             l, r, s = new_xform.decompose()
@@ -1978,7 +2017,7 @@ class NifExporter:
         elif not NearEqual(self.scale, 1.0):
             # Export scale factor applied to verts, so scale obj translation but not obj scale.
             l, r, s = new_xform.decompose()
-            new_xform = BD.MatrixLocRotScale(l, r, obj.matrix_local.to_scale())
+            new_xform = BD.MatrixLocRotScale(l, r, local.to_scale())
         return new_xform
 
 
