@@ -2256,6 +2256,244 @@ def TEST_SF_FILE_KEY_PLAIN():
                       f"the plain nif is the '_' shape, between thin and overweight: {centres}")
 
 
+def _world_verts(obj):
+    """World positions of `obj`'s evaluated mesh (armature and parents applied)."""
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(dg)
+    me = ev.to_mesh()
+    pts = [ev.matrix_world @ v.co for v in me.vertices]
+    ev.to_mesh_clear()
+    return pts
+
+
+def _bbox(pts):
+    return (Vector([min(p[i] for p in pts) for i in range(3)]),
+            Vector([max(p[i] for p in pts) for i in range(3)]))
+
+
+@TT.category('STARFIELD')
+def TEST_SF_CLOTH_VIZ():
+    """Import draws a Starfield cloth blob under its BSClothExtraData empty: one mesh per
+    simulated cloth (vertex = particle, face = sim triangle, edges carry the links) and a mesh per
+    collision shape, all where the cloth sits on the character. They're pictures only: export
+    still writes the blob untouched and never writes them as shapes."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'mesh', 'hairs', 'bob',
+                            'bob_f.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_CLOTH_VIZ\meshes\bob_f.nif", output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    cloth = next(o for o in bpy.data.objects if 'BSClothExtraData_Name' in o)
+    viz = [o for o in bpy.data.objects if o.get('pynClothViz')]
+    assert TT.is_true(all(o.parent == cloth for o in viz), "the pictures hang off the cloth empty")
+    sims = [o for o in viz if 'cloth_sim' in o]
+    assert TT.is_eq(len(sims), 1, "one sim mesh")
+    sim = sims[0]
+    assert TT.is_eq(len(sim.data.vertices), 29, "a vertex per particle")
+    assert TT.is_eq(len(sim.data.polygons), 19, "a face per sim triangle")
+    pinned = sim.vertex_groups['cloth_pinned']
+    assert TT.is_eq(sum(1 for v in sim.data.vertices
+                        if any(g.group == pinned.index for g in v.groups)), 10, "pinned group")
+    links = [a.value for a in sim.data.attributes['cloth_link'].data]
+    assert TT.is_true(any(v & 1 for v in links) and any(v & 2 for v in links),
+                      "edges carry standard (1) and stretch (2) links")
+    assert TT.is_true('cloth_mass' in sim.data.attributes, "mass per particle")
+    assert TT.is_true(sim['cloth_gravity'][2] < 0, "each setting is a property on the sim mesh")
+
+    caps = [o for o in viz if o.get('cloth_shape')]
+    assert TT.is_eq([(o.name, o['cloth_shape'], o['cloth_bone']) for o in caps],
+                    [('Collidable_C_Head001', 'capsule', 'C_Head')], "the head capsule")
+
+    # In place: the cloth sits on the hair, the head capsule inside it.
+    hair = next(o for o in bpy.data.objects if o.type == 'MESH' and not o.get('pynClothViz'))
+    hmin, hmax = _bbox(_world_verts(hair))
+    smin, smax = _bbox(_world_verts(sim))
+    center = (smin + smax) / 2
+    assert TT.is_true(all(hmin[i] <= center[i] <= hmax[i] for i in range(3)),
+                      f"sim mesh centre {center} inside the hair {hmin}..{hmax}")
+    cmin, cmax = _bbox(_world_verts(caps[0]))
+    ccenter = (cmin + cmax) / 2
+    assert TT.is_true(all(hmin[i] <= ccenter[i] <= hmax[i] for i in range(3)),
+                      f"head capsule centre {ccenter} inside the hair {hmin}..{hmax}")
+
+    # Export: the pictures aren't shapes, the blob is unchanged.
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+    nifin, nifout = pyn.NifFile(testfile), pyn.NifFile(outfile)
+    assert TT.is_eq(sorted(s.name for s in nifout.shapes), sorted(s.name for s in nifin.shapes),
+                    "no cloth pictures exported as shapes")
+    assert TT.is_eq(nifout.cloth_data[0][1], nifin.cloth_data[0][1], "the blob is untouched")
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(("aren't written yet", 'Cloth edits not written'))
+def TEST_SF_CLOTH_EDIT_EXPORT():
+    """Cloth edited in Blender goes out on export, written into the blob in place: a setting on
+    the sim mesh, a particle's mass and friction (vertex attributes), and the head capsule
+    scaled and moved as an object. What isn't written yet (a moved particle) is warned about
+    and left as it was; a deleted particle refuses the edit and the blob goes out unchanged."""
+    from io_scene_nifly.pyn import sf_cloth
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'mesh', 'hairs', 'bob',
+                            'bob_f.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_CLOTH_EDIT_EXPORT\meshes\bob_f.nif", output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    blob_in = pyn.NifFile(testfile).cloth_data[0][1]
+    before = sf_cloth.read_cloth(blob_in)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    sim = next(o for o in bpy.data.objects if 'cloth_sim' in o)
+    cap = next(o for o in bpy.data.objects if o.get('cloth_shape') == 'capsule')
+    sim['cloth_damping'] = 0.3
+    sim['cloth_iterations'] = 4
+    sim.data.attributes['cloth_mass'].data[1].value = 2.0
+    sim.data.attributes['cloth_friction'].data[1].value = 0.9
+    sim.data.vertices[5].co.z += 1.0                       # moved: not written yet
+    cap.scale = cap.scale * 1.5
+    cap.location.x += 2.0                                  # game units
+
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    blob_out = pyn.NifFile(outfile).cloth_data[0][1]
+    assert TT.is_eq(len(blob_out), len(blob_in), "written in place")
+    after = sf_cloth.read_cloth(blob_out)
+    s = after.sims[0]
+    assert TT.is_equiv(s.settings['damping'], 0.3, "damping from the sim mesh's property")
+    assert TT.is_eq(s.settings['iterations'], 4, "iterations")
+    assert TT.is_equiv(s.particles[1]['mass'], 2.0, "mass from the vertex attribute")
+    assert TT.is_equiv(s.particles[1]['friction'], 0.9, "friction from the vertex attribute")
+    assert TT.is_eq(s.positions, before.sims[0].positions, "the moved particle isn't written")
+
+    c0, c1 = before.collidables[0].params, after.collidables[0].params
+    assert TT.is_equiv(c1['radius'], c0['radius'] * 1.5, "radius follows the object's scale")
+    import mathutils
+    l0 = (mathutils.Vector(c0['end']) - mathutils.Vector(c0['start'])).length
+    l1 = (mathutils.Vector(c1['end']) - mathutils.Vector(c1['start'])).length
+    assert TT.is_equiv(l1, l0 * 1.5, "and so does its length", e=0.001)
+    # The capsule's frame is the collidable's, in metres; 2 game units along world x.
+    m = mathutils.Matrix(before.collidables[0].transform).to_3x3()
+    moved = m @ (mathutils.Vector(c1['start']) - mathutils.Vector(c0['start']))
+    assert TT.is_equiv(moved, (2.0 / HAVOC_SCALE_FACTOR, 0, 0), "moved with the object",
+                       e=0.0005)
+
+    # A particle deleted: the edit is refused and the blob goes out as it came in.
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    sim = next(o for o in bpy.data.objects if 'cloth_sim' in o)
+    import bmesh
+    bm = bmesh.new()
+    bm.from_mesh(sim.data)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.verts[0]], context='VERTS')
+    bm.to_mesh(sim.data)
+    bm.free()
+    sim['cloth_damping'] = 0.3
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+    assert TT.is_eq(pyn.NifFile(outfile).cloth_data[0][1], blob_in,
+                    "a changed particle count writes the blob unchanged")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_CLOTH_BEND_EXPORT():
+    """cloth_bend_stiffness on a sim mesh: 0 when the cloth has no bend-stiffness constraints;
+    set above 0, export adds them at that stiffness; re-imported, it reads back and can be
+    changed again."""
+    from io_scene_nifly.pyn import sf_cloth
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'mesh', 'hairs', 'bob',
+                            'bob_f.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_CLOTH_BEND_EXPORT\meshes\bob_f.nif", output=True)
+    outfile2 = outfile.replace('bob_f.nif', 'bob_f2.nif')
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    sim = next(o for o in bpy.data.objects if 'cloth_sim' in o)
+    assert TT.is_eq(sim['cloth_bend_stiffness'], 0.0, "no bend constraints: 0")
+    sim['cloth_bend_stiffness'] = 0.5
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+    s = sf_cloth.read_cloth(pyn.NifFile(outfile).cloth_data[0][1]).sims[0]
+    assert TT.is_eq(len(s._bend), 1, "export added a bend-stiffness set")
+    assert TT.is_equiv(s.settings['bend_stiffness'], 0.5, "at 0.5")
+
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+    sim = next(o for o in bpy.data.objects if 'cloth_sim' in o)
+    assert TT.is_equiv(sim['cloth_bend_stiffness'], 0.5, "reads back")
+    sim['cloth_bend_stiffness'] = 0.8
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile2, target_game='SF', intuit_defaults=False)
+    blob1, blob2 = (pyn.NifFile(f).cloth_data[0][1] for f in (outfile, outfile2))
+    assert TT.is_eq(len(blob2), len(blob1), "changed in place")
+    assert TT.is_equiv(sf_cloth.read_cloth(blob2).sims[0].settings['bend_stiffness'], 0.8,
+                       "to 0.8")
+
+
+@TT.category('STARFIELD')
+def TEST_SF_CLOTH_ADD_LINKS():
+    """New links drawn on a cloth's sim mesh go into the blob on export: an edge between two
+    particles with cloth_link 1 is a standard link, 2 a stretch link. A plain edge (cloth_link
+    0) is not a link."""
+    import bmesh
+    from io_scene_nifly.pyn import sf_cloth
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'mesh', 'hairs', 'bob',
+                            'bob_f.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_CLOTH_ADD_LINKS\meshes\bob_f.nif", output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    before = sf_cloth.read_cloth(pyn.NifFile(testfile).cloth_data[0][1]).sims[0]
+    have = {frozenset((a, b)) for a, b, _k in before.links}
+    free = [i for i in range(len(before.particles)) if i not in before.pinned]
+    new = [(a, b) for a in free for b in free if a < b and frozenset((a, b)) not in have]
+    expected, stretch, plain = new[:2], new[2], new[3]
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    # Draw the edges as a user would: new edges, cloth_link set on them.
+    sim = next(o for o in bpy.data.objects if 'cloth_sim' in o)
+    bm = bmesh.new()
+    bm.from_mesh(sim.data)
+    bm.verts.ensure_lookup_table()
+    layer = bm.edges.layers.int['cloth_link']
+    for pair, value in [(p, 1) for p in expected] + [(stretch, 2), (plain, 0)]:
+        e = bm.edges.new((bm.verts[pair[0]], bm.verts[pair[1]]))
+        e[layer] = value
+    bm.to_mesh(sim.data)
+    bm.free()
+
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+    after = sf_cloth.read_cloth(pyn.NifFile(outfile).cloth_data[0][1]).sims[0]
+    for kind, want in (('standard', expected), ('stretch', [stretch])):
+        added = {frozenset((a, b)) for a, b, k in after.links if k == kind} - \
+            {frozenset((a, b)) for a, b, k in before.links if k == kind}
+        assert TT.is_eq(added, {frozenset(p) for p in want}, f"export wrote the new {kind} links")
+    assert TT.is_eq(after.particles, before.particles, "particles unchanged")
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(('reduced triangle lists', 'Unknown block type: bhkRagdollSystem'))
+def TEST_SF_CLOTH_VIZ_SHAPES():
+    """The other two collision shapes vanilla uses draw too: tapered capsules (a dress) and
+    spheres (the Aceles). A blob with several pieces of cloth gets a sim mesh per piece."""
+    dress = os.path.join(TT.SF_ASSETS, 'meshes', 'clothes', 'outfit_civilian_formalhalfdress_01',
+                         'outfit_civilian_formalhalfdress_01_dress_f.nif')
+    bpy.ops.import_scene.pynifly(filepath=dress)
+    shapes = {o['cloth_shape'] for o in bpy.data.objects if o.get('cloth_shape')}
+    assert TT.is_true('tapered_capsule' in shapes, f"tapered capsules drawn: {shapes}")
+
+    TTB.clear_all()
+    officer = os.path.join(TT.SF_ASSETS, 'meshes', 'clothes', 'spacesuit_pirateset',
+                           'pirateset_officer_lower_f.nif')
+    bpy.ops.import_scene.pynifly(filepath=officer)
+    sims = [o for o in bpy.data.objects if o.get('pynClothViz') and 'cloth_sim' in o]
+    assert TT.is_eq(len(sims), 6, "a sim mesh per piece of cloth")
+
+    TTB.clear_all()
+    aceles = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'quadrupedb', 'mesh',
+                          'quadrupedb_aceles', 'quadrupedb_aceles.nif')
+    bpy.ops.import_scene.pynifly(filepath=aceles)
+    spheres = [o for o in bpy.data.objects if o.get('cloth_shape') == 'sphere']
+    assert TT.is_eq(len(spheres), 3, "the Aceles' three spheres")
+
+
 @TT.category('STARFIELD')
 def TEST_SF_HIDDEN_NOT_EXPORTED():
     """A hidden object isn't exported, except a LOD slot hidden on import, which exports with its

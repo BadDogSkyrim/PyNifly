@@ -922,6 +922,9 @@ class NifImporter():
             ed.parent = parent_obj
             self.objects_created.add(ReprObject(blender_obj=ed))
             BD.link_to_collection(self.collection, ed)
+            if self.nif.game == 'SF':
+                from . import cloth_viz
+                cloth_viz.build(ed, cd[1], self.scale, self.collection)
 
 
     def import_decal_placement(self, node, parent_obj,

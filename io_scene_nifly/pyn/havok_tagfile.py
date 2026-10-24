@@ -276,6 +276,108 @@ class Tagfile:
         s = self.b[self.data_start + off:self.data_start + off + count]
         return s.split(b'\0')[0].decode('utf-8', 'replace')
 
+    # --- in-place writes: same sizes, offsets and references, so the blob stays valid ---
+    def locate(self, idx, k=0, path=()):
+        """(absolute offset, type) of element `k` of item `idx`, then down the member `path`."""
+        t, _f, off, _c = self.items[idx]
+        o = self.data_start + off + k * self.size_of(t)
+        for name in path:
+            m = next((m for m in self.all_members(t) if m[0] == name), None)
+            if m is None:
+                raise TagfileError(f"{t.name} has no member {name}")
+            o, t = o + m[2], m[3]
+        return o, t
+
+    def get_at(self, idx, k=0, path=()):
+        """The current value (edits included) of element `k` of item `idx` down `path`."""
+        o, t = self.locate(idx, k, path)
+        saved, self.b = self.b, self.buf
+        try:
+            return self.read(t, o)
+        finally:
+            self.b = saved
+
+    def set_at(self, idx, value, k=0, path=()):
+        """Overwrite a bool, int, float or inline vector in place."""
+        o, t = self.locate(idx, k, path)
+        self._write(o, t, value)
+
+    @property
+    def buf(self):
+        if not hasattr(self, '_buf'):
+            self._buf = bytearray(self.b)
+        return self._buf
+
+    def _write(self, o, t, value, buf=None):
+        """Write `value` as type `t` at `o` in `buf` (default: the edit buffer). A class takes a
+        dict of its members, missing ones left as they are. References -- pointers, strings,
+        plain arrays -- can't be written: each needs an entry in PTCH."""
+        buf = self.buf if buf is None else buf
+        fmt = self.format_of(t)
+        kind = fmt & 0x1F
+        if kind == F_BOOL:
+            buf[o] = 1 if value else 0
+        elif kind == F_INT:
+            size = self.size_of(t)
+            buf[o:o + size] = int(value).to_bytes(size, 'little', signed=bool(fmt & 0x200))
+        elif kind == F_FLOAT:
+            struct.pack_into('<f' if self.size_of(t) == 4 else '<d', buf, o, value)
+        elif (kind == F_TUPLE or kind == F_ARRAY) and fmt & 0x20:
+            n, et = fmt >> 8, self.subtype_of(t)
+            if len(value) != n:
+                raise TagfileError(f"{t.name} holds {n} values, not {len(value)}")
+            es = self.size_of(et)
+            for k, v in enumerate(value):
+                self._write(o + k * es, et, v, buf)
+        elif kind == F_CLASS and self.all_members(t):
+            for name, _flags, off, mt in self.all_members(t):
+                if name in value:
+                    self._write(o + off, mt, value[name], buf)
+        else:
+            raise TagfileError(f"can't write a {KIND_NAMES[kind]} in place")
+
+    def append_to_array(self, idx, values):
+        """The blob with `values` (dicts, for a class element type) added to the end of array
+        item `idx`. Returns new bytes; this Tagfile is left as it was.
+
+        An array is referred to by its item number, never by position, and item offsets (in
+        ITEM) and reference positions (in PTCH) both count from the start of DATA. So a longer
+        copy can go at the end of DATA, with its item pointed at it, and nothing else moves. The
+        old copy stays behind, unused. Elements holding references would need PTCH entries, and
+        are refused."""
+        t, _flags, off, count = self.items[idx]
+        size = self.size_of(t)
+        b = self.buf
+        ds, de = self.sec['DATA']
+        payload = bytearray(b[ds:de])
+        new_off = (len(payload) + 15) & ~15
+        payload += bytes(new_off - len(payload))
+        payload += b[ds + off:ds + off + count * size]
+        for v in values:
+            elem = bytearray(size)
+            self._write(0, t, v, elem)
+            payload += elem
+        payload += bytes(-len(payload) % 4)
+
+        tag_end = self.sec['TAG0'][1]
+        out = bytearray(b[:ds - 8])
+        head = struct.unpack_from('>I', b, ds - 8)[0]
+        out += struct.pack('>I', (head & 0xC0000000) | (len(payload) + 8)) + b'DATA'
+        out += payload
+        out += b[de:tag_end]
+        out += b[tag_end:]
+        delta = len(out) - len(b)
+        head0 = struct.unpack_from('>I', out, 0)[0]
+        struct.pack_into('>I', out, 0, (head0 & 0xC0000000) | ((head0 & 0x3FFFFFFF) + delta))
+        # The ITEM section moved by delta along with everything after DATA.
+        entry = self.sec['ITEM'][0] + delta + 12 * idx
+        struct.pack_into('<II', out, entry + 4, new_off, count + len(values))
+        return bytes(out)
+
+    def to_bytes(self):
+        """The blob, with any in-place edits."""
+        return bytes(self.buf)
+
     def item(self, idx):
         """Item `idx` decoded: one value, or a list for an array item."""
         t, _flags, off, count = self.items[idx]
@@ -291,6 +393,14 @@ class ItemRef:
 
     def get(self):
         return None if self.idx == 0 else self.tf.item(self.idx)
+
+    def list(self):
+        """The item as a list, even when it has one element (get() returns that bare); a null
+        reference is an empty list."""
+        if self.idx == 0:
+            return []
+        v = self.tf.item(self.idx)
+        return [v] if self.tf.items[self.idx][3] == 1 else v
 
     def __repr__(self):
         if self.idx == 0:

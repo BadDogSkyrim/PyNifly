@@ -637,6 +637,24 @@ def TEST_EXPORT_SELECTED_CHILD_BRINGS_ROOT():
 
 
 @TT.category('SKYRIMSE', 'XFORM')
+def TEST_EXPORT_CHILD_TAKES_ROOT_GAME():
+    """A shape exported through its root takes the root's game, as it takes the root's other
+    settings: the shape the user made under an imported root carries no game of its own."""
+    outfile = TTB.test_file(r"tests\Out\TEST_EXPORT_CHILD_TAKES_ROOT_GAME.nif", output=True)
+    root = bpy.data.objects.new("GameRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    root['pynRoot'] = True
+    root['PYN_GAME'] = 'SKYRIMSE'
+    shape = _tri_obj("NewShape", root)
+
+    BD.ObjectSelect([shape], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile)      # game and settings intuited
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq(nif.game, 'SKYRIMSE', "the root's game, not the default Skyrim")
+
+
+@TT.category('SKYRIMSE', 'XFORM')
 @TT.expect_errors(('parented to mesh',))
 def TEST_EXPORT_MESH_PARENT_FLATTENED():
     """A shape parented to another mesh (FSFFox_Ruff04 under CanineMaleHead) exports by itself,

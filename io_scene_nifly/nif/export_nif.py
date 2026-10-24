@@ -108,6 +108,18 @@ def nif_root_above(obj):
     return None
 
 
+def with_nif_roots(objs):
+    """`objs` with the nif root each sits under (nif_root_above) put first. A selected shape
+    exports its whole root, so the root is what the game, the settings and the file name come
+    from -- found up front, not only once the exporter pulls the root in."""
+    roots = []
+    for o in objs:
+        r = o if 'pynRoot' in o else nif_root_above(o)
+        if r is not None and r.visible_get() and r not in roots:
+            roots.append(r)
+    return roots + [o for o in objs if o not in roots]
+
+
 def mesh_ancestor(obj):
     """The nearest mesh `obj` is parented under, or None. A nif can't hold a shape under a shape,
     so export drops it from the chain and places `obj` relative to that mesh's parent."""
@@ -838,6 +850,9 @@ class NifExporter:
           are considered for export.
         """
         if obj in self.objects or obj in self.grouping_nodes: return
+        # A picture of cloth data (cloth_viz): the blob on its empty is what's written.
+        if obj.get('pynClothViz'):
+            return
         # A BoneTranslations marker is an entry of its block, written with it, never a node.
         if obj.parent is not None and obj.parent.name.startswith("BoneTranslations:"):
             return
@@ -1101,8 +1116,12 @@ class NifExporter:
         """Export cloth data previously cached in self.cloth_data."""
         cdlist = []
         for cd in self.cloth_data:
-            cdlist.append( (cd['BSClothExtraData_Name'], 
-                            codecs.decode(cd['BSClothExtraData_Value'], "base64")) )
+            blob = codecs.decode(cd['BSClothExtraData_Value'], "base64")
+            if self.game == 'SF':
+                # Edits made to the cloth's pictures go into the blob in place.
+                from . import cloth_viz
+                blob = cloth_viz.apply_edits(cd, blob, self.scale)
+            cdlist.append((cd['BSClothExtraData_Name'], blob))
             self.objs_written.add(ReprObject(cd, self.nif.rootNode)) # [cd.name] = self.nif
 
         if len(cdlist) > 0:
@@ -2913,7 +2932,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.log_handler = None
-        self.objects_to_export = bpy.context.selected_objects 
+        self.objects_to_export = with_nif_roots(bpy.context.selected_objects)
         self.armatures = None
         self.export_armature = None
         self.settings_from_ui = False
