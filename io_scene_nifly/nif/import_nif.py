@@ -1712,9 +1712,14 @@ class NifImporter():
         offset_xf = None
         offset_consistent = True
 
+        # Every shared bone's correction -- what moves the shape's bind onto the armature's
+        # rest -- including the bones that already match (identity), so a shape that matches
+        # on some bones and not others isn't mistaken for one moved as a whole.
+        shared = 0
         for b in shape.unique_bone_names:
             blend_name = self.blender_name(b)
             if blend_name in arma.data.bones:
+                shared += 1
                 shape_bone_xf = (
                     obj.matrix_local @ BD.apply_scale_xf(BD.bind_position(shape, b), self.scale) )
                 arma_xf = BD.get_bone_xform(arma, blend_name, shape.file.game, False, False)
@@ -1723,14 +1728,19 @@ class NifImporter():
                     log.debug(f"check_armature mismatch: bone '{blend_name}' "
                               f"shape_xf translation={shape_bone_xf.translation[:]} "
                               f"arma_xf translation={arma_xf.translation[:]}")
-                    this_offset = shape_bone_xf @ arma_xf
-                    if offset_xf:
-                        if not MatNearEqual(this_offset, offset_xf):
-                            offset_consistent = False
-                            break
-                    else:
-                        offset_xf = this_offset
-        
+                this_offset = arma_xf @ shape_bone_xf.inverted()
+                if offset_xf is None:
+                    offset_xf = this_offset
+                elif not MatNearEqual(this_offset, offset_xf, epsilon=0.05):
+                    offset_consistent = False
+                    break
+
+        if is_ok:
+            offset_xf = None
+        elif shared < 3:
+            # One or two bones agreeing on an offset is no evidence the shape was moved as a
+            # whole (the draugr hood and helm share only the head).
+            offset_consistent = False
         return is_ok, offset_xf, offset_consistent
 
 
@@ -1772,6 +1782,11 @@ class NifImporter():
                     return arma, None
                 is_ok, offset, offset_consistent = self.check_armature(obj, shape, arma)
                 if is_ok:
+                    return arma, None
+                if offset_consistent and offset is not None:
+                    # The shape's binds are this armature's rest moved as a whole (the
+                    # animatron's outfit: the body's, 119 units down): share the armature
+                    # and move the shape by the offset, so its animation reaches the shape.
                     return arma, offset
         return None, None
 
@@ -2310,8 +2325,10 @@ class NifImporter():
         # for editing. (Puts body parts in a convenient place for editing.) That transform
         # is stored on the shape.
         unscaled_skin_xf = self.calc_skin_transform(arma, obj)
-        if s2a_xf:
-            unscaled_skin_xf = unscaled_skin_xf.inverted() @ s2a_xf 
+        if s2a_xf is not None:
+            # The correction that puts this shape's bind positions on the armature's rest
+            # (check_armature): applied on top of the shape's own skin transform.
+            unscaled_skin_xf = s2a_xf @ unscaled_skin_xf
 
         # FO4 facegen nifs can have wonky transforms. They can be ignored. ### Is this true?
         # The skin transform is relative to the nif root, so set it as the world
@@ -2321,6 +2338,11 @@ class NifImporter():
         # non-identity parent node's offset leak in on top of the armature's
         # placement, applying that offset twice -- as in the FO4 workbenches, where
         # the bench is skinned under a node offset from the origin.
+        # Setting matrix_world reads the parent's matrix_world, which Blender only brings up
+        # to date on a scene update. A parent node placed just now still reads as identity,
+        # and its offset would end up on the shape after all (the animatron's outfit, under
+        # ClothesHider). Update first.
+        bpy.context.view_layer.update()
         obj.matrix_world = ((self.root_object.matrix_world if self.root_object
                              else Matrix.Identity(4))
                             @ unscaled_skin_xf)

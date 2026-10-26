@@ -921,6 +921,79 @@ def TEST_ANIMATRON_2():
                              'MOutfitDamaged:1': 1160},
                     "animatron shapes imported")
 
+    # A skinned shape is placed by the armature alone, so it sits where the nif root does,
+    # whatever node it hangs from. The outfit hangs from ClothesHider, offset (0, -5.03, 1.73);
+    # the first piece placed used to pick that offset up as well, from the node's not-yet-
+    # updated matrix, and sat a little high and back from the body.
+    bpy.context.view_layer.update()
+    root = TTB.find_shape('AnimatronicSpaceMan:ROOT', type='EMPTY')
+    for name in ('AnimatronicBaseMaleMesh:0', 'MOutfitDamaged:0', 'MOutfitDamaged:1'):
+        obj = bpy.data.objects[name]
+        assert TT.is_equiv(obj.matrix_world.translation, root.matrix_world.translation,
+                           f"{name} sits where the root does", e=0.01)
+
+    # With the default settings the outfit shares the body's armature, so it plays the
+    # animation with it. Its bind positions are the body's moved by one offset,
+    # (0, 4.15, 119.12) on every shared bone, so it fits that armature; it used to get one
+    # of its own, which the animation never reached.
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    armas = [o for o in bpy.data.objects if o.type == 'ARMATURE']
+    assert TT.is_eq(len(armas), 1, f"one armature for all the shapes: {[a.name for a in armas]}")
+
+    def bounds(name):
+        bpy.context.view_layer.update()
+        o = bpy.data.objects[name]
+        ev = o.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        pts = [ev.matrix_world @ v.co for v in ev.data.vertices]
+        return [min(p[i] for p in pts) for i in range(3)] + [max(p[i] for p in pts) for i in range(3)]
+
+    # Where the game draws them: each vertex by the nif's bone nodes and skin-to-bone binds.
+    assert TT.is_equiv(bounds('MOutfitDamaged:0'), [-28.8, -23.3, 1.5, 28.1, 15.8, 118.7],
+                       "the outfit where the game draws it", e=0.2)
+    assert TT.is_equiv(bounds('AnimatronicBaseMaleMesh:0'), [-27.1, -13.0, 2.8, 27.0, 18.4, 135.9],
+                       "the body where the game draws it", e=0.2)
+
+    anim = bpy.data.actions['anim01']
+    for o in [o for o in bpy.data.objects if o.animation_data]:
+        o.animation_data.action = anim
+        slot = next((s for s in anim.slots if s.name_display == o.name), None)
+        if slot is not None:
+            o.animation_data.action_slot = slot
+    bpy.context.scene.frame_set(1)
+    body1, outfit1 = bounds('AnimatronicBaseMaleMesh:0'), bounds('MOutfitDamaged:0')
+    bpy.context.scene.frame_set(185)
+    body2, outfit2 = bounds('AnimatronicBaseMaleMesh:0'), bounds('MOutfitDamaged:0')
+    assert TT.is_true(max(abs(a - b) for a, b in zip(body1, body2)) > 1, "the body animates")
+    assert TT.is_true(max(abs(a - b) for a, b in zip(outfit1, outfit2)) > 1,
+                      "and the outfit animates with it")
+
+    # ClothesHider's visibility: shown in 'off' (a fixed value), switched by keys -- a
+    # NiBoolData -- in 'clothesOff'. Visible in the nif is not hidden in Blender.
+    def hide_values(action_name):
+        act = bpy.data.actions[action_name]
+        ch = bpy.data.objects['ClothesHider']
+        slot = next(s for s in act.slots if s.name_display == ch.name)
+        fc = next(f for f in act.layers[0].strips[0].channelbag(slot).fcurves
+                  if f.data_path == 'hide_viewport')
+        return [round(k.co.y) for k in fc.keyframe_points]
+    assert TT.is_true(set(hide_values('off')) == {0}, f"shown in 'off': {hide_values('off')}")
+    assert TT.is_eq(set(hide_values('clothesOff')), {0, 1},
+                    "hidden and shown in turn in 'clothesOff'")
+
+    # And back out: the keys export as a NiBoolData again.
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()
+                     or o.name == 'ClothesHider'], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    nif = pyn.NifFile(outfile)
+    interps = {name: cb.interpolator for name, seq in nif.root.controller.sequences.items()
+               for cb in seq.controlled_blocks
+               if cb.node_name == 'ClothesHider' and cb.controller_type == 'NiVisController'}
+    assert TT.is_eq(interps['off'].properties.value, 1, "'off' exports visible")
+    data = interps['clothesOff'].data
+    assert TT.is_true(data is not None and {k.value for k in data.keys} == {0, 1},
+                      "'clothesOff' exports its visibility keys")
+
 
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_SKEL_HKX_IMPORT():

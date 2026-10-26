@@ -2576,6 +2576,41 @@ def TEST_SF_CLOTH_SKELETON_FROM():
 
 
 @TT.requires_assets('SF')
+def TEST_NIBOOLDATA():
+    """Bool interpolators (visibility) read and write their value, and their NiBoolData keys.
+
+    The animatron's ClothesHider has a NiVisController in every sequence: a fixed value in
+    'off' and 'anim01', and a NiBoolData of keys in 'clothesOff'. The value is one byte in the
+    DLL's buffer and was declared a float in Python's, so a 1 read as 1.4e-45 and a written
+    1.0 reached the nif as 0. NiBoolData wasn't read at all ("Unknown block type")."""
+    nif = NifFile("tests/FO4/AnimatronicSpaceMan.nif")
+    interps = {}
+    for name, seq in nif.root.controller.sequences.items():
+        for cb in seq.controlled_blocks:
+            if cb.node_name == 'ClothesHider' and cb.controller_type == 'NiVisController':
+                interps[name] = cb.interpolator
+    assert TT.is_eq(interps['off'].properties.value, 1, "a fixed value reads as itself")
+    data = interps['clothesOff'].data
+    assert TT.is_true(data is not None and data.blockname == 'NiBoolData',
+                      f"the keyed interpolator has its NiBoolData: {data}")
+    keys = data.keys
+    assert TT.is_true(len(keys) > 0, "with keys")
+    assert TT.is_true(all(k.value in (0, 1) for k in keys), f"bool values: {[k.value for k in keys]}")
+
+    # Written and read back from the DLL: the fixed value, and a NiBoolData of keys linked to
+    # its interpolator. (Saved and reloaded through an export: TEST_ANIMATRON_2's round trip.)
+    nif2 = NifFile()
+    nif2.initialize('FO4', os.path.abspath(r"tests/Out/TEST_NIBOOLDATA.nif"))
+    interp = NiBoolInterpolator.New(nif2, value=1)
+    NiBoolData.New(nif2, interpolation=NiKeyType.LINEAR_KEY,
+                   keys=[(0.0, 1), (0.5, 0), (1.0, 1)], parent=interp)
+    back = NiBoolInterpolator(file=nif2, id=interp.id)
+    assert TT.is_eq(back.properties.value, 1, "the fixed value as written")
+    assert TT.is_true(back.data is not None, "linked to its data")
+    assert TT.is_eq([(round(k.time, 3), k.value) for k in back.data.keys],
+                    [(0.0, 1), (0.5, 0), (1.0, 1)], "and the keys")
+
+
 def TEST_SF_CDB_ONE_CACHE():
     """materialsbeta.cdb is 105 MB and takes seconds to parse, so a session parses it once.
     Material import reads it two ways -- straight from the database, and through a material's

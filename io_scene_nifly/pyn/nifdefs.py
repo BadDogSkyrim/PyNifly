@@ -99,11 +99,12 @@ class PynBufferTypes(IntEnum):
     BSMultiBoundOBBBufType = 76
     NiIntegersExtraDataBufType = 77
     BoneTranslationsBufType = 78
+    NiBoolDataBufType = 79
     # Starfield BSGeometry. Python-only: the C++ getShape returns a plain NiShapeBuf for a
     # BSGeometry block (reading is name-based); this distinct value just keeps
     # register_subclasses from clobbering NiShapeBuf's buffer_types slot.
-    BSGeometryBufType = 79
-    COUNT = 80
+    BSGeometryBufType = 80
+    COUNT = 81
 
 
 class NiShaderBuf(pynStructure):
@@ -1523,14 +1524,15 @@ class NiFloatInterpolatorBuf(pynStructure):
 
 
 class NiBoolInterpolatorBuf(pynStructure):
+    # The value is the one byte the DLL's buffer holds (0 false, 1 true; 2 is seen too).
+    # Declared as a float it read 1 as 1.4e-45, and a written 1.0 reached the nif as 0.
     _fields_ = [
         ("bufSize", c_uint16),
         ('bufType', c_uint16),
-        ("value", c_float),
+        ("value", c_uint8),
         ("dataID", c_uint32),
     ]
     def __init__(self, values=None):
-        self.boolValue = -sys.float_info.max
         self.dataID = NODEID_NONE
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiBoolInterpolatorBufType
@@ -1653,6 +1655,17 @@ class NiFloatDataBuf(pynStructure):
     def __init__(self, values=None):
         super().__init__(values=values)
         self.bufType = PynBufferTypes.NiFloatDataBufType
+
+
+class NiBoolDataBuf(pynStructure):
+    _fields_ = [
+        ("bufSize", c_uint16),
+        ('bufType', c_uint16),
+        ("keys", NiAnimationKeyGroupBuf),
+    ]
+    def __init__(self, values=None):
+        super().__init__(values=values)
+        self.bufType = PynBufferTypes.NiBoolDataBufType
 
 
 class KeyDataBuf(pynStructure):

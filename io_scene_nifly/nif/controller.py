@@ -958,19 +958,17 @@ class ControllerHandler():
     def _get_curve_bool_values(self, curve):
         """
         Transform a blender curve into nif keys. 
-        Currently we don't support NiBoolData blocks, so we only support
-        NiBoolInterpolators with a fixed value. So we check that the fcurves defines a
-        flat value and return that.
+        Returns [(time, 0 or 1), ...], one per keyframe. A curve that never changes comes
+        back as one key, which exports as the interpolator's fixed value.
         """
-        val = None
-        for p in curve.keyframe_points:
-            if val is None:
-                val = p.co.y
-            elif not NearEqual(val, p.co.y):
-                raise Exception("Cannot export NiBoolInterpolator with changing values")
-        if val is None:
+        # hide_viewport, so a nif visibility value is its opposite.
+        keys = [((p.co.x - 1) / (self.fps * ANIMATION_TIME_ADJUST), 0 if round(p.co.y) else 1)
+                for p in curve.keyframe_points]
+        if not keys:
             raise Exception("Cannot export NiBoolInterpolator with no keyframes")
-        return val
+        if all(v == keys[0][1] for _t, v in keys):
+            return keys[:1]
+        return keys
 
 
     def _get_curve_quad_vector(self, curvexyz, basexf=Matrix.Identity(4)):
@@ -1512,6 +1510,27 @@ def _import_float_data(td, importer:ControllerHandler):
 NiFloatData.import_node = _import_float_data
 
 
+def _hidden(visible):
+    """A nif visibility bool as Blender's hide_viewport, and back: they're opposites. (A nif
+    value of 2, seen in vanilla, counts as visible.)"""
+    return 0.0 if visible else 1.0
+
+
+def _import_bool_data(td, importer:ControllerHandler):
+    """A bool interpolator's keys (visibility): each holds its value until the next one."""
+    if not importer.path_name: return
+    curve = importer.action.fcurve_ensure_for_datablock(importer.action_target, importer.path_name)
+    _add_actionslot(importer.action_target, curve)
+    for k in td.keys:
+        frame = k.time * (importer.fps * ANIMATION_TIME_ADJUST) + 1
+        kfp = curve.keyframe_points.insert(frame, _hidden(k.value))
+        kfp.interpolation = 'CONSTANT'
+        importer.start_time = min(importer.start_time, k.time)
+        importer.end_time = max(importer.end_time, k.time)
+
+NiBoolData.import_node = _import_bool_data
+
+
 def _import_pos_data(td:NiPosData, importer:ControllerHandler):
     if not importer.path_name: return
 
@@ -1779,7 +1798,7 @@ def _import_bool_interpolator(interp:NiBoolInterpolator,
         td.import_node(importer)
     else:
         # Bool interpolators can have no data block. They just force their value.
-        _import_fixed(importer, interp.properties.value)
+        _import_fixed(importer, _hidden(interp.properties.value))
     
 NiBoolInterpolator.import_node = _import_bool_interpolator
 
@@ -2847,9 +2866,13 @@ def _export_bool_curves(exporter, fcurves, target_obj=None):
     * Returns (group name, NiBoolInterpolator for the set of curves).
     """
     fc = fcurves.pop(0)
+    keys = exporter._get_curve_bool_values(fc)
     bip = NiBoolInterpolatorBuf()
-    bip.value = exporter._get_curve_bool_values(fc)
+    bip.value = keys[0][1]
     bi = NiBoolInterpolator(file=exporter.nif, properties=bip)
+    if len(keys) > 1:
+        # The value changes: a NiBoolData of the keys, linked to the interpolator.
+        NiBoolData.New(exporter.nif, interpolation=NiKeyType.LINEAR_KEY, keys=keys, parent=bi)
     return target_obj.name, bi
 
 NiVisController.fcurve_exporter = _export_bool_curves

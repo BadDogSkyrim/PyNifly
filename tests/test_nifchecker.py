@@ -415,7 +415,8 @@ def Check_HighTechLight(nif:NifFile):
     
     cb_valuenode = next(cb for cb in on_sequence.controlled_blocks if cb.node_name == "AddOnNode211")
     assert TT.is_eq(cb_valuenode.interpolator.blockname, "NiBoolInterpolator", "AddOnNode interpolator")
-    TT.assert_ne(cb_valuenode.interpolator.properties.value, 1, "AddOnNode interpolator value")
+    # Shown while the light is on. (This used to assert "not 1": the value was misread.)
+    assert TT.is_eq(cb_valuenode.interpolator.properties.value, 1, "AddOnNode visible when on")
 
     assert TT.is_eq(cb_valuenode.controller.blockname, "NiVisController", "have vis controller")
     assert TT.is_eq(cb_valuenode.controller.properties.flags, 108, "vis controller flags")

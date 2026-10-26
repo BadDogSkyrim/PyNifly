@@ -6391,6 +6391,42 @@ int addNiFloatData(void* nifref, const char* name, void* b, uint32_t parent)
     return td;
 };
 
+int getNiBoolData(void* nifref, uint32_t nodeIndex, void* inbuf)
+/* Return a NiBoolData block: its key count and key type. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    nifly::NiBoolData* bd = hdr->GetBlock<NiBoolData>(nodeIndex);
+    NiBoolDataBuf* buf = static_cast<NiBoolDataBuf*>(inbuf);
+
+    CheckID(bd);
+    CheckBuf(buf, BUFFER_TYPES::NiBoolDataBufType, NiBoolDataBuf);
+
+    buf->keys.numKeys = bd->data.GetNumKeys();
+    buf->keys.interpolation = bd->data.GetInterpolationType();
+    return 0;
+};
+
+int addNiBoolData(void* nifref, const char* name, void* b, uint32_t parent)
+/* Add a NiBoolData block. If supplied, parent is the NiBoolInterpolator that uses it. */
+{
+    NifFile* nif = static_cast<NifFile*>(nifref);
+    NiHeader* hdr = &nif->GetHeader();
+    NiBoolDataBuf* buf = static_cast<NiBoolDataBuf*>(b);
+
+    CheckBuf(buf, BUFFER_TYPES::NiBoolDataBufType, NiBoolDataBuf);
+
+    auto bd = std::make_unique<NiBoolData>();
+    bd->data.SetInterpolationType(NiKeyType(buf->keys.interpolation));
+
+    int id = hdr->AddBlock(std::move(bd));
+    if (parent != NIF_NPOS) {
+        NiBoolInterpolator* bi = hdr->GetBlock<NiBoolInterpolator>(parent);
+        if (bi) bi->dataRef.index = id;
+    }
+    return id;
+};
+
 void readKey(NiAnimKeyQuadXYZBuf& kb, NiAnimationKey<float> k) {
     kb.time = k.time;
     kb.value = k.value;
@@ -6522,12 +6558,23 @@ NIFLY_API void addAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, NiAni
 }
 
 NIFLY_API int getAnimKeyLinear(void* nifref, int blockID, int frame, NiAnimKeyLinearBuf *buf)
-/* Return linear data (time, value) from an NiFloatData block. */
+/* Return linear data (time, value) from an NiFloatData block, or from a NiBoolData block
+   (its byte value as a float). */
 {
     NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
-    NiHeader hdr = nif->GetHeader();
-    nifly::NiFloatData* fd = hdr.GetBlock<NiFloatData>(blockID);
+    NiHeader* hdr = &nif->GetHeader();
+    if (auto* bd = hdr->GetBlock<NiBoolData>(blockID)) {
+        if (frame < 0 || uint32_t(frame) >= bd->data.GetNumKeys()) {
+            niflydll::LogWriteEf("getAnimKeyLinear called on invalid frame %d", frame);
+            return -1;
+        }
+        NiAnimationKey<uint8_t> k = bd->data.GetKey(frame);
+        buf->time = k.time;
+        buf->value = float(k.value);
+        return 0;
+    }
+    nifly::NiFloatData* fd = hdr->GetBlock<NiFloatData>(blockID);
 
     if (!fd) {
         niflydll::LogWriteEf("getAnimKeyLinear called on invalid node %d", blockID);
@@ -6554,7 +6601,18 @@ NIFLY_API void addAnimKeyLinear(void* nifref, int blockID, NiAnimKeyLinearBuf* b
     NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
+    if (auto* bd = hdr->GetBlock<NiBoolData>(blockID)) {
+        NiAnimationKey<uint8_t> bk;
+        bk.time = buf->time;
+        bk.value = uint8_t(buf->value + 0.5f);
+        bd->data.AddKey(bk);
+        return;
+    }
     nifly::NiFloatData* fd = hdr->GetBlock<NiFloatData>(blockID);
+    if (!fd) {
+        niflydll::LogWriteEf("addAnimKeyLinear called on invalid block %d", blockID);
+        return;
+    }
 
     NiAnimationKey<float> k;
 
@@ -7309,6 +7367,7 @@ BlockGetterFunction getterFunctions[] = {
     getBSMultiBoundOBB, //BSMultiBoundOBBBufType
     getNiIntegersExtraData, //NiIntegersExtraDataBufType
     getBoneTranslations, //BoneTranslationsBufType
+    getNiBoolData, //NiBoolDataBufType
     nullptr //END
 };
 
@@ -7442,6 +7501,7 @@ BlockSetterFunction setterFunctions[] = {
     nullptr, //BSMultiBoundOBBBufType (created via addBSMultiBoundOBB)
     nullptr, //NiIntegersExtraDataBufType (values set via setNiIntegersExtraDataValues)
     nullptr, //BoneTranslationsBufType (entries set via setBoneTranslationsData)
+    nullptr, //NiBoolDataBufType (keys added via addAnimKeyLinear)
     nullptr //END
 };
 
@@ -7543,6 +7603,7 @@ BlockCreatorFunction creatorFunctions[] = {
     addBSMultiBoundOBB, //BSMultiBoundOBBBufType
     addNiIntegersExtraData, //NiIntegersExtraDataBufType
     addBoneTranslations, //BoneTranslationsBufType
+    addNiBoolData, //NiBoolDataBufType
     nullptr //end
 };
 

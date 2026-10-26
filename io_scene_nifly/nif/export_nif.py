@@ -121,7 +121,7 @@ def with_nif_roots(objs):
     roots = []
     for o in objs:
         r = o if 'pynRoot' in o else nif_root_above(o)
-        if r is not None and r.visible_get() and r not in roots:
+        if r is not None and BD.export_visible(r) and r not in roots:
             roots.append(r)
     return roots + [o for o in objs if o not in roots]
 
@@ -980,8 +980,9 @@ class NifExporter:
         aren't exported -- an old copy kept under the same parent, say -- and Blender can't put a
         hidden mesh in edit mode, which export needs. A Starfield LOD slot hidden on import is
         skipped quietly: it exports with its LOD0. Hidden is any way Blender hides it: the eye,
-        disabled in viewports, a hidden collection, a collection excluded from the view layer."""
-        if obj.visible_get():
+        disabled in viewports, a hidden collection, a collection excluded from the view layer --
+        but not visibility the object's own animation sets (BD.export_visible)."""
+        if BD.export_visible(obj):
             self.add_object(obj)
             return
         from .sf_geometry import lod_slots
@@ -997,10 +998,10 @@ class NifExporter:
         Set the objects to export from the given list of objects 
         """
         for x in objects:
-            if x.visible_get():
+            if BD.export_visible(x):
                 self.add_object(x)
                 root = x if "pynRoot" in x else nif_root_above(x)
-                if root is not None and root.visible_get():
+                if root is not None and BD.export_visible(root):
                     self.add_object(root)
                     self.root_object = root
         self.connect_points.add_all(objects)

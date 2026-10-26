@@ -2175,15 +2175,71 @@ class NiBoolInterpolator(NiKeyBasedInterpolator):
     def getbuf(cls, values=None):
         return NiBoolInterpolatorBuf(values)
 
+    @property
+    def data(self):
+        """The NiBoolData of keys, or None when the interpolator just holds its value."""
+        if self._data: return self._data
+        if self.properties.dataID == NODEID_NONE: return None
+        self._data = self.file.read_node(id=self.properties.dataID, parent=self)
+        return self._data
+
+    @data.setter
+    def data(self, d):
+        # The link itself is made in the DLL when the NiBoolData is created under this
+        # interpolator (NiBoolData.New); this keeps the cached view in step.
+        self._data = d
+        self.properties.dataID = d.id
+
     @classmethod
     def New(cls, file, data=None, value=None, parent=None):
         p = cls.getbuf()
         p.dataID = (data.id if data else NODEID_NONE)
-        p.value = value if value is not None else 0
+        p.value = int(round(value)) if value is not None else 0
         interp = file.add_block(None, p, parent)
         if data:
             interp._data = data
         return interp
+
+
+class NiBoolData(NiObject):
+    """Keys for a bool interpolator (visibility): time and a 0/1 value each. Read and written
+    as linear float keys; the DLL turns the values to and from its bytes."""
+    buffer_type = PynBufferTypes.NiBoolDataBufType
+
+    @classmethod
+    def getbuf(cls, values=None):
+        return NiBoolDataBuf(values)
+
+    @property
+    def keys(self):
+        keys = []
+        for frame in range(self.properties.keys.numKeys):
+            buf = NiAnimKeyLinearBuf()
+            if nifly.getAnimKeyLinear(self.file._handle, self.id, frame, buf) != 0:
+                raise Exception(f"Error reading NiBoolData key: {NifFile.message_log()}")
+            k = LinearScalarKey(buf)
+            k.value = int(round(k.value))
+            keys.append(k)
+        return keys
+
+    def keys_add(self, time, value):
+        buf = NiAnimKeyLinearBuf()
+        buf.time = time
+        buf.value = float(value)
+        nifly.addAnimKeyLinear(self.file._handle, self.id, buf)
+
+    @classmethod
+    def New(cls, file, interpolation=NiKeyType.LINEAR_KEY, keys=(), parent=None):
+        """A NiBoolData with (time, value) keys; set as `parent`'s data if given."""
+        p = cls.getbuf()
+        p.keys.interpolation = interpolation
+        d = file.add_block(None, p, parent)       # the DLL links it to `parent`
+        for t, v in keys:
+            d.keys_add(t, v)
+        d.properties.keys.numKeys = len(keys)
+        if parent is not None:
+            parent.data = d
+        return d
 
 
 class NiPoint3Interpolator(NiKeyBasedInterpolator):

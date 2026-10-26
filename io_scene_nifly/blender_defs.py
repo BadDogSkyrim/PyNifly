@@ -123,6 +123,33 @@ def ObjectSelect(objlist, deselect=True, active=True):
             pass
 
 
+def hide_viewport_animated(obj):
+    """True if `obj`'s hide_viewport is keyed in its active action -- a nif visibility
+    controller, imported -- rather than set by the user."""
+    ad = obj.animation_data
+    if not ad or not ad.action:
+        return False
+    act = ad.action
+    try:
+        bag = act.layers[0].strips[0].channelbag(ad.action_slot) if ad.action_slot else None
+        curves = bag.fcurves if bag else []
+    except (IndexError, AttributeError):
+        curves = getattr(act, 'fcurves', [])
+    return any(fc.data_path == 'hide_viewport' for fc in curves)
+
+
+def export_visible(obj):
+    """Whether export treats `obj` as shown. Hidden any way Blender hides it counts as hidden,
+    except visibility its own animation sets: a light's glow node is keyed off in the light's
+    'off' sequence, and is still part of the nif. The eye icon still hides such an object."""
+    if obj.visible_get():
+        return True
+    if hide_viewport_animated(obj) and not obj.hide_get():
+        vl = bpy.context.view_layer
+        return obj.name in vl.objects
+    return False
+
+
 def _unselectable_reason(obj):
     """Why Blender won't select `obj`, in the UI's terms."""
     vl = bpy.context.view_layer
