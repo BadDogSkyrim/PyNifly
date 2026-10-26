@@ -2537,6 +2537,41 @@ def TEST_SF_CLOTH_SKELETON_FROM():
         assert TT.is_true('C_Nonesuch' in str(e), f"and named: {e}")
 
 
+def TEST_SF_SKIN_NODE_SLOTS():
+    """A Starfield skin names its bones in SkinAttach, one per slot; the BSSkin::Instance may
+    also point a slot at a NiNode, which then names that slot (the Collector's cloth bones:
+    11 node slots among 37, the rest body bones with null refs). Weights and binds index the
+    slots, so the bone list has to keep every slot in order -- reading only the node refs
+    dropped the 26 body bones and shifted every weight onto the wrong bone."""
+    nif = NifFile(os.path.join(TT.SF_ASSETS, 'meshes', 'clothes', 'outfit_collector_01',
+                               'outfit_collector_f_upperbody.nif'))
+    s = nif.shapes[0]
+    names = s.bone_names
+    assert TT.is_eq(len(names), 37, f"a bone per slot: {names}")
+    assert TT.is_eq(names[0], 'C_Chest', "a null-ref slot is named by SkinAttach")
+    assert TT.is_eq(names[5], 'R_Cloth_Jacket', "a node slot is named by its node")
+    assert TT.is_true({'R_Clavicle', 'L_Forearm', 'C_Head'} <= set(names),
+                      "the body bones are there")
+    assert TT.is_eq(len(set(names)), len(names), "each bone once")
+    # Binds by slot: the body bones agree on where the skin sits, as in any vanilla outfit.
+    import pyn
+    ref = NifFile(os.path.join(os.path.dirname(os.path.dirname(pyn.__file__)), 'skeletons',
+                               'SF', 'skeleton.nif'))
+    def apply(t, p):
+        """MatTransform t applied to point p."""
+        return [t.scale * sum(t.rotation[r][c] * p[c] for c in range(3)) + t.translation[r]
+                for r in range(3)]
+
+    spots = []
+    for i, b in enumerate(names):
+        if b in ref.nodes:
+            # Where this bone's bind puts the skin's origin: skeleton bone * skin-to-bone.
+            s2b = s.get_shape_skin_to_bone_by_index(i)
+            spots.append(apply(ref.nodes[b].global_transform, apply(s2b, [0, 0, 0])))
+    spread = max(math.dist(a, b) for a in spots for b in spots)
+    assert TT.is_true(spread < 5, f"the body bones' binds agree ({spread:.1f} apart)")
+
+
 def TEST_SF_TINTBAKE_COMPOSITE():
     """sf_tintbake lays tint layers over a skin tone the way the chargen face does.
 

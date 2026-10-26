@@ -1,18 +1,159 @@
+# PyNifly 30.1.0 Release Notes
+
+**Starfield cloth physics in Blender**
+
+Hair, tails, skirts and coats that move with Starfield's cloth physics can now be seen,
+edited, and built from scratch in Blender. See
+[Starfield cloth](https://github.com/BadDogSkyrim/PyNifly/blob/main/docs/Starfield_Cloth.md)
+for how.
+
+## Starfield cloth
+
+- **Cloth imports as pictures you can edit.** Under the `BSClothExtraData` empty you get the
+  simulation mesh (its vertices are the particles that move), the collision shapes that
+  keep it off the body, and the bone planes. Settings such as gravity, damping and
+  iterations are Custom Properties on the sim mesh; per-particle and per-edge values are
+  attributes.
+
+- **Export writes what you see.** Move, add or delete particles; change which are pinned;
+  add or remove links; set the bend stiffness of each edge; paint skin weights; move,
+  scale, mirror, copy or delete collision shapes. Export builds the cloth data afresh
+  from the pictures every time.
+
+- **Collision shapes are read from their meshes.** Edit them like any mesh: scale, apply
+  transforms, mirror one to the other leg with a negative scale. 
+
+- **Bone planes keep cloth on one side of a plane that follows a bone.** Vanilla uses them
+  to keep hair out of the face. A plane on `Root`, facing up a few centimetres above the
+  feet, works as a floor and keeps a tail out of the ground. Starfield ignores Havok's own
+  ground collision, so a plane is the way to do it.
+
+- **New cloth from scratch.** Add an Empty named `BSClothExtraData` under the nif's root
+  and model a mesh under it: pin the particles that follow the body, and give every
+  particle a bone weight. Export fills in the rest with vanilla's usual values and leaves
+  them on the mesh, so you can see and change them. Cloth can drive bones no skeleton
+  has: name them whatever you like, give them parents in the armature, and weight the
+  render mesh to them.
+
+- Keep sim meshes simple. A flat strip works well. A closed tube twitches whatever the
+  settings.
+
+- Vertex groups whose names start with `*` are ignored on export, like `*` shape keys,
+  so you can keep selections on a mesh.
+
+## Starfield
+
+- **Every LOD imports and exports.** A Starfield shape can hold up to four LODs. Import
+  brings in one object per distinct `.mesh`, named `<shape>:LOD0`, `:LOD1-2` and so on,
+  with the higher LODs hidden. Export gathers them back into one shape. To add LODs to
+  your own mesh, name the objects `Rock:LOD0`, `Rock:LOD1`. Previously re-exporting a
+  vanilla mesh dropped its LODs.
+  - Some vanilla meshes (the hands, about a fifth of clothing) also carry LODs inside the
+    `.mesh` file. Import warns about these; they aren't imported, and export drops them.
+
+- **Clothes skinned to cloth bones import correctly.** The Collector outfit and others
+  came in scrambled.
+
+- **Crowd heads keep their eye positions.** Vanilla crowd heads carry a `BoneTranslations`
+  block that places the eyes; it was dropped. It now imports as an Empty with a marker
+  per eye and exports back. Put the eye bones at the eyeball centres and the markers on
+  the eye bones, and the eyes turn in their sockets. For a new head, copy the Empty from
+  an imported vanilla crowd head.
+
+- **Facebones armature flag.** An armature's *Facebones armature* setting (Yes / No /
+  Auto on the PyNifly Skeleton Export panel) says whether it's the face rig. Auto decides
+  by bone names, as before. A crowd head whose mesh also carried the chargen face rig
+  exported its companion skinned to the wrong rig and was invisible in game; set the
+  crowd head's armature to Yes.
+
+- **Crowd head morphs.** A crowd head (Starfield Morphs > crowd) writes only the
+  performance `morph.dat`, with vanilla's crowd keys; each right-side key is merged into
+  its left.
+
+- **Body types.** Each `_`-prefixed shape key writes its own nif and now its own `.mesh`
+  (they all shared one, so every body type came out as the last). A shape key named just
+  `_` writes the plain nif, so `_`, `_thin` and `_overweight` give vanilla's names.
+
+- Shape keys starting with `*` or `_` are never written to a `morph.dat`.
+
+- A morph path naming a folder gets `morph.dat` added.
+
+- An empty `morph.dat` is not written: a head part pointing at one crashes the Creation
+  Kit. You get an error instead.
+
+- Each loose `.mat` is written once per export, not once per nif.
+
+## General
+
+- **Exporting a selected shape brings its whole nif.** Select one shape under an imported
+  nif and export writes the nif's root and everything visible under it, with the root's
+  game and file name.
+
+- **A shape parented to another mesh exports without that mesh**, under the mesh's parent at
+  the same position, with a warning.
+
+- **Hidden objects are never exported**, whichever way they're hidden: eye icon, disabled
+  in viewports, or in a hidden or excluded collection.
+
+## Starfield Convenience Scripts
+
+*In github, not the kit*
+
+- **New: `sf_tintbake.py`** bakes crowd-head variants. A crowd head has one texture, so the
+  variety chargen gets from skin tones and tint layers has to be baked into separate
+  heads. From a recipe, it picks a sample of tone, tint and eye combinations and writes
+  each variant's texture, material and nifs (all body types, with companions), and a
+  manifest for building the plugin. It also bakes tails to match each tone, teeth and
+  beard options, with optional weights. See `docs/Crowd_Race_Instructions.md`.
+
+- `sf_racecheck.py`:
+    - Crowd races are checked through their NPCs' outfits: every head and tail nif,
+      `.mesh`, material, texture and companion. A companion skinned to face bones fails;
+      the crowd skeleton has none.
+    - Tint groups must resolve to a group or a texture.
+    - Face textures must all be one size, or the face goes black on the first tint
+      change.
+    - Every head part's morphs are checked; an empty `morph.dat` fails.
+    - Playable head parts missing from the chargen option lists are warned about: chargen
+      never offers them.
+    - The official plugin list now matches the game's, so load-order form IDs are right.
+
+## PyNifly-level fixes
+
+*For script writers*
+
+- **Starfield bone lists keep every slot.** A skin whose cloth bones have nodes in the nif
+  returned only those bones, so weights and binds landed on the wrong bones. Fixed in nifly.
+
+- `BSGeometry.get_shape_skin_to_bone(name)` works for Starfield; it always returned None.
+  New: `add_mesh`, `set_weights_per_vertex`, `set_vert_weights(..., slot=)` for LOD slots,
+  and `BoneTranslations`.
+
+- New modules for Starfield cloth: `havok_tagfile` and `havok_graph` read and write Havok
+  2019 tagfiles; `sf_cloth` reads a cloth; `sf_cloth_build` builds one.
+
+## Known limitations
+
+- **Some Starfield accessories still import out of place**: face-bone accessories (cap
+  logos, eyepatches) and spacesuit backpacks, whose bones aren't in the reference
+  skeleton.
+
+- Editing compressible links and volume constraints on cloth isn't supported; they're
+  kept as they are.
+
 # PyNifly 30.0.0 Release Notes
 
 **hkxcmd is gone**
 
-PyNifly no longer ships or uses hkxcmd. All HKX import and export is native now. That's
-why this is a major version: HKX files that only hkxcmd could read no longer import (see
-below), and an armature from a skeleton nif now needs a reference skeleton to export
-animations.
+PyNifly no longer ships or uses hkxcmd. All HKX import and export is native now. 
 
 ## Animation
 
 - **hkxcmd is no longer used or shipped.** HKX export was the last thing that needed it.
   PyNifly reads and writes Skyrim LE/SE (hk_2010, binary or XML) and FO4 (hk_2014) HKX
   files itself. Any other HKX version gives a clear error instead of going through
-  hkxcmd.
+  hkxcmd. NOTE that KF export is still available, so you can run through hkxcmd yourself 
+  there's a need.
 
 - **Animations on an armature imported from a skeleton nif export natively** (#439).
   These used to go through hkxcmd, which ignored XYZ (Euler) rotation keys, so every frame
@@ -42,19 +183,23 @@ animations.
 
 ## Starfield
 
+Starfield was extremely careless in creating body part nifs - may have spurious pose 
+locations that make it difficult to line them up along seams. Best to import the skeleton
+first, then import body parts with that selected.
+
 - **Meshes imported onto a selected armature line up with it.** Importing female hands
   onto the body's armature, or eyes onto the head's, used to leave them slightly off
   (hands a few degrees, eyes drawn toward the centre of the head). If you select nothing,
   import works as before.
 
 - **Skeletons with added bones import in place, at normal size.** SF Extended Skeleton's
-  tail and ear bones came in at the origin, and then 70 times too long. Any converted
-  skeleton also drew enormous bone shapes in pose mode.
+  tail and ear bones now import correctly. Any converted skeleton now has normal-sized
+  bone shapes in pose mode.
 
 - **Alpha settings can take opacity from vertex colors.** The alpha component's "use
   vertex color" setting and its channel (red or alpha) are imported, previewed and
   exported. The channel is whatever is plugged into the component's Vertex Color input.
-  Note: on a skin material this makes the whole shape invisible in game (see
+  Note: Using vertex alpha on a skin material makes the whole shape invisible in game (see
   `sf_racecheck` below). Use an opacity texture there.
 
 - **The alpha and emissive components drive the preview live.** The alpha component
@@ -91,7 +236,7 @@ animations.
   colour instead. Normal maps are rotated to follow each UV island. Faces that don't
   match any part are selected in Blender so you can see them.
 
-- `sf_racecheck.py` has new checks that fail:
+- `sf_racecheck.py` has new checks for:
     - hair and beard head parts whose mask (NAM3) isn't registered in the follicle mask
       list, or points at a texture that isn't there. A .dds named like the mask does
       nothing on its own.
@@ -103,7 +248,7 @@ animations.
       picks the skin-tone texture, so a tail flagged Is Skin Hands takes the hands' colour.
     - The missing-phenotype-maps warning now names the missing files.
 
-- `sf_texconv.py` converts the rest of a texture set: `_opacity`, `_transmissive`,
+- `sf_texconv.py` converts additional layers of a texture set: `_opacity`, `_transmissive`,
   `_height` and `_id` (BC4) and `_emissive` (BC1 sRGB). They used to be skipped silently.
 
 ## PyNifly-level fixes
@@ -113,7 +258,8 @@ animations.
 - **`shape.textures` is writable** (#436). Assign a slot and it's written to the nif, for
   lighting and effect shaders. An unknown slot raises KeyError. FO4 textures that come
   from a material file are read-only (edit the material instead). `set_texture` still
-  works. Side fix: the lighting shader's Greyscale slot is now written; it was dropped.
+  works to write the texture slots in the nif (for whatever good that does). Side fix: the
+  lighting shader's Greyscale slot is now written; it was dropped.
 
 ## Known limitations
 

@@ -2796,6 +2796,42 @@ def TEST_SF_CLOTH_NEW():
 
 
 @TT.category('STARFIELD')
+def TEST_SF_SKIN_NODE_BONES_NOT_POSED():
+    """The Collector's upper body skins to body bones and to cloth bones that have NiNodes in
+    the nif. Those nodes are flattened under the root, each holding its bone's transform
+    relative to a parent that isn't there, in metres -- junk as a pose. Import keeps the mesh
+    and its bones at the bind: unposed, the coat on the chest, the cloth bones where the
+    cloth's own skeleton has them."""
+    from io_scene_nifly.pyn import sf_cloth
+    from io_scene_nifly.pyn.nifconstants import HAVOC_SCALE_FACTOR
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'clothes', 'outfit_collector_01',
+                            'outfit_collector_f_upperbody.nif')
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    arma = next(o for o in bpy.data.objects if o.type == 'ARMATURE')
+    mesh = next(o for o in bpy.data.objects if o.type == 'MESH' and 'Upperbody' in o.name)
+    assert TT.is_true({'Chest.C', 'Clavicle.R', 'Cloth_Jacket.R'} <= set(arma.data.bones.keys()),
+                      f"body and cloth bones: {arma.data.bones.keys()}")
+
+    rest = [mesh.matrix_world @ v.co for v in mesh.data.vertices]
+    ev = mesh.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    posed = [mesh.matrix_world @ v.co for v in ev.data.vertices]
+    worst = max((a - b).length for a, b in zip(rest, posed))
+    assert TT.is_true(worst < 0.01, f"the bones aren't posed ({worst:.2f} moved)")
+    zs = [p.z for p in rest]
+    assert TT.is_true(55 < min(zs) and max(zs) < 120, f"the coat is on the chest: "
+                                                      f"z {min(zs):.1f}..{max(zs):.1f}")
+
+    c = sf_cloth.read_model(pyn.NifFile(testfile).cloth_data[0][1])
+    names = [b[0] for b in c.skeleton]
+    W = sf_cloth.bind_matrices(c.skeleton)
+    jacket = W[names.index('R_Cloth_Jacket')]
+    want = Vector([jacket[i][3] * HAVOC_SCALE_FACTOR for i in range(3)])
+    got = arma.matrix_world @ arma.data.bones['Cloth_Jacket.R'].head_local
+    assert TT.is_true((got - want).length < 2, f"the jacket bone where the cloth has it: "
+                                               f"{got} vs {want}")
+
+
+@TT.category('STARFIELD')
 def TEST_SF_CLOTH_SHAPE_FROM_MESH():
     """A collision shape is read from its mesh as it stands: where its vertices are, however
     they got there. So a capsule scaled with its transforms applied, a copy mirrored with a

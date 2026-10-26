@@ -1926,6 +1926,8 @@ class NifImporter():
                 b = b.parent
             return depth
         bonelist = sorted(bonelist, key=bone_depth)
+        sf_skin_bones = {b for s in nif.shapes for b in getattr(s, 'bone_names', []) or []} \
+            if nif.game == 'SF' else set()
 
         for bn, blname in bonelist:
             if bn in nif.nodes and blname in arma.pose.bones:
@@ -1943,6 +1945,14 @@ class NifImporter():
                         # hanging off a skinned bone, since those rest at the bind
                         # position. The power armor's collarbones sat 7 units out and
                         # carried the whole arm with them.
+
+                    if self.nif.game == 'SF' and bn in sf_skin_bones:
+                        # A Starfield nif poses nothing: a skin bone's NiNode (cloth bones
+                        # have them) sits flattened under the root holding its transform
+                        # relative to a parent that isn't there, in metres. The bind is
+                        # where the bone is.
+                        arma.pose.bones[blname].matrix_basis = Matrix()
+                        continue
 
                     if self.is_skinned_tree and not self.settings.import_pose:
                         # Tree bone: rest is the skin bind position. Keep pose == rest
