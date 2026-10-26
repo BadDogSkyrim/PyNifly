@@ -2506,6 +2506,37 @@ def TEST_SF_CLOTH_BEND_FORMULAS():
     assert TT.is_eq(matched, len(vanilla), "every vanilla record has its edge among ours")
 
 
+def TEST_SF_CLOTH_SKELETON_FROM():
+    """A cloth made from scratch carries the bones it uses and their ancestors up to Root,
+    parents first, each posed relative to its parent, so the binds come back as given. The
+    ponytail's own skeleton is the check: rebuilt from its binds, it gives the same binds."""
+    from pyn import sf_cloth
+    m = sf_cloth.read_model(_sf_cloth_blob('actors', 'human', 'mesh', 'hairs', 'ponytail',
+                                           'ponytail_hairmesh_f.nif'))
+    names = [b[0] for b in m.skeleton]
+    W = sf_cloth.bind_matrices(m.skeleton)
+    bones = {n: (names[p] if p >= 0 else None, W[i]) for i, (n, p, _q) in enumerate(m.skeleton)}
+    sk = sf_cloth.skeleton_from(bones, ['C_Cloth_PonyTail_04', 'L_Calf'])
+    got = [b[0] for b in sk]
+    assert TT.is_true({'Root', 'C_Head', 'C_Cloth_PonyTail_00', 'L_Thigh'} <= set(got),
+                      f"ancestors come along: {got}")
+    assert TT.is_true('R_Calf' not in got and 'C_Cloth_PonyTail_04' in got,
+                      "and nothing the cloth doesn't use")
+    for i, (_n, p, _q) in enumerate(sk):
+        assert p < i, f"{got[i]}'s parent comes first"
+    assert TT.is_eq(sk[got.index('C_Cloth_PonyTail_00')][1], got.index('C_Head'),
+                    "C_Cloth_PonyTail_00 hangs from C_Head")
+    W2 = sf_cloth.bind_matrices(sk)
+    for i, n in enumerate(got):
+        assert TT.is_equiv([x for r in W2[i] for x in r], [x for r in W[names.index(n)] for x in r],
+                           f"{n}'s bind", e=1e-5)
+    try:
+        sf_cloth.skeleton_from(bones, ['C_Nonesuch'])
+        assert False, "a bone nobody has is refused"
+    except sf_cloth.ClothEditError as e:
+        assert TT.is_true('C_Nonesuch' in str(e), f"and named: {e}")
+
+
 def TEST_SF_TINTBAKE_COMPOSITE():
     """sf_tintbake lays tint layers over a skin tone the way the chargen face does.
 

@@ -43,6 +43,8 @@ from . import shader_io
 from . import controller 
 from . import collision 
 from . import connectpoint
+from . import cloth_viz
+from ..pyn import sf_cloth
 from ..pyn.triangulate import triangulate
 
 log = logging.getLogger("pynifly")
@@ -854,7 +856,11 @@ class NifExporter:
         if obj in self.objects or obj in self.grouping_nodes: return
         # A picture of cloth data (cloth_viz), or a collision shape or bone plane the user added
         # to one: it goes into the cloth, never out as a shape.
+        # So is any mesh the user models under a cloth empty: it's a piece of the cloth.
         if obj.get('pynClothViz') or obj.get('cloth_shape') or obj.get('cloth_plane_bone'):
+            return
+        if obj.type == 'MESH' and obj.parent is not None \
+                and cloth_viz.is_cloth_empty(obj.parent):
             return
         # A BoneTranslations marker is an entry of its block, written with it, never a node.
         if obj.parent is not None and obj.parent.name.startswith("BoneTranslations:"):
@@ -904,7 +910,7 @@ class NifExporter:
                     and obj.parent.get('pynRoot', False):
                 self.str_data.add(obj)
 
-            elif 'BSClothExtraData_Name' in obj.keys():
+            elif cloth_viz.is_cloth_empty(obj):
                 self.cloth_data.add(obj)
 
             elif obj.name.startswith("BSDecalPlacementVectorExtraData"):
@@ -1119,12 +1125,18 @@ class NifExporter:
         """Export cloth data previously cached in self.cloth_data."""
         cdlist = []
         for cd in self.cloth_data:
-            blob = codecs.decode(cd['BSClothExtraData_Value'], "base64")
+            value = cd.get('BSClothExtraData_Value')
+            blob = codecs.decode(value, "base64") if value else None
             if self.game == 'SF':
-                # Edits made to the cloth's pictures go into the blob in place.
-                from . import cloth_viz
-                blob = cloth_viz.apply_edits(cd, blob, self.scale)
-            cdlist.append((cd['BSClothExtraData_Name'], blob))
+                # The cloth is built from its pictures; with no blob, from scratch.
+                blob = cloth_viz.apply_edits(cd, blob, self.scale, self.armature,
+                                             self.nif.reference_skel, self.nif_name)
+            if blob is None:
+                if self.game != 'SF':
+                    log.warning(f"{cd.name} has no cloth data; only Starfield cloth can be "
+                                f"made from scratch")
+                continue
+            cdlist.append((cd.get('BSClothExtraData_Name', sf_cloth.NEW_CLOTH_NAME), blob))
             self.objs_written.add(ReprObject(cd, self.nif.rootNode)) # [cd.name] = self.nif
 
         if len(cdlist) > 0:

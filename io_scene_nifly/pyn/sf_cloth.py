@@ -137,6 +137,26 @@ SETTINGS = {
 }
 DERIVED_SETTINGS = {'total_mass'}
 
+# A cloth made from scratch: the most common vanilla values (census of the 320 vanilla cloths,
+# 2026-10-26).
+NEW_SETTINGS = {
+    'gravity': (0.0, 0.0, -9.81),
+    'damping': 0.9,
+    'transfer_translation': True,
+    'transfer_translation_min': 0.6,
+    'transfer_translation_max': 0.6,
+    'transfer_translation_speeds': (0.0, 10.0),
+    'transfer_rotation': True,
+    'transfer_rotation_min': 0.0,
+    'transfer_rotation_max': 0.6,
+    'transfer_rotation_speeds': (30.0, 90.0),
+    'sub_steps': 1,
+    'iterations': 1,
+}
+NEW_PARTICLE = {'mass': 0.08, 'radius': 0.02, 'friction': 0.5}
+NEW_BEND = 0.5                  # every hinge of a fresh mesh
+NEW_CLOTH_NAME = 'Binary Data'  # the BSClothExtraData block, as all vanilla cloths name it
+
 
 def _where(sim, record):
     return sim._idx if record == 'sim' else sim._config
@@ -436,6 +456,67 @@ def _qs_matrix(t, q, s):
 
 def matmul(a, b):
     return [[sum(a[i][k] * b[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
+
+
+def _matrix_qs(m):
+    """A row-major 4x4 (rotation and uniform scale) as an hkQsTransform (t, q xyzw, s)."""
+    sc = sum(sum(m[i][j] ** 2 for i in range(3)) ** 0.5 for j in range(3)) / 3
+    r = [[m[i][j] / sc for j in range(3)] for i in range(3)]
+    tr = r[0][0] + r[1][1] + r[2][2]
+    if tr > 0:
+        k = 2 * (tr + 1) ** 0.5
+        q = ((r[2][1] - r[1][2]) / k, (r[0][2] - r[2][0]) / k, (r[1][0] - r[0][1]) / k, k / 4)
+    elif r[0][0] > r[1][1] and r[0][0] > r[2][2]:
+        k = 2 * (1 + r[0][0] - r[1][1] - r[2][2]) ** 0.5
+        q = (k / 4, (r[0][1] + r[1][0]) / k, (r[0][2] + r[2][0]) / k, (r[2][1] - r[1][2]) / k)
+    elif r[1][1] > r[2][2]:
+        k = 2 * (1 + r[1][1] - r[0][0] - r[2][2]) ** 0.5
+        q = ((r[0][1] + r[1][0]) / k, k / 4, (r[1][2] + r[2][1]) / k, (r[0][2] - r[2][0]) / k)
+    else:
+        k = 2 * (1 + r[2][2] - r[0][0] - r[1][1]) ** 0.5
+        q = ((r[0][2] + r[2][0]) / k, (r[1][2] + r[2][1]) / k, k / 4, (r[1][0] - r[0][1]) / k)
+    return tuple(m[i][3] for i in range(3)), q, (sc, sc, sc)
+
+
+def _invert_rigid(m):
+    """The inverse of a rotation-and-uniform-scale row-major 4x4."""
+    s2 = sum(m[i][0] ** 2 for i in range(3))
+    r = [[m[j][i] / s2 for j in range(3)] for i in range(3)]
+    t = [-sum(r[i][k] * m[k][3] for k in range(3)) for i in range(3)]
+    return [r[i] + [t[i]] for i in range(3)] + [[0.0, 0.0, 0.0, 1.0]]
+
+
+def skeleton_from(bones, needed, root='Root'):
+    """A cloth skeleton, [(name, parent index, (t, q, s))], for a cloth made from scratch: the
+    `needed` bones and their ancestors up to `root`, parents first. `bones` maps a bone's name
+    to (its parent's name or None, its model-space matrix, row-major 4x4 in metres). Vanilla
+    cloths carry anything from 2 bones to the authoring scene's whole skeleton, so the bones a
+    cloth uses are enough."""
+    keep = set()
+    for b in needed:
+        while b is not None and b not in keep:
+            if b not in bones:
+                raise ClothEditError(f"bone {b} isn't in the armature or the reference skeleton")
+            keep.add(b)
+            b = None if b == root else bones[b][0]
+    order = []
+
+    def place(b):
+        if b in order:
+            return
+        p = bones[b][0]
+        if p in keep and b != root:
+            place(p)
+        order.append(b)
+    for b in sorted(keep):
+        place(b)
+    out = []
+    for b in order:
+        p = bones[b][0] if b != root else None
+        pi = order.index(p) if p in keep else -1
+        local = bones[b][1] if pi < 0 else matmul(_invert_rigid(bones[p][1]), bones[b][1])
+        out.append((b, pi, _matrix_qs(local)))
+    return out
 
 
 def bind_matrices(skeleton):

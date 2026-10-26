@@ -2680,6 +2680,122 @@ def _world_ends(col):
 
 
 @TT.category('STARFIELD')
+def TEST_SF_CLOTH_NEW():
+    """A cloth made from scratch: an empty named BSClothExtraData under the nif root, a mesh
+    modelled under it, pinned particles, skin weights. Export builds the whole cloth: the
+    skeleton from the armature (the bones the cloth uses and their ancestors, Root from the
+    reference skeleton), driven bones = the armature's bones the reference skeleton doesn't
+    have, vanilla's usual settings and particle values, a hinge at every inner edge. What it
+    filled in is left on the mesh to see. The sim mesh and its floor plane aren't shapes."""
+    import mathutils
+    from io_scene_nifly.pyn import sf_cloth
+    from io_scene_nifly.pyn.nifconstants import HAVOC_SCALE_FACTOR
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'mesh', 'hairs',
+                            'ponytail', 'ponytail_hairmesh_f.nif')
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_CLOTH_NEW\meshes\ponytail_hairmesh_f.nif",
+                            output=True)
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    old = next(o for o in bpy.data.objects if 'BSClothExtraData_Name' in o)
+    root = old.parent
+    for o in list(old.children) + [old]:
+        bpy.data.objects.remove(o)
+    hair = next(o for o in bpy.data.objects if o.type == 'MESH')
+    arma = next(m.object for m in hair.modifiers if m.type == 'ARMATURE')
+    nif_name = pyn.NifFile(testfile).nif_name           # Blender's Head.C is the nif's C_Head
+    bl_tail = sorted(b.name for b in arma.data.bones if 'PonyTail' in b.name)
+    assert TT.is_true(bl_tail, f"the armature has the ponytail's bones: {arma.data.bones.keys()}")
+    tail = [nif_name(b) for b in bl_tail]
+    bl_head = next(b.name for b in arma.data.bones if nif_name(b.name) == 'C_Head')
+
+    # The new cloth: a strip down the ponytail's bones, its top pair pinned to the head.
+    bpy.ops.object.add(type='EMPTY')
+    cloth = bpy.context.object
+    cloth.name = 'BSClothExtraData'
+    cloth.parent = root
+    cloth.location = (30, 0, 0)                     # off to the side, as import puts it
+    bpy.context.view_layer.update()
+    to_root = root.matrix_world.inverted() @ arma.matrix_world
+    heads = [to_root @ arma.data.bones[bl_head].head_local] + \
+        [to_root @ arma.data.bones[b].head_local for b in bl_tail] + \
+        [to_root @ arma.data.bones[bl_tail[-1]].tail_local]
+    verts = [h + mathutils.Vector((dx, 0, 0)) for h in heads for dx in (-1.0, 1.0)]
+    faces = []
+    for k in range(len(heads) - 1):
+        a, b, c, d = 2 * k, 2 * k + 1, 2 * k + 3, 2 * k + 2
+        faces += [(a, b, c), (a, c, d)]
+    me = bpy.data.meshes.new('Cloth:Ponytail')
+    me.from_pydata([tuple(v) for v in verts], [], faces)
+    sim = bpy.data.objects.new(me.name, me)
+    bpy.context.scene.collection.objects.link(sim)
+    sim.parent = cloth
+    sim.matrix_world = root.matrix_world             # modelled in the root's space
+    sim.vertex_groups.new(name='cloth_pinned').add([0, 1], 1.0, 'REPLACE')
+    sim.vertex_groups.new(name=bl_head).add(list(range(len(verts))), 1.0, 'REPLACE')
+    n = len(verts)
+
+    bpy.ops.mesh.primitive_plane_add(size=50.0)
+    floor = bpy.context.object
+    floor.name = 'Plane:Root'
+    floor.parent = cloth
+    floor.matrix_world = root.matrix_world @ mathutils.Matrix.Translation((0, 0, 3))
+    floor['cloth_plane_bone'] = 'Root'
+    sim.vertex_groups.new(name=f"plane:{floor.name}").add(list(range(2, n)), 1.0, 'REPLACE')
+
+    out = _cloth_export(outfile)
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq(nif.cloth_data[0][0], 'Binary Data', "vanilla's block name")
+    assert TT.is_eq(len(nif.shapes), 1, f"the sim mesh and floor plane aren't shapes: "
+                                        f"{[s.name for s in nif.shapes]}")
+    assert TT.is_eq(len(out.sims), 1, "one piece of cloth")
+    s0 = out.sims[0]
+    assert TT.is_eq(len(s0.positions), n, "a particle per vertex")
+    assert TT.is_eq(s0.pinned, [0, 1], "the pinned pair")
+    assert TT.is_equiv([p['mass'] for p in s0.particles[2:]], [0.08] * (n - 2),
+                       "free particles get vanilla's usual mass")
+    s = HAVOC_SCALE_FACTOR
+    assert TT.is_equiv(list(s0.positions[2]), list(verts[2] / s),
+                       "positions in the root's space, in metres", e=1e-4)
+    assert TT.is_eq(sorted(b for b, _t in s0.driven), tail,
+                    "it drives the bones the reference skeleton doesn't have")
+    assert TT.is_eq(s0.transfer_bone, 'C_Head', "takes on the motion of the bone it's pinned to")
+    assert TT.is_eq(s0.settings['iterations'], 1, "vanilla's iterations")
+    assert TT.is_equiv(list(s0.settings['gravity']), [0, 0, -9.81], "and gravity")
+    inner = 2 * (len(heads) - 1) - 1                # each quad's diagonal, the inner rungs
+    assert TT.is_eq(len(s0.bend), inner, "a hinge at every edge two triangles share")
+    assert TT.is_equiv(sorted(s0.bend.values()), [0.5] * inner, "at 0.5")
+    assert TT.is_eq([p['bone'] for p in s0.planes], ['Root'], "the floor plane")
+    assert TT.is_eq(sorted(s0.planes[0]['particles']), list(range(2, n)), "holds the free ones")
+
+    names = [b[0] for b in out.skeleton]
+    assert TT.is_true({'Root', 'C_Head', *tail} <= set(names), f"the skeleton: {names}")
+    assert TT.is_eq(names[0], 'Root', "rooted at Root")
+    W = sf_cloth.bind_matrices(out.skeleton)
+    for bl in [bl_head] + bl_tail:
+        b = nif_name(bl)
+        want = to_root @ arma.data.bones[bl].head_local / s
+        got = [W[names.index(b)][i][3] for i in range(3)]
+        assert TT.is_equiv(got, list(want), f"{b} where the armature has it", e=1e-4)
+
+    # What export filled in is on the mesh.
+    for a in ('cloth_link', 'cloth_bend', 'cloth_mass', 'cloth_radius', 'cloth_friction'):
+        assert TT.is_true(a in sim.data.attributes, f"{a} is on the mesh")
+    for p in ('cloth_iterations', 'cloth_gravity', 'cloth_driven_bones', 'cloth_transfer_bone',
+              'cloth_link_stiffness'):
+        assert TT.is_true(p in sim, f"{p} is on the mesh")
+    assert TT.is_eq(sim['cloth_driven_bones'], ','.join(b for b, _t in s0.driven),
+                    "the driven bones as written")
+
+    # And it comes back in as a cloth like any other.
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+    sims = [o for o in bpy.data.objects if 'cloth_sim' in o]
+    assert TT.is_eq(len(sims), 1, "the new cloth imports")
+    assert TT.is_eq(len(sims[0].data.vertices), n, "with its particles")
+
+
+@TT.category('STARFIELD')
 def TEST_SF_CLOTH_SHAPE_FROM_MESH():
     """A collision shape is read from its mesh as it stands: where its vertices are, however
     they got there. So a capsule scaled with its transforms applied, a copy mirrored with a
