@@ -161,6 +161,8 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0, max_weig
         for vg in v.groups:
             try:
                 vgn = obj.vertex_groups[vg.group].name
+                if vgn.startswith('*'):
+                    continue                    # the user's own helper, as with shape keys
                 vert_weights.append([vgn, vg.weight])
             except:
                 if vg.group not in error_groups:
@@ -850,8 +852,9 @@ class NifExporter:
           are considered for export.
         """
         if obj in self.objects or obj in self.grouping_nodes: return
-        # A picture of cloth data (cloth_viz): the blob on its empty is what's written.
-        if obj.get('pynClothViz'):
+        # A picture of cloth data (cloth_viz), or a collision shape or bone plane the user added
+        # to one: it goes into the cloth, never out as a shape.
+        if obj.get('pynClothViz') or obj.get('cloth_shape') or obj.get('cloth_plane_bone'):
             return
         # A BoneTranslations marker is an entry of its block, written with it, never a node.
         if obj.parent is not None and obj.parent.name.startswith("BoneTranslations:"):

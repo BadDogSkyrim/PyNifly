@@ -276,7 +276,7 @@ class Tagfile:
         s = self.b[self.data_start + off:self.data_start + off + count]
         return s.split(b'\0')[0].decode('utf-8', 'replace')
 
-    # --- in-place writes: same sizes, offsets and references, so the blob stays valid ---
+    # --- values at a place, and writing them (havok_graph lays objects out with _write) ---
     def locate(self, idx, k=0, path=()):
         """(absolute offset, type) of element `k` of item `idx`, then down the member `path`."""
         t, _f, off, _c = self.items[idx]
@@ -297,11 +297,6 @@ class Tagfile:
         finally:
             self.b = saved
 
-    def set_at(self, idx, value, k=0, path=()):
-        """Overwrite a bool, int, float or inline vector in place."""
-        o, t = self.locate(idx, k, path)
-        self._write(o, t, value)
-
     @property
     def buf(self):
         if not hasattr(self, '_buf'):
@@ -309,9 +304,10 @@ class Tagfile:
         return self._buf
 
     def _write(self, o, t, value, buf=None):
-        """Write `value` as type `t` at `o` in `buf` (default: the edit buffer). A class takes a
-        dict of its members, missing ones left as they are. References -- pointers, strings,
-        plain arrays -- can't be written: each needs an entry in PTCH."""
+        """Write `value` as type `t` at `o` in `buf` (default: a copy of the blob). A class
+        takes a dict of its members, missing ones left as they are. References -- pointers,
+        strings, plain arrays -- aren't written here: each needs an entry in PTCH, which
+        havok_graph makes."""
         buf = self.buf if buf is None else buf
         fmt = self.format_of(t)
         kind = fmt & 0x1F
@@ -335,48 +331,6 @@ class Tagfile:
                     self._write(o + off, mt, value[name], buf)
         else:
             raise TagfileError(f"can't write a {KIND_NAMES[kind]} in place")
-
-    def append_to_array(self, idx, values):
-        """The blob with `values` (dicts, for a class element type) added to the end of array
-        item `idx`. Returns new bytes; this Tagfile is left as it was.
-
-        An array is referred to by its item number, never by position, and item offsets (in
-        ITEM) and reference positions (in PTCH) both count from the start of DATA. So a longer
-        copy can go at the end of DATA, with its item pointed at it, and nothing else moves. The
-        old copy stays behind, unused. Elements holding references would need PTCH entries, and
-        are refused."""
-        t, _flags, off, count = self.items[idx]
-        size = self.size_of(t)
-        b = self.buf
-        ds, de = self.sec['DATA']
-        payload = bytearray(b[ds:de])
-        new_off = (len(payload) + 15) & ~15
-        payload += bytes(new_off - len(payload))
-        payload += b[ds + off:ds + off + count * size]
-        for v in values:
-            elem = bytearray(size)
-            self._write(0, t, v, elem)
-            payload += elem
-        payload += bytes(-len(payload) % 4)
-
-        tag_end = self.sec['TAG0'][1]
-        out = bytearray(b[:ds - 8])
-        head = struct.unpack_from('>I', b, ds - 8)[0]
-        out += struct.pack('>I', (head & 0xC0000000) | (len(payload) + 8)) + b'DATA'
-        out += payload
-        out += b[de:tag_end]
-        out += b[tag_end:]
-        delta = len(out) - len(b)
-        head0 = struct.unpack_from('>I', out, 0)[0]
-        struct.pack_into('>I', out, 0, (head0 & 0xC0000000) | ((head0 & 0x3FFFFFFF) + delta))
-        # The ITEM section moved by delta along with everything after DATA.
-        entry = self.sec['ITEM'][0] + delta + 12 * idx
-        struct.pack_into('<II', out, entry + 4, new_off, count + len(values))
-        return bytes(out)
-
-    def to_bytes(self):
-        """The blob, with any in-place edits."""
-        return bytes(self.buf)
 
     def item(self, idx):
         """Item `idx` decoded: one value, or a list for an array item."""

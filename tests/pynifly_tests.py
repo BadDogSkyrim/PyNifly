@@ -2344,150 +2344,6 @@ def TEST_SF_CLOTH_DECODE():
     assert TT.is_eq(len(officer.collidables), 8, "eight collidables, shared ones counted once")
 
 
-def TEST_SF_CLOTH_WRITE():
-    """sf_cloth.write_cloth writes edited values back into the blob in place: same length, every
-    other byte the same. Unedited, the blob comes back byte-identical. Derived fields follow what
-    they derive from (invMass, totalMass, a capsule's dir and capLenSqrdInv). What would change a
-    count or isn't written yet is refused."""
-    from pyn import sf_cloth
-
-    def blob(*rel):
-        return NifFile(os.path.join(TT.SF_ASSETS, 'meshes', *rel)).cloth_data[0][1]
-
-    bob = blob('actors', 'human', 'mesh', 'hairs', 'bob', 'bob_f.nif')
-    for b in (bob,
-              blob('clothes', 'spacesuit_pirateset', 'pirateset_officer_lower_f.nif'),
-              blob('actors', 'quadrupedb', 'mesh', 'quadrupedb_aceles', 'quadrupedb_aceles.nif')):
-        assert TT.is_true(sf_cloth.write_cloth(b, sf_cloth.read_cloth(b)) == b,
-                          "an unedited cloth writes back byte-identical")
-
-    c = sf_cloth.read_cloth(bob)
-    sim = c.sims[0]
-    total0 = sim.settings['total_mass']
-    sim.settings['damping'] = 0.3
-    sim.settings['gravity'] = (0.0, 0.0, -4.0)
-    sim.settings['iterations'] = 4
-    sim.settings['transfer_rotation_speeds'] = (10.0, 50.0)
-    old_mass = sim.particles[1]['mass']
-    sim.particles[1]['mass'] = 2.0
-    sim.particles[1]['friction'] = 0.9
-    cap = c.collidables[0]
-    cap.params['end'] = (0.05, 0.05, 0.0)
-    cap.params['radius'] = 0.1
-    out = sf_cloth.write_cloth(bob, c)
-    assert TT.is_eq(len(out), len(bob), "same length: written in place")
-
-    r = sf_cloth.read_cloth(out)
-    s = r.sims[0]
-    assert TT.is_equiv(s.settings['damping'], 0.3, "damping")
-    assert TT.is_equiv(s.settings['gravity'], (0, 0, -4.0), "gravity")
-    assert TT.is_eq(s.settings['iterations'], 4, "iterations, in the simulate operator's config")
-    assert TT.is_equiv(s.settings['transfer_rotation_speeds'], (10.0, 50.0), "a (min, max) pair")
-    assert TT.is_equiv(s.particles[1]['mass'], 2.0, "mass")
-    assert TT.is_equiv(s.particles[1]['friction'], 0.9, "friction")
-    assert TT.is_equiv(s.settings['total_mass'], total0 - old_mass + 2.0,
-                       "totalMass follows the masses", e=0.001)
-    from pyn.havok_tagfile import Tagfile
-    tf = Tagfile(out)
-    assert TT.is_equiv(tf.get_at(sim._particles, 1, ('invMass',)), 0.5, "invMass = 1/mass")
-    rc = r.collidables[0]
-    assert TT.is_equiv(rc.params['radius'], 0.1, "capsule radius")
-    assert TT.is_equiv(rc.params['end'], (0.05, 0.05, 0.0), "capsule end")
-    start = cap.params['start']
-    d = [e - s0 for s0, e in zip(start, (0.05, 0.05, 0.0))]
-    length2 = sum(x * x for x in d)
-    assert TT.is_equiv(tf.get_at(cap._shape, 0, ('capLenSqrdInv',)), 1 / length2,
-                       "capLenSqrdInv follows the ends", e=0.01)
-    assert TT.is_equiv(tf.get_at(cap._shape, 0, ('dir',))[:3],
-                       [x / length2 ** 0.5 for x in d], "dir follows the ends")
-    untouched = set(sim.settings) - {'damping', 'gravity', 'iterations', 'transfer_rotation_speeds',
-                                     'total_mass'}
-    assert TT.is_eq({k: s.settings[k] for k in untouched}, {k: sim.settings[k] for k in untouched},
-                    "the settings not edited are as they were")
-    assert TT.is_eq(s.positions, sim.positions, "nothing else moved")
-    assert TT.is_eq(s.links, sim.links, "links untouched")
-
-    def refused(edit, why):
-        cc = sf_cloth.read_cloth(bob)
-        edit(cc)
-        try:
-            sf_cloth.write_cloth(bob, cc)
-        except sf_cloth.ClothEditError:
-            return
-        assert False, f"not refused: {why}"
-
-    refused(lambda cc: cc.sims[0].particles.pop(), "a particle removed")
-    refused(lambda cc: cc.sims[0].positions.__setitem__(0, (0, 0, 0)), "a particle moved")
-    refused(lambda cc: cc.sims[0].particles[0].__setitem__('mass', 1.0), "a pinned particle freed")
-
-
-def TEST_SF_CLOTH_ADD_LINKS():
-    """Links can be added to a cloth: the set's singles array grows, appended at the end of DATA
-    with its item repointed, and nothing else in the blob changes meaning. A new link's rest
-    length is its particles' rest distance; a standard link splits its stiffness by inverse mass
-    (vanilla's 0.5/-0.5 between equal masses, 0/-1 from a pinned particle).
-
-    bend_links finds the links that resist bending: across each particle whose two standard
-    links run on in nearly a line."""
-    from pyn import sf_cloth
-    from pyn.havok_tagfile import Tagfile
-    b = NifFile(os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'human', 'mesh', 'hairs', 'bob',
-                             'bob_f.nif')).cloth_data[0][1]
-    c = sf_cloth.read_cloth(b)
-    sim = c.sims[0]
-    pairs = sf_cloth.bend_links(sim.positions, sim.links)
-    assert TT.is_true(len(pairs) > 0, "the bob's strips have bend links to add")
-    have = {frozenset((x, y)) for x, y, _k in sim.links}
-    assert TT.is_true(all(frozenset(p) not in have for p in pairs), "only links not already there")
-
-    b2 = sf_cloth.add_links(b, 0, pairs)
-    assert TT.is_true(len(b2) > len(b), "the blob grows")
-    c2 = sf_cloth.read_cloth(b2)
-    s2 = c2.sims[0]
-    assert TT.is_eq([link for link in s2.links if link not in sim.links],
-                    [(a, cc, 'standard') for a, cc in pairs], "the new links, in order")
-    for name in ('positions', 'particles', 'pinned', 'triangles', 'settings'):
-        assert TT.is_eq(getattr(s2, name), getattr(sim, name), f"{name} unchanged")
-    assert TT.is_eq([(x.name, x.params) for x in c2.collidables],
-                    [(x.name, x.params) for x in c.collidables], "collidables unchanged")
-    t1, t2 = Tagfile(b), Tagfile(b2)
-    grown = sim._singles['standard']
-    n1, n2 = t1.items[grown][3], t2.items[grown][3]
-    assert TT.is_eq(n2, n1 + len(pairs), "the singles item holds the new links")
-    for i in range(1, len(t1.items)):
-        if i != grown:
-            # The set refers to the grown item by number; only the length it prints changes.
-            r2 = repr(t2.item(i)).replace(f"#{grown}:hclStandardLinkConstraintSetMx::Single[{n2}]",
-                                          f"#{grown}:hclStandardLinkConstraintSetMx::Single[{n1}]")
-            assert repr(t1.item(i)) == r2, f"item {i} reads the same"
-    assert TT.is_eq(sf_cloth.write_cloth(b2, sf_cloth.read_cloth(b2)), b2,
-                    "the grown blob round-trips too")
-
-    singles = t2.item(grown)
-    a, cc = pairs[0]
-    new = next(r for r in singles if (r['particleA'], r['particleB']) == (a, cc))
-    dist = sum((x - y) ** 2 for x, y in zip(sim.positions[a], sim.positions[cc])) ** 0.5
-    assert TT.is_equiv(new['restLength'], dist, "rest length = rest distance")
-    wa, wb = (1 / sim.particles[i]['mass'] if sim.particles[i]['mass'] else 0 for i in (a, cc))
-    assert TT.is_equiv((new['stiffnessA'], new['stiffnessB']),
-                       (wa / (wa + wb), -wb / (wa + wb)), "stiffness split by inverse mass")
-    # The split matches vanilla's own links.
-    for r in t1.item(grown):
-        wa, wb = (1 / sim.particles[i]['mass'] if sim.particles[i]['mass'] else 0
-                  for i in (r['particleA'], r['particleB']))
-        if wa + wb:
-            assert TT.is_equiv((r['stiffnessA'], r['stiffnessB']),
-                               (wa / (wa + wb), -wb / (wa + wb)),
-                               f"vanilla link {r['particleA']}-{r['particleB']} splits the same way")
-
-    p0, p1 = sim.pinned[:2]
-    try:
-        sf_cloth.add_links(b, 0, [(p0, p1)])
-        assert False, "a link between two pinned particles is refused"
-    except sf_cloth.ClothEditError:
-        pass
-
-
 def TEST_SF_CLOTH_TAGDOC_ROUNDTRIP():
     """havok_tagwrite.TagDoc rewrites a whole tagfile -- types, items, PTCH -- byte-identical,
     so structural edits start from an exact copy. Checked on a few vanilla blobs here; all 298
@@ -2500,29 +2356,127 @@ def TEST_SF_CLOTH_TAGDOC_ROUNDTRIP():
         assert TT.is_true(TagDoc(b).to_bytes() == b, f"{rel[-1]} rewrites byte-identical")
 
 
-def TEST_SF_CLOTH_BEND():
-    """Bend-stiffness constraints -- a spring at each edge two sim triangles share -- can be
-    added to a cloth that has none, and their stiffness edited in place.
+def _sf_cloth_blob(*rel):
+    return NifFile(os.path.join(TT.SF_ASSETS, 'meshes', *rel)).cloth_data[0][1]
 
-    The records follow vanilla's formulas, checked here against the child ponytail's own: wing
-    weights from the wings' distances to the edge, edge weights from where they meet it,
-    restCurvature = -(h.n)/(dA*dB), bendStiffness = -k / sum(w^2 invMass). The bob has no such
-    set, nor its types, so adding one copies the types in from sf_cloth_types."""
-    from pyn import sf_cloth
-    from pyn.havok_tagfile import Tagfile
+
+SF_CLOTH_FIXTURES = [
+    ('actors', 'human', 'mesh', 'hairs', 'top_bun', 'top_bun_f.nif'),       # 6 particles, 2 LR sets
+    ('actors', 'human', 'mesh', 'hairs', 'ponytail', 'ponytail_hairmesh_f.nif'),  # bend, planes
+    ('actors', 'human', 'mesh', 'hairs', 'bob', 'bob_f.nif'),               # a head capsule
+    ('clothes', 'outfit_ryujin_businesssuit_executive_01',                  # object-space skin,
+     'outfit_ryujin_businesssuit_executive_lowerbody_01_f.nif'),            # a tapered capsule
+    ('clothes', 'outfit_masako', 'outfit_masako_lowerbody_f.nif'),          # gathered vertices
+    ('clothes', 'spacesuit_pirateset', 'pirateset_officer_lower_f.nif'),    # six pieces
+]
+
+
+def TEST_SF_CLOTH_GRAPH_ROUNDTRIP():
+    """havok_graph reads a whole tagfile into Python objects and writes it back fresh: the same
+    values, every reference listed in PTCH inside an item. All 298 vanilla cloth blobs were
+    checked when it was written (2026-10-24), and rewritten ones load in game."""
+    from pyn.havok_graph import read_graph, write_graph, same
     from pyn.havok_tagwrite import TagDoc
-    from pyn.sf_cloth_types import TYPES as TYPES_DONOR
+    for rel in SF_CLOTH_FIXTURES:
+        b = _sf_cloth_blob(*rel)
+        g = read_graph(b)
+        out = write_graph(g, [b])
+        assert TT.is_eq(same(g, read_graph(out)), None, f"{rel[-1]} reads back the same")
+        assert TT.is_eq(TagDoc(out).stray_patches(), [], f"{rel[-1]}: no stray PTCH entry")
 
-    def blob(*rel):
-        return NifFile(os.path.join(TT.SF_ASSETS, 'meshes', *rel)).cloth_data[0][1]
 
-    # The formulas, against vanilla.
-    pony = blob('actors', 'child', 'mesh', 'hairs', 'ponytail_hairmesh.nif')
-    ps = sf_cloth.read_cloth(pony).sims[0]
+def TEST_SF_CLOTH_BUILD():
+    """sf_cloth_build writes a cloth whole from its model (read_model's Cloth), in vanilla's
+    plainest form -- bone-space skinning, a straight copy between the buffers, links as singles
+    -- with the type definitions from sf_cloth_types. Rebuilt, a vanilla cloth reads back the
+    same: particles, links, hinges, skin weights, driven bones, local range, collision masks,
+    settings. All 298 vanilla cloth blobs were checked when it was written (2026-10-24)."""
+    from pyn import sf_cloth, sf_cloth_build
+    from pyn.havok_tagwrite import TagDoc
+
+    def close(a, b, tol=1e-4):
+        return all(abs(x - y) <= tol * max(1, abs(x), abs(y)) for x, y in zip(a, b))
+
+    for rel in SF_CLOTH_FIXTURES:
+        m = sf_cloth.read_model(_sf_cloth_blob(*rel))
+        out = sf_cloth_build.build_cloth(m)
+        assert TT.is_eq(TagDoc(out).stray_patches(), [], f"{rel[-1]}: no stray PTCH entry")
+        m2 = sf_cloth.read_model(out)
+        assert TT.is_eq(len(m2.sims), len(m.sims), f"{rel[-1]}: every piece")
+        assert TT.is_eq([c.name for c in m2.collidables], [c.name for c in m.collidables],
+                        f"{rel[-1]}: the collidables")
+        for c1, c2 in zip(m.collidables, m2.collidables):
+            assert TT.is_true(close([x for k in sorted(c1.params) for x in
+                                     (c1.params[k] if isinstance(c1.params[k], tuple)
+                                      else [c1.params[k]])],
+                                    [x for k in sorted(c2.params) for x in
+                                     (c2.params[k] if isinstance(c2.params[k], tuple)
+                                      else [c2.params[k]])]), f"{c1.name}'s shape")
+        for s1, s2 in zip(m.sims, m2.sims):
+            who = f"{rel[-1]} {s1.cloth_data}"
+            assert TT.is_true(close([x for p in s1.positions for x in p],
+                                    [x for p in s2.positions for x in p]), f"{who}: positions")
+            for name in ('particles', 'pinned', 'triangles', 'local_ranges', 'collision_masks'):
+                assert TT.is_eq(getattr(s2, name), getattr(s1, name), f"{who}: {name}")
+            assert TT.is_eq({(frozenset((a, b)), k) for a, b, k in s2.links},
+                            {(frozenset((a, b)), k) for a, b, k in s1.links if a != b},
+                            f"{who}: links")
+            assert TT.is_eq(set(s2.bend), set(s1.bend), f"{who}: hinges")
+            assert TT.is_true(all(abs(s1.bend[e] - s2.bend[e]) < 1e-3 for e in s1.bend),
+                              f"{who}: each hinge's stiffness")
+            assert TT.is_eq([b for b, _t in s2.driven], [b for b, _t in s1.driven],
+                            f"{who}: driven bones")
+
+            def planes(s):
+                return sorted((p['bone'], tuple(round(x, 4) for x in p['equation']),
+                               round(p['stiffness'], 4), i) for p in s.planes
+                              for i in p['particles'])
+            assert TT.is_eq(planes(s2), planes(s1), f"{who}: bone planes")
+            for k, (a, b) in enumerate(zip(s1.skin, s2.skin)):
+                da, db = dict(a), dict(b)
+                assert set(da) == set(db) and all(abs(da[x] - db[x]) < 2e-3 for x in da), \
+                    f"{who}: particle {k} skin {a} vs {b}"
+            for key in s1.settings:
+                if key != 'total_mass':
+                    assert TT.is_eq(s2.settings[key], s1.settings[key], f"{who}: {key}")
+            assert TT.is_equiv(s2.settings['total_mass'], s1.settings['total_mass'],
+                               f"{who}: total mass", e=1e-3)
+            assert TT.is_eq([o.type_name for o in s2.graph['operators']],
+                            ['hclBoneSpaceSkinPNOperator', 'hclMoveParticlesOperator',
+                             'hclSimulateOperator', 'hclSimpleMeshBoneDeformOperator',
+                             'hclCopyVerticesOperator'], f"{who}: the plain operators")
+
+        # The two things that make Starfield silently drop a cloth (found 2026-10-23): a PTCH
+        # entry outside every item, and a type subsection not padded to 4 bytes (TST1/FST1 with
+        # 0xFF, the rest with 0 -- TBDY's zero padding reads as empty entries, and a body
+        # written after it is never read). Every vanilla blob has neither.
+        from pyn.havok_tagfile import section_map
+        sec = section_map(out)
+        for tag in ('TST1', 'TNA1', 'FST1', 'TBDY', 'THSH'):
+            assert TT.is_eq((sec[tag][1] - sec[tag][0]) % 4, 0, f"{rel[-1]}: {tag} padded")
+        tdoc = TagDoc(out)
+        assert TT.is_true(all(b.index for b in tdoc.bodies), f"{rel[-1]}: no empty TBDY entry "
+                                                             f"before a body")
+        tb0, tb1 = sec['TBDY']
+        assert TT.is_true(tb1 - tb0 - len(out[tb0:tb1].rstrip(b'\0')) < 4,
+                          f"{rel[-1]}: TBDY ends in at most 3 bytes of padding")
+
+
+def TEST_SF_CLOTH_BEND_FORMULAS():
+    """The bend-stiffness records the builder writes -- a hinge spring at each edge two sim
+    triangles share -- follow vanilla's own, checked against the child ponytail's: wing weights
+    from the wings' distances to the edge, edge weights from where they meet it,
+    restCurvature = -(h.n)/(dA*dB), bendStiffness = -k / sum(w^2 invMass)."""
+    from pyn import sf_cloth
+    m = sf_cloth.read_model(_sf_cloth_blob('actors', 'child', 'mesh', 'hairs',
+                                           'ponytail_hairmesh.nif'))
+    ps = m.sims[0]
     mine = {(r['particleA'], r['particleB'], r['particleC'], r['particleD']): r
             for r in sf_cloth.bend_records(ps.positions, ps.particles, ps.triangles, 0.5)[0]}
-    tf = Tagfile(pony)
-    vanilla = [r for _i, _e, _l, r in sf_cloth._bend_rows(tf, ps._bend[0])]
+    sets = [cs for cs in ps.graph['simClothDatas'][0]['staticConstraintSets']
+            if cs.type_name == sf_cloth.BEND_SET]
+    vanilla = [r for cs in sets for r in sf_cloth._records(cs, sf_cloth.BEND_BATCH)]
+    assert TT.is_true(len(vanilla) > 0, "the ponytail has hinge springs")
     # Vanilla may name either wing first, and either end of the edge; each swap mirrors the
     # weights and flips the triangle normal, so the curvature's sign.
     matched = 0
@@ -2545,67 +2499,11 @@ def TEST_SF_CLOTH_BEND():
             sign = (-1 if ab else 1) * (-1 if cd else 1)
             assert TT.is_equiv(r['restCurvature'] * sign, v['restCurvature'],
                                f"curvature {key}", e=0.05 * max(1.0, abs(v['restCurvature'])))
+            den = sf_cloth._bend_denominator(r)
+            assert TT.is_equiv(-r['bendStiffness'] * den, 0.5, f"stiffness {key}")
             matched += 1
             break
     assert TT.is_eq(matched, len(vanilla), "every vanilla record has its edge among ours")
-
-    # Adding a set where there's none.
-    bob = blob('actors', 'human', 'mesh', 'hairs', 'bob', 'bob_f.nif')
-    b0 = sf_cloth.read_cloth(bob).sims[0]
-    assert TT.is_eq(b0.settings['bend_stiffness'], 0.0, "no set: stiffness 0")
-    out = sf_cloth.add_bend_constraints(bob, 0, 0.5)
-    c = sf_cloth.read_cloth(out)
-    s = c.sims[0]
-    assert TT.is_eq(len(s._bend), 1, "one bend set now")
-    assert TT.is_equiv(s.settings['bend_stiffness'], 0.5, "at the stiffness asked for")
-    assert TT.is_true(TagDoc(out).to_bytes() == out, "the result is a well-formed tagfile")
-    # Every PTCH entry lies in an item, as in all 298 vanilla blobs; with one outside (a moved
-    # array's old copy still listed), Starfield ignores the whole cloth.
-    assert TT.is_eq(TagDoc(out).stray_patches(), [], "no PTCH entry outside an item")
-    # Every type subsection is padded to 4 bytes (TST1/FST1 with 0xFF, the rest with 0), as in
-    # all 298 vanilla blobs. TBDY's padding is zero bytes, which read as empty entries; a body
-    # written after them is never read, and Starfield drops the whole cloth.
-    from pyn.havok_tagfile import section_map
-    sec = section_map(out)
-    for tag in ('TST1', 'TNA1', 'FST1', 'TBDY', 'THSH'):
-        assert TT.is_eq((sec[tag][1] - sec[tag][0]) % 4, 0, f"{tag} padded to 4 bytes")
-    tdoc = TagDoc(out)
-    first_zero = next((i for i, b in enumerate(tdoc.bodies) if b.index == 0), len(tdoc.bodies))
-    assert TT.is_eq([b.index for b in tdoc.bodies[first_zero:] if b.index], [],
-                    "no type body after TBDY's padding")
-    tb0, tb1 = sec['TBDY']
-    tail = out[tb0:tb1].rstrip(b'\0')
-    assert TT.is_true(tb1 - tb0 - len(tail) < 4, "TBDY ends in at most 3 bytes of padding")
-    assert TT.is_true(all(tdoc.body_of(t) is not None for t in range(len(TagDoc(bob).tna),
-                                                                      len(tdoc.tna))
-                          if TagDoc(TYPES_DONOR).body_of(
-                              TagDoc(TYPES_DONOR).find_type(tdoc._signature(t))) is not None),
-                      "every copied type that has a body in the donor has one here")
-    tf = Tagfile(out)
-    for i in range(1, len(tf.items)):
-        tf.item(i)                               # every item decodes
-    shared = sf_cloth.bend_records(b0.positions, b0.particles, b0.triangles, 0.5)[0]
-    assert TT.is_eq(len(sf_cloth._bend_rows(tf, s._bend[0])), len(shared),
-                    "a record per shared edge")
-    exe = tf.get_at(*s._config)['constraintExecution'].list()
-    ids = {tf.items[r.idx][0].name: r.get()['constraintId']['value']
-           for r in tf.get_at(*s._idx)['staticConstraintSets'].list()}
-    bend_id, stretch_id = ids['hclBendStiffnessConstraintSetMx'], ids['hclStretchLinkConstraintSetMx']
-    assert TT.is_eq(exe.index(bend_id) + 1, exe.index(stretch_id),
-                    f"runs just before the stretch links: {exe}")
-    for name in ('positions', 'particles', 'pinned', 'triangles', 'links'):
-        assert TT.is_eq(getattr(s, name), getattr(b0, name), f"{name} unchanged")
-
-    # Through write_cloth: a stiffness on a cloth with no set adds one; on one with a set,
-    # it's rewritten in place.
-    c0 = sf_cloth.read_cloth(bob)
-    c0.sims[0].settings['bend_stiffness'] = 0.5
-    assert TT.is_eq(sf_cloth.write_cloth(bob, c0), out, "write_cloth adds the same set")
-    c.sims[0].settings['bend_stiffness'] = 0.8
-    out2 = sf_cloth.write_cloth(out, c)
-    assert TT.is_eq(len(out2), len(out), "an existing set's stiffness changes in place")
-    assert TT.is_equiv(sf_cloth.read_cloth(out2).sims[0].settings['bend_stiffness'], 0.8,
-                       "to the new stiffness")
 
 
 def TEST_SF_TINTBAKE_COMPOSITE():

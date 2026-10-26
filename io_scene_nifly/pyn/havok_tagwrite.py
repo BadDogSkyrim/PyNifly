@@ -9,6 +9,8 @@ byte-identical. See havok_tagfile for the format. What it adds:
     add_item(t, data, count)  a new object or array at the end of DATA
     add_patch(t, offset)      record that DATA[offset] holds a reference of type t (PTCH)
 
+havok_graph writes whole blobs through these.
+
 PTCH lists, per reference TYPE (each hkArray<...>, T*, hkStringPtr instance is its own type),
 the DATA offsets holding a reference; the u32 there is an item index. A new reference has to
 be listed, or the loader never resolves it.
@@ -258,6 +260,9 @@ class TagDoc:
         mine = self.find_type(donor._signature(t))
         if mine is not None:
             _map[t] = mine
+            # A blob can name a type it never defines (no TBDY body); take the donor's.
+            if self.body_of(mine) is None and donor.body_of(t) is not None:
+                self._copy_body(donor, t, mine, _map)
             return mine
         new = len(self.tna)
         _map[t] = new
@@ -270,25 +275,33 @@ class TagDoc:
             tmp.append((self._tname(tname),
                         self.copy_type(donor, v, _map) if tname.startswith('t') else v))
         self.tna[new] = (self._tname(donor.tnames[name]), tmp)
-
-        db = donor.body_of(t)
-        if db is not None:
-            body = Body(new)
-            body.parent = self.copy_type(donor, db.parent, _map)
-            body.opt = db.opt
-            body.format, body.version = db.format, db.version
-            body.size, body.align, body.flags, body.attribute = \
-                db.size, db.align, db.flags, db.attribute
-            body.subtype = self.copy_type(donor, db.subtype, _map) if db.subtype else db.subtype
-            body.members = [[self._fname(donor.fnames[mn]), mflags, extra, off,
-                             self.copy_type(donor, mt, _map)]
-                            for mn, mflags, extra, off, mt in db.members]
-            body.interfaces = [(self.copy_type(donor, it, _map), v) for it, v in db.interfaces]
-            self.bodies.append(body)
-        h = next((h for i, h in donor.hashes if i == t), None)
-        if h is not None:
-            self.hashes.append((new, h))
+        if donor.body_of(t) is not None:
+            self._copy_body(donor, t, new, _map)
+        else:
+            h = next((h for i, h in donor.hashes if i == t), None)
+            if h is not None:
+                self.hashes.append((new, h))
         return new
+
+    def _copy_body(self, donor, t, mine, _map):
+        """Donor type `t`'s TBDY body, as this blob's type `mine`."""
+        db = donor.body_of(t)
+        body = Body(mine)
+        body.parent = self.copy_type(donor, db.parent, _map)
+        body.opt = db.opt
+        body.format, body.version = db.format, db.version
+        body.size, body.align, body.flags, body.attribute = \
+            db.size, db.align, db.flags, db.attribute
+        body.subtype = self.copy_type(donor, db.subtype, _map) if db.subtype else db.subtype
+        body.members = [[self._fname(donor.fnames[mn]), mflags, extra, off,
+                         self.copy_type(donor, mt, _map)]
+                        for mn, mflags, extra, off, mt in db.members]
+        body.interfaces = [(self.copy_type(donor, it, _map), v) for it, v in db.interfaces]
+        self.bodies.append(body)
+        if not any(i == mine for i, _h in self.hashes):
+            h = next((h for i, h in donor.hashes if i == t), None)
+            if h is not None:
+                self.hashes.append((mine, h))
 
     # --- objects ------------------------------------------------------------------------------
     def add_item(self, t, data, count, kind=None, align=16):
@@ -303,24 +316,6 @@ class TagDoc:
         self.data += bytes(-len(self.data) % 4)
         self.items.append([(kind << 24) | t, off, count])
         return len(self.items) - 1, off
-
-    def relocate_item(self, idx, data, count, align=16):
-        """Item `idx` now holds `count` elements of `data` -- its old elements first, then any
-        new ones -- placed at the end of DATA. Anything referring to it does so by item number,
-        so nothing else changes; the old bytes stay, unused. PTCH entries in the old elements
-        move with them: one left behind in bytes no item owns makes Starfield drop the cloth.
-        Returns the new DATA offset."""
-        _flags, old_off, old_count = self.items[idx]
-        old_end = old_off + (len(data) // count) * old_count if count else old_off
-        self.data += bytes(-len(self.data) % align)
-        off = len(self.data)
-        self.data += data
-        self.data += bytes(-len(self.data) % 4)
-        self.items[idx][1], self.items[idx][2] = off, count
-        for group in self.patches:
-            group[1] = sorted(o - old_off + off if old_off <= o < old_end else o
-                              for o in group[1])
-        return off
 
     def stray_patches(self):
         """PTCH offsets that lie in no item. Every vanilla blob has none, and Starfield drops the
