@@ -42,14 +42,6 @@ SF_TEXTURE_SLOTS = {
 _TEXTURE_FILE_TYPE = 'BSMaterial::MRTextureFile'
 
 
-# Reflected CRC-32 table for poly 0x04C11DB7, used with init=0 and no final XOR (NOT the
-# zlib/PKZIP parameterisation, which inits to all-ones and inverts the result).
-_CRC32_TABLE = []
-for _b in range(256):
-    _c = _b
-    for _ in range(8):
-        _c = (_c >> 1) ^ (0xEDB88320 if _c & 1 else 0)
-    _CRC32_TABLE.append(_c)
 
 
 def material_id(material_path):
@@ -65,10 +57,8 @@ def material_id(material_path):
     """
     if not material_path:
         return 0
-    crc = 0
-    for c in material_path.replace('/', '\\').lower().encode('utf-8'):
-        crc = (crc >> 8) ^ _CRC32_TABLE[(crc ^ c) & 0xFF]
-    return crc & 0xFFFFFFFF
+    from .sf_cdb import crc32
+    return crc32(material_path.lower())
 
 
 _LAYER_ID = 'BSMaterial::LayerID'
@@ -688,28 +678,6 @@ def _component_data(block, nest, fields):
     return data
 
 
-def _settings_components(settings):
-    """Rebuild the root's settings components from a normalised settings dict, for the blocks
-    actually present. Driven by _COMPONENT_SPECS, so a newly modelled component is written as
-    soon as it is described there."""
-    comps = []
-    if settings.get('shader_model'):
-        comps.append({"Type": _SHADER_MODEL, "Index": 0,
-                      "Data": {"FileName": settings['shader_model']}})
-    for key, ctype, nest, fields in _COMPONENT_SPECS:
-        block = settings.get(key)
-        if block is not None:
-            comps.append({"Type": ctype, "Index": 0,
-                          "Data": _component_data(block, nest, fields)})
-    for idx, val in sorted((settings.get('param_bools') or {}).items()):
-        comps.append({"Type": _PARAM_BOOL, "Index": int(idx), "Data": {"Value": _enc_bool(val)}})
-    # An LOD material reference names a whole separate material in the game's database, so it is
-    # written back verbatim -- see _renamespace, which must not rewrite it.
-    for idx, val in sorted((settings.get('lod_materials') or {}).items()):
-        comps.append({"Type": _LOD_MATERIAL_ID, "Index": int(idx), "Data": {"ID": val}})
-    return comps
-
-
 def _indexed_components(node_data, key, ctype, encode):
     """Components for one indexed family ({index: value}) on a node."""
     return [{"Type": ctype, "Index": int(i), "Data": encode(v)}
@@ -1203,47 +1171,20 @@ def write_mat(data, filename=None, template=None, parents=None):
     return json.dumps(doc, indent=2)
 
 
-_cdb_cache = {}   # cdb path -> CdbFile (or False if it failed to load)
-
-
 def material_textures_from_cdb(cdb_path, mat_ref):
     """Read a material straight from Starfield's `materialsbeta.cdb` (bypassing loose `.mat`
     files) and return its normalised `{slot: path}` textures, or None if the cdb can't be read
-    or the material isn't in it. The parsed database is cached per path, so the one-time
-    component scan is paid only once across an import."""
-    cdb = _cdb_cache.get(cdb_path)
-    if cdb is None:
-        from . import sf_cdb
-        try:
-            cdb = sf_cdb.load_cdb(cdb_path)
-        except Exception as e:
-            log.warning(f"Could not read material database '{cdb_path}': {e}")
-            _cdb_cache[cdb_path] = False
-            return None
-        _cdb_cache[cdb_path] = cdb
-    if cdb is False:
-        return None
-    mat = cdb.get_material(mat_ref)
-    if mat is None:
-        return None
-    parsed = parse_mat_doc(mat)
+    or the material isn't in it. The parsed database is shared for the session (sf_cdb.get_cdb)."""
+    parsed = material_from_cdb(cdb_path, mat_ref)
     return parsed['textures'] if parsed else None
 
 
 def material_from_cdb(cdb_path, mat_ref):
     """Like material_textures_from_cdb but returns the FULL parsed dict (textures + settings +
-    layers + blenders), or None. Shares the per-path cache."""
-    cdb = _cdb_cache.get(cdb_path)
+    layers + blenders), or None. Shares the session's parsed database."""
+    from . import sf_cdb
+    cdb = sf_cdb.get_cdb(cdb_path)
     if cdb is None:
-        from . import sf_cdb
-        try:
-            cdb = sf_cdb.load_cdb(cdb_path)
-        except Exception as e:
-            log.warning(f"Could not read material database '{cdb_path}': {e}")
-            _cdb_cache[cdb_path] = False
-            return None
-        _cdb_cache[cdb_path] = cdb
-    if cdb is False:
         return None
     mat = cdb.get_material(mat_ref)
     return parse_mat_doc(mat) if mat is not None else None

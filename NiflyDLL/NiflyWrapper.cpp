@@ -16,6 +16,7 @@
 #include <sstream>
 #include <algorithm>
 #include <limits>
+#include <iterator>
 #include "niffile.hpp"
 #include "bhk.hpp"
 #include "NiflyFunctions.hpp"
@@ -100,6 +101,32 @@ using namespace nifly;
     }
 
 
+/* Exception barrier for the exported functions. A C++ exception must never cross the C
+   boundary--it takes the host process (Blender) down with it. Every exported function body
+   is wrapped in NIFLY_GUARD_BEGIN ... NIFLY_GUARD_END(errorValue): an exception is logged
+   (readable through getMessageLog) and the function returns errorValue instead. Functions
+   returning a pointer give nullptr, bool gives false, int gives NIFLY_EXCEPTION_ERR--or 0 for
+   the functions whose contract is "1 = success/found, 0 = failure". Void functions use
+   NIFLY_GUARD_END_VOID and just log. */
+const int NIFLY_EXCEPTION_ERR = -1;
+
+#define NIFLY_GUARD_BEGIN try {
+
+#define NIFLY_GUARD_CATCH_LOG \
+    catch (const std::exception& e) { \
+        niflydll::LogWriteEf("%s: exception: %s", __FUNCTION__, e.what()); \
+    } \
+    catch (...) { \
+        niflydll::LogWriteEf("%s: unknown exception", __FUNCTION__); \
+    }
+
+#define NIFLY_GUARD_END(errval) } NIFLY_GUARD_CATCH_LOG return errval;
+
+#define NIFLY_GUARD_END_VOID } NIFLY_GUARD_CATCH_LOG
+
+using niflydll::copy_out;
+
+
 void assignQ(float* dest, Quaternion source) {
     dest[0] = source.w;
     dest[1] = source.x;
@@ -149,6 +176,7 @@ enum TargetGame StrToTargetGame(const char* gameName) {
 }
 
 NIFLY_API void* load(const char8_t* filename) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = new NifFile();
     NifLoadOptions options;
 
@@ -178,6 +206,7 @@ NIFLY_API void* load(const char8_t* filename) {
 		niflydll::LogWrite("ERROR: Unknown exception on file load");
         return nullptr;
     }
+    NIFLY_GUARD_END(nullptr)
 }
 
 NIFLY_API void* getRoot(void* f) 
@@ -185,12 +214,15 @@ NIFLY_API void* getRoot(void* f)
     KF files may not have a NiNode as the root, so do the work here.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* theNif = static_cast<NifFile*>(f);
     NiHeader hdr = theNif->GetHeader();
     return hdr.GetBlock<NiObject>(0u);
+    NIFLY_GUARD_END(nullptr)
 }
 
 NIFLY_API int getRootName(void* f, char* buf, int len) {
+    NIFLY_GUARD_BEGIN
     NifFile* theNif = static_cast<NifFile*>(f);
     NiHeader* hdr = &theNif->GetHeader();
 
@@ -202,13 +234,13 @@ NIFLY_API int getRootName(void* f, char* buf, int len) {
         nifly::NiSequence* root = hdr->GetBlock<NiSequence>(uint32_t(0));
         name = root->name.get();
     }
-    int copylen = std::min((int)len - 1, (int)name.length());
-    name.copy(buf, copylen, 0);
-    buf[copylen] = '\0';
+    copy_out(buf, len, name);
     return int(name.length());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getGameName(void* f, char* buf, int len) {
+    NIFLY_GUARD_BEGIN
     NifFile* theNif = static_cast<NifFile*>(f);
     NiHeader hdr = theNif->GetHeader();
     NiVersion vers = hdr.GetVersion();
@@ -220,26 +252,31 @@ NIFLY_API int getGameName(void* f, char* buf, int len) {
     else if (vers.IsFO76()) { name = "FO76"; }
     else if (vers.IsSF()) { name = "SF"; }
 
-    int copylen = std::min((int)len - 1, (int)name.length());
-    name.copy(buf, copylen, 0);
-    buf[copylen] = '\0';
+    copy_out(buf, len, name);
     return int(name.length());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API const int* getVersion() {
+    NIFLY_GUARD_BEGIN
     return NiflyDDLVersion;
+    NIFLY_GUARD_END(nullptr)
 };
 
 NIFLY_API void* nifCreate() {
+    NIFLY_GUARD_BEGIN
     return new NifFile;
+    NIFLY_GUARD_END(nullptr)
 }
 
 NIFLY_API void destroy(void* f) {
+    NIFLY_GUARD_BEGIN
     NifFile* theNif = static_cast<NifFile*>(f);
     if (theNif) {
         theNif->Clear();
         delete theNif;
     }
+    NIFLY_GUARD_END_VOID
 }
 
 void SetNifVersionWrap(NifFile* nif, enum TargetGame targ, const char* rootType, std::string name) {
@@ -331,11 +368,13 @@ NIFLY_API void* createNif(const char* targetGameName, const char* rootType, cons
     rootType is the block type of root to create, usually "NiNode". May be omitted.
 */
 {
+    NIFLY_GUARD_BEGIN
     TargetGame targetGame = StrToTargetGame(targetGameName);
     NifFile* workNif = new NifFile();
     std::string rootNameStr = rootName;
     SetNifVersionWrap(workNif, targetGame, rootType, rootNameStr);
     return workNif;
+    NIFLY_GUARD_END(nullptr)
 }
 
 void writeSkinBoneWeights(NifFile* nif, BSTriShape* shape) {
@@ -373,6 +412,7 @@ void writeSkinBoneWeights(NifFile* nif, BSTriShape* shape) {
 }
 
 NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
+    NIFLY_GUARD_BEGIN
     /*
         Write the nif out to a file.
         Returns 0 on success.
@@ -392,6 +432,7 @@ NIFLY_API int saveNif(void* the_nif, const char8_t* filename) {
     nif->GetHeader().SetExportInfo("Created with pyNifly");
 
     return nif->Save(std::filesystem::path(filename));
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -401,8 +442,10 @@ NIFLY_API int getNodeCount(void* theNif)
 /* Return the number of NiNodes in the nif. Anything not a subclass 
 of NiNode doesn't count.*/
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     return int(nif->GetNodes().size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void getNodes(void* theNif, void** buf)
@@ -411,19 +454,23 @@ NIFLY_API void getNodes(void* theNif, void** buf)
 * are not NiNodes.
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     std::vector<nifly::NiNode*> nodes = nif->GetNodes();
     for (int i = 0; i < nodes.size(); i++)
         buf[i] = nodes[i];
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int getBlockID(void* nifref, void* blk) 
 /* Given a pointer to a block, return its ID. */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiObject* obj = static_cast<NiObject*>(blk);
     return hdr->GetBlockID(obj);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getBlockname(void* nifref, int blockID, char* buf, int buflen) 
@@ -431,33 +478,28 @@ NIFLY_API int getBlockname(void* nifref, int blockID, char* buf, int buflen)
     Return the blockname of the given NiObject.
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiObject* theNode = hdr->GetBlock<NiObject>(blockID);
 
-    size_t namelen = 0;
-    if (theNode) {
-        std::string name = theNode->GetBlockName();
-        int copylen = std::min((int)buflen - 1, (int)name.length());
-        name.copy(buf, copylen, 0);
-        namelen = name.length();
-    }
-    if (buflen > 0) buf[namelen] = '\0';
-    return int(namelen);
+    if (theNode)
+        return copy_out(buf, buflen, theNode->GetBlockName());
+    return copy_out(buf, buflen, "");
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getNodeBlockname(void* node, char* buf, int buflen) 
 /* Return the blockname of the given NiObject. */
 {
+    NIFLY_GUARD_BEGIN
     nifly::NiObject* theNode = static_cast<nifly::NiObject*>(node);
-    std::string name = theNode->GetBlockName();
-    int copylen = std::min((int)buflen - 1, (int)name.length());
-    name.copy(buf, copylen, 0);
-    buf[name.length()] = '\0';
-    return int(name.length());
+    return copy_out(buf, buflen, theNode->GetBlockName());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void getNode(void* nifref, void* node, NiNodeBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
@@ -474,6 +516,7 @@ NIFLY_API void getNode(void* nifref, void* node, NiNodeBuf* buf) {
     buf->collisionID = theNode->collisionRef.index;
     buf->childCount = theNode->childRefs.GetSize();
     buf->effectCount = theNode->effectRefs.GetSize();
+    NIFLY_GUARD_END_VOID
 }
 
 int getNodeProperties(void* nifref, uint32_t id, void* inbuf) {
@@ -541,25 +584,32 @@ int setNodeByID(void* nifref, uint32_t id, void* inbuf) {
 }
 
 NIFLY_API void* getNodeByID(void* theNif, uint32_t theID) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     NiHeader hdr = nif->GetHeader();
     nifly::NiObject* node = hdr.GetBlock<NiObject>(theID);
     return node;
+    NIFLY_GUARD_END(nullptr)
 }
 
 // OBSOLETE
 NIFLY_API int getNodeFlags(void* node) {
+    NIFLY_GUARD_BEGIN
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     return theNode->flags;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // OBSOLETE
 NIFLY_API void setNodeFlags(void* node, int theFlags) {
+    NIFLY_GUARD_BEGIN
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     theNode->flags = theFlags;
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     if (buflen > 0) buf[0] = '\0';
     std::string name;
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
@@ -572,17 +622,18 @@ NIFLY_API int getNodeName(void* node, char* buf, int buflen) {
 
     if (name.length() == 0) return 0;
 
-    int copylen = std::min((int)buflen - 1, (int)name.length());
-    name.copy(buf, copylen, 0);
-    buf[copylen] = '\0';
+    copy_out(buf, buflen, name);
 
     return int(name.length());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void* getNodeParent(void* theNif, void* node) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiNode* theNode = static_cast<nifly::NiNode*>(node);
     return nif->GetParentNode(theNode);
+    NIFLY_GUARD_END(nullptr)
 }
 
 NIFLY_API int getNodeChildren(void* nifRef, int nodeID, int buflen, int* buf)
@@ -593,6 +644,7 @@ NIFLY_API int getNodeChildren(void* nifRef, int nodeID, int buflen, int* buf)
     (which may exceed buflen; buf is filled up to buflen).
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifRef);
     NiHeader* hdr = &nif->GetHeader();
     NiNode* parent = hdr->GetBlock<NiNode>(nodeID);
@@ -607,15 +659,18 @@ NIFLY_API int getNodeChildren(void* nifRef, int nodeID, int buflen, int* buf)
     }
 
     return childCount;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void* addNode(void* f, const char* name, void* xf, void* parent) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(f);
     NiNode* parentNode = static_cast<NiNode*>(parent);
     MatTransform* xfptr = static_cast<MatTransform*>(xf);
     NiNode* theNode = nif->AddNode(name, *xfptr, parentNode);
     theNode->flags = 14; // Clear the no anim sync flag by default
     return theNode;
+    NIFLY_GUARD_END(nullptr)
 }
 
 int createNode(void* f, const char* name, void* properties, uint32_t parent) {
@@ -827,6 +882,7 @@ int addBSMultiBoundOBB(void* f, const char* name, void* properties, uint32_t par
    NiNode; these handle the two bone arrays. */
 NIFLY_API int getBSTreeNodeBones(void* nifref, uint32_t id, int which,
                                  uint32_t* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSTreeNode* node = hdr->GetBlock<BSTreeNode>(id);
@@ -840,10 +896,12 @@ NIFLY_API int getBSTreeNodeBones(void* nifref, uint32_t id, int which,
         n++;
     }
     return n;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void setBSTreeNodeBones(void* nifref, uint32_t id, int which,
                                   uint32_t* ids, int count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSTreeNode* node = hdr->GetBlock<BSTreeNode>(id);
@@ -851,17 +909,20 @@ NIFLY_API void setBSTreeNodeBones(void* nifref, uint32_t id, int which,
     NiBlockRefArray<NiNode>& arr = (which == 1) ? node->bones1 : node->bones2;
     arr.Clear();
     for (int i = 0; i < count; i++) arr.AddBlockRef(ids[i]);
+    NIFLY_GUARD_END_VOID
 }
 
 /* Replace a node's Children array with exactly the given ids, in order. Used to
    enforce NiSwitchNode child ordering (skinned branch first) on export. */
 NIFLY_API void setNodeChildren(void* nifref, int nodeID, int* ids, int count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiNode* node = hdr->GetBlock<NiNode>(nodeID);
     if (!node) return;
     node->childRefs.Clear();
     for (int i = 0; i < count; i++) node->childRefs.AddBlockRef(ids[i]);
+    NIFLY_GUARD_END_VOID
 }
 
 
@@ -891,15 +952,19 @@ int assignControllerSequence(void* f, uint32_t id, void* b) {
 }
 
 NIFLY_API void* findNodeByName(void* theNif, const char* nodeName) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     return nif->FindBlockByName<NiObjectNET>(nodeName);
+    NIFLY_GUARD_END(nullptr)
 }
 
 NIFLY_API int findBlockByName(void* theNif, const char* nodeName) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     NiHeader hdr = nif->GetHeader();
     NiObjectNET* theBlock = nif->FindBlockByName<NiObjectNET>(nodeName);
     return nif->GetBlockID(theBlock);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockname, int buflen, void** buf)
@@ -910,6 +975,7 @@ NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockna
     buf = buffer to write with node IDs of found nodes. 
 */ 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifRef);
     NiHeader hdr = nif->GetHeader();
     NiNode* parent = static_cast<NiNode*>(parentRef);
@@ -933,6 +999,7 @@ NIFLY_API int findNodesByType(void* nifRef, void* parentRef, const char* blockna
     }
 
     return childCount;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getMaxStringLen(void* nifref) 
@@ -940,42 +1007,43 @@ NIFLY_API int getMaxStringLen(void* nifref)
 buffers conveniently.
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     int m = 0;
     for (unsigned int i = 0; i < hdr.GetStringCount(); i++)
         m = std::max(m, int(hdr.GetStringById(i).length()));
     return m;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getString(void* nifref, int strid, int buflen, char* buf) 
 /* Return a string from the NIF given its ID. Returns its length. */ 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     
-    std::string str = hdr->GetStringById(strid);
-    int i;
-    for (i = 0; i < buflen && i < str.length(); i++)
-        buf[i] = str[i];
-    if (i < buflen) buf[i] = '\0';
-
-    return int(str.length());
+    return copy_out(buf, buflen, hdr->GetStringById(strid));
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int addString(void* nifref, const char* buf) 
 /* Add a string to the nif. */ 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
 
     return hdr->AddOrFindStringId(buf);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
 /* ********************* SHAPE MANAGEMENT ********************** */
 
 int NIFLY_API getAllShapeNames(void* f, char* buf, int len) {
+    NIFLY_GUARD_BEGIN
     NifFile* theNif = static_cast<NifFile*>(f);
     std::vector<std::string> names = theNif->GetShapeNames();
     std::string s = "";
@@ -983,23 +1051,23 @@ int NIFLY_API getAllShapeNames(void* f, char* buf, int len) {
         if (s.length() > 0) s += "\n";
         s += sn;
     }
-    int copylen = std::min((int)len - 1, (int)s.length());
-    s.copy(buf, copylen, 0);
-    buf[copylen] = '\0';
+    copy_out(buf, len, s);
 
     return int(names.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getShapeName(void* theShape, char* buf, int len) {
+    NIFLY_GUARD_BEGIN
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::string name = shape->name.get();
-    int copylen = std::min((int)len - 1, (int)name.length());
-    name.copy(buf, copylen, 0);
-    buf[copylen] = '\0';
+    copy_out(buf, len, name);
     return int(name.length());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int NIFLY_API loadShapeNames(const char* filename, char* buf, int len) {
+    NIFLY_GUARD_BEGIN
     NifFile* theNif = new NifFile(std::filesystem::path(filename));
     std::vector<std::string> names = theNif->GetShapeNames();
     std::string s = "";
@@ -1007,21 +1075,22 @@ int NIFLY_API loadShapeNames(const char* filename, char* buf, int len) {
         if (s.length() > 0) s += "\n";
         s += sn;
     }
-    int copylen = std::min((int)len - 1, (int)s.length());
-    s.copy(buf, copylen, 0);
-    buf[copylen] = '\0';
+    copy_out(buf, len, s);
 
     theNif->Clear();
     delete theNif;
     return int(names.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int NIFLY_API getShapes(void* f, void** buf, int len, int start) {
+    NIFLY_GUARD_BEGIN
     NifFile* theNif = static_cast<NifFile*>(f);
     std::vector<nifly::NiShape*> shapes = theNif->GetShapes();
     for (int i=start, j=0; (j < len) && (i < shapes.size()); i++)
         buf[j++] = shapes[i];
     return int(shapes.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 void getShape(void* nifref, NiShape* theShape, NiShapeBuf* buf) {
@@ -1163,11 +1232,10 @@ int getBSLODTriShape(void* nifref, uint32_t id, void* buf) {
 }
 
 NIFLY_API int getShapeBlockName(void* theShape, char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     NiShape* shape = static_cast<nifly::NiShape*>(theShape);
-    const char* blockname = shape->GetBlockName();
-    strncpy_s(buf, buflen, blockname, buflen);
-    buf[buflen - 1] = '\0';
-    return int(strlen(blockname));
+    return copy_out(buf, buflen, shape->GetBlockName());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getVertsForShape(void* theNif, void* theShape, Vector3* buf, int len, int start)
@@ -1178,6 +1246,7 @@ NIFLY_API int getVertsForShape(void* theNif, void* theShape, Vector3* buf, int l
     Returns number of verts in the nif.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<nifly::Vector3> verts;
@@ -1201,6 +1270,7 @@ NIFLY_API int getVertsForShape(void* theNif, void* theShape, Vector3* buf, int l
     }
 
     return int(verts.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getNormalsForShape(void* theNif, void* theShape, Vector3* buf, int len, int start)
@@ -1210,6 +1280,7 @@ NIFLY_API int getNormalsForShape(void* theNif, void* theShape, Vector3* buf, int
     start = normal index to start with.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     const std::vector<nifly::Vector3>* norms;
@@ -1221,6 +1292,7 @@ NIFLY_API int getNormalsForShape(void* theNif, void* theShape, Vector3* buf, int
     }
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getTriangles(void* theNif, void* theShape, Triangle* buf, int len, int start)
@@ -1230,6 +1302,7 @@ NIFLY_API int getTriangles(void* theNif, void* theShape, Triangle* buf, int len,
     start = tri index to start with.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<nifly::Triangle> shapeTris;
@@ -1238,10 +1311,12 @@ NIFLY_API int getTriangles(void* theNif, void* theShape, Triangle* buf, int len,
         buf[i] = shapeTris.at(i);
 
     return int(shapeTris.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getUVs(void* theNif, void* theShape, Vector2* buf, int len, int start)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     const std::vector<nifly::Vector2>* uv = nif->GetUvsForShape(shape);
@@ -1249,6 +1324,7 @@ NIFLY_API int getUVs(void* theNif, void* theShape, Vector2* buf, int len, int st
         buf[i] = uv->at(i);
 
     return int(uv->size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int setShapeFromBuf(NifFile* nif, NiShape* theShape, NiShapeBuf* buf)
@@ -1338,6 +1414,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     * parentRef = Node to be parent of the new shape. Root if omitted.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(parentNif);
     NiShapeBuf* buf = static_cast<NiShapeBuf*>(buffer);
     std::vector<Vector3> v;
@@ -1373,6 +1450,7 @@ NIFLY_API void* createNifShapeFromData(void* parentNif,
     setShapeFromBuf(nif, newShape, buf);
 
     return newShape;
+    NIFLY_GUARD_END(nullptr)
 }
 
 
@@ -1385,6 +1463,7 @@ NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform* 
     V9 warning: the call on the skin returned the inverse of this.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifRef);
     bool skinXfFound = nif->GetShapeTransformGlobalToSkin(static_cast<NiShape*>(shapeRef), *xform);
     if (!skinXfFound) {
@@ -1394,6 +1473,7 @@ NIFLY_API bool getShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform* 
         
     }
     return skinXfFound;
+    NIFLY_GUARD_END(false)
 }
 
 NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform* xform) 
@@ -1404,6 +1484,7 @@ NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform*
     whereas the NifFile version just returns the first it finds, which is probably fine TBH.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifRef);
     NiShape* shape = static_cast<NiShape*>(shapeRef);
     std::vector<MatTransform> eachXformGlobalToSkin;
@@ -1438,15 +1519,19 @@ NIFLY_API void calcShapeGlobalToSkin(void* nifRef, void* shapeRef, MatTransform*
     }
     if (!eachXformGlobalToSkin.empty())
         *xform = CalcMedianMatTransform(eachXformGlobalToSkin);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int hasSkinInstance(void* shapeRef) {
+    NIFLY_GUARD_BEGIN
     return static_cast<NiShape*>(shapeRef)->HasSkinInstance()? 1: 0;
+    NIFLY_GUARD_END(0)
 }
 
 NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, MatTransform& buf)
 /* Return the skin-to-bone transform for the given bone in the given shape*/
 {
+    NIFLY_GUARD_BEGIN
     //MatTransform xf;
     bool hasXform = static_cast<NifFile*>(nifPtr)->GetShapeTransformSkinToBone(
         static_cast<NiShape*>(shapePtr),
@@ -1454,6 +1539,7 @@ NIFLY_API bool getShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
         buf);
     //if (hasXform) XformToBuffer(buf, xf);
     return hasXform;
+    NIFLY_GUARD_END(false)
 }
 
 NIFLY_API bool getShapeSkinToBoneByIndex(void* nifPtr, void* shapePtr, int boneIndex, MatTransform& buf)
@@ -1471,6 +1557,7 @@ NIFLY_API bool getShapeSkinToBoneByIndex(void* nifPtr, void* shapePtr, int boneI
     by havokScale, exactly as the vertex path does. Only the translation is a length; rotation and
     scale are unit-invariant. Constant mirrors nifly Geometry.hpp:547 (havokScale = 69.969f). */
 {
+    NIFLY_GUARD_BEGIN
     const float havokScale = 69.969f;
     bool found = static_cast<NifFile*>(nifPtr)->GetShapeTransformSkinToBone(
         static_cast<NiShape*>(shapePtr),
@@ -1482,6 +1569,7 @@ NIFLY_API bool getShapeSkinToBoneByIndex(void* nifPtr, void* shapePtr, int boneI
         buf.translation.z *= havokScale;
     }
     return found;
+    NIFLY_GUARD_END(false)
 }
 
 NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* boneName, const MatTransform& buf)
@@ -1491,6 +1579,7 @@ NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
     Note the bone has to exist in the shape already. 
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifPtr);
     NiShape* shape = static_cast<NiShape*>(shapePtr);
     NiHeader hdr = nif->GetHeader();
@@ -1498,22 +1587,29 @@ NIFLY_API void setShapeSkinToBone(void* nifPtr, void* shapePtr, const char* bone
 
     if (boneID != NIF_NPOS)
         nif->SetShapeTransformSkinToBone(shape, boneID, buf);
+    NIFLY_GUARD_END_VOID
 }
 
 // OBSOLETE (used in tests)
 NIFLY_API void getNodeTransform(void* theNode, MatTransform* buf) {
+    NIFLY_GUARD_BEGIN
     nifly::NiNode* node = static_cast<nifly::NiNode*>(theNode);
     *buf = node->GetTransformToParent();
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int getNodeTransformToGlobal(void* nifref, const char* nodeName, MatTransform* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     return nif->GetNodeTransformToGlobal(nodeName, *buf)? 1 : 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void skinShape(void* nif, void* shapeRef)
 {
+    NIFLY_GUARD_BEGIN
     static_cast<NifFile*>(nif)->CreateSkinning(static_cast<nifly::NiShape*>(shapeRef));
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int demoteSkinInstance(void* nifref, void* shaperef)
@@ -1521,6 +1617,7 @@ NIFLY_API int demoteSkinInstance(void* nifref, void* shaperef)
    Returns 0 on success, non-zero if the shape doesn't have a BSDismemberSkinInstance.
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader& hdr = nif->GetHeader();
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -1534,30 +1631,38 @@ NIFLY_API int demoteSkinInstance(void* nifref, void* shaperef)
 
     hdr.ReplaceBlock(shape->SkinInstanceRef()->index, std::move(newSkinInst));
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void setShapeGlobalToSkin(void* nifref, void* shaperef, MatTransform* xformBuf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<nifly::NifFile*>(nifref);
     NiShape* shape = static_cast<nifly::NiShape*>(shaperef);
     nif->SetShapeTransformGlobalToSkin(shape, *xformBuf);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void setTransform(void* theShape, MatTransform* buf) {
+    NIFLY_GUARD_BEGIN
     NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     shape->SetTransformToParent(*buf);
+    NIFLY_GUARD_END_VOID
 }
 
 
 /* ************************* BONES AND WEIGHTS ************************* */
 
 NIFLY_API int getShapeBoneCount(void* theNif, void* theShape) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<int> bonelist;
     return nif->GetShapeBoneIDList(shape, bonelist);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getShapeBoneIDs(void* theNif, void* theShape, int* buf, int bufsize) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<int> bonelist;
@@ -1565,6 +1670,7 @@ NIFLY_API int getShapeBoneIDs(void* theNif, void* theShape, int* buf, int bufsiz
     for (int i = 0; i < bufsize && i < bonelist.size(); i++)
         buf[i] = bonelist[i];
     return int(bonelist.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buflen) 
@@ -1574,6 +1680,7 @@ NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buf
 * returns actual length written to buf
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     std::vector<std::string> names;
@@ -1584,26 +1691,26 @@ NIFLY_API int getShapeBoneNames(void* theNif, void* theShape, char* buf, int buf
         if (s.length() > 0) s += "\n";
         s += sn;
     }
-    if (buf) {
-        int copylen = std::min((int)buflen - 1, (int)s.length());
-        s.copy(buf, copylen, 0);
-        buf[copylen] = '\0';
-    };
+    copy_out(buf, buflen, s);
 
     return(int(s.length()));
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getShapeBoneWeightsCount(void* theNif, void* theShape, int boneIndex) {
+    NIFLY_GUARD_BEGIN
     /* Get the count of bone weights associated with the given bone. */
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
 
     std::unordered_map<uint16_t, float> boneWeights;
     return nif->GetShapeBoneWeights(shape, boneIndex, boneWeights);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex,
                                   struct VertexWeightPair* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
 /* Get the bone weights associated with the given bone for the given shape.
 * On BSTriShapes, the weights come from the NiSkinPartition not the NiSkinData.
     boneIndex = index of bone in the list of bones associated with this shape 
@@ -1624,10 +1731,12 @@ NIFLY_API int getShapeBoneWeights(void* theNif, void* theShape, int boneIndex,
     }
 
     return numWeights;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getShapeSkinWeights(void* theNif, void* theShape, int boneIndex,
                                   struct BoneWeight* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
 /* 
 * Get all the weights associated with the given bone on the given shape. This comes from
 * the NiSkinData block. Bone is referenced by index within the shape.
@@ -1650,6 +1759,7 @@ NIFLY_API int getShapeSkinWeights(void* theNif, void* theShape, int boneIndex,
         i++;
     }
     return int(bd->vertexWeights.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void addAllBonesToShape(void* nifref, void* shaperef, int boneCount, int* boneIDs)
@@ -1658,6 +1768,7 @@ NIFLY_API void addAllBonesToShape(void* nifref, void* shaperef, int boneCount, i
 *   are removed.
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -1667,6 +1778,7 @@ NIFLY_API void addAllBonesToShape(void* nifref, void* shaperef, int boneCount, i
         ids.push_back(boneIDs[i]);
     }
     nif->SetShapeBoneIDList(shape, ids);
+    NIFLY_GUARD_END_VOID
 }
 
 
@@ -1684,6 +1796,7 @@ NIFLY_API void* addBoneToNifShape(void* nifref, void* shaperef, const char* bone
 *   Returns the handle of the NiNode representing the bone.
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -1706,11 +1819,13 @@ NIFLY_API void* addBoneToNifShape(void* nifref, void* shaperef, const char* bone
     nif->SetShapeBoneTransform(shape, boneIndex, *xformToParent);
 
     return node;
+    NIFLY_GUARD_END(nullptr)
 }
 
 NIFLY_API void setShapeBoneWeights(void* nifref, void* shaperef, const char* boneName,
     VertexWeightPair* vertWeightsIn, int vertWeightLen) 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiShape* shape = static_cast<NiShape*>(shaperef);
@@ -1756,10 +1871,12 @@ NIFLY_API void setShapeBoneWeights(void* nifref, void* shaperef, const char* bon
         }
         nif->SetShapeBoneWeights(shape->name.get(), boneID, vertWeights);
     }
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void setShapeBoneIDList(void* theFile, void* shapeRef, int* boneIDList, int listLen)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theFile);
     NiShape* shape = static_cast<nifly::NiShape*>(shapeRef);
     std::vector<int> bids;
@@ -1767,6 +1884,7 @@ NIFLY_API void setShapeBoneIDList(void* theFile, void* shapeRef, int* boneIDList
         bids.push_back(boneIDList[i]);
     }
     nif->SetShapeBoneIDList(shape, bids);
+    NIFLY_GUARD_END_VOID
 }
 
 
@@ -1784,6 +1902,7 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
 *   5 = environment mask
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
     NiShader* shader = nif->GetShader(shape);
@@ -1798,12 +1917,9 @@ NIFLY_API int getShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, 
     if (buflen > 0) buf[0] = '\0';
     if (val == 0) return 0;
 
-    if (buflen > 1) {
-        memcpy(buf, texture.data(), std::min(texture.size(), static_cast<size_t>(buflen - 1)));
-        buf[texture.size()] = '\0';
-    }
-
-    return static_cast<int>(texture.length());
+    // (Was buf[texture.size()] = 0, which wrote past a too-small buffer.)
+    return copy_out(buf, buflen, texture);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 int getNiShader(void* nifref, uint32_t id, void* buffer)
@@ -1924,7 +2040,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
     };
     if (bsesp) {
         buf->bufType = BUFFER_TYPES::BSEffectShaderPropertyBufType;
-        bsesp->sourceTexture.get().copy(buf->sourceTexture, 256);
+        copy_out(buf->sourceTexture, sizeof(buf->sourceTexture), bsesp->sourceTexture.get());
         buf->Emissive_Mult = bsesp->GetEmissiveMultiple();
         buf->Emissive_Color[0] = bsesp->GetEmissiveColor().r;
         buf->Emissive_Color[1] = bsesp->GetEmissiveColor().g;
@@ -1944,10 +2060,10 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
         buf->baseColor[3] = bsesp->baseColor.a;
         buf->baseColorScale = bsesp->baseColorScale;
         buf->softFalloffDepth = bsesp->softFalloffDepth;
-        bsesp->greyscaleTexture.get().copy(buf->greyscaleTexture, 256);
-        bsesp->envMapTexture.get().copy(buf->envMapTexture, 256);
-        bsesp->normalTexture.get().copy(buf->normalTexture, 256);
-        bsesp->envMaskTexture.get().copy(buf->envMaskTexture, 256);
+        copy_out(buf->greyscaleTexture, sizeof(buf->greyscaleTexture), bsesp->greyscaleTexture.get());
+        copy_out(buf->envMapTexture, sizeof(buf->envMapTexture), bsesp->envMapTexture.get());
+        copy_out(buf->normalTexture, sizeof(buf->normalTexture), bsesp->normalTexture.get());
+        copy_out(buf->envMaskTexture, sizeof(buf->envMaskTexture), bsesp->envMaskTexture.get());
         buf->envMapScale = bsesp->envMapScale;
         buf->emittanceColor[0] = bsesp->emittanceColor.r;
         buf->emittanceColor[1] = bsesp->emittanceColor.g;
@@ -1956,7 +2072,7 @@ int getNiShader(void* nifref, uint32_t id, void* buffer)
         buf->exposureOffset = bsesp->exposureOffset;
         buf->finalExposureMin = bsesp->finalExposureMin;
         buf->finalExposureMax = bsesp->finalExposureMax;
-        bsesp->emitGradientTexture.get().copy(buf->emitGradientTexture, 256);
+        copy_out(buf->emitGradientTexture, sizeof(buf->emitGradientTexture), bsesp->emitGradientTexture.get());
     };
     if (bspp) {
         buf->bufType = BUFFER_TYPES::BSShaderPPLightingPropertyBufType;
@@ -2015,12 +2131,14 @@ int setNiAlphaProperty(void* nifref, const char* name, void* buffer, uint32_t pa
 }
 
 NIFLY_API void setShaderTextureSlot(void* nifref, void* shaperef, int slotIndex, const char* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
     std::string texture = buf;
 
     nif->SetTextureSlot(shape, texture, slotIndex);
+    NIFLY_GUARD_END_VOID
 }
 
 int copyNiShader(NifFile* nif, BSShaderProperty* bssh, const char* name, NiShaderBuf* buf) {
@@ -2242,6 +2360,7 @@ int setNiShader(void* nifref, uint32_t blockID, void* buffer) {
 /* ******************** SEGMENTS AND PARTITIONS ****************************** */
 
 NIFLY_API int segmentCount(void* nifref, void* shaperef) {
+    NIFLY_GUARD_BEGIN
     /*
         Return count of segments associated with the shape.
         If not FO4 nif or no segments returns 0
@@ -2254,9 +2373,11 @@ NIFLY_API int segmentCount(void* nifref, void* shaperef) {
         return int(segInfo.segs.size());
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getSegmentFile(void* nifref, void* shaperef, char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /*
         Return segment file associated with the shape
         If not FO4 nif or no segments returns ''
@@ -2266,20 +2387,17 @@ NIFLY_API int getSegmentFile(void* nifref, void* shaperef, char* buf, int buflen
     NifSegmentationInfo segInfo;
     std::vector<int> triParts;
     if (nif->GetShapeSegments(shape, segInfo, triParts)) {
-        if (buflen > 0) {
-            int copylen = std::min((int)buflen - 1, (int)segInfo.ssfFile.size());
-            segInfo.ssfFile.copy(buf, copylen, 0);
-            buf[copylen] = '\0';
-        }
-        return int(segInfo.ssfFile.size());
+        return copy_out(buf, buflen, segInfo.ssfFile);
     }
     else {
         if (buflen > 0) buf[0] = '\0';
         return 0;
     }
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLen) {
+    NIFLY_GUARD_BEGIN
     /*
         Return segments associated with a shape. Only for FO4-style nifs.
         segments -> (int ID, int count_of_subsegments)...
@@ -2297,9 +2415,11 @@ NIFLY_API int getSegments(void* nifref, void* shaperef, int* segments, int segLe
         return int(segInfo.segs.size());
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, uint32_t* segments, int segLen) {
+    NIFLY_GUARD_BEGIN
     /*
         Return subsegments associated with a shape. Only for FO4-style nifs.
         segments -> (int ID, userSlotID, material)...
@@ -2323,10 +2443,12 @@ NIFLY_API int getSubsegments(void* nifref, void* shaperef, int segID, uint32_t* 
         return 0;
     }
 return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getSubsegmentCutOffsets(void* nifref, void* shaperef, int subsegID,
                                       float* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /*
         Return cut offsets (per-subsegment BSGeometryPerSegmentSharedData "extra data"
         floats) for the subsegment with the given partID. These are the slice-plane
@@ -2355,9 +2477,11 @@ NIFLY_API int getSubsegmentCutOffsets(void* nifref, void* shaperef, int subsegID
         }
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, int partLen) {
+    NIFLY_GUARD_BEGIN
     /*
         Return a list of partitions associated with the shape. Only for skyrim-style nifs.
         partitions = (uint16 flags, uint16 partID)... where partID is the body part ID
@@ -2375,9 +2499,11 @@ NIFLY_API int getPartitions(void* nifref, void* shaperef, uint16_t* partitions, 
         partitions[i++] = partInfos[j].partID;
     }
     return int(partInfos.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int triLen) {
+    NIFLY_GUARD_BEGIN
     /*
         Return a list of segment indices matching 1-1 with the shape's triangles.
         Used for both skyrim and fo4-style nifs
@@ -2393,6 +2519,7 @@ NIFLY_API int getPartitionTris(void* nifref, void* shaperef, uint16_t* tris, int
         tris[i] = indices[i];
     }
     return int(indices.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void setPartitions(void* nifref, void* shaperef,
@@ -2405,6 +2532,7 @@ NIFLY_API void setPartitions(void* nifref, void* shaperef,
         >>Needs to be called AFTER bone weights are set
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
     NiVector<BSDismemberSkinInstance::PartitionInfo> partInfos;
@@ -2423,6 +2551,7 @@ NIFLY_API void setPartitions(void* nifref, void* shaperef,
 
     nif->SetShapePartitions(shape, partInfos, triParts, true);
     nif->UpdateSkinPartitions(shape);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void setSegments(void* nifref, void* shaperef,
@@ -2446,6 +2575,7 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
     *   by cutCounts (sum(cutCounts) must equal cutDataLen).
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiShape* shape = static_cast<NiShape*>(shaperef);
 
@@ -2501,6 +2631,7 @@ NIFLY_API void setSegments(void* nifref, void* shaperef,
     catch (std::exception e) {
         niflydll::LogWrite("Error in setSegments, segments may not be correct");
     }
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int getPhysicsSystemDataLen(void* nifref, int blockID)
@@ -2508,6 +2639,7 @@ NIFLY_API int getPhysicsSystemDataLen(void* nifref, int blockID)
    Returns 0 if block not found or has no data.
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     bhkPhysicsSystem* physSys = hdr.GetBlock<bhkPhysicsSystem>(blockID);
@@ -2518,6 +2650,7 @@ NIFLY_API int getPhysicsSystemDataLen(void* nifref, int blockID)
     }
 
     return int(physSys->data.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getPhysicsSystemData(void* nifref, int blockID, char* buf, int buflen)
@@ -2528,6 +2661,7 @@ NIFLY_API int getPhysicsSystemData(void* nifref, int blockID, char* buf, int buf
    Returns number of bytes copied, or 0 if block not found
 */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     bhkPhysicsSystem* physSys = hdr.GetBlock<bhkPhysicsSystem>(blockID);
@@ -2547,9 +2681,11 @@ NIFLY_API int getPhysicsSystemData(void* nifref, int blockID, char* buf, int buf
     }
 
     return int(copySize);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int setPhysicsSystemData(void* nifref, int blockID, const char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /* Set binary data in a bhkPhysicsSystem block.
        blockID = block index of the bhkPhysicsSystem
        buf = buffer containing the data
@@ -2580,6 +2716,7 @@ NIFLY_API int setPhysicsSystemData(void* nifref, int blockID, const char* buf, i
         niflydll::LogWriteEf("setPhysicsSystemData: Exception - %s", e.what());
         return 0;
     }
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 int setbhkNPCollisionObject(void* nifref, uint32_t blockID, void* buffer) {
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -2684,6 +2821,7 @@ int addbhkPhysicsSystem(void* nifref, const char* name, void* buffer, uint32_t p
 /* ************************ VERTEX COLORS AND ALPHA ********************* */
 
 NIFLY_API int getColorsForShape(void* nifref, void* shaperef, Color4* colors, int colorLen) {
+    NIFLY_GUARD_BEGIN
     /*
         Return vertex colors.
         colorLen = # of floats buffer can hold, has to be 4x number of colors
@@ -2696,9 +2834,11 @@ NIFLY_API int getColorsForShape(void* nifref, void* shaperef, Color4* colors, in
         colors[i] = theColors->at(i);
 
     return int(theColors->size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void setColorsForShape(void* nifref, void* shaperef, Color4* colors, int colorLen) {
+    NIFLY_GUARD_BEGIN
     /*
         Set vertex colors.
         colorLen = # of color values in the buf, must be same as # of vertices
@@ -2711,6 +2851,7 @@ NIFLY_API void setColorsForShape(void* nifref, void* shaperef, Color4* colors, i
         theColors.push_back(c);
     }
     nif->SetColorsForShape(shape->name.get(), theColors);
+    NIFLY_GUARD_END_VOID
 }
 
 /* ***************************** EXTRA DATA ***************************** */
@@ -2724,6 +2865,7 @@ int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, in
     (Probably there can be only one per file but code allows for more)
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
 
@@ -2747,6 +2889,7 @@ int getClothExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, in
         }
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen)
@@ -2756,6 +2899,7 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int nam
     Returns 1 if the extra data was found at requested index
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
 
@@ -2773,7 +2917,7 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int nam
                 for (uint32_t j = 0; j < (uint32_t) buflen && j < clothData->data.size(); j++) {
                     buf[j] = clothData->data[j];
                 }
-                strncpy_s(name, namelen, ClothExtraDataName, ClothExtraDataNameLen);
+                copy_out(name, namelen, ClothExtraDataName);
                 return 1;
             }
             else
@@ -2781,9 +2925,11 @@ int getClothExtraData(void* nifref, void* shaperef, int idx, char* name, int nam
         }
     }
     return 0;
+    NIFLY_GUARD_END(0)
 };
 
 void setClothExtraData(void* nifref, void* shaperef, char* name, char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
     if (shaperef)
@@ -2801,6 +2947,7 @@ void setClothExtraData(void* nifref, void* shaperef, char* name, char* buf, int 
             target->extraDataRefs.AddBlockRef(id);
         }
     }
+    NIFLY_GUARD_END_VOID
 };
 
 int getStringExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* valuelen)
@@ -2808,6 +2955,7 @@ int getStringExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, i
     which to return (0-based).
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
 
@@ -2831,6 +2979,7 @@ int getStringExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, i
         }
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 int getStringExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, char* buf, int buflen)
@@ -2838,6 +2987,7 @@ int getStringExtraData(void* nifref, void* shaperef, int idx, char* name, int na
     which to return (0-based).
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
 
@@ -2852,8 +3002,8 @@ int getStringExtraData(void* nifref, void* shaperef, int idx, char* name, int na
         NiStringExtraData* strData = hdr.GetBlock<NiStringExtraData>(extraData);
         if (strData) {
             if (i == 0) {
-                strncpy_s(name, namelen, strData->name.get().c_str(), namelen - 1);
-                strncpy_s(buf, buflen, strData->stringData.get().c_str(), buflen - 1);
+                copy_out(name, namelen, strData->name.get());
+                copy_out(buf, buflen, strData->stringData.get());
                 return 1;
             }
             else
@@ -2861,9 +3011,11 @@ int getStringExtraData(void* nifref, void* shaperef, int idx, char* name, int na
         }
     }
     return 0;
+    NIFLY_GUARD_END(0)
 };
 
 void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
     if (shaperef)
@@ -2877,6 +3029,7 @@ void setStringExtraData(void* nifref, void* shaperef, char* name, char* buf) {
         strdata->stringData.get() = buf;
         nif->AssignExtraData(target, std::move(strdata));
     }
+    NIFLY_GUARD_END_VOID
 };
 
 int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* datalen)
@@ -2885,6 +3038,7 @@ int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* 
     Returns T/F depending on whether extra data exists
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
 
@@ -2908,6 +3062,7 @@ int getBGExtraDataLen(void* nifref, void* shaperef, int idx, int* namelen, int* 
         }
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namelen, 
         char* buf, int buflen, uint16_t* ctrlBaseSkelP)
@@ -2915,6 +3070,7 @@ int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namele
     which to return (0-based).
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
 
@@ -2929,8 +3085,8 @@ int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namele
         BSBehaviorGraphExtraData* bgData = hdr.GetBlock<BSBehaviorGraphExtraData>(extraData);
         if (bgData) {
             if (i == 0) {
-                strncpy_s(name, namelen, bgData->name.get().c_str(), namelen - 1);
-                strncpy_s(buf, buflen, bgData->behaviorGraphFile.get().c_str(), buflen - 1);
+                copy_out(name, namelen, bgData->name.get());
+                copy_out(buf, buflen, bgData->behaviorGraphFile.get());
                 *ctrlBaseSkelP = bgData->controlsBaseSkel;
                 return 1;
             }
@@ -2939,6 +3095,7 @@ int getBGExtraData(void* nifref, void* shaperef, int idx, char* name, int namele
         }
     }
     return 0;
+    NIFLY_GUARD_END(0)
 };
 
 // Block getter function for NiIntegerExtraData (for getBlock() API)
@@ -2963,6 +3120,7 @@ int getNiIntegerExtraData(void* nifref, uint32_t blockID, void* inbuf) {
 
 // Convenience setter function (mirrors setStringExtraData pattern)  
 void setIntegerExtraData(void* nifref, void* shaperef, char* name, uint32_t value) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
     if (shaperef)
@@ -2976,6 +3134,7 @@ void setIntegerExtraData(void* nifref, void* shaperef, char* name, uint32_t valu
         intdata->integerData = value;
         nif->AssignExtraData(target, std::move(intdata));
     }
+    NIFLY_GUARD_END_VOID
 }
 
 // Creator function (for addBlock() API)
@@ -3029,6 +3188,7 @@ int getNiIntegersExtraData(void* nifref, uint32_t blockID, void* inbuf) {
 
 /* Fill `values` with up to `count` of the block's integers; returns how many were written. */
 int getNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiIntegersExtraData* ied = hdr->GetBlock<NiIntegersExtraData>(blockID);
@@ -3039,10 +3199,12 @@ int getNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* value
     int n = std::min(count, int(ied->integersData.size()));
     for (int i = 0; i < n; i++) values[i] = ied->integersData[i];
     return n;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 /* Replace the block's integers with `count` values. */
 void setNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* values, int count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiIntegersExtraData* ied = hdr->GetBlock<NiIntegersExtraData>(blockID);
@@ -3052,6 +3214,7 @@ void setNiIntegersExtraDataValues(void* nifref, uint32_t blockID, uint32_t* valu
     }
     ied->integersData.resize(count);
     for (int i = 0; i < count; i++) ied->integersData[i] = values[i];
+    NIFLY_GUARD_END_VOID
 }
 
 int addNiIntegersExtraData(void* nifref, const char* name, void* b, uint32_t parent) {
@@ -3097,6 +3260,7 @@ int getBoneTranslations(void* nifref, uint32_t blockID, void* inbuf) {
 can size the buffer with a first call. */
 NIFLY_API int getBoneTranslationsData(void* nifref, uint32_t blockID, char* names, int namesLen,
                                       Vector3* trans, int count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     BoneTranslations* bt = nif->GetHeader().GetBlock<BoneTranslations>(blockID);
     if (!bt) {
@@ -3109,17 +3273,14 @@ NIFLY_API int getBoneTranslationsData(void* nifref, uint32_t blockID, char* name
         joined += bt->translations[i].bone.get();
         if (trans && int(i) < count) trans[i] = bt->translations[i].trans;
     }
-    if (names && namesLen > 0) {
-        int n = std::min(int(joined.size()), namesLen - 1);
-        memcpy(names, joined.data(), n);
-        names[n] = 0;
-    }
-    return int(joined.size());
+    return copy_out(names, namesLen, joined);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 /* Replace the block's entries: `count` bone names joined by '\n', and their positions. */
 NIFLY_API void setBoneTranslationsData(void* nifref, uint32_t blockID, const char* names,
                                        Vector3* trans, int count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     BoneTranslations* bt = nif->GetHeader().GetBlock<BoneTranslations>(blockID);
     if (!bt) {
@@ -3141,6 +3302,7 @@ NIFLY_API void setBoneTranslationsData(void* nifref, uint32_t blockID, const cha
         bt->translations[i].bone.get() = (i < int(bones.size())) ? bones[i] : std::string();
         bt->translations[i].trans = trans[i];
     }
+    NIFLY_GUARD_END_VOID
 }
 
 int addBoneTranslations(void* nifref, const char* name, void* b, uint32_t parent) {
@@ -3197,6 +3359,7 @@ int getInvMarker(void* nifref, uint32_t id, void* inbuf)
 };
 
 int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiAVObject* source = nif->GetRootNode();
@@ -3208,10 +3371,8 @@ int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf) {
         if (cpl) {
             for (auto& cp : cpl->connectPoints) {
                 if (c == index) {
-                    strncpy_s(buf->parent, cp.root.get().c_str(), 256);
-                    buf->parent[255] = '\0';
-                    strncpy_s(buf->name, cp.variableName.get().c_str(), 256);
-                    buf->name[255] = '\0';
+                    copy_out(buf->parent, sizeof(buf->parent), cp.root.get());
+                    copy_out(buf->name, sizeof(buf->name), cp.variableName.get());
                     assignQ(buf->rotation, cp.rotation);
                     for (int i = 0; i < 3; i++) buf->translation[i] = cp.translation[i];
                     buf->scale = cp.scale;
@@ -3223,9 +3384,11 @@ int getConnectPointParent(void* nifref, int index, ConnectPointBuf* buf) {
         };
     };
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int getConnectPointParentCount(void* nifref) {
+    NIFLY_GUARD_BEGIN
     /* Return the number of parent connect points on the nif's root node. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
@@ -3238,9 +3401,11 @@ int getConnectPointParentCount(void* nifref) {
         if (cpl) c += int(cpl->connectPoints.size());
     };
     return c;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int getConnectPointParents(void* nifref, int buflen, ConnectPointBuf* buf) {
+    NIFLY_GUARD_BEGIN
     /* Fill buf with up to buflen parent connect points. Returns the number written.
        Call getConnectPointParentCount first to size the buffer. */
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -3254,10 +3419,8 @@ int getConnectPointParents(void* nifref, int buflen, ConnectPointBuf* buf) {
         if (cpl) {
             for (auto& cp : cpl->connectPoints) {
                 if (c >= buflen) return c;
-                strncpy_s(buf[c].parent, cp.root.get().c_str(), 256);
-                buf[c].parent[255] = '\0';
-                strncpy_s(buf[c].name, cp.variableName.get().c_str(), 256);
-                buf[c].name[255] = '\0';
+                copy_out(buf[c].parent, sizeof(buf[c].parent), cp.root.get());
+                copy_out(buf[c].name, sizeof(buf[c].name), cp.variableName.get());
                 assignQ(buf[c].rotation, cp.rotation);
                 for (int i = 0; i < 3; i++) buf[c].translation[i] = cp.translation[i];
                 buf[c].scale = cp.scale;
@@ -3266,9 +3429,11 @@ int getConnectPointParents(void* nifref, int buflen, ConnectPointBuf* buf) {
         };
     };
     return c;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
 
     auto cplist = std::make_unique<BSConnectPointParents>();
@@ -3287,9 +3452,11 @@ void setConnectPointsParent(void* nifref, int buflen, ConnectPointBuf* buf) {
         cplist->connectPoints.push_back(cp);
     }
     nif->AssignExtraData(nif->GetRootNode(), std::move(cplist));
+    NIFLY_GUARD_END_VOID
 }
 
 int getConnectPointChild(void* nifref, int index, char* buf) {
+    NIFLY_GUARD_BEGIN
     /* Return child connect point information 
     *   index: connect point to return
     *   buf: associated name, must accept 256 characters
@@ -3305,7 +3472,7 @@ int getConnectPointChild(void* nifref, int index, char* buf) {
         if (cpl) {
             for (auto& cp : cpl->targets) {
                 if (c == index) {
-                    strncpy_s(buf, 256, cp.get().c_str(), cp.length());
+                    copy_out(buf, 256, cp.get());
                     return cpl->skinned? 1: -1;
                 }
                 c++;
@@ -3313,9 +3480,11 @@ int getConnectPointChild(void* nifref, int index, char* buf) {
         };
     };
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int getConnectPointChildLen(void* nifref) {
+    NIFLY_GUARD_BEGIN
     /* Return the number of bytes needed to hold all child connect point names as a
        null-separated list (each name including its terminator). */
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -3331,9 +3500,11 @@ int getConnectPointChildLen(void* nifref) {
         };
     };
     return len;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int getConnectPointChildren(void* nifref, int buflen, char* buf) {
+    NIFLY_GUARD_BEGIN
     /* Fill buf with the child connect point names, null-separated. Names that do not
        fit in buflen are omitted.
        returns 0: no children; -1: not skinned; 1: skinned */
@@ -3351,15 +3522,17 @@ int getConnectPointChildren(void* nifref, int buflen, char* buf) {
             for (auto& cp : cpl->targets) {
                 int n = int(cp.length()) + 1;
                 if (i + n > buflen) return found;
-                strncpy_s(&buf[i], size_t(buflen) - i, cp.get().c_str(), cp.length());
+                copy_out(&buf[i], buflen - i, cp.get());
                 i += n;
             };
         };
     };
     return found;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
 
     auto cplist = std::make_unique<BSConnectPointChildren>();
@@ -3372,6 +3545,7 @@ void setConnectPointsChild(void* nifref, int isSkinned, int buflen, const char* 
         i += s.length() + 1;
     }
     nif->AssignExtraData(nif->GetRootNode(), std::move(cplist));
+    NIFLY_GUARD_END_VOID
 }
 
 int getBSFurnitureMarkerNode(void* nifref, uint32_t id, void* inbuf)
@@ -3410,6 +3584,7 @@ int addBSFurnitureMarkerNode(void* nifref, const char* name, void* properties, u
 }
 
 NIFLY_API int getFurnitureMarkerPosition(void* nifref, int id, int index, FurnitureMarkerDataBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSFurnitureMarkerNode* fm = hdr->GetBlock<BSFurnitureMarkerNode>(id);
@@ -3426,9 +3601,11 @@ NIFLY_API int getFurnitureMarkerPosition(void* nifref, int id, int index, Furnit
     buf->entryPoints = pos.entryPoints;
 
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int addFurnitureMarkerPosition(void* nifref, int id, FurnitureMarkerDataBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSFurnitureMarkerNode* fm = hdr->GetBlock<BSFurnitureMarkerNode>(id);
@@ -3446,6 +3623,7 @@ NIFLY_API int addFurnitureMarkerPosition(void* nifref, int id, FurnitureMarkerDa
 
     fm->positions.push_back(pos);
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // =================== BSDecalPlacementVectorExtraData ===================
@@ -3486,6 +3664,7 @@ int addBSDecalPlacementVectorExtraData(void* nifref, const char* name, void* pro
 }
 
 NIFLY_API int getDecalVectorBlockCount(void* nifref, int id, int blockIndex, uint16_t* count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
@@ -3497,9 +3676,11 @@ NIFLY_API int getDecalVectorBlockCount(void* nifref, int id, int blockIndex, uin
 
     *count = static_cast<uint16_t>(dp->decalVectorBlocks[blockIndex].points.size());
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getDecalVector(void* nifref, int id, int blockIndex, int vectorIndex, DecalVectorBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
@@ -3521,9 +3702,11 @@ NIFLY_API int getDecalVector(void* nifref, int id, int blockIndex, int vectorInd
     buf->normal[0] = nm.x; buf->normal[1] = nm.y; buf->normal[2] = nm.z;
 
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int addDecalVectorBlock(void* nifref, int id) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
@@ -3536,9 +3719,11 @@ NIFLY_API int addDecalVectorBlock(void* nifref, int id) {
     DecalVectorBlock newBlock;
     dp->decalVectorBlocks.push_back(newBlock);
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int addDecalVector(void* nifref, int id, int blockIndex, DecalVectorBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSDecalPlacementVectorExtraData* dp = hdr->GetBlock<BSDecalPlacementVectorExtraData>(id);
@@ -3556,6 +3741,7 @@ NIFLY_API int addDecalVector(void* nifref, int id, int blockIndex, DecalVectorBu
     block.normals.push_back(nm);
 
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int setInvMarker(void* nifref, const char* name, void* buffer, uint32_t parent)
@@ -3609,6 +3795,7 @@ int setBSXFlags(void* nifref, const char* name, void* buffer, uint32_t parent)
 }
 
 void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int controlsBaseSkel) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiAVObject* target = nullptr;
     if (shaperef)
@@ -3623,6 +3810,7 @@ void setBGExtraData(void* nifref, void* shaperef, char* name, char* buf, int con
         strdata->controlsBaseSkel = controlsBaseSkel;
         nif->AssignExtraData(target, std::move(strdata));
     }
+    NIFLY_GUARD_END_VOID
 };
 
 int getBSBound(void* nifref, uint32_t id, void* inbuf)
@@ -3691,6 +3879,7 @@ int getBSBoneLODExtraData(void* nifref, uint32_t id, void* inbuf)
 int getBoneLODInfo(void* nifref, uint32_t id, void* lodbuf, int bufLen)
 /* Read BSBoneLOD infos. Return the number of infos that actually exist. */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BSBoneLODExtraData* b = hdr->GetBlock<BSBoneLODExtraData>(id);
@@ -3704,6 +3893,7 @@ int getBoneLODInfo(void* nifref, uint32_t id, void* lodbuf, int bufLen)
         buf[i].nameID = b->boneLODs[i].boneName.GetIndex();
 	}
     return b->boneLODs.size();
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int addBSBoneLODExtraData(void* nifref, const char* name, void* properties, uint32_t parent)
@@ -3721,6 +3911,7 @@ int addBSBoneLODExtraData(void* nifref, const char* name, void* properties, uint
 }
 
 int setBoneLOD(void* nifref, int id, int buflen, BSBoneLODInfoBuf* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
 	NiHeader* hdr = &nif->GetHeader();
 	BSBoneLODExtraData* b = hdr->GetBlock<BSBoneLODExtraData>(id);
@@ -3738,19 +3929,24 @@ int setBoneLOD(void* nifref, int id, int buflen, BSBoneLODInfoBuf* buf) {
 		b->boneLODs.push_back(*thisLOD);
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 /* ********************* ERROR REPORTING ********************* */
 
 void clearMessageLog() {
+    NIFLY_GUARD_BEGIN
     niflydll::LogInit();
+    NIFLY_GUARD_END_VOID
 };
 
 int getMessageLog(char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     if (buf)
         return niflydll::LogGet(buf, buflen);
     else
         return niflydll::LogGetLen();
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -4073,6 +4269,7 @@ int addRigidBody(void* nifref, const char* name, void* buffer, uint32_t parent) 
 };
 
 NIFLY_API void* getCollTarget(void* nifref, void* node) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
@@ -4080,31 +4277,34 @@ NIFLY_API void* getCollTarget(void* nifref, void* node) {
         return hdr.GetBlock(theNode->targetRef);
     else
         return nullptr;
+    NIFLY_GUARD_END(nullptr)
 }
 
 NIFLY_API int getCollFlags(void* node) {
+    NIFLY_GUARD_BEGIN
     nifly::bhkCollisionObject* theNode = static_cast<nifly::bhkCollisionObject*>(node);
     if (theNode) {
         return theNode->flags;
     }
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getCollBodyBlockname(void* nifref, int nodeIndex, char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::bhkRigidBody* theBody = hdr.GetBlock<bhkRigidBody>(nodeIndex);
 
     if (theBody) {
         std::string name = theBody->GetBlockName();
-        int copylen = std::min((int)buflen - 1, (int)name.length());
-        name.copy(buf, copylen, 0);
-        buf[copylen] = '\0';
+        copy_out(buf, buflen, name);
         return int(name.length());
     }
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int getRigidBodyProps(void* nifref, uint32_t nodeIndex, void* inbuf)
@@ -4259,6 +4459,7 @@ int getSimpleShapePhantom(void* nifref, uint32_t nodeIndex, void* inbuf)
 
 NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t* idList, int buflen)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     bhkRigidBody* rb = hdr->GetBlock<bhkRigidBody>(nodeIndex);
@@ -4272,6 +4473,7 @@ NIFLY_API int getRigidBodyConstraints(void* nifref, uint32_t nodeIndex, uint32_t
     }
 
     return int(constraintList.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int getRagdollConstraint(void* nifref, uint32_t nodeIndex, void* inbuf)
@@ -4316,6 +4518,7 @@ int getRagdollConstraint(void* nifref, uint32_t nodeIndex, void* inbuf)
 
 NIFLY_API int getRagdollEntities(void* nifref, uint32_t nodeIndex, uint32_t* idList, int buflen)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     bhkRagdollConstraint* rd = hdr->GetBlock<bhkRagdollConstraint>(nodeIndex);
@@ -4329,6 +4532,7 @@ NIFLY_API int getRagdollEntities(void* nifref, uint32_t nodeIndex, uint32_t* idL
     }
 
     return int(entityList.size());
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 void addCollisionChild(NifFile* nif, uint32_t parent, uint32_t childID) {
@@ -4371,6 +4575,7 @@ NIFLY_API int getCollConvexVertsShapeProps(void* nifref, uint32_t nodeIndex, voi
     0 if not
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BHKConvexVertsShapeBuf* buf = static_cast<BHKConvexVertsShapeBuf*>(buffer);
@@ -4391,6 +4596,7 @@ NIFLY_API int getCollConvexVertsShapeProps(void* nifref, uint32_t nodeIndex, voi
     buf->normalsCount = sh->normals.size();
 
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 int addCollConvexVertsShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
@@ -4408,6 +4614,7 @@ int addCollConvexVertsShape(void* nifref, const char* name, void* buffer, uint32
 
 NIFLY_API int setCollConvexVerts(
         void* nifref, int id, float* verts, int vertcount, float* normals, int normcount) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     bhkConvexVerticesShape* sh = hdr->GetBlock<bhkConvexVerticesShape>(id);
@@ -4424,6 +4631,7 @@ NIFLY_API int setCollConvexVerts(
     }
 
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buflen)
@@ -4432,6 +4640,7 @@ NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buf
     buflen = number of verts the buffer can receive, so buf must be 4x this size.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     int vertCount = 0;
@@ -4450,6 +4659,7 @@ NIFLY_API int getCollShapeVerts(void* nifref, int nodeIndex, float* buf, int buf
     }
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int buflen)
@@ -4458,6 +4668,7 @@ NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int b
     buflen = number of verts the buffer can receive, so buf must be 4x this size.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     int vertCount = 0;
@@ -4476,6 +4687,7 @@ NIFLY_API int getCollShapeNormals(void* nifref, int nodeIndex, float* buf, int b
     }
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // ── bhkMoppBvTreeShape ──────────────────────────────────────────────────────
@@ -4495,16 +4707,19 @@ int getCollMoppShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf) {
 }
 
 NIFLY_API int getCollMoppCodeLen(void* nifref, int blockID) {
+    NIFLY_GUARD_BEGIN
     /* Return the MOPP bytecode length. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     auto* sh = nif->GetHeader().GetBlock<bhkMoppBvTreeShape>(blockID);
     if (!sh) return 0;
     return (int)sh->data.size();
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getCollMoppCode(void* nifref, int blockID,
                                float* originXYZ, float* scaleOut,
                                uint8_t* moppBuf, int bufLen) {
+    NIFLY_GUARD_BEGIN
     /* Read MOPP bytecode, origin and scale from a bhkMoppBvTreeShape.
        Returns number of bytes copied. originXYZ must hold 3 floats.
        moppBuf may be null (just returns length). */
@@ -4527,6 +4742,7 @@ NIFLY_API int getCollMoppCode(void* nifref, int blockID,
             moppBuf[i] = sh->data[i];
     }
     return len;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // ── bhkPackedNiTriStripsShape ───────────────────────────────────────────────
@@ -4547,6 +4763,7 @@ int getCollPackedStripsShapeProps(void* nifref, uint32_t nodeIndex, void* inbuf)
 }
 
 NIFLY_API int getCollPackedStripsShapeVerts(void* nifref, int dataIndex, float* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /* Return verts from hkPackedNiTriStripsData. Returns vertex count; buf may be null.
        buflen = number of verts the buffer can receive, so buf must be 3x this size. */
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -4563,9 +4780,11 @@ NIFLY_API int getCollPackedStripsShapeVerts(void* nifref, int dataIndex, float* 
         }
     }
     return count;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getCollPackedStripsShapeTris(void* nifref, int dataIndex, uint16_t* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /* Return triangles from hkPackedNiTriStripsData. Returns triangle count; buf may be null.
        buflen = number of tris the buffer can receive, so buf must be 3x this size. */
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -4595,6 +4814,7 @@ NIFLY_API int getCollPackedStripsShapeTris(void* nifref, int dataIndex, uint16_t
         }
     }
     return count;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // ── bhkCompressedMeshShape (Skyrim SE) ──────────────────────────────────────
@@ -4627,6 +4847,7 @@ int getCollCompressedMeshShapeProps(void* nifref, uint32_t nodeIndex, void* inbu
 }
 
 NIFLY_API int getCollCompressedMeshShapeVerts(void* nifref, int dataIndex, float* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /* Return verts from bhkCompressedMeshShapeData (bigVerts + chunk verts).
        Returns total vertex count; buf may be null.
        BigVerts come first as x,y,z triples, then chunk verts (dequantised). */
@@ -4663,9 +4884,11 @@ NIFLY_API int getCollCompressedMeshShapeVerts(void* nifref, int dataIndex, float
         }
     }
     return total;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint32_t* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /* Return triangles from bhkCompressedMeshShapeData.
        BigTris come first, then chunk tris (decomposed from triangle strips).
        Chunk tris use indices offset by (bigVertCount + prior chunk verts).
@@ -4738,9 +4961,11 @@ NIFLY_API int getCollCompressedMeshShapeTris(void* nifref, int dataIndex, uint32
         vertOffset += nv;
     }
     return total;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getCollCompressedMeshTriMaterials(void* nifref, int dataIndex, uint32_t* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     /* Return one HavokMaterial (uint32) per triangle, same order as getCollCompressedMeshShapeTris.
        BigTris first (material stored directly), then chunk tris (resolved via matIndex → materials[]). */
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -4795,6 +5020,7 @@ NIFLY_API int getCollCompressedMeshTriMaterials(void* nifref, int dataIndex, uin
         }
     }
     return total;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // ── MOPP / CompressedMesh / PackedStrips CREATORS ──────────────────────────
@@ -4817,6 +5043,7 @@ NIFLY_API int setCollMoppCode(void* nifref, int blockID,
                                float* originXYZ, float scale,
                                uint8_t* moppBytes, int moppLen,
                                uint8_t buildType) {
+    NIFLY_GUARD_BEGIN
     /* Set MOPP bytecode, origin, scale, and buildType on an existing bhkMoppBvTreeShape. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -4834,6 +5061,7 @@ NIFLY_API int setCollMoppCode(void* nifref, int blockID,
     for (int i = 0; i < moppLen; i++)
         sh->data[i] = moppBytes[i];
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int addCollCompressedMeshShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
@@ -4873,17 +5101,20 @@ int addCollCompressedMeshShape(void* nifref, const char* name, void* buffer, uin
 }
 
 NIFLY_API int getCollCompressedMeshShapeDataID(void* nifref, int shapeID) {
+    NIFLY_GUARD_BEGIN
     /* Return the data block ID for a bhkCompressedMeshShape. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     auto* sh = hdr->GetBlock<bhkCompressedMeshShape>(shapeID);
     if (!sh) return NIF_NPOS;
     return sh->dataRef.index;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
 NIFLY_API int setCollCompressedMeshBigVerts(void* nifref, int dataID,
                                              float* verts, int vertCount) {
+    NIFLY_GUARD_BEGIN
     /* Set the bigVerts array. verts is xyz triples (3 floats per vert). */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -4896,11 +5127,13 @@ NIFLY_API int setCollCompressedMeshBigVerts(void* nifref, int dataID,
         data->bigVerts.push_back(v);
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int setCollCompressedMeshBigTris(void* nifref, int dataID,
                                             uint16_t* tris, uint32_t* materials,
                                             int triCount) {
+    NIFLY_GUARD_BEGIN
     /* Set the bigTris array. tris is index triples, materials is per-tri material. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -4918,6 +5151,7 @@ NIFLY_API int setCollCompressedMeshBigTris(void* nifref, int dataID,
         data->bigTris.push_back(bt);
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int addCollCompressedMeshChunk(void* nifref, int dataID,
@@ -4926,6 +5160,7 @@ NIFLY_API int addCollCompressedMeshChunk(void* nifref, int dataID,
                                           uint16_t* indices, int numIndices,
                                           uint16_t* stripLengths, int numStrips,
                                           uint32_t matIndex) {
+    NIFLY_GUARD_BEGIN
     /* Add one chunk to the bhkCompressedMeshShapeData.
        chunkVerts: uint16 xyz triples (3 * numVerts entries).
        indices: triangle strip + flat indices (numIndices entries).
@@ -4965,10 +5200,12 @@ NIFLY_API int addCollCompressedMeshChunk(void* nifref, int dataID,
     int chunkIdx = (int)data->chunks.size();
     data->chunks.push_back(chunk);
     return chunkIdx;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int setCollCompressedMeshAABB(void* nifref, int dataID,
                                          float* bmin, float* bmax) {
+    NIFLY_GUARD_BEGIN
     /* Set the AABB bounds on a bhkCompressedMeshShapeData. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -4978,10 +5215,12 @@ NIFLY_API int setCollCompressedMeshAABB(void* nifref, int dataID,
     data->aabbBoundMin = Vector4(bmin[0], bmin[1], bmin[2], 0.0f);
     data->aabbBoundMax = Vector4(bmax[0], bmax[1], bmax[2], 0.0f);
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int setCollCompressedMeshMaterials(void* nifref, int dataID,
                                               uint32_t* materials, uint32_t* layers, int count) {
+    NIFLY_GUARD_BEGIN
     /* Set the materials array on a bhkCompressedMeshShapeData.
        Each entry is a (HavokMaterial, HavokFilter) pair. */
     NifFile* nif = static_cast<NifFile*>(nifref);
@@ -4997,6 +5236,7 @@ NIFLY_API int setCollCompressedMeshMaterials(void* nifref, int dataID,
         data->materials.push_back(m);
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // ── bhkPackedNiTriStripsShape creators ──
@@ -5033,16 +5273,19 @@ int addCollPackedStripsShape(void* nifref, const char* name, void* buffer, uint3
 }
 
 NIFLY_API int getCollPackedStripsDataID(void* nifref, int shapeID) {
+    NIFLY_GUARD_BEGIN
     /* Return the data block ID for a bhkPackedNiTriStripsShape. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     auto* sh = hdr->GetBlock<bhkPackedNiTriStripsShape>(shapeID);
     if (!sh) return NIF_NPOS;
     return sh->dataRef.index;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int setCollPackedStripsVerts(void* nifref, int dataID,
                                         float* verts, int vertCount) {
+    NIFLY_GUARD_BEGIN
     /* Set vertices on hkPackedNiTriStripsData. verts is xyz triples. */
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
@@ -5056,11 +5299,13 @@ NIFLY_API int setCollPackedStripsVerts(void* nifref, int dataID,
     }
     data->numVerts = vertCount;
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int setCollPackedStripsTris(void* nifref, int dataID,
                                        uint16_t* tris, int triCount,
                                        float* normals) {
+    NIFLY_GUARD_BEGIN
     /* Set triangles on hkPackedNiTriStripsData.
        tris: index triples (3 * triCount entries).
        normals: optional per-tri normal xyz triples (3 * triCount), or null. */
@@ -5095,6 +5340,7 @@ NIFLY_API int setCollPackedStripsTris(void* nifref, int dataID,
         data->keyCount = triCount;
     }
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // ── End MOPP/CompressedMesh/PackedStrips creators ──────────────────────────
@@ -5149,6 +5395,7 @@ NIFLY_API int getCollListShapeProps(void* nifref, uint32_t nodeIndex, void* buff
     0 if not
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BHKListShapeBuf* buf = static_cast<BHKListShapeBuf*>(buffer);
@@ -5169,6 +5416,7 @@ NIFLY_API int getCollListShapeProps(void* nifref, uint32_t nodeIndex, void* buff
     sh->GetChildIndices(children);
     buf->childCount = uint32_t(children.size());
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* buf, int buflen)
@@ -5176,6 +5424,7 @@ NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* bu
     Return the collision shape children.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     int childCount = 0;
@@ -5193,9 +5442,11 @@ NIFLY_API int getCollListShapeChildren(void* nifref, int nodeIndex, uint32_t* bu
     }
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API int addCollListShape(void* nifref, const char* name, void* buffer, uint32_t parent) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     BHKListShapeBuf* buf = static_cast<BHKListShapeBuf*>(buffer);
@@ -5213,14 +5464,17 @@ NIFLY_API int addCollListShape(void* nifref, const char* name, void* buffer, uin
     addCollisionChild(nif, parent, newid);
 
     return newid;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 NIFLY_API void addCollListChild(void* nifref, const uint32_t id, uint32_t child_id) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     bhkListShape* collList = hdr->GetBlock<bhkListShape>(id);
 
    collList->subShapeRefs.AddBlockRef(child_id);
+    NIFLY_GUARD_END_VOID
 };
 
 int addSimpleShapePhantom(void* nifref, const char* name, void* buffer, uint32_t parent) {
@@ -5378,11 +5632,13 @@ int addCollConvexTransformShape(
 
 NIFLY_API void setCollConvexTransformShapeChild(
         void* nifref, const uint32_t id, uint32_t child_id) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     bhkConvexTransformShape* cts = hdr.GetBlock<bhkConvexTransformShape>(id);
 
     cts->shapeRef.index = child_id; 
+    NIFLY_GUARD_END_VOID
 };
 
 int getCollCapsuleShapeProps(void* nifref, uint32_t nodeIndex, void* buffer)
@@ -5510,6 +5766,7 @@ int addControllerManager(void* f, const char* name, void* inbuf, uint32_t parent
 NIFLY_API int getControllerManagerSeq(
     void* nifref,  int cmID, int buflen, uint32_t* seqptrs) 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiControllerManager* ncm = hdr.GetBlock<NiControllerManager>(cmID);
@@ -5519,6 +5776,7 @@ NIFLY_API int getControllerManagerSeq(
         seqptrs[i++] = cs.index;
     }
     return ncm->controllerSequenceRefs.GetSize();
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -5526,6 +5784,7 @@ NIFLY_API int getControllerManagerSeq(
 NIFLY_API int getControllerManagerSequences(
     void* nifref,  void* ncmref, int buflen, uint32_t* seqptrs) 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiControllerManager* ncm = static_cast<NiControllerManager*>(ncmref);
@@ -5535,6 +5794,7 @@ NIFLY_API int getControllerManagerSequences(
         seqptrs[i++] = cs.index;
     }
     return ncm->controllerSequenceRefs.GetSize();
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -5602,6 +5862,7 @@ int addControllerSequence(void* nifref, const char* name, void* inbuf, uint32_t 
     Returns number of controlled blocks actually owned by the ControlelerSequence.
 */
 int getControlledBlocks(void* nifref, uint32_t csID, int buflen, void* buf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     NiControllerSequence* cs = hdr->GetBlock<NiControllerSequence>(csID);
@@ -5632,6 +5893,7 @@ int getControlledBlocks(void* nifref, uint32_t csID, int buflen, void* buf) {
     }
 
     return cs->controlledBlocks.size();
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int addControlledBlock(void* nifref, const char* name, void* buffer, uint32_t parent) {
@@ -5953,6 +6215,7 @@ int getMultiTargetTransformController(void* nifref, uint32_t mttcID, void* inbuf
 NIFLY_API int getExtraTargets(
     void* nifref, uint32_t mttcID, int buflen, uint32_t* targetIDs) 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     NiMultiTargetTransformController* mttc 
@@ -5963,6 +6226,7 @@ NIFLY_API int getExtraTargets(
         targetIDs[i++] = t.index;
     }
     return mttc->targetRefs.GetSize();
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -6144,6 +6408,7 @@ void setKey(NiAnimationKey<float>& k, NiAnimKeyQuadXYZBuf& kb) {
 NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyQuadXYZBuf *buf)
 /* Get the animation key for frame 'frame', for the dimension given. */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
@@ -6152,10 +6417,12 @@ NIFLY_API void getAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, int fra
     else if (dimension == 'Y') readKey(*buf, td->yRotations.GetKey(frame));
     else if (dimension == 'Z') readKey(*buf, td->zRotations.GetKey(frame));
     else if (dimension == 'S') readKey(*buf, td->scales.GetKey(frame));
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimKeyQuadXYZBuf *buf)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiTransformData* td = hdr->GetBlock<NiTransformData>(tdID);
@@ -6166,11 +6433,13 @@ NIFLY_API void addAnimKeyQuadXYZ(void* nifref, int tdID, char dimension, NiAnimK
     else if (dimension == 'Y') td->yRotations.AddKey(k);
     else if (dimension == 'Z') td->zRotations.AddKey(k);
     else if (dimension == 'S') td->scales.AddKey(k);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQuadXYZBuf* buf)
 /* Get the animation key for frame 'frame'. */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiFloatData* td = hdr.GetBlock<NiFloatData>(tdID);
@@ -6191,10 +6460,12 @@ NIFLY_API int getAnimKeyQuadFloat(void* nifref, int tdID, int frame, NiAnimKeyQu
     buf->backward = td->data.GetKey(frame).backward;
 
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadXYZBuf* buf)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiFloatData* dataBlock = hdr->GetBlock<NiFloatData>(dataBlockID);
@@ -6202,12 +6473,14 @@ NIFLY_API void addAnimKeyQuadFloat(void* nifref, int dataBlockID, NiAnimKeyQuadX
     NiAnimationKey<float> k;
     setKey(k, *buf);
     dataBlock->data.AddKey(k);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int frame, NiAnimKeyLinearBuf *buf)
 /* Return linear data (time, value). Dimension X, Y, or Z reads that channel of the transform
    data's rotations; S reads its scales. */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
@@ -6220,12 +6493,14 @@ NIFLY_API void getAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, int f
 
     buf->time = k.time; 
     buf->value = k.value;
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void addAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, NiAnimKeyLinearBuf *buf)
 /* Add a linear key (time, value) to one dimension of a transform data block's rotations.
    Linear keys carry no tangents, which is the only difference from addAnimKeyQuadXYZ. */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiTransformData* td = hdr->GetBlock<NiTransformData>(tdID);
@@ -6243,11 +6518,13 @@ NIFLY_API void addAnimKeyLinearXYZ(void* nifref, int tdID, char dimension, NiAni
     else if (dimension == 'Y') td->yRotations.AddKey(k);
     else if (dimension == 'Z') td->zRotations.AddKey(k);
     else if (dimension == 'S') td->scales.AddKey(k);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API int getAnimKeyLinear(void* nifref, int blockID, int frame, NiAnimKeyLinearBuf *buf)
 /* Return linear data (time, value) from an NiFloatData block. */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiFloatData* fd = hdr.GetBlock<NiFloatData>(blockID);
@@ -6269,10 +6546,12 @@ NIFLY_API int getAnimKeyLinear(void* nifref, int blockID, int frame, NiAnimKeyLi
     buf->value = k.value;
 
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 NIFLY_API void addAnimKeyLinear(void* nifref, int blockID, NiAnimKeyLinearBuf* buf)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiFloatData* fd = hdr->GetBlock<NiFloatData>(blockID);
@@ -6283,10 +6562,12 @@ NIFLY_API void addAnimKeyLinear(void* nifref, int blockID, NiAnimKeyLinearBuf* b
     k.value = buf->value;
 
     fd->data.AddKey(k);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void getAnimKeyLinearQuat(void* nifref, int tdID, int frame, NiAnimKeyLinearQuatBuf* buf)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiTransformData* td = hdr->GetBlock<NiTransformData>(tdID);
@@ -6298,10 +6579,12 @@ NIFLY_API void getAnimKeyLinearQuat(void* nifref, int tdID, int frame, NiAnimKey
     buf->value[1] = k.value.x;
     buf->value[2] = k.value.y;
     buf->value[3] = k.value.z;
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void addAnimKeyLinearQuat(void* nifref, int tdID, NiAnimKeyLinearQuatBuf* buf)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiTransformData* td = hdr->GetBlock<NiTransformData>(tdID);
@@ -6315,10 +6598,12 @@ NIFLY_API void addAnimKeyLinearQuat(void* nifref, int tdID, NiAnimKeyLinearQuatB
     k.value.z = buf->value[3];
 
     td->quaternionKeys.push_back(k);
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKeyLinearTransBuf *buf)
 /* Return the linear animation key at frame "frame". */ {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
@@ -6328,6 +6613,7 @@ NIFLY_API void getAnimKeyLinearTrans(void* nifref, int tdID, int frame, NiAnimKe
     buf->value[0] = k.value[0];
     buf->value[1] = k.value[1];
     buf->value[2] = k.value[2];
+    NIFLY_GUARD_END_VOID
 }
 
 NIFLY_API void addAnimKeyLinearTrans(void* nifref, int tdID, NiAnimKeyLinearTransBuf *buf)
@@ -6335,6 +6621,7 @@ NIFLY_API void addAnimKeyLinearTrans(void* nifref, int tdID, NiAnimKeyLinearTran
     tdID = ID of parent NiTransformationData node. 
     */ 
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiTransformData* td = hdr->GetBlock<NiTransformData>(tdID);
@@ -6345,11 +6632,13 @@ NIFLY_API void addAnimKeyLinearTrans(void* nifref, int tdID, NiAnimKeyLinearTran
     k.value[1] = buf->value[1];
     k.value[2] = buf->value[2];
     td->translations.AddKey(k);
+    NIFLY_GUARD_END_VOID
 }
 
 
 NIFLY_API void getAnimKeyQuadTrans(void* nifref, int tdID, int frame, NiAnimKeyQuadTransBuf *buf)
 /* Return the quad animation key at frame "frame". */ {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* td = hdr.GetBlock<NiTransformData>(tdID);
@@ -6371,11 +6660,13 @@ NIFLY_API void getAnimKeyQuadTrans(void* nifref, int tdID, int frame, NiAnimKeyQ
         for (int i = 0; i < 3; i++) buf->backward[i] = k.backward[i];
         return;
     }
+    NIFLY_GUARD_END_VOID
 }
 
 
 NIFLY_API void addAnimKeyQuadTrans(void* nifref, int tdID, NiAnimKeyQuadTransBuf *buf)
 /* Add a quad animation key. */ {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiAnimationKey<Vector3> k;
@@ -6402,6 +6693,7 @@ NIFLY_API void addAnimKeyQuadTrans(void* nifref, int tdID, NiAnimKeyQuadTransBuf
         pd->data.AddKey(k);
         return;
     }
+    NIFLY_GUARD_END_VOID
 }
 
 
@@ -6418,6 +6710,7 @@ NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
     allocated correctly by the caller according to values returned by getTransformData.
     */
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader hdr = nif->GetHeader();
     nifly::NiTransformData* sh = hdr.GetBlock<NiTransformData>(nodeIndex);
@@ -6504,6 +6797,7 @@ NIFLY_API int getTransformDataValues(void* nifref, int nodeIndex,
     }
     else
         return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 int getNiSingleInterpController(void* nifref, uint32_t nodeIndex, void* inbuf)
@@ -6661,16 +6955,19 @@ int addNiSingleInterpController(void* nifref, const char* name, void* b, uint32_
 };
 
 NIFLY_API int setController(void* nifref, uint32_t id, uint32_t controller_id) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiObjectNET* node = hdr->GetBlock<NiObjectNET>(id);
     node->controllerRef.index = controller_id;
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
 NIFLY_API int getExtraData(void* nifref, uint32_t id,
     const char* extraDataBlockType, const char* extraDataName, uint32_t targetIndex) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiObjectNET* node = hdr->GetBlock<NiObjectNET>(id);
@@ -6692,6 +6989,7 @@ NIFLY_API int getExtraData(void* nifref, uint32_t id,
         }
     }
     return NIF_NPOS;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // Add after the existing getBGExtraData function (around line 3700)
@@ -6796,7 +7094,7 @@ int getAVObjectPalette(void* nifref, uint32_t id, void* inbuf) {
     nifly::NiDefaultAVObjectPalette* op = hdr->GetBlock<nifly::NiDefaultAVObjectPalette>(id);
     NiDefaultAVObjectPaletteBuf* buf = static_cast<NiDefaultAVObjectPaletteBuf*>(inbuf);
 
-    CheckID(id);
+    CheckID(op);
     CheckBuf(buf, BUFFER_TYPES::NiDefaultAVObjectPaletteBufType, NiDefaultAVObjectPaletteBuf);
 
     buf->sceneID = op->sceneRef.index;
@@ -6808,14 +7106,20 @@ int getAVObjectPalette(void* nifref, uint32_t id, void* inbuf) {
 NIFLY_API int getAVObjectPaletteObject(
     void* nifref, uint32_t paletteID, int objindex, int namesize, char* name, uint32_t& objid)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiDefaultAVObjectPalette* op = hdr->GetBlock<nifly::NiDefaultAVObjectPalette>(paletteID);
 
+    CheckID(op);
+    if (objindex < 0 || objindex >= int(op->objects.size())) {
+        niflydll::LogWriteEf("%s: no object %d in the palette.", __FUNCTION__, objindex);
+        return 1;
+    }
     objid = op->objects[objindex].objectRef.index;
-    strncpy_s(name, namesize, op->objects[objindex].name.get().c_str(), namesize);
-    name[namesize - 1] = '\0';
+    copy_out(name, namesize, op->objects[objindex].name.get());
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int addAVObjectPalette(void* nifref, const char* name, void* b, uint32_t parent)
@@ -6842,6 +7146,7 @@ int addAVObjectPalette(void* nifref, const char* name, void* b, uint32_t parent)
 NIFLY_API int addAVObjectPaletteObject(
     void* nifref, uint32_t paletteID, char* name, int objid)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiDefaultAVObjectPalette* op = hdr->GetBlock<nifly::NiDefaultAVObjectPalette>(paletteID);
@@ -6851,6 +7156,7 @@ NIFLY_API int addAVObjectPaletteObject(
     obj.objectRef.index = objid;
     op->objects.push_back(obj);
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -6860,7 +7166,7 @@ int getNiTextKeyExtraData(void* nifref, uint32_t id, void* inbuf) {
     nifly::NiTextKeyExtraData* tk = hdr->GetBlock<nifly::NiTextKeyExtraData>(id);
     NiTextKeyExtraDataBuf* buf = static_cast<NiTextKeyExtraDataBuf*>(inbuf);
 
-    CheckID(id);
+    CheckID(tk);
     CheckBuf(buf, BUFFER_TYPES::NiTextKeyExtraDataBufType, NiTextKeyExtraDataBuf);
 
     buf->nameID = tk->name.GetIndex();
@@ -6872,6 +7178,7 @@ int getNiTextKeyExtraData(void* nifref, uint32_t id, void* inbuf) {
 NIFLY_API int getNiTextKey(
     void* nifref, uint32_t tkedID, int keyindex, void* b)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiTextKeyExtraData* tk = hdr->GetBlock<nifly::NiTextKeyExtraData>(tkedID);
@@ -6880,6 +7187,7 @@ NIFLY_API int getNiTextKey(
     buf->time = tk->textKeys[keyindex].time;
     buf->valueID = tk->textKeys[keyindex].value.GetIndex();
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 int addNiTextKeyExtraData(void* nifref, const char* name, void* b, uint32_t parent)
@@ -6905,6 +7213,7 @@ int addNiTextKeyExtraData(void* nifref, const char* name, void* b, uint32_t pare
 
 NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, const char* name)
 {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(nifref);
     NiHeader* hdr = &nif->GetHeader();
     nifly::NiTextKeyExtraData* tk = hdr->GetBlock<nifly::NiTextKeyExtraData>(tkedID);
@@ -6914,6 +7223,7 @@ NIFLY_API int addTextKey(void* nifref, uint32_t tkedID, float time, const char* 
     key.value.get() = name;
     tk->textKeys.push_back(key);
     return 0;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -7002,6 +7312,36 @@ BlockGetterFunction getterFunctions[] = {
     nullptr //END
 };
 
+// One slot per BUFFER_TYPES value, plus the nullptr END sentinel.
+static_assert(std::size(getterFunctions) == BUFFER_TYPES_COUNT + 1,
+    "getterFunctions must line up 1:1 with BUFFER_TYPES");
+
+/* The dispatch-table slot for a buffer's type, or nullptr (logged) when the buffer is null,
+   its type is out of range, or that type has no function in the table. */
+template <typename F, size_t N>
+static F dispatchSlot(F (&table)[N], const void* buf, const char* op) {
+    if (!buf) {
+        niflydll::LogWriteEf("%s called with a null buffer.", op);
+        return nullptr;
+    }
+    uint16_t bt = static_cast<const BlockBuf*>(buf)->bufType;
+    if (bt >= BUFFER_TYPES_COUNT) {
+        niflydll::LogWriteEf("%s called with unknown buffer type %d.", op, int(bt));
+        return nullptr;
+    }
+    if (!table[bt])
+        niflydll::LogWriteEf("NYI Unimplemented function %s of type %d", op, int(bt));
+    return table[bt];
+}
+
+NIFLY_API int getBufferTypeCount()
+/* Number of BUFFER_TYPES values the DLL knows. Lets the Python side check its hand-kept copy. */
+{
+    NIFLY_GUARD_BEGIN
+    return BUFFER_TYPES_COUNT;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
+}
+
 NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
 /* Read block properties for any type of block. buf must be the appropriate type of buffer
     for the block type.
@@ -7009,13 +7349,11 @@ NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf)
     Returns: 0 if block found and read; non-zero if not.
     */
 {
-    BlockBuf* theBuf = static_cast<BlockBuf*>(buf);
-    if (!getterFunctions[theBuf->bufType]) {
-        niflydll::LogWriteEf("NYI Unimplemented function GET of type %d", theBuf->bufType);
-        return NIF_NPOS;
-    }
-
-    return getterFunctions[theBuf->bufType](nifref, blockID, buf);
+    NIFLY_GUARD_BEGIN
+    BlockGetterFunction fn = dispatchSlot(getterFunctions, buf, "GET");
+    if (!fn) return NIF_NPOS;
+    return fn(nifref, blockID, buf);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 };
 
 
@@ -7055,6 +7393,10 @@ BlockSetterFunction setterFunctions[] = {
     setNiShape, //BSDynamicTriShapeBufType,
     setNiShape, //BSTriShapeBufType,
     nullptr, //BSSubIndexTriShape
+    // This slot was missing, shifting every setter after it one type down (BSLODTriShape got
+    // setNiShader, NiTriShape got nothing, bhkNPCollisionObject got setbhkPhysicsSystem...).
+    // Left unimplemented as it effectively was; setNiShader does accept this buffer type.
+    nullptr, //BSEffectShaderPropertyBufType
     nullptr, //NiTriStripsBufType
     setNiShape, //BSLODTriShape
     setNiShader,  //BSLightingShaderProperty
@@ -7103,19 +7445,20 @@ BlockSetterFunction setterFunctions[] = {
     nullptr //END
 };
 
+static_assert(std::size(setterFunctions) == BUFFER_TYPES_COUNT + 1,
+    "setterFunctions must line up 1:1 with BUFFER_TYPES");
+
 NIFLY_API int setBlock(void* f, int id, void* buf)
 /* Set the properties of block with id "id".
     Caller must ensure the buf is the correct type for the node.
     Returns 0 for success, non-zero for errors.
 */
 {
-    BlockBuf* theBuf = static_cast<BlockBuf*>(buf);
-    if (!setterFunctions[theBuf->bufType]) {
-        niflydll::LogWriteEf("NYI Unimplemented function SET of type %d", theBuf->bufType);
-        return NIF_NPOS;
-    }
-
-    return setterFunctions[theBuf->bufType](f, id, buf);
+    NIFLY_GUARD_BEGIN
+    BlockSetterFunction fn = dispatchSlot(setterFunctions, buf, "SET");
+    if (!fn) return NIF_NPOS;
+    return fn(f, id, buf);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // Creator functions match 1:1 with BUFFER_TYPES
@@ -7204,17 +7547,18 @@ BlockCreatorFunction creatorFunctions[] = {
 };
 
 
+static_assert(std::size(creatorFunctions) == BUFFER_TYPES_COUNT + 1,
+    "creatorFunctions must line up 1:1 with BUFFER_TYPES");
+
 NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent) {
+    NIFLY_GUARD_BEGIN
     /* Add a block to the nif, type defined in the buffer.
         Returns ID of the new block.
     */
-    BlockBuf* theBuf = static_cast<BlockBuf*>(buf);
-    if (!creatorFunctions[theBuf->bufType]) 
-    {
-        niflydll::LogWriteEf("NYI Unimplemented function ADD of type %d", theBuf->bufType);
-        return NIF_NPOS;
-    }
-    return creatorFunctions[theBuf->bufType](f, name, buf, parent);
+    BlockCreatorFunction fn = dispatchSlot(creatorFunctions, buf, "ADD");
+    if (!fn) return NIF_NPOS;
+    return fn(f, name, buf, parent);
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 
@@ -7241,8 +7585,10 @@ static nifly::BSGeometry* asBSGeometry(void* theShape) {
 
 // Number of mesh (LOD) slots on a BSGeometry. 0 if the shape isn't a BSGeometry.
 NIFLY_API int getBSGeometryMeshCount(void* theNif, void* theShape) {
+    NIFLY_GUARD_BEGIN
     nifly::BSGeometry* geom = asBSGeometry(theShape);
     return geom ? geom->MeshCount() : 0;
+    NIFLY_GUARD_END(0)
 }
 
 // The external .mesh path (meshName) for LOD slot 'whichMesh'. Fills 'buf' (NUL-
@@ -7250,6 +7596,7 @@ NIFLY_API int getBSGeometryMeshCount(void* theNif, void* theShape) {
 // resize and retry). Returns 0 if not a BSGeometry / slot out of range.
 NIFLY_API int getBSGeometryMeshPath(void* theNif, void* theShape, int whichMesh,
                                     char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     if (!asBSGeometry(theShape)) { if (buflen > 0) buf[0] = 0; return 0; }
@@ -7260,26 +7607,23 @@ NIFLY_API int getBSGeometryMeshPath(void* theNif, void* theShape, int whichMesh,
         if (buflen > 0) buf[0] = 0;
         return 0;
     }
-    const std::string& path = refs[whichMesh].get();
-    int n = (int)path.size();
-    if (buflen > 0) {
-        int copy = (n < buflen - 1) ? n : buflen - 1;
-        for (int i = 0; i < copy; i++) buf[i] = path[i];
-        buf[copy] = 0;
-    }
-    return n;
+    return copy_out(buf, buflen, refs[whichMesh].get());
+    NIFLY_GUARD_END(0)
 }
 
 // 1 if the BSGeometry stores its mesh data inline in the NIF (flag 0x200), else 0.
 NIFLY_API int getBSGeometryInternalFlag(void* theNif, void* theShape) {
+    NIFLY_GUARD_BEGIN
     nifly::BSGeometry* geom = asBSGeometry(theShape);
     return (geom && geom->HasInternalGeomData()) ? 1 : 0;
+    NIFLY_GUARD_END(0)
 }
 
 // Load external .mesh bytes into LOD slot 'whichMesh' and select that slot, so the
 // standard geometry accessors read from it. Returns 1 on success, 0 on failure.
 NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh,
                                      const char* bytes, int len) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     nifly::BSGeometry* geom = asBSGeometry(theShape);
@@ -7290,12 +7634,15 @@ NIFLY_API int loadBSGeometryMeshData(void* theNif, void* theShape, int whichMesh
     bool ok = nif->LoadExternalShapeData(shape, stream, (uint8_t)whichMesh);
     if (ok) geom->SelectMesh((uint8_t)whichMesh);
     return ok ? 1 : 0;
+    NIFLY_GUARD_END(0)
 }
 
 // Select a LOD slot so subsequent getVertsForShape/getTriangles/etc. read from it.
 NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh) {
+    NIFLY_GUARD_BEGIN
     nifly::BSGeometry* geom = asBSGeometry(theShape);
     if (geom) geom->SelectMesh((uint8_t)whichMesh);
+    NIFLY_GUARD_END_VOID
 }
 
 // Serialize a BSGeometry LOD slot's mesh data to the external-.mesh byte layout and copy
@@ -7307,6 +7654,7 @@ NIFLY_API void selectBSGeometryMesh(void* theNif, void* theShape, int whichMesh)
 // same bytes. Returns 0 if the shape isn't a BSGeometry or the slot is out of range.
 NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh,
                                      char* buf, int buflen) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     nifly::BSGeometry* geom = asBSGeometry(theShape);
@@ -7324,6 +7672,7 @@ NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh
         for (int i = 0; i < copy; i++) buf[i] = data[i];
     }
     return n;
+    NIFLY_GUARD_END(0)
 }
 
 // Set the external .mesh path (meshName) for LOD slot 'whichMesh'. This is the path
@@ -7332,6 +7681,7 @@ NIFLY_API int saveBSGeometryMeshData(void* theNif, void* theShape, int whichMesh
 // on success, 0 if not a BSGeometry / slot out of range.
 NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh,
                                     const char* name) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     if (!asBSGeometry(theShape)) return 0;
@@ -7341,6 +7691,7 @@ NIFLY_API int setBSGeometryMeshName(void* theNif, void* theShape, int whichMesh,
     if (whichMesh < 0 || whichMesh >= (int)refs.size()) return 0;
     refs[whichMesh].get() = name ? std::string(name) : std::string();
     return 1;
+    NIFLY_GUARD_END(0)
 }
 
 // Add a LOD slot to a BSGeometry, filled from the given geometry the same way
@@ -7351,6 +7702,7 @@ NIFLY_API int addBSGeometryMesh(void* theNif, void* theShape,
                                 const Vector3* verts, int vertCount,
                                 const Triangle* tris, int triCount,
                                 const Vector2* uvs, const Vector3* norms) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::BSGeometry* geom = asBSGeometry(theShape);
     if (!geom || vertCount <= 0) return -1;
@@ -7365,6 +7717,7 @@ NIFLY_API int addBSGeometryMesh(void* theNif, void* theShape,
     FillExternalMesh(geom->AddMesh(), nif->GetHeader().GetVersion(),
                      &v, &t, uvs ? &uv : nullptr, norms ? &n : nullptr);
     return geom->MeshCount() - 1;
+    NIFLY_GUARD_END(NIFLY_EXCEPTION_ERR)
 }
 
 // Prepare LOD slot 'whichMesh' of a skinned BSGeometry for weights: select it, set how many
@@ -7374,6 +7727,7 @@ NIFLY_API int addBSGeometryMesh(void* theNif, void* theShape,
 // success.
 NIFLY_API int setBSGeometryWeightsPerVertex(void* theNif, void* theShape, int whichMesh,
                                             int weightsPerVertex) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     nifly::BSGeometry* geom = asBSGeometry(theShape);
@@ -7384,6 +7738,7 @@ NIFLY_API int setBSGeometryWeightsPerVertex(void* theNif, void* theShape, int wh
     mesh->meshData.nWeightsPerVert = (weightsPerVertex > 0) ? (uint32_t)weightsPerVertex : 4;
     nif->ClearShapeVertWeights(shape->name.get());
     return 1;
+    NIFLY_GUARD_END(0)
 }
 
 // Set the tangents for LOD slot 'whichMesh'. tangents = count Vector3 (unit tangents);
@@ -7393,6 +7748,7 @@ NIFLY_API int setBSGeometryWeightsPerVertex(void* theNif, void* theShape, int wh
 // 1 on success.
 NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh,
                                     Vector3* tangents, uint8_t* tangentWs, int count) {
+    NIFLY_GUARD_BEGIN
     nifly::BSGeometry* geom = asBSGeometry(theShape);
     if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
     nifly::BSGeometryMesh* mesh = geom->SelectMesh((uint8_t)whichMesh);
@@ -7404,6 +7760,7 @@ NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh,
     for (int i = 0; i < count; i++)
         md.tangentWs[i] = tangentWs ? tangentWs[i] : 1;
     return 1;
+    NIFLY_GUARD_END(0)
 }
 
 // Get the per-vertex colors of the currently-selected LOD mesh. The .mesh's colors live in
@@ -7412,6 +7769,7 @@ NIFLY_API int setBSGeometryTangents(void* theNif, void* theShape, int whichMesh,
 // color comes back black. Mirrors setBSGeometryColors's straight RGBA byte mapping. Fills up to
 // 'count' Color4 (float RGBA 0..1); returns the number of colors available.
 NIFLY_API int getBSGeometryColors(void* theNif, void* theShape, Color4* colors, int count) {
+    NIFLY_GUARD_BEGIN
     nifly::BSGeometry* geom = asBSGeometry(theShape);
     if (!geom) return 0;
     nifly::BSGeometryMeshData* md = static_cast<nifly::BSGeometryMeshData*>(geom->GetGeomData());
@@ -7424,6 +7782,7 @@ NIFLY_API int getBSGeometryColors(void* theNif, void* theShape, Color4* colors, 
         colors[i].a = md->vColors[i].a / 255.0f;
     }
     return n;
+    NIFLY_GUARD_END(0)
 }
 
 // Set the per-vertex colors for LOD slot 'whichMesh'. colors = count Color4 (float RGBA,
@@ -7431,6 +7790,7 @@ NIFLY_API int getBSGeometryColors(void* theNif, void* theShape, Color4* colors, 
 // Sync; we store straight RGBA bytes). Returns 1 on success.
 NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh,
                                   Color4* colors, int count) {
+    NIFLY_GUARD_BEGIN
     nifly::BSGeometry* geom = asBSGeometry(theShape);
     if (!geom || whichMesh < 0 || whichMesh >= geom->MeshCount()) return 0;
     nifly::BSGeometryMesh* mesh = geom->SelectMesh((uint8_t)whichMesh);
@@ -7450,6 +7810,7 @@ NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh,
         md.vColors[i].a = clamp8(colors[i].a);
     }
     return 1;
+    NIFLY_GUARD_END(0)
 }
 
 /* ----------------------------------------------------------------------------
@@ -7469,6 +7830,7 @@ NIFLY_API int setBSGeometryColors(void* theNif, void* theShape, int whichMesh,
 // Returns 1 on success, 0 if the shape isn't a BSGeometry.
 NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNamesNL, int nBones,
                              int weightsPerVertex) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     nifly::BSGeometry* geom = asBSGeometry(theShape);
@@ -7560,6 +7922,7 @@ NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNames
     // Zero the per-vertex weight slots so SetShapeVertWeights can fill them.
     nif->ClearShapeVertWeights(shape->name.get());
     return 1;
+    NIFLY_GUARD_END(0)
 }
 
 // Set the bind (skin-to-bone) transform for one bone on a skinned BSGeometry. The translation
@@ -7567,6 +7930,7 @@ NIFLY_API int skinBSGeometry(void* theNif, void* theShape, const char* boneNames
 // bind in game units like the vertices. Rotation/scale are unit-invariant. Returns 1 on success.
 NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex,
                                     const MatTransform& xf) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     if (!asBSGeometry(theShape)) return 0;
@@ -7584,6 +7948,7 @@ NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex,
     t.translation.z /= havokScale;
     boneData->boneXforms[boneIndex].boneTransform = t;
     return 1;
+    NIFLY_GUARD_END(0)
 }
 
 // Set the per-vertex bone weights for one vertex of a skinned BSGeometry. boneIndices index
@@ -7592,6 +7957,7 @@ NIFLY_API int setBSGeometryBoneBind(void* theNif, void* theShape, int boneIndex,
 // Returns 1 on success.
 NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertIndex,
                                        uint8_t* boneIndices, float* weights, int count) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     if (!asBSGeometry(theShape)) return 0;
@@ -7600,6 +7966,7 @@ NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertInd
     std::vector<float> ws(weights, weights + count);
     nif->SetShapeVertWeights(shape->name.get(), (uint16_t)vertIndex, ids, ws);
     return 1;
+    NIFLY_GUARD_END(0)
 }
 
 // Recompute the per-bone bounding spheres in BSSkin::BoneData for a skinned BSGeometry. Each
@@ -7610,6 +7977,7 @@ NIFLY_API int setBSGeometryVertWeights(void* theNif, void* theShape, int vertInd
 // (setBSGeometryVertWeights) are set. Verts are game units in md, binds are stored metric
 // (translation /havokScale), so verts are divided by havokScale to match. Returns 1 on success.
 NIFLY_API int updateBSGeometrySkinBounds(void* theNif, void* theShape) {
+    NIFLY_GUARD_BEGIN
     NifFile* nif = static_cast<NifFile*>(theNif);
     nifly::NiShape* shape = static_cast<nifly::NiShape*>(theShape);
     nifly::BSGeometry* geom = asBSGeometry(theShape);
@@ -7640,5 +8008,6 @@ NIFLY_API int updateBSGeometrySkinBounds(void* theNif, void* theShape) {
             boneData->boneXforms[b].bounds = BoundingSphere(pts[b]);
     }
     return 1;
+    NIFLY_GUARD_END(0)
 }
 

@@ -79,7 +79,7 @@ class _Types:
                 self.by_name[t.name] = t
 
     def sig(self, t):
-        return self.doc._signature(t.index)
+        return self.doc.signature(t.index)
 
     def cls(self, name):
         if name not in self.by_name:
@@ -432,7 +432,7 @@ def _constraint_sets(sim, positions, particles, bone_index):
             wa, wb = inv[a], inv[b]
             if wa + wb == 0:
                 continue                         # two pinned particles: nothing to hold
-            singles.append({'restLength': sf_cloth._dist(positions, a, b),
+            singles.append({'restLength': sf_cloth.dist(positions, a, b),
                             'stiffnessA': s * wa / (wa + wb), 'stiffnessB': -s * wb / (wa + wb),
                             'particleA': a, 'particleB': b})
         out.append(obj('hclStandardLinkConstraintSetMx', name='standardLinks',
@@ -453,7 +453,7 @@ def _constraint_sets(sim, positions, particles, bone_index):
         for a, b in stretch:
             if b in pinned and a not in pinned:
                 a, b = b, a                      # a stretch link runs from its pinned end
-            singles.append({'restLength': sf_cloth._dist(positions, a, b) * sim.stretch_slack,
+            singles.append({'restLength': sf_cloth.dist(positions, a, b) * sim.stretch_slack,
                             'stiffness': s, 'particleA': a, 'particleB': b})
         out.append(obj('hclStretchLinkConstraintSetMx', name='stretchLinks',
                        constraintId={'value': 0}, type=0, batches=None,

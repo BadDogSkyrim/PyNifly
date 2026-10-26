@@ -1421,16 +1421,9 @@ STACK_TNAM = 'PostBlendFaceCustomizationLayers'
 
 
 def dds_dimensions(path):
-    """(width, height) from a DDS header, or None."""
-    try:
-        with open(path, 'rb') as f:
-            head = f.read(20)
-    except OSError:
-        return None
-    if len(head) < 20 or head[:4] != b'DDS ':
-        return None
-    height, width = struct.unpack_from('<2I', head, 12)
-    return width, height
+    """(width, height) from a DDS header, or None. One reader, sf_texconv's."""
+    from sf_texconv import dds_size
+    return dds_size(path)
 
 
 def face_option_groups(avm):

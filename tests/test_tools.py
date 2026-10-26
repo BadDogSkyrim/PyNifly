@@ -8,7 +8,10 @@ import logging
 from pyn import niflytools as NT 
 from pyn import nifdefs as ND
 
-pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
+# PYNIFLY_DEV_ROOT is the folder holding the PyNifly checkout. Unset, default to this
+# checkout's parent, so the suites import on a machine that never set it.
+pynifly_dev_root = os.environ.get(
+    'PYNIFLY_DEV_ROOT', str(Path(__file__).resolve().parents[2]))
 pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\pynifly")
 
 
@@ -103,6 +106,35 @@ def skip_test(fn):
     """Decorator to skip a test."""
     fn.__dict__["skip_test"] = True
     return fn
+
+
+ASSET_ROOTS = {
+    'SKYRIM': SKYRIM_ASSETS,
+    'FO4': FO4_ASSETS,
+    'SF': SF_ASSETS,
+    'SF_DATA': SF_DATA,
+}
+
+
+def requires_assets(*roots):
+    """Decorator: the test reads files from these asset roots (keys of ASSET_ROOTS).
+
+    Both runners record the test as FAILED, without running it, on a machine where any of
+    them is missing: a missing asset folder is a broken setup -- see missing_assets.
+    """
+    unknown = [r for r in roots if r not in ASSET_ROOTS]
+    if unknown:
+        raise ValueError(f"Unknown asset root {unknown}. Known: {sorted(ASSET_ROOTS)}")
+    def wrap(fn):
+        fn.__dict__["requires_assets"] = tuple(roots)
+        return fn
+    return wrap
+
+
+def missing_assets(fn):
+    """The asset-root folders a @requires_assets test needs that don't exist here."""
+    return [ASSET_ROOTS[r] for r in fn.__dict__.get("requires_assets", ())
+            if not os.path.isdir(ASSET_ROOTS[r])]
 
 
 def error_level(errlevel):

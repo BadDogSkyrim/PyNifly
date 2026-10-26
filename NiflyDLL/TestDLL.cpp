@@ -2320,6 +2320,77 @@ namespace NiflyDLLTests
 			Assert::AreEqual("BSDynamicTriShape", blockname, L"Have expected node type");
 		};
 
+		TEST_METHOD(safeStringCopy) {
+			/* Names copied out into a buffer too small for them are truncated and
+				NUL-terminated--not a process abort--and the full length comes back so the
+				caller can ask again with a big enough buffer (Len-then-fill). */
+			char small[6];
+			std::memset(small, 'x', sizeof(small));
+			Assert::AreEqual(10, niflydll::copy_out(small, 6, std::string("0123456789")), L"Full length returned");
+			Assert::AreEqual(std::string("01234"), std::string(small), L"Truncated and terminated");
+			Assert::AreEqual(3, niflydll::copy_out(nullptr, 0, "abc"), L"Length with no buffer");
+			Assert::AreEqual(0, niflydll::copy_out(small, 6, ""), L"Empty string");
+			Assert::AreEqual(std::string(""), std::string(small), L"Empty string terminated");
+
+			std::filesystem::path testfile = testRoot / "SkyrimSE/malehead.nif";
+			void* nif = load(testfile.u8string().c_str());
+			void* shapes[10];
+			getShapes(nif, shapes, 10, 0);
+
+			// strncpy_s used to abort the process here.
+			char blockname[5];
+			int n = getShapeBlockName(shapes[0], blockname, 5);
+			Assert::AreEqual(int(strlen("BSDynamicTriShape")), n, L"Full block name length returned");
+			Assert::AreEqual(std::string("BSDy"), std::string(blockname), L"Block name truncated");
+
+			std::vector<char> big(size_t(n) + 1);
+			getShapeBlockName(shapes[0], big.data(), n + 1);
+			Assert::AreEqual(std::string("BSDynamicTriShape"), std::string(big.data()), L"Second call gets the whole name");
+
+			n = getBlockname(nif, 0, blockname, 5);
+			Assert::AreEqual(int(strlen("NiNode")), n, L"getBlockname full length");
+			Assert::AreEqual(std::string("NiNo"), std::string(blockname), L"getBlockname truncated");
+
+			n = getShapeName(shapes[0], blockname, 5);
+			Assert::IsTrue(n > 4, L"getShapeName full length");
+			Assert::AreEqual(size_t(4), strlen(blockname), L"getShapeName truncated");
+
+			// Message log into a tiny buffer (strcpy_s used to abort here too).
+			clearMessageLog();
+			niflydll::LogWriteEf("A message much longer than the buffer");
+			int loglen = getMessageLog(nullptr, 0);
+			char logbuf[8];
+			Assert::AreEqual(loglen, getMessageLog(logbuf, 8), L"Message log full length");
+			Assert::AreEqual(size_t(7), strlen(logbuf), L"Message log truncated");
+			clearMessageLog();
+
+			destroy(nif);
+		};
+
+		TEST_METHOD(getBlockBadBufType) {
+			/* getBlock/setBlock/addBlock reject a buffer type outside BUFFER_TYPES with an error
+				instead of indexing past the end of their dispatch tables. */
+			std::filesystem::path testfile = testRoot / "SkyrimSE/malehead.nif";
+			void* nif = load(testfile.u8string().c_str());
+
+			Assert::AreEqual(int(BUFFER_TYPES_COUNT), getBufferTypeCount(), L"DLL reports its buffer type count");
+
+			for (int bt : {int(BUFFER_TYPES_COUNT), int(BUFFER_TYPES_COUNT) + 1, 9999, 0xFFFF}) {
+				BlockBuf buf;
+				buf.bufType = uint16_t(bt);
+				clearMessageLog();
+				Assert::AreNotEqual(0, getBlock(nif, 0, &buf), L"getBlock fails on a bad buffer type");
+				Assert::IsTrue(getMessageLog(nullptr, 0) > 0, L"getBlock logged the bad buffer type");
+				Assert::AreNotEqual(0, setBlock(nif, 0, &buf), L"setBlock fails on a bad buffer type");
+				Assert::AreNotEqual(0, addBlock(nif, "x", &buf, 0), L"addBlock fails on a bad buffer type");
+			}
+			clearMessageLog();
+			Assert::AreNotEqual(0, getBlock(nif, 0, nullptr), L"getBlock fails on a null buffer");
+			clearMessageLog();
+
+			destroy(nif);
+		};
+
 		TEST_METHOD(loadAndStoreUnskinned) {
 			std::filesystem::path testfile = testRoot / "FO4/AlarmClock.nif";
 

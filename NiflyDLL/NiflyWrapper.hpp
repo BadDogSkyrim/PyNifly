@@ -67,6 +67,7 @@ extern "C" NIFLY_API int getBlockID(void* nifref, void* block);
 extern "C" NIFLY_API int addBlock(void* f, const char* name, void* buf, int parent);
 extern "C" NIFLY_API int getBlock(void* nifref, uint32_t blockID, void* buf);
 extern "C" NIFLY_API int setBlock(void* f, int id, void* buf);
+extern "C" NIFLY_API int getBufferTypeCount();
 extern "C" NIFLY_API void getNode(void* nifref, void* node, NiNodeBuf * buf);
 extern "C" NIFLY_API void* getNodeByID(void* theNif, uint32_t theID);
 extern "C" NIFLY_API void* findNodeByName(void* theNif, const char* nodeName);

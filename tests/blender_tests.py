@@ -47,12 +47,18 @@ def execute_test(t, executed_tests, stop_on_fail=True):
         print (f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
         
         versions = [test_categories.get(c, (0,0)) for c in t.__dict__.get("category", set())]
+        versions = versions or [(0, 0)]                # a test with no category
         if bpy.app.version < max(versions) or (bpy.app.version < t.__dict__.get("min_blender_version", (0,0))):
             print (f"SKIPPING {t.__name__}: requires Blender version {max(versions)}, have {bpy.app.version}\n")
             executed_tests[t.__name__] = 'SKIP'
         elif t.__dict__.get("skip_test", None):
             print (f"SKIPPING {t.__name__}: marked to skip\n")
             executed_tests[t.__name__] = 'SKIP'
+        elif TT.missing_assets(t):
+            # A missing asset folder is a broken setup, not a reason to pass quietly.
+            print (f"FAILED {t.__name__}: asset folder missing: {TT.missing_assets(t)}\n")
+            log.error(f"{t.__name__}: asset folder missing: {TT.missing_assets(t)}")
+            executed_tests[t.__name__] = 'FAIL'
         else:
             if t.__doc__: print (f"{t.__doc__}")
             TTB.clear_all()
@@ -67,7 +73,8 @@ def execute_test(t, executed_tests, stop_on_fail=True):
                 try:
                     t()
                 except (AssertionError, Exception):
-                    breakpoint()
+                    if not bpy.app.background:      # a debugger can't be used headless
+                        breakpoint()
                     raise
                 test_loghandler.finish()
                 executed_tests[t.__name__] = 'PASS'
@@ -76,7 +83,8 @@ def execute_test(t, executed_tests, stop_on_fail=True):
                     t()
                     test_loghandler.finish()
                     executed_tests[t.__name__] = 'PASS'
-                except AssertionError:
+                except AssertionError as e:
+                    log.exception(f"Test {t.__name__} failed: {e}")
                     executed_tests[t.__name__] = 'FAIL'
                 except Exception as e:
                     log.exception(f"Test {t.__name__} failed with exception: {e}")
@@ -159,6 +167,42 @@ def do_tests(
         print_boxed(msg)
     else:
         print_boxed("TESTS FAILED")
+    return len(failed_tests)
+
+
+def run_from_command_line(argv=None, **defaults):
+    """Run the tests the command line names, else do_tests(**defaults).
+
+    Arguments after '--' on Blender's command line: test names (TEST_...), '--category NAME'
+    (repeatable), '--all' to continue through the whole suite after the named tests, and
+    '--stop' to stop at the first failure. Headless, Blender exits 1 if any test failed, so a
+    script can tell; an interactive Blender is left running."""
+    argv = sys.argv if argv is None else argv
+    args = argv[argv.index('--') + 1:] if '--' in argv else []
+    kw = dict(defaults)
+    if args:
+        names, cats = [], set()
+        kw['test_all'] = False          # named tests run alone, unless --all
+        it = iter(args)
+        for a in it:
+            if a == '--category':
+                cats.add(next(it))
+            elif a == '--all':
+                kw['test_all'] = True
+            elif a == '--stop':
+                kw['stop_on_fail'] = True
+            else:
+                names.append(a)
+        tests = sys.modules[__name__].__dict__
+        unknown = [n for n in names if n not in tests]
+        if unknown:
+            raise SystemExit(f"No such test: {', '.join(unknown)}")
+        kw['target_tests'] = [tests[n] for n in names]
+        kw['categories'] = cats or None
+    failed = do_tests(**kw)
+    if bpy.app.background:
+        sys.exit(1 if failed else 0)
+    return failed
 
 
 def show_all_tests():

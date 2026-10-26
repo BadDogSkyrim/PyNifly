@@ -8,6 +8,7 @@ from .common import *
 # with bone units, and out of scope here.
 @TT.expect_errors(('Unknown block type: bhkRagdollSystem',
                    'bhkPhysicsSystem decode failed'))
+@TT.requires_assets('SF')
 def TEST_SF_SKELETON_IMPORT():
     """Starfield's own skeleton.nif imports as one coherent armature, not two half-scales.
 
@@ -455,6 +456,7 @@ def TEST_SF_NORMAL_GREEN():
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+@TT.requires_assets('SF')
 def TEST_SF_LOD_IMPORT():
     """Starfield: every LOD slot of a BSGeometry imports, one mesh child per distinct .mesh.
 
@@ -509,6 +511,7 @@ def _sf_slot_meshes(nif_path, shape):
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+@TT.requires_assets('SF')
 def TEST_SF_LOD_ROUNDTRIP():
     """Starfield: a BSGeometry's LODs export back into ONE block with all its slots.
 
@@ -2024,6 +2027,7 @@ VANILLA_AF_MD1_EYES = {'L_Eye': (0.0316, 0.0788, 0.0323), 'R_Eye': (0.0326, 0.08
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+@TT.requires_assets('SF')
 def TEST_SF_BONETRANS_IMPORT():
     """A crowd head's BoneTranslations imports as an Empty, 'BoneTranslations:BoneTrn', with a
     marker per entry where that eye bone sits: C_Head moved by the entry. For a vanilla head the
@@ -2041,6 +2045,7 @@ def TEST_SF_BONETRANS_IMPORT():
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+@TT.requires_assets('SF')
 def TEST_SF_BONETRANS_ROUNDTRIP():
     """Export writes BoneTranslations from the Empty, into the plain nif and the facebones
     companion alike (every vanilla companion carries it too), measured against the export
@@ -2080,6 +2085,7 @@ def TEST_SF_BONETRANS_ROUNDTRIP():
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+@TT.requires_assets('SF')
 def TEST_SF_BONETRANS_NONE():
     """No Empty, no block: export never makes BoneTranslations up."""
     outfile = TTB.test_file(r"tests\Out\TEST_SF_BONETRANS_NONE.nif", output=True)
@@ -2110,6 +2116,7 @@ def _face_rig(name, parent=None):
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+@TT.requires_assets('SF')
 def TEST_SF_FACEBONES_FLAG_CROWD():
     """An armature marked as the facebones armature wins over one only the bone names point to,
     and a marked armature with no faceBone_* bones writes the companion the way vanilla crowd
@@ -2150,6 +2157,7 @@ def TEST_SF_FACEBONES_FLAG_CROWD():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_FILE_KEY_MESHES():
     """Each '_'-prefixed shape key writes its own nif AND its own .mesh files.
 
@@ -2205,6 +2213,7 @@ def TEST_SF_FILE_KEY_MESHES():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_FILE_KEY_PLAIN():
     """A shape key named just '_' writes the plain nif -- no suffix -- from its own shape.
 
@@ -2272,6 +2281,7 @@ def _bbox(pts):
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_VIZ():
     """Import draws a Starfield cloth blob under its BSClothExtraData empty: one mesh per
     simulated cloth (vertex = particle, face = sim triangle, edges carry the links) and a mesh per
@@ -2334,6 +2344,7 @@ def TEST_SF_CLOTH_VIZ():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_VIZ_FULL():
     """Import shows everything the cloth builder works from, on the sim mesh: each particle's
     skin weights as vertex groups named for bones, its original number (`cloth_particle`) and
@@ -2410,6 +2421,7 @@ def _cloth_export(outfile):
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_EDIT_EXPORT():
     """Cloth edited in Blender goes out on export, built afresh from what the pictures show:
     settings on the sim mesh, a particle's mass and friction (vertex attributes), a particle
@@ -2573,6 +2585,7 @@ def TEST_SF_CLOTH_EDIT_EXPORT():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_PLANES():
     """Bone planes: each keeps its particles on one side of a plane riding a bone. Import draws
     each distinct plane as a square in its place, its face normal the side particles are kept
@@ -2680,6 +2693,7 @@ def _world_ends(col):
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_NEW():
     """A cloth made from scratch: an empty named BSClothExtraData under the nif root, a mesh
     modelled under it, pinned particles, skin weights. Export builds the whole cloth: the
@@ -2796,6 +2810,7 @@ def TEST_SF_CLOTH_NEW():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_SKIN_NODE_BONES_NOT_POSED():
     """The Collector's upper body skins to body bones and to cloth bones that have NiNodes in
     the nif. Those nodes are flattened under the root, each holding its bone's transform
@@ -2832,6 +2847,7 @@ def TEST_SF_SKIN_NODE_BONES_NOT_POSED():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_SHAPE_FROM_MESH():
     """A collision shape is read from its mesh as it stands: where its vertices are, however
     they got there. So a capsule scaled with its transforms applied, a copy mirrored with a
@@ -2920,6 +2936,7 @@ def TEST_SF_CLOTH_SHAPE_FROM_MESH():
     assert TT.is_equiv((ub - ua).length, (tb - ta).length, "the length as it was", e=1e-3)
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_STAR_VERTEX_GROUPS_IGNORED():
     """A vertex group whose name starts with '*' is the user's own helper (a selection kept for
     later), as a '*' shape key is: export ignores it. On a cloth's sim mesh it isn't a bone the
@@ -2953,6 +2970,7 @@ def TEST_SF_STAR_VERTEX_GROUPS_IGNORED():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_BEND_EXPORT():
     """Each hinge's bend stiffness is on its edge (cloth_bend). The bob has none; set on its
     inner edges, export adds a hinge spring at each; re-imported, they read back."""
@@ -2985,6 +3003,7 @@ def TEST_SF_CLOTH_BEND_EXPORT():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_ADD_LINKS():
     """New links drawn on a cloth's sim mesh go into the blob on export: an edge between two
     particles with cloth_link 1 is a standard link, 2 a stretch link. A plain edge (cloth_link
@@ -3026,6 +3045,7 @@ def TEST_SF_CLOTH_ADD_LINKS():
 
 @TT.category('STARFIELD')
 @TT.expect_errors(('reduced triangle lists', 'Unknown block type: bhkRagdollSystem'))
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_VIZ_SHAPES():
     """The other two collision shapes vanilla uses draw too: tapered capsules (a dress) and
     spheres (the Aceles). A blob with several pieces of cloth gets a sim mesh per piece."""
@@ -3051,6 +3071,7 @@ def TEST_SF_CLOTH_VIZ_SHAPES():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_HIDDEN_NOT_EXPORTED():
     """A hidden object isn't exported, except a LOD slot hidden on import, which exports with its
     LOD0.
@@ -3085,6 +3106,7 @@ def TEST_SF_HIDDEN_NOT_EXPORTED():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_HIDDEN_KINDS_NOT_EXPORTED():
     """Every way of hiding an object keeps it out of the export, not just the eye icon: disabled
     in viewports, in a hidden collection, in a collection excluded from the view layer. Blender
@@ -3195,6 +3217,7 @@ def TEST_SF_FACEBONES_FLAG_OFF():
 
 
 @TT.category('STARFIELD')
+@TT.requires_assets('SF')
 def TEST_SF_FACEBONES_FLAG_IMPORT():
     """Importing a _facebones nif marks the armature it creates as the facebones armature;
     importing the plain nif leaves the flag unset, so the bone names decide."""
@@ -3325,6 +3348,30 @@ def TEST_SF_FACEBONES_EXPORT():
     for r, _d, files in os.walk(geodir):
         written += [f for f in files if f.endswith(".mesh")]
     assert len(written) >= 2, f"wrote a separate .mesh for each nif; found {written}"
+
+
+@TT.category('STARFIELD')
+@TT.expect_errors(('Could not find SF texture', 'Could not find material',
+                   'Unknown block type: bhkRagdollSystem'))
+@TT.requires_assets('SF')
+def TEST_SF_MATERIAL_SHARED():
+    """Shapes that use the same .mat share one Blender material, as Blender users expect,
+    and the material is built once. The gossamer's three shapes use one material between
+    them."""
+    testfile = os.path.join(TT.SF_ASSETS, 'meshes', 'actors', 'floatera', 'mesh',
+                            'floatera_gossamer', 'floatera_gossamer.nif')
+    nif = pyn.NifFile(testfile)
+    refs = [s.shader.name.lower() for s in nif.shapes]
+    shared = next(r for r in refs if refs.count(r) > 1)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    users = [o for o in bpy.data.objects if o.type == 'MESH' and o.active_material
+             and o.active_material.get('BSLSP_Shader_Name', '').lower() == shared
+             and (':LOD' not in o.name or ':LOD0' in o.name)]    # LOD1+ share LOD0's
+    assert TT.is_eq(len(users), refs.count(shared), f"every shape on {shared} imported")
+    assert TT.is_eq(len({o.active_material.name for o in users}), 1,
+                    "and they share one material")
+    assert TT.is_eq(len(bpy.data.materials), len(set(refs)),
+                    "one material per distinct .mat")
 
 
 @TT.category('STARFIELD')
@@ -4213,6 +4260,7 @@ def TEST_UV_TRANSFER_MAP():
 
 
 @TT.category('STARFIELD', 'SHADER')
+@TT.requires_assets('SF')
 def TEST_UV_TRANSFER_PAINT():
     """uv_transfer paints a part's texture onto the joined mesh's UV layout.
 

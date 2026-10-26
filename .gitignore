@@ -113,3 +113,9 @@ io_scene_nifly-25.9.0.zip
 
 # Ruff (see ruff.toml)
 .ruff_cache/
+
+# Build output and per-user files (untracked 2026-10-26)
+NiflyDLL/out/
+NiflyDLL/NiflyDLL/Test/
+*.vcxproj.user
+NiflyDLL/staging/

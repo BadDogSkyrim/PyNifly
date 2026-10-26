@@ -15,11 +15,25 @@ pynifly_dev_root = None
 pynifly_dev_path = None
 pynifly_addon_path = None
 
+def _interactive_blender():
+    """True inside a Blender with a UI (not --background, not plain Python). Asked through
+    sys.modules so the pyn layer never imports bpy itself."""
+    bpy = sys.modules.get('bpy')
+    app = getattr(bpy, 'app', None)
+    return app is not None and not getattr(app, 'background', True)
+
+
 if 'PYNIFLY_DEV_ROOT' in os.environ:
     pynifly_addon_path = os.path.dirname(os.path.realpath(__file__))
     pynifly_dev_root = os.environ['PYNIFLY_DEV_ROOT']
     pynifly_dev_path = os.path.join(pynifly_dev_root, r"pynifly\io_scene_nifly")
     nifly_path = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\x64\Debug\NiflyDLL.dll")
+    # An interactive Blender uses the DLL staged for it (NiflyDLL\staging), when there is one,
+    # so the Debug build it would otherwise hold open stays free to rebuild. Headless Blender
+    # and plain-Python test runs always use the Debug build.
+    staged = os.path.join(pynifly_dev_root, r"PyNifly\NiflyDLL\staging\NiflyDLL.dll")
+    if _interactive_blender() and os.path.exists(staged):
+        nifly_path = staged
     logging.getLogger("pynifly").setLevel(logging.DEBUG)
 else:
     pynifly_addon_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -36,6 +50,7 @@ else:
 
 # Load and configure the library
 nifly = cdll.LoadLibrary(nifly_path)
+logging.getLogger("pynifly").info(f"Nifly DLL: {nifly_path}")
 
 # Configure all the function signatures
 nifly.addAnimKeyLinearTrans.argtypes = [c_void_p, c_int, POINTER(NiAnimKeyLinearTransBuf)]
@@ -438,6 +453,13 @@ try:
     nifly.demoteSkinInstance.restype = c_int
 except AttributeError:
     nifly.demoteSkinInstance = None
+
+# Number of buffer types the DLL knows (BUFFER_TYPES_COUNT); older DLLs lack it.
+try:
+    nifly.getBufferTypeCount.argtypes = []
+    nifly.getBufferTypeCount.restype = c_int
+except AttributeError:
+    nifly.getBufferTypeCount = None
 
 # Set up pynStructure globals
 pynStructure.nifly = nifly

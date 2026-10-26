@@ -646,6 +646,23 @@ def TEST_BPY_PARENT_B():
     assert obj.data.bones['Arm_Hand.R'].parent.name == 'Arm_ForeArm3.R', "Error: Should find forearm as parent"
 
 
+@TT.category('SKYRIM', 'ARMATURE')
+def TEST_PYN_TRANSFORM_NOT_EVALUATED():
+    """An armature from an older .blend may carry PYN_TRANSFORM, the repr of a Matrix. Import
+    reads it back as numbers only: it used to eval() the text, which runs anything a .blend
+    file stores there."""
+    import os as _os
+    m = Matrix.Translation((1, 2, 3)) @ Matrix.Rotation(0.5, 4, 'Z')
+    back = BD.matrix_from_repr(repr(m))
+    assert TT.is_true(back is not None, "a Matrix repr reads back")
+    assert TT.is_equiv([x for r in back for x in r], [x for r in m for x in r],
+                       "with the same numbers")
+    _os.environ.pop('PYN_EVAL_RAN', None)
+    hostile = "__import__('os').environ.__setitem__('PYN_EVAL_RAN', '1') or Matrix()"
+    assert TT.is_true(BD.matrix_from_repr(hostile) is None, "anything else is refused")
+    assert TT.is_true('PYN_EVAL_RAN' not in _os.environ, "and never run")
+
+
 @TT.category('SKYRIM', 'BODYPART', 'ARMATURE')
 def TEST_RENAME():
     """Test that NOT renaming bones works correctly"""

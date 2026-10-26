@@ -40,6 +40,18 @@ def check_return(func, *args, **kwargs):
             + (NifFile.message_log() if NifFile.message_log() else "(no message)"))
 
 
+def dll_string(func, *args, size=128):
+    """Read a string from a DLL getter called as func(*args, buf, buflen) that returns the
+    string's full length. If the first read was truncated, read again with a buffer big
+    enough (Len-then-fill)."""
+    buf = create_string_buffer(size)
+    n = func(*args, buf, size)
+    if n >= size:
+        buf = create_string_buffer(n + 1)
+        func(*args, buf, n + 1)
+    return buf.value.decode('utf-8')
+
+
 def check_msg(func, *args, **kwargs):
     nifly.clearMessageLog()
     try:
@@ -302,9 +314,7 @@ class NiObject:
             if self.id == NODEID_NONE:
                 self._blockname = self.__class__.__name__
             else:
-                buf = create_string_buffer(128)
-                nifly.getBlockname(self.file._handle, self.id, buf, 128)
-                self._blockname = buf.value.decode('utf-8')
+                self._blockname = dll_string(nifly.getBlockname, self.file._handle, self.id)
         return self._blockname
     
     @property
@@ -420,9 +430,7 @@ class bhkShape(NiObject):
         if properties:
             collisiontype = cls.buffer_types[properties.bufType].__name__
         elif not collisiontype:
-            buf = create_string_buffer(128)
-            nifly.getBlockname(file._handle, id, buf, 128)
-            collisiontype = buf.value.decode('utf-8')
+            collisiontype = dll_string(nifly.getBlockname, file._handle, id)
         try:
             if id == NODEID_NONE:
                 id = nifly.addBlock(
@@ -1090,9 +1098,7 @@ class bhkWorldObject(NiObject):
         if properties:
             objtype = cls._buftype_name(properties.bufType)
         elif not objtype:
-            buf = create_string_buffer(128)
-            nifly.getBlockname(file._handle, id, buf, 128)
-            objtype = buf.value.decode('utf-8')
+            objtype = dll_string(nifly.getBlockname, file._handle, id)
         # try:
         if id == NODEID_NONE:
             id = nifly.addBlock(
@@ -1179,9 +1185,7 @@ class NiCollisionObject(NiObject):
         if properties:
             collisiontype = cls._buftype_name(properties.bufType)
         elif not collisiontype:
-            buf = create_string_buffer(128)
-            nifly.getBlockname(file._handle, id, buf, 128)
-            collisiontype = buf.value.decode('utf-8')
+            collisiontype = dll_string(nifly.getBlockname, file._handle, id)
         try:
             if id == NODEID_NONE:
                 id = nifly.addBlock(
@@ -2608,10 +2612,7 @@ class NiSequence(NiObject):
     def name(self):
         if self._name: return self._name
 
-        namebuf = (c_char * 128)()
-        nifly.getString(
-            self.file._handle, self.properties.nameID, 128, namebuf)
-        self._name = namebuf.value.decode('utf-8')
+        self._name = self.file.get_string(self.properties.nameID)
 
         return self._name
     
@@ -2884,12 +2885,9 @@ class NiTextKeyExtraData(NiExtraData):
             self._keys = []
             for i in range(0, self.properties.textKeyCount):
                 buf = TextKeyBuf()
-                valuebuf = create_string_buffer(256)
                 nifly.getNiTextKey(
                     self.file._handle, self.id, i, byref(buf))
-                n = nifly.getString(
-                    self.file._handle, buf.valueID, 256, valuebuf)
-                self._keys.append((buf.time, valuebuf.value.decode('utf-8'),))
+                self._keys.append((buf.time, self.file.get_string(buf.valueID),))
         return self._keys
     
     def add_key(self, time, val):
@@ -3198,9 +3196,7 @@ class BSBoneLODExtraData(NiExtraData):
                 lodbuf = (BoneLODInfoBuf * self.properties.lodCount)()
                 check_msg(nifly.getBoneLODInfo, self.file._handle, self.id, byref(lodbuf), self.properties.lodCount)
                 for li in lodbuf:
-                    tn = create_string_buffer(256)
-                    check_msg(nifly.getString, self.file._handle, li.nameID, 256, tn)
-                    self._lod_data.append((tn.value.decode('utf-8'), li.distance))
+                    self._lod_data.append((self.file.get_string(li.nameID), li.distance))
         return self._lod_data
     
     @lod_data.setter
@@ -3742,9 +3738,7 @@ class NiShader(NiProperty):
             # in the file really is an effect shader: an export can give a new shape's buffer a
             # different type from its placeholder block.
             if self.id != NODEID_NONE:
-                buf = create_string_buffer(128)
-                nifly.getBlockname(self.file._handle, self.id, buf, 128)
-                if buf.value.decode('utf-8') == 'BSEffectShaderProperty':
+                if dll_string(nifly.getBlockname, self.file._handle, self.id) == 'BSEffectShaderProperty':
                     if slot not in self.EFFECT_TEXTURE_SLOTS:
                         raise NotImplementedError(
                             f"'{slot}' can't be changed on an effect shader already in the file")
@@ -4312,9 +4306,7 @@ class NiShape(NiNode):
         if not shapetype:
             if id == NODEID_NONE:
                 id = nifly.getBlockID(file._handle, handle)
-            buf = create_string_buffer(128)
-            check_msg(nifly.getBlockname, file._handle, id, buf, 128)
-            shapetype = buf.value.decode('utf-8')
+            shapetype = check_msg(dll_string, nifly.getBlockname, file._handle, id)
         try:
             new_shape = False
             if not handle and id == NODEID_NONE:
@@ -4498,15 +4490,11 @@ class NiShape(NiNode):
         sid = self.properties.skinInstanceID
         if sid == NODEID_NONE:
             return ''
-        buf = create_string_buffer(128)
-        nifly.getBlockname(self.file._handle, sid, buf, 128)
-        return buf.value.decode('utf-8')
+        return dll_string(nifly.getBlockname, self.file._handle, sid)
 
     @property
     def shader_block_name(self):
-        buf = create_string_buffer(128)
-        nifly.getBlockname(self.file._handle, self.properties.shaderPropertyID, buf, 128)
-        return buf.value.decode('utf-8')
+        return dll_string(nifly.getBlockname, self.file._handle, self.properties.shaderPropertyID)
 
     @property
     def shaderflags1(self):
@@ -5457,9 +5445,7 @@ class NifFile:
     def game(self):
         """Return name of the game the Nif file is for"""
         if self._game is None and self._handle is not None:
-            buf = create_string_buffer(50)
-            nifly.getGameName(self._handle, buf, 50)
-            self._game = buf.value.decode('utf-8')
+            self._game = dll_string(nifly.getGameName, self._handle, size=50)
             self.dict = gameSkeletons[self._game]
         return self._game
 

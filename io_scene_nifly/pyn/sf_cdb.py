@@ -18,8 +18,18 @@ A material is rebuilt by hashing its path to a resource id, finding its object, 
 parent chain, and following child-object references (layers -> materials -> texture sets -> files).
 """
 
+import array
+import logging
+import os
 import struct
 import sys
+
+log = logging.getLogger('pynifly')
+
+# Where saved position maps live (per user, outside the game folders). Tests point it elsewhere.
+CACHE_DIR = os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~'),
+                         'PyNifly', 'cache')
+POS_MAP_VERSION = 1               # bump if the map's meaning changes
 
 _DEBUG = False
 
@@ -40,20 +50,21 @@ def _make_crc_table():
 _CRC_TABLE = _make_crc_table()
 
 
-def _xform(ch):
-    o = ord(ch)
-    if 0x41 <= o <= 0x5A:   # A-Z -> a-z
-        o += 0x20
-    elif ch == '/':
-        o = 0x5C            # '/' -> '\'
-    return o
+def _xform(b):
+    if 0x41 <= b <= 0x5A:   # A-Z -> a-z
+        return b + 0x20
+    if b == 0x2F:           # '/' -> '\'
+        return 0x5C
+    return b
 
 
 def crc32(s):
-    """The game's path CRC (init 0, no final xor, lower+backslash transform per char)."""
+    """The game's path CRC: reflected CRC-32 (init 0, no final xor -- not zlib's), over the
+    path's UTF-8 bytes with A-Z lowered and '/' made '\\'. The one implementation: material
+    database lookups and the MaterialID a nif carries (sf_materials.material_id) both use it."""
     result = 0
-    for ch in s:
-        result = _CRC_TABLE[(_xform(ch) ^ result) & 0xFF] ^ (result >> 8)
+    for b in s.encode('utf-8'):
+        result = _CRC_TABLE[(_xform(b) ^ result) & 0xFF] ^ (result >> 8)
     return result & 0xFFFFFFFF
 
 
@@ -204,8 +215,10 @@ class _Class:
 class CdbFile:
     """Parses a Starfield materialsbeta.cdb and reconstructs materials as .mat JSON dicts."""
 
-    def __init__(self, data):
+    def __init__(self, data, source=None):
         self.d = data
+        self.source = source              # the file it came from, to key the saved map
+        self._pos_map_source = None       # 'scan' or 'cache', once built
         self.p = 0
         self.string_table = b''
         self.classes = []                 # list[_Class]
@@ -331,12 +344,10 @@ class CdbFile:
         self._u32()  # pad
         # HashMap: vector<pair<BSResource::ID, uint64>>
         n = self._read_vector_header()
-        for _ in range(n):
-            self._res_id(); self._u64()
+        self.p += n * 20                     # ID(12) + uint64, unused
         # Collisions: vector<FilePair{ID First, ID Second}>
         n = self._read_vector_header()
-        for _ in range(n):
-            self._res_id(); self._res_id()
+        self.p += n * 24                     # two IDs, unused
         # Circular: vector<nullptr_t> (elements read nothing)
         self._read_vector_header()
 
@@ -364,26 +375,24 @@ class CdbFile:
         n = self._read_vector_header()
         if _DEBUG:
             print(f"[dbg] file index: {len(self.component_types)} types, objects n={n} at pos={self.p:#x}")
-        for _ in range(n):
-            pid = self._res_id()
-            dbid = self._u32()
-            parent = self._u32()
-            self._res_id()            # parent's resource id (v4), not needed
-            has_data = self._u8()
-            self.objects.append({'pid': pid, 'dbid': dbid, 'parent': parent,
-                                 'has_data': has_data})
+        # ID reads as file, ext, dir; stored as (dir, file, ext), as _res_id does.
+        end = self.p + n * 33
+        self.objects = [{'pid': (d, f, e), 'dbid': dbid, 'parent': parent, 'has_data': hd}
+                        for f, e, d, dbid, parent, hd in
+                        struct.iter_unpack('<5I12xB', self.d[self.p:end])]
+        self.p = end
         # Components
         n = self._read_vector_header()
         if _DEBUG:
             print(f"[dbg] objects done pos={self.p:#x}, components n={n}")
-        for _ in range(n):
-            oid = self._u32(); idx = self._u16(); typ = self._u16()
-            self.components.append((oid, idx, typ))
+        end = self.p + n * 8
+        self.components = list(struct.iter_unpack('<IHH', self.d[self.p:end]))
+        self.p = end
         # Edges
         n = self._read_vector_header()
-        for _ in range(n):
-            src = self._u32(); tgt = self._u32(); idx = self._u16(); typ = self._u16()
-            self.edges.append((src, tgt, idx, typ))
+        end = self.p + n * 12
+        self.edges = list(struct.iter_unpack('<IIHH', self.d[self.p:end]))
+        self.p = end
 
     # --- lookup ---
     def material_dbid(self, path):
@@ -553,15 +562,49 @@ class CdbFile:
 
     def _ensure_pos_map(self):
         """Skip-scan the component-data region once to record each component's byte offset,
-        so individual components can be parsed on demand without holding 1.4M of them."""
+        so individual components can be parsed on demand without holding 1.4M of them. The
+        scan takes seconds, so the map is saved (see _pos_map_file) and read back next time."""
         if self._pos_map is not None:
             return
+        saved = self._pos_map_file()
+        if saved and os.path.exists(saved):
+            pm = array.array('I')
+            try:
+                with open(saved, 'rb') as f:
+                    pm.frombytes(f.read())
+                if len(pm) == len(self.components):
+                    self._pos_map, self._pos_map_source = pm, 'cache'
+                    return
+            except OSError:
+                pass
         self.p = self.component_data_start
-        pm = []
+        pm = array.array('I')
         for _ in range(len(self.components)):
             pm.append(self.p)
             self._read_component(store=False)
-        self._pos_map = pm
+        self._pos_map, self._pos_map_source = pm, 'scan'
+        if saved:
+            try:
+                os.makedirs(os.path.dirname(saved), exist_ok=True)
+                tmp = saved + '.tmp'
+                with open(tmp, 'wb') as f:
+                    f.write(pm.tobytes())
+                os.replace(tmp, saved)
+            except OSError as e:
+                log.info(f"Could not save the material database's position map: {e}")
+
+    def _pos_map_file(self):
+        """Where this database's position map is saved: CACHE_DIR, named for the file's path,
+        size and date, so a changed database is scanned again. None without a source path."""
+        if not self.source or not CACHE_DIR:
+            return None
+        try:
+            st = os.stat(self.source)
+        except OSError:
+            return None
+        key = f"{os.path.normcase(os.path.abspath(self.source))}|{st.st_size}|{st.st_mtime_ns}"
+        name = f"cdb_posmap_{POS_MAP_VERSION}_{crc32(key):08x}_{st.st_size}.bin"
+        return os.path.join(CACHE_DIR, name)
 
     def _component_json(self, gi):
         c = self._comp_cache.get(gi)
@@ -665,14 +708,42 @@ _BUILTIN_NAMES = {
 
 
 import json
-import os
 
 
 def load_cdb(path):
     """Parse a materialsbeta.cdb file. The returned CdbFile can extract materials by path
     via get_material(path) -> .mat dict (or None). Reusable across many materials."""
     with open(path, 'rb') as f:
-        return CdbFile(f.read())
+        return CdbFile(f.read(), source=path)
+
+
+# The one parsed copy per database file, for the whole session: parsing takes seconds and the
+# result is several hundred MB. Keyed by the normalised path; a file changed on disk (size or
+# mtime) is parsed again.
+_CACHE = {}
+
+
+def get_cdb(path):
+    """The parsed CdbFile for `path`, shared by every caller; None if it can't be read."""
+    if not path:
+        return None
+    key = os.path.normcase(os.path.abspath(path))
+    try:
+        st = os.stat(key)
+        stamp = (st.st_size, st.st_mtime)
+    except OSError:
+        stamp = None
+    hit = _CACHE.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    cdb = None
+    if stamp is not None:
+        try:
+            cdb = load_cdb(key)
+        except Exception as e:
+            log.warning(f"Could not read material database '{path}': {e}")
+    _CACHE[key] = (stamp, cdb)
+    return cdb
 
 
 def extract_material(cdb, mat_path, out_root):

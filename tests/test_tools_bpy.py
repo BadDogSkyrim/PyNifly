@@ -13,7 +13,9 @@ from io_scene_nifly.pyn.niflytools import *
 import io_scene_nifly.blender_defs as BD
 from io_scene_nifly.pyn import pynifly as pyn
 
-_pynifly_dev_root = Path(os.environ['PYNIFLY_DEV_ROOT'])
+# The folder holding the PyNifly checkout; unset, this checkout's parent.
+_pynifly_dev_root = Path(os.environ.get('PYNIFLY_DEV_ROOT',
+                                        pathlib.Path(__file__).resolve().parents[2]))
 _pynifly_dev_path = Path(_pynifly_dev_root, "pynifly", "io_scene_nifly")
 _pynifly_test_path = Path(_pynifly_dev_root, "pynifly", "tests")
 

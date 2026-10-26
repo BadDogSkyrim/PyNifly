@@ -911,6 +911,16 @@ def TEST_ANIMATRON_2():
                                  rename_bones=False, 
                                  import_pose=True)
 
+    arma = TTB.find_shape('AnimatronicSpaceMan:ARMATURE', type='ARMATURE')
+    assert TT.is_true(arma is not None, "animatron armature imported")
+    assert TT.is_eq(len(arma.data.bones), 209, "animatron armature bones")
+    meshes = {o.name: len(o.data.vertices) for o in bpy.data.objects
+              if o.type == 'MESH' and not o.name.startswith('bhk')}
+    assert TT.is_eq(meshes, {'AnimatronicBaseMaleMesh:0': 3062, 'AnimatronicBroken01:0': 432,
+                             'ClothesHider:0': 13, 'MOutfitDamaged:0': 5124,
+                             'MOutfitDamaged:1': 1160},
+                    "animatron shapes imported")
+
 
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
 def TEST_SKEL_HKX_IMPORT():
@@ -2396,6 +2406,10 @@ def TEST_IMPORT_TAIL():
                                  import_collisions=False,
                                  import_animations=False,
                                  blender_xf=True)
+
+    arma = TTB.find_shape('skeleton.nif:ARMATURE', type='ARMATURE')
+    assert TT.is_true(arma is not None, "skeleton armature imported")
+    assert TT.is_eq(len(arma.data.bones), 98, "skeleton imported with all its bones")
 
 
 @TT.category('SKYRIM', 'HKX')

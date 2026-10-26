@@ -2668,18 +2668,20 @@ def _export_transform_curves(exporter:ControllerHandler, curve_list, targetobj=N
             # with pretty rotation R stripped out. With pretty bones,
             # fcurve deltas are in bone-space (conjugated by R on import),
             # so we un-conjugate them on export to get back NIF-space values.
+            # This armature's own rotation table, passed in: the module-wide one belongs to
+            # the export as a whole and isn't changed here.
             if targetobj.get(PYN_ROTATE_BONES_PRETTY_PROP, False):
-                BD.game_rotations = BD.game_rotations_pretty
+                rotations = BD.game_rotations_pretty
                 axis = BD.game_axes.get(exporter.nif.game)
                 if axis:
                     export_R_q = BD.game_rotations_pretty[axis][0].to_quaternion()
                     export_R_q_inv = BD.game_rotations_pretty[axis][1].to_quaternion()
                     export_R_3x3 = BD.game_rotations_pretty[axis][0].to_3x3()
             else:
-                BD.game_rotations = BD.game_rotations_none
+                rotations = BD.game_rotations_none
             targ_xf = BD.get_bone_xform(
                 targetobj, targetname, exporter.nif.game,
-                preserve_hierarchy=True, use_pose=False)
+                preserve_hierarchy=True, use_pose=False, rotations=rotations)
     else:
         # Exported interpolator needs to reflect the transform on the target object.
         # Dwechest01 has nodes with rotations that trigger this.

@@ -11,7 +11,7 @@ a dict for a class -- except that references are followed:
     Arr     an hkArray's elements, with their type
     str     a string (hkStringPtr, char*); None for a null one
 
-A type is named by its signature, (name, template arguments) as TagDoc._signature gives it, so
+A type is named by its signature, (name, template arguments) as TagDoc.signature gives it, so
 a graph can be written with types from any blob that defines them. Shared objects stay shared:
 an Obj or Arr reached twice is written once.
 
@@ -92,7 +92,7 @@ def read_graph(blob):
         if idx in memo:
             return memo[idx]
         t, flags, off, count = tf.items[idx]
-        sig = doc._signature(t.index)
+        sig = doc.signature(t.index)
         node = Obj(sig, None) if flags == ITEM_OBJECT else Arr(sig, None)
         memo[idx] = node
         size, base = tf.size_of(t), tf.data_start + off
@@ -170,7 +170,7 @@ class _Writer:
             index = self._donor_index.setdefault(k, {})
             if not index:
                 for t in range(1, len(d.tna)):
-                    index.setdefault(d._signature(t), t)
+                    index.setdefault(d.signature(t), t)
             if sig in index:
                 self._types[sig] = self.doc.copy_type(d, index[sig])
                 return self._types[sig]

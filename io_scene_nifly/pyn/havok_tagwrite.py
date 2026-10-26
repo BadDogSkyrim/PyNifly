@@ -216,7 +216,7 @@ class TagDoc:
     def type_name(self, t):
         return self.tnames[self.tna[t][0]] if t else None
 
-    def _signature(self, t, seen=()):
+    def signature(self, t, seen=()):
         """A type's identity across blobs: its name and template arguments, recursively."""
         if not t:
             return None
@@ -225,13 +225,13 @@ class TagDoc:
         if t in seen:
             return ('<cycle>', self.type_name(t))
         name, temps = self.tna[t]
-        args = tuple((self.tnames[tn], self._signature(v, seen + (t,))
+        args = tuple((self.tnames[tn], self.signature(v, seen + (t,))
                       if self.tnames[tn].startswith('t') else v) for tn, v in temps)
         return (self.tnames[name], args)
 
     def find_type(self, signature):
         for t in range(1, len(self.tna)):
-            if self.tna[t] is not None and self._signature(t) == signature:
+            if self.tna[t] is not None and self.signature(t) == signature:
                 return t
         return None
 
@@ -257,7 +257,7 @@ class TagDoc:
             return 0
         if t in _map:
             return _map[t]
-        mine = self.find_type(donor._signature(t))
+        mine = self.find_type(donor.signature(t))
         if mine is not None:
             _map[t] = mine
             # A blob can name a type it never defines (no TBDY body); take the donor's.
@@ -340,10 +340,3 @@ class TagDoc:
         """A reader over the blob as it stands now."""
         return Tagfile(self.to_bytes())
 
-
-def roundtrip_ok(blob):
-    """True if TagDoc writes `blob` back byte-identical."""
-    try:
-        return TagDoc(blob).to_bytes() == bytes(blob)
-    except TagfileError:
-        return False

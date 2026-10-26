@@ -23,4 +23,11 @@ namespace niflydll {
 
 	int LogGet(char* buf, int len);
 
+	/* Copy a string out to a caller's buffer of len bytes. Never writes past the buffer:
+	   copies at most len-1 characters and always NUL-terminates when len > 0 (buf may be
+	   null or len 0 to just ask the length). Returns the FULL length of the source, so a
+	   caller can learn the size it needs with a small buffer and call again ("Len-then-fill"). */
+	int copy_out(char* buf, int len, const std::string& s);
+	int copy_out(char* buf, int len, const char* s);
+
 }

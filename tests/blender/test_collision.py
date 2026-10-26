@@ -318,6 +318,12 @@ def TEST_COLLISION_BOW2():
     nifcheck2 = pyn.NifFile(outfile2)
     CheckBow(nif, nifcheck2, bow)
 
+    assert TT.is_eq([(s.name, len(s.verts)) for s in nifcheck2.shapes],
+                    [('ElvenBowSkinned:0', 1561)], "bow exported")
+    collcheck2 = nifcheck2.nodes["Bow_MidBone"].collision_object
+    assert TT.is_eq((collcheck2.blockname, collcheck2.body.shape.blockname),
+                    ('bhkCollisionObject', 'bhkBoxShape'), "moved collision box exported")
+
     # midbowcheck2 = nifcheck2.nodes["Bow_MidBone"]
     # collcheck2 = midbowcheck2.collision_object
     # assert collcheck2.blockname == "bhkCollisionObject", f"Collision node block set: {collcheck2.blockname}"

@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 #include <cstdarg>
+#include <algorithm>
+#include "Logger.hpp"
 
 namespace niflydll {
 	static std::vector<std::string> messageLog;
@@ -62,9 +64,20 @@ namespace niflydll {
 		for (std::string s : messageLog) {
 			outStr += s + '\n';
 		};
-		strcpy_s(buf, len - 1, outStr.c_str());
-		buf[len - 1] = '\0';
-		return int(outStr.size());
+		return copy_out(buf, len, outStr);
+	}
+
+	int copy_out(char* buf, int len, const std::string& s) {
+		if (buf && len > 0) {
+			size_t n = std::min(size_t(len) - 1, s.size());
+			s.copy(buf, n, 0);
+			buf[n] = '\0';
+		}
+		return int(s.size());
+	}
+
+	int copy_out(char* buf, int len, const char* s) {
+		return copy_out(buf, len, std::string(s ? s : ""));
 	}
 
 }

@@ -291,31 +291,49 @@ def get_pose_blender_xf(node_xf: Matrix, game: str, scale_factor):
     return Matrix.Scale(scale_factor, 4) @ node_xf @ game_rotations[game_axes[game]][0]
 
 
-def get_bone_global_xf(arma, bone_name, game:str, use_pose) -> Matrix:
-    """ Return the global transform represented by the bone. """
+def get_bone_global_xf(arma, bone_name, game:str, use_pose, rotations=None) -> Matrix:
+    """ Return the global transform represented by the bone. `rotations` is the bone
+    rotation table to undo (game_rotations_pretty or _none); default, the current one. """
     # Scale applied at this level on import, but by callor on export. Should be here for
     # cosistency? 
     # TODO -- CHECK this fix, apply everyWHERE
+    R = (rotations if rotations is not None else game_rotations)[game_axes[game]][1]
     if use_pose:
-        bmx = arma.pose.bones[bone_name].matrix @ game_rotations[game_axes[game]][1]
+        bmx = arma.pose.bones[bone_name].matrix @ R
     else:
-        bmx = arma.data.bones[bone_name].matrix_local @ game_rotations[game_axes[game]][1]
+        bmx = arma.data.bones[bone_name].matrix_local @ R
     return bmx
 
-def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose) -> Matrix:
+def get_bone_xform(arma, bone_name, game, preserve_hierarchy, use_pose,
+                   rotations=None) -> Matrix:
     """Return the local or global transform represented by the bone"""
-    bonexf = get_bone_global_xf(arma, bone_name, game, use_pose)
+    bonexf = get_bone_global_xf(arma, bone_name, game, use_pose, rotations)
 
     if preserve_hierarchy:
         bparent = arma.data.bones[bone_name].parent
         if bparent:
             # Calculate the relative transform from the parent
-            parent_xf = get_bone_global_xf(arma, bparent.name, game, use_pose)
+            parent_xf = get_bone_global_xf(arma, bparent.name, game, use_pose, rotations)
             loc_xf = parent_xf.inverted() @ bonexf
 
             return loc_xf
 
     return bonexf
+
+
+def matrix_from_repr(text):
+    """A Matrix from its repr ("Matrix(((1, 0, ...), ...))"), as older PyNifly stored it in
+    the PYN_TRANSFORM property, or None if the text is anything else. Read as numbers only:
+    the text comes from a .blend file, so it is never evaluated."""
+    import ast
+    m = re.fullmatch(r'\s*Matrix\((.*)\)\s*', str(text), re.S)
+    if not m:
+        return None
+    try:
+        rows = ast.literal_eval(m.group(1))
+        return Matrix(rows)
+    except (ValueError, SyntaxError, TypeError):
+        return None
 
 
 def bind_position(shape:NiShape, bone: str) -> Matrix:
@@ -360,7 +378,7 @@ game_rotations_none = {'X': (Matrix.Identity(4), Matrix.Identity(4)),
 game_rotations = game_rotations_pretty
 
 bone_vectors = {'X': Vector((1,0,0)), 'Z': Vector((0,0,1))}
-game_axes = {'FO3': 'X', 'FO4': 'X', 'FO76': 'X', 'SF': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
+game_axes = {'FO3': 'X', 'FONV': 'X', 'FO4': 'X', 'FO76': 'X', 'SF': 'X', 'SKYRIM': 'Z', 'SKYRIMSE': 'Z'}
 
 def is_facebone(bname):
     return bname.startswith("skin_bone_")

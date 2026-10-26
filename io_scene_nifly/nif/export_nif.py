@@ -6,6 +6,7 @@ import os
 from functools import lru_cache
 from contextlib import suppress
 from mathutils import Matrix, Vector, Euler, Color
+import numpy as np
 import codecs
 import logging
 import json
@@ -84,13 +85,16 @@ def check_partitions(vi1, vi2, vi3, weights):
     return len(p1.intersection(p2, p3)) > 0
 
 
-def trim_weights(weights, arma, max_weights=4):
+def trim_weights(weights, arma, max_weights=4, bone_names=None):
     """ Trim to the `max_weights` heaviest weights in the armature (4 for Skyrim/FO4; Starfield
         allows more per vertex -- see extract_mesh_data).
-        weights = [(group_name: weight), ...] """
+        weights = [(group_name: weight), ...]
+        bone_names = the armature's bone names, if the caller has them (saves a lookup per
+        weight) """
     if arma:
-        lst = filter(lambda p: p[0] in arma.data.bones, weights)
-        notlst = filter(lambda p: p[0] not in arma.data.bones, weights)
+        bones = bone_names if bone_names is not None else arma.data.bones
+        lst = filter(lambda p: p[0] in bones, weights)
+        notlst = filter(lambda p: p[0] not in bones, weights)
         sd = sorted(lst, reverse=True, key=lambda item: item[1])[0:max_weights]
         sd.extend(notlst)
         return dict(sd)
@@ -153,38 +157,53 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0, max_weig
         # Apply non-uniform scale to verts directly
         sf = obj.scale
 
-    if target_key != '' and msk and target_key in msk.key_blocks.keys():
-        verts = [(v.co * sf / scale_factor)[:] for v in msk.key_blocks[target_key].data]
-    else:
-        verts = [(v.co * sf / scale_factor)[:] for v in mesh.vertices]
+    def coords(data):
+        """An (n, 3) array of a vertex collection's coordinates, read in one call."""
+        a = np.empty(len(data) * 3, dtype=np.float64)
+        data.foreach_get('co', a)
+        return a.reshape(-1, 3)
 
-    for i, v in enumerate(mesh.vertices):
+    scale = np.array(sf[:], dtype=np.float64)
+    if target_key != '' and msk and target_key in msk.key_blocks.keys():
+        base = coords(msk.key_blocks[target_key].data)
+    else:
+        base = coords(mesh.vertices)
+    verts = [tuple(v) for v in (base * scale / scale_factor).tolist()]
+
+    # Group names and bone names looked up once, not once per vertex weight.
+    group_names = [g.name for g in obj.vertex_groups]
+    bone_names = set(arma.data.bones.keys()) if arma else None
+    for v in mesh.vertices:
         vert_weights = []
         for vg in v.groups:
-            try:
-                vgn = obj.vertex_groups[vg.group].name
-                if vgn.startswith('*'):
-                    continue                    # the user's own helper, as with shape keys
-                vert_weights.append([vgn, vg.weight])
-            except:
+            if vg.group >= len(group_names):
                 if vg.group not in error_groups:
                     log.error(f"Object {obj.name} vertex #{v.index} (and possibly others) references invalid group #{vg.group}")
                 error_groups.add(vg.group)
-        
-        weights.append(trim_weights(vert_weights, arma, max_weights))
-    
-    if msk: 
+                continue
+            vgn = group_names[vg.group]
+            if vgn.startswith('*'):
+                continue                    # the user's own helper, as with shape keys
+            vert_weights.append([vgn, vg.weight])
+        weights.append(trim_weights(vert_weights, arma, max_weights, bone_names))
+
+    if msk:
         # We return shape key locations for all interesting shape keys.
         # target_key specifies the base shape for this export. The other shape keys are
         # relative to "basis", not target_key. So if target_key is provided, we need to
         # adjust.
         if target_key == '': target_key = 0
 
-        for sk in msk.key_blocks:    
-            morphdict[sk.name] = [
-                ((vkey.co + (vtarg.co - vbase.co))*sf)[:] 
-                for vkey, vtarg, vbase 
-                in zip(sk.data, msk.key_blocks[target_key].data, sk.relative_key.data)]
+        cache = {}
+
+        def key_coords(kb):
+            if kb.name not in cache:
+                cache[kb.name] = coords(kb.data)
+            return cache[kb.name]
+        targ = key_coords(msk.key_blocks[target_key])
+        for sk in msk.key_blocks:
+            co = (key_coords(sk) + (targ - key_coords(sk.relative_key))) * scale
+            morphdict[sk.name] = [tuple(v) for v in co.tolist()]
 
     return verts, weights, morphdict
 
@@ -249,7 +268,7 @@ def partitions_from_vert_groups(obj, game):
     # (FO4_CUT_OFFSETS, set on import). Decode once; default to empty so older
     # objects round-trip with no cuts (the supply step in Phase 4 will fill in).
     cut_offsets_map = {}
-    if game in ['FO4', 'FO76', 'FO3' 'FONV']:
+    if game in ['FO4', 'FO76', 'FO3', 'FONV']:
         raw = obj.get('FO4_CUT_OFFSETS')
         if raw:
             import json
@@ -266,7 +285,7 @@ def partitions_from_vert_groups(obj, game):
                 skyid = pynifly.SkyPartition.name_match(vg.name)
             if skyid >= 0:
                 val[vg.name] = pynifly.SkyPartition(part_id=skyid, flags=0, name=vg.name)
-            elif game in ['FO4', 'FO76', 'FO3' 'FONV']:
+            elif game in ['FO4', 'FO76', 'FO3', 'FONV']:
                 segid = pynifly.FO4Segment.name_match(vg.name)
                 if segid >= 0:
                     val[vg.name] = pynifly.FO4Segment(part_id=len(val), index=segid, name=vg.name)
@@ -1470,17 +1489,34 @@ class NifExporter:
             # Blender 3.0+ has normals in the vertices, so no need to calculate them
             mesh.calc_normals()
 
-        def write_loop_vert(loopseg):
-            """ Write one vert, given as a MeshLoop 
-            """
-            loops.append(loopseg.vertex_index)
-            uvs.append(orig_uvs[loopseg.index])
+        # Everything per loop and per vertex read in bulk, once: indexing mesh.loops and
+        # mesh.vertices element by element costs an RNA lookup each time.
+        nloops, nverts = len(mesh.loops), len(mesh.vertices)
+        loop_vert = np.empty(nloops, dtype=np.int32)
+        mesh.loops.foreach_get('vertex_index', loop_vert)
+        loop_vert = loop_vert.tolist()
+        vco = np.empty(nverts * 3, dtype=np.float64)
+        mesh.vertices.foreach_get('co', vco)
+        vco = [tuple(v) for v in vco.reshape(-1, 3).tolist()]
+        if use_loop_normals:
+            ln = np.empty(nloops * 3, dtype=np.float64)
+            mesh.loops.foreach_get('normal', ln)
+            loop_norm = [tuple(v) for v in ln.reshape(-1, 3).tolist()]
+        else:
+            vn = np.empty(nverts * 3, dtype=np.float64)
+            mesh.vertices.foreach_get('normal', vn)
+            vert_norm = [tuple(v) for v in vn.reshape(-1, 3).tolist()]
+
+        def write_loop_vert(li):
+            """ Write one vert, given as a loop index """
+            loops.append(loop_vert[li])
+            uvs.append(orig_uvs[li])
             if loopcolors:
-                colors.append(loopcolors[loopseg.index])
+                colors.append(loopcolors[li])
             if use_loop_normals:
-                norms.append(loopseg.normal[:])
+                norms.append(loop_norm[li])
             else:
-                norms.append(mesh.vertices[loopseg.vertex_index].normal[:])
+                norms.append(vert_norm[loop_vert[li]])
 
         # Write out the loops as triangles, and partitions to match
         have_partitions = True
@@ -1492,8 +1528,8 @@ class NifExporter:
                 if obj_partitions and len(obj_partitions) > 0:
                     loop_partition = self.get_loop_partitions(f, mesh.loops, weights)
                     if not loop_partition: partition_err = True
-                face_loops = [mesh.loops[f.loop_start + j] for j in range(f.loop_total)]
-                coords = [mesh.vertices[lp.vertex_index].co[:] for lp in face_loops]
+                face_loops = range(f.loop_start, f.loop_start + f.loop_total)
+                coords = [vco[loop_vert[li]] for li in face_loops]
                 for i, j, k in triangulate(coords):
                     write_loop_vert(face_loops[i])
                     write_loop_vert(face_loops[j])
@@ -1569,35 +1605,34 @@ class NifExporter:
         colormap, alphamap = self.find_colormaps(mesh)
         if colormap == None and alphamap == None: return
 
-        loopcolors = None
+        # Read in bulk: a color attribute indexed element by element costs an RNA lookup each.
+        nloops = len(mesh.loops)
+        loop_vert = np.empty(nloops, dtype=np.int64)
+        mesh.loops.foreach_get('vertex_index', loop_vert)
+
+        def per_loop(cmap):
+            """The map's colors, one row per loop (n, 4); None for a domain we don't read."""
+            a = np.empty(len(cmap.data) * 4, dtype=np.float32)
+            cmap.data.foreach_get('color', a)
+            a = a.reshape(-1, 4).astype(np.float64)
+            scheme = BD.color_mapping(cmap)
+            if scheme == "CORNER":
+                return a[:nloops]
+            if scheme == "POINT":
+                return a[loop_vert]
+            return None
+
+        colors = np.zeros((nloops, 4), dtype=np.float64)
         if colormap:
-            mapping_scheme = BD.color_mapping(colormap)
-
-            loopcolors = [(0.0, 0.0, 0.0, 0.0)] * len(mesh.loops)
-            if mapping_scheme == "CORNER":
-                for i, c in enumerate(colormap.data):
-                    loopcolors[i] = c.color[:]
-                    
-            elif mapping_scheme == "POINT":
-                for i, loop in enumerate(mesh.loops):
-                    loopcolors[i] = colormap.data[loop.vertex_index].color[:]
-
+            c = per_loop(colormap)
+            if c is not None:
+                colors[:len(c)] = c
         if alphamap:
-            mapping_scheme = BD.color_mapping(alphamap)
+            a = per_loop(alphamap)
+            if a is not None:
+                colors[:len(a), 3] = (a[:, 0] + a[:, 1] + a[:, 2]) / 3
 
-            if loopcolors == None: loopcolors = [(0.0, 0.0, 0.0, 0.0)] * len(mesh.loops)
-            if mapping_scheme == "CORNER":
-                for i, alph in enumerate(alphamap.data):
-                    c = loopcolors[i]
-                    a = alph.color[0:3]
-                    loopcolors[i] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
-            elif mapping_scheme == 'POINT':
-                for i, loop in enumerate(mesh.loops):
-                    c = loopcolors[i]
-                    a = Color(alphamap.data[loop.vertex_index].color[0:3])
-                    loopcolors[i] = (c[0], c[1], c[2], (a[0] + a[1] + a[2])/3)
-
-        return loopcolors
+        return [tuple(c) for c in colors.tolist()]
 
 
     def extract_mesh_data(self, obj, arma, target_key):
@@ -2685,7 +2720,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                    ('SKYRIMSE', "Skyrim SE", ""),
                    ('FO4', "Fallout 4", ""),
                    ('FO76', "Fallout 76", ""),
-                   ('FO3', "Fallout New Vegas", ""),
+                   ('FONV', "Fallout New Vegas", ""),
                    ('FO3', "Fallout 3", ""),
                    ('SF', "Starfield", ""),
                    ),

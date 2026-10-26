@@ -1140,6 +1140,7 @@ def execute(testlist=None, stop_on_fail=True):
     passed = sum(1 for v in executed_tests.values() if v == "PASSED")
     failed = sum(1 for v in executed_tests.values() if v == "FAILED")
     print(f"\n  Results: {passed} passed, {failed} failed\n")
+    return failed
 
 
 if __name__ == "__main__":

@@ -238,8 +238,8 @@ def ensure_shader_migrated(material):
 #   no guard / Stream<130 -> SKYRIM ; IsFO4()/Stream>=130 -> FO4 ;
 #   Stream>139 & <172 -> FO76 ; Stream>=172 -> STARFIELD.
 # Only non-Skyrim fields are listed; everything unlisted is common (SKYRIM+). REVIEW.
-GAME_ORDER = ['SKYRIM', 'FO4', 'FO76', 'STARFIELD']
-GAME_LABEL = {'FO4': 'Fallout 4', 'FO76': 'Fallout 76', 'STARFIELD': 'Starfield'}
+GAME_ORDER = ['SKYRIM', 'FO4', 'FO76', 'SF']
+GAME_LABEL = {'FO4': 'Fallout 4', 'FO76': 'Fallout 76', 'SF': 'Starfield'}
 
 _SHADER_FIELD_GAME = {
     # FO4+ (IsFO4() / User==12 && Stream>=130 blocks)

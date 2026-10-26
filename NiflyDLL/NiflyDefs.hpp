@@ -104,6 +104,10 @@ enum BUFFER_TYPES : uint16_t {
 	BSMultiBoundOBBBufType,
 	NiIntegersExtraDataBufType,
 	BoneTranslationsBufType,
+	// Not a buffer type: the number of them. Keep last. The getter/setter/creator dispatch
+	// tables in NiflyWrapper.cpp are static_asserted against it, and Python's hand-kept
+	// PynBufferTypes (nifdefs.py) is checked against it through getBufferTypeCount().
+	BUFFER_TYPES_COUNT
 };
 
 enum BSLightingShaderPropertyShaderType : uint32_t {

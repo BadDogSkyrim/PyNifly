@@ -8,6 +8,7 @@ from mathutils import Matrix, Vector, Euler, Color
 from ..pyn.nifconstants import HAVOC_SCALE_FACTOR
 from math import pi
 import codecs
+import numpy as np
 import logging
 import json
 from pathlib import Path
@@ -330,17 +331,18 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
                     name=ALPHA_MAP_NAME, type='FLOAT_COLOR', domain='POINT')
                 alphlayer.name = ALPHA_MAP_NAME
         
-            # Both layers are created above with domain='POINT', so index by vertex.
-            colors = shape.colors
-            for i in range(0, len(mesh.vertices)):
-                c = colors[i]
-                clayer.data[i].color = (c[0], c[1], c[2], 1.0)
-                if alphlayer:
-                    alph = colors[i][3]
-                    cv = list(Color([alph, alph, alph]))
-                    # cv = list(Color([alph, alph, alph]).from_scene_linear_to_srgb())
-                    cv.append(1.0)
-                    alphlayer.data[i].color = cv
+            # Both layers are created above with domain='POINT', so index by vertex. Written in
+            # one call each.
+            n = len(mesh.vertices)
+            colors = np.asarray(shape.colors[:n], dtype=np.float32).reshape(-1, 4)
+            rgb1 = colors.copy()
+            rgb1[:, 3] = 1.0
+            clayer.data.foreach_set('color', rgb1.ravel())
+            if alphlayer:
+                alpha = np.empty_like(colors)
+                alpha[:, 0:3] = colors[:, 3:4]          # grey from the vertex alpha
+                alpha[:, 3] = 1.0
+                alphlayer.data.foreach_set('color', alpha.ravel())
     except Exception:
         log.exception(f"Could not read colors on shape {shape.name}")
 
@@ -419,6 +421,8 @@ class NifImporter():
         self.nif_rest_bones = set()
         # skin_space_is_nif_space() is a property of the whole nif, asked once per shape.
         self._skin_space_cache = {}
+        # Starfield materials built in this import, shared by shapes using the same .mat.
+        self._sf_material_cache = {}
         if self.armature and self.armature.data.bones:
             self.nif_rest_bones = {b.name for b in self.armature.data.bones}
         self.objects_created = ReprObjectCollection() # Dictionary of objects created, indexed by node handle
@@ -521,8 +525,6 @@ class NifImporter():
         #xform = the_shape.global_to_skin_data
         #if True: #xform is None:
         xf = Matrix.Identity(4)
-        offset_consistent = False
-        expected_variation = 0.8 if "SKYRIM" in self.nif.game else 3
 
         # If there's a global-to-skin transform, combine it with the shape's own transform
         # and use that with the transform implied in the bones. If there's no
@@ -546,82 +548,6 @@ class NifImporter():
         else:
             xf = xform_calc.inverted()
             
-        offset_consistent = True
-        
-        ### All of this is unreachable now.
-        offset_xf = None
-        if not offset_consistent and offset_xf == None and self.reference_skel:
-            # If we're creating missing vanilla bones, we need to know the offset from the
-            # bind positions here to the vanilla bind positions, and we need it to be
-            # consistent.
-            for i, bn in enumerate(the_shape.get_used_bones()):
-                bnref = bn
-                if self.is_facegen and bn == "Head": 
-                    bnref = "HEAD"
-                if bnref in self.reference_skel.nodes:
-                    skel_bone = self.reference_skel.nodes[bnref]
-                    skel_bone_xf= BD.transform_to_matrix(skel_bone.global_transform)
-                    bindpos = BD.bind_position(the_shape, bn)
-                    bindinshape = xf @ bindpos
-                    this_offset = skel_bone_xf @ bindinshape.inverted()
-                    
-                    if not offset_xf: 
-                        offset_xf = this_offset
-                        offset_consistent = True
-                    
-                    # If the transforms are close, create an average. That's because
-                    # there's often some variation, whether it's rounding errors or some
-                    # other reason. We need epsilon as large as it is to cover all the
-                    # nifs we see, especially nifs with multiple meshes that came from
-                    # different sources.
-                    elif MatNearEqual(this_offset, offset_xf, epsilon=expected_variation):
-                        offset_xf = offset_xf.lerp(this_offset, 1/i)
-                    
-                    # If transforms are way off, either something's wrong, like we're
-                    # trying to use an inappropriate reference skeleton, or it's FO4. FO4
-                    # is just weird. Inform the user and don't use this for the average.
-                    else:
-                        offset_consistent = False
-                        log.warning(f"Shape {the_shape.name} does not have consitent offset from reference skeleton {self.reference_skel.filepath}--can't use it to extend the armature.")
-                        self.settings.create_bones = False
-                        break
-
-            if offset_consistent and offset_xf:
-                # If the offset is close to the standard FO4 bodypart offset, normalize it 
-                # so all bodyparts are consistent.
-                if self.nif.game == 'FO4' and  MatNearEqual(offset_xf, BD.fo4_bodypart_xf, epsilon=3):
-                    xf = xf @ BD.fo4_bodypart_xf
-                else:
-                    xf = xf @ offset_xf
-
-        if not offset_consistent: 
-            # If there's no global to skin (FO4) and we haven't found consistent bind
-            # offsets, maybe the pose offsets will give us a skin transform. If they are
-            # all the same they represent a simple reposition of the entire shape. We can
-            # put the inverse on the Blender shape.
-            pose_xf = None
-            same = True
-            for b in the_shape.get_used_bones():
-                bone_xf = BD.pose_transform(the_shape, b)
-                if pose_xf:
-                    # Some common nifs such as the Bodytalk male body need some extra
-                    # fudge factor. Reducing epsilon here will result in their shape not
-                    # getting adjusted to the armature location. 
-                    if not MatNearEqual(pose_xf, bone_xf, epsilon=0.5):
-                        same = False
-                        break
-                else:
-                    pose_xf = bone_xf
-            if same: 
-                # If the offset is close to the standard FO4 bodypart offset, normalize it 
-                # so all bodyparts are consistent.
-                bpi = BD.fo4_bodypart_xf.inverted()
-                if self.nif.game == 'FO4' and  MatNearEqual(pose_xf, bpi, epsilon=3):
-                    xf = xf @ bpi
-                else:
-                    xf = xf @ pose_xf
-                xf.invert()
-
         return BD.apply_scale_xf(xf, scale_factor)
 
 
@@ -1236,8 +1162,13 @@ class NifImporter():
         vg = the_object.vertex_groups
         for bone_name in the_shape.unique_bone_names:
             new_vg = vg.new(name=self.blender_name(bone_name))
+            # One call per distinct weight, not one per vertex: vertices sharing a weight
+            # (quantized weights repeat a lot) go in together.
+            by_weight = {}
             for v, w in the_shape.bone_weights[bone_name]:
-                new_vg.add((v,), w, 'ADD')
+                by_weight.setdefault(w, []).append(v)
+            for w, verts in by_weight.items():
+                new_vg.add(verts, w, 'ADD')
 
 
     def import_multibound_obb(self, ninode, node_obj):
@@ -1623,7 +1554,8 @@ class NifImporter():
                         new_object[k] = lod0[k]
 
             elif not self.settings.mesh_only:
-                shader_io.ShaderImporter().import_material(new_object, the_shape, BD.asset_path)
+                shader_io.ShaderImporter(sf_cache=self._sf_material_cache).import_material(
+                    new_object, the_shape, BD.asset_path)
                 if not new_object.active_material:
                     new_object.display_type = 'WIRE'
 
@@ -1741,17 +1673,18 @@ class NifImporter():
         # everything else. 
         if not obj:
             if 'PYN_TRANSFORM' in arma:
-                skin_xf = eval(arma['PYN_TRANSFORM'])
+                stored = BD.matrix_from_repr(arma['PYN_TRANSFORM'])
+                if stored is not None:
+                    skin_xf = stored
             return skin_xf
 
-        if False: # 'PYN_TRANSFORM' not in arma:
-            skin_xf = obj.matrix_local.copy()
-            arma['PYN_TRANSFORM'] = repr(skin_xf)
-        elif 'PYN_TRANSFORM' in arma:
+        if 'PYN_TRANSFORM' in arma:
             try:
                 # If the object is being parented to an existing armature, use the skin
                 # transform the armature used.
-                arma_xf = eval(arma['PYN_TRANSFORM'])
+                arma_xf = BD.matrix_from_repr(arma['PYN_TRANSFORM'])
+                if arma_xf is None:
+                    raise ValueError(f"unreadable PYN_TRANSFORM on {arma.name}")
                 skin_xf = obj.matrix_local.copy()
                 if not MatNearEqual(arma_xf, skin_xf): 
                     log.debug(f"Transforms don't match between {arma.name} and {obj.name}" + f"\n{arma_xf.translation} != {skin_xf.translation}")
@@ -2418,14 +2351,7 @@ class NifImporter():
             for bn in missing_bones:
                 blname = self.blender_name(bn)
                 if blname not in arma.data.edit_bones:
-                    if False: ### self.is_facegen and self.reference_skel:
-                        ### This gives a reasonable skeleton but the head parts are still rotated
-                        ### and off.
-                        # FO4 facegen files have wonky bind transforms. Use the reference
-                        # skeleton instead.
-                        bone_node = self.reference_skel.nodes['HEAD' if bn=='Head' else bn]
-                        xf = BD.transform_to_matrix(bone_node.global_transform)
-                    elif self.settings.import_pose and bn in nif_shape.file.nodes:
+                    if self.settings.import_pose and bn in nif_shape.file.nodes:
                         # Using nif locations of bones. (Starfield body nifs carry no NiNode
                         # for the skeleton bones — those live in skeleton.nif — so this branch
                         # is skipped for SF and we fall through to the bind position.)

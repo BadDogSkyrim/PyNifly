@@ -21,6 +21,10 @@ def TEST_NOSETTINGS():
                                  apply_skinning=False,
                                  import_pose=False,)                                                                                           
 
+    circlet = TTB.find_shape('MaleElvenCirclet', type='MESH')
+    assert TT.is_true(circlet is not None, "circlet imported with all settings off")
+    assert TT.is_eq(len(circlet.data.vertices), 2978, "circlet vertex count")
+
 
 @TT.category('SKYRIMSE')
 def TEST_CIRCLET():

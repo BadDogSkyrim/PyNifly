@@ -24,10 +24,14 @@ mylog.setLevel(logging.DEBUG)
 
 
 # ############## TESTS TO RUN #############
-execute(
-    stop_on_fail=False,
-    )
-anim_tests.execute()
+# Test names on the command line run just those; otherwise everything. Exits 1 on failure.
+_named = [globals()[n] for n in sys.argv[1:] if n.startswith('TEST_')]
+if _named:
+    failed = execute(testlist=_named, stop_on_fail=False)
+else:
+    failed = execute(stop_on_fail=False)
+    failed += anim_tests.execute(stop_on_fail=False)
+sys.exit(1 if failed else 0)
 # execute(start=TEST_KF)
 # execute(categories={"SHADER"})
 #

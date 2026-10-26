@@ -18,6 +18,11 @@ def TEST_CHILDHEAD():
     nifout = pyn.NifFile(outfile)
     CHK.Check_childhead(nifout)
 
+    assert TT.is_eq([(s.name, len(s.verts)) for s in nifout.shapes], [('ChildHead', 1211)],
+                    "child head exported")
+    assert TT.is_eq(nifout.shapes[0].shader.properties.Shader_Type, 4,
+                    "child head keeps its Face_Tint shader")
+
 
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
@@ -250,6 +255,11 @@ def TEST_SHADER_EYE():
     n = pyn.NifFile(outfile2)
     CHK.Check_eye(n)
 
+    assert TT.is_eq([(s.name, len(s.verts)) for s in n.shapes], [('EyesMale', 186)],
+                    "eyes exported")
+    assert TT.is_eq(n.shapes[0].shader.properties.Shader_Type, 16,
+                    "eyes keep their Eye_Envmap shader")
+
 
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_ALPHA():
@@ -337,6 +347,11 @@ def TEST_SHADER_EFFECT():
     # nif = pyn.NifFile(testfile)
     nifcheck = pyn.NifFile(outfile)
     CHK.Check_blackbriarchalet(nifcheck)
+
+    assert TT.is_eq(sorted((s.name, s.blockname, s.shader.blockname) for s in nifcheck.shapes),
+                    [('BlackBriarChalet:7', 'NiTriShape', 'BSLightingShaderProperty'),
+                     ('L2_WindowGlow', 'BSLODTriShape', 'BSEffectShaderProperty')],
+                    "effect shader shape exported")
 
 
 @TT.category('SKYRIM', 'SHADER')

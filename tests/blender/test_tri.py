@@ -151,6 +151,12 @@ def TEST_TRI_EYES():
     testfile = TTB.test_file(r"tests\Skyrim\eyeschild.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
 
+    eyes = TTB.find_shape('EyesChild', type='MESH')
+    assert TT.is_true(eyes is not None, "child eyes imported")
+    assert TT.is_eq(len(eyes.data.vertices), 204, "child eyes vertex count")
+    assert TT.is_eq(len(eyes.data.shape_keys.key_blocks), 23,
+                    "eyeschild.tri imported as Basis + 22 shape keys")
+
 
 @TT.category('SKYRIMSE', 'TRI')
 def TEST_TRI_HIMBO():

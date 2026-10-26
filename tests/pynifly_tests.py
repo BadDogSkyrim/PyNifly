@@ -23,10 +23,10 @@ import math
 from pathlib import Path
 from pyn.nifconstants import bhkCOFlags, HAVOC_SCALE_FACTOR, game_collision_sf
 
-if 'PYNIFLY_DEV_ROOT' in os.environ:
-    root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
-    mod_path = root_path / 'pynifly' / 'io_scene_nifly' / 'pyn'
-    tests_path = root_path / 'pynifly' / 'tests'
+# PYNIFLY_DEV_ROOT is the folder holding the PyNifly checkout; unset, this checkout's parent.
+root_path = Path(os.environ.get('PYNIFLY_DEV_ROOT', Path(__file__).resolve().parents[2]))
+mod_path = root_path / 'pynifly' / 'io_scene_nifly' / 'pyn'
+tests_path = root_path / 'pynifly' / 'tests'
 
 if str(mod_path) not in sys.path:
     sys.path.insert(0, str(root_path / 'pynifly'))
@@ -398,12 +398,29 @@ def TEST_NIFDEFS():
     assert TT.is_equiv(b.parallaxInnerLayerTextureScale[:], [0.95, 0.95], "parallaxInnerLayerTextureScale")
 
 
+@test_category('NIFDEFS')
+def TEST_BUFFER_TYPE_COUNT():
+    """PynBufferTypes (nifdefs.py) is a hand-kept copy of the DLL's BUFFER_TYPES enum. The
+    values the DLL knows must be exactly 0..N-1; anything else must be a known Python-only
+    value. getBlock/setBlock/addBlock index dispatch tables with these numbers."""
+    if not nifly.getBufferTypeCount:
+        print("DLL predates getBufferTypeCount; skipping")
+        return
+    n = nifly.getBufferTypeCount()
+    python_only = {PynBufferTypes.BSGeometryBufType, PynBufferTypes.COUNT}
+    shared = {int(v) for v in PynBufferTypes if v not in python_only}
+    assert TT.is_eq(sorted(shared), list(range(n)), "PynBufferTypes matches the DLL's buffer types")
+    assert all(v >= n for v in python_only), "Python-only buffer types are past the DLL's range"
+
+
 def TEST_READ():
     """Test reading various nifs"""
     testfile = r"tests\SkyrimSE\meshes\actors\character\character assets\maleheadkhajiit.nif"
     outfile = 'tests/out/TEST_KHAJIIT_RW.nif'
     nif = NifFile(testfile)
     CHK.Check_khajiithead(nif)
+    assert TT.is_eq([(s.name, s.blockname, len(s.verts), len(s.tris)) for s in nif.shapes],
+                    [('_Neutral', 'BSDynamicTriShape', 1356, 2252)], "khajiit head shapes read")
 
     testfile = r"tests\SkyrimSE\eyesmale.nif"
     CHK.Check_khajiithead(nif)
@@ -745,6 +762,7 @@ def TEST_SF_SKIN_EXPORT():
     assert len(w0) == len(verts), f"Every vertex weighted to bone 0: {len(w0)} vs {len(verts)}"
 
 
+@TT.requires_assets('SF')
 def TEST_SF_LOD_SLOTS():
     """Starfield LOD slots (pyn layer): copy a vanilla crowd head's four slots into a new
     BSGeometry -- slot 0 from createShapeFromData, the rest from add_mesh, slots 1 and 2
@@ -991,6 +1009,7 @@ def TEST_SF_BONE_NAMES():
     assert len(sfDict.byNif) == 115, f"Seeded with the vanilla skeleton: {len(sfDict.byNif)}"
 
 
+@TT.requires_assets('SF')
 def TEST_SF_REFERENCE_SKELETON():
     """The shipped Starfield reference skeleton is vanilla's, converted out of metres.
 
@@ -1040,6 +1059,7 @@ def TEST_SF_REFERENCE_SKELETON():
                        "our C_Head height, in game units", e=0.001)
 
 
+@TT.requires_assets('FO4', 'SF')
 def TEST_NODE_UNIT_SCALE():
     """node_unit_scale() spots a nif whose node transforms are in the other unit system.
 
@@ -1211,6 +1231,7 @@ def TEST_SF_TEXCONV_FACE_FORMATS():
         None, "an unknown format is not second-guessed")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_MATCHAIN_RESOLVE():
     """A Starfield .mat inherits: resolving its Import chain is what makes it readable.
 
@@ -1295,6 +1316,7 @@ def TEST_SF_MATCHAIN_RESOLVE():
                     f"the Root template is reported unresolved: {tchain.unresolved}")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_MATCHAIN_CDB():
     """The chain ends in the compiled database, so the resolver has to reach it.
 
@@ -1337,6 +1359,7 @@ def TEST_SF_MATCHAIN_CDB():
                     "and still name the file that set them")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_MATCHAIN_EFFECTIVE_DOC():
     """The resolved material agrees with the one the engine itself composes.
 
@@ -1409,6 +1432,7 @@ def TEST_SF_MATCHAIN_EFFECTIVE_DOC():
                 f"{theirs['settings'].get(key)}"
 
 
+@TT.requires_assets('SF')
 def TEST_SF_MATCHAIN_ORIGINS():
     """Every resolved object and field knows which material in the chain set it.
 
@@ -1485,6 +1509,7 @@ def TEST_SF_MATCHAIN_ORIGINS():
                     None, "an eye has no hair settings anywhere in its chain")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_MATCHAIN_LAYER_LIST():
     """A material that declares its layer list has DELETED the layers it left out.
 
@@ -1553,6 +1578,7 @@ def TEST_SF_MATCHAIN_LAYER_LIST():
                         "a material that declares its own blender keeps it")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_MATCHAIN_DERIVE():
     """A material written as a DERIVATION resolves back to the material we started with.
 
@@ -1655,6 +1681,7 @@ def TEST_SF_MATCHAIN_DERIVE():
                     "and the claimed form still resolves to the same material")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_RACECHECK_SHADER_SETTINGS():
     """sf_racecheck catches a shader model whose settings component is missing -- through
     the material's INHERITANCE CHAIN, not from the file alone.
@@ -1743,6 +1770,7 @@ def TEST_SF_RACECHECK_SHADER_SETTINGS():
                         "a model with no required settings block is left alone")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_RACECHECK_SKIN_VERTEX_ALPHA():
     """sf_racecheck fails a skin material that takes its opacity from vertex colour.
 
@@ -1801,6 +1829,7 @@ def TEST_SF_RACECHECK_SKIN_VERTEX_ALPHA():
     assert TT.is_eq(fails(decal), [], "vertex-colour opacity on a standard model is fine")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_RACECHECK_MATERIAL_EXISTS():
     """sf_racecheck fails a body part whose material exists nowhere.
 
@@ -1846,6 +1875,7 @@ def TEST_SF_RACECHECK_MATERIAL_EXISTS():
                         "with no .cdb to consult, a missing loose material is a WARN")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_RACECHECK_SKINNED():
     """sf_racecheck fails a head-part or body NIF with an unskinned shape.
 
@@ -2171,6 +2201,7 @@ def TEST_SF_RACECHECK_CROWD_HEADS():
                           "a texture in a BA2 is vanilla's: not reported")
 
 
+@TT.requires_assets('SF')
 def TEST_UV_TRANSFER_IMAGE_IO():
     """uv_transfer reads the textures it's given and writes what it paints.
 
@@ -2251,6 +2282,7 @@ def _tintbake():
     return sf_tintbake
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_TAGFILE():
     """Starfield cloth (BSClothExtraData) is a Havok 2019 tagfile that carries its own types, so
     it reads into named fields with no class definitions supplied.
@@ -2279,6 +2311,7 @@ def TEST_SF_CLOTH_TAGFILE():
         tf.item(i)                      # every item decodes without error
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_DECODE():
     """sf_cloth.read_cloth turns a cloth blob into what Blender draws: per simulated cloth its
     particles (rest positions in metres, mass/radius/friction, which are pinned), the sim
@@ -2344,6 +2377,7 @@ def TEST_SF_CLOTH_DECODE():
     assert TT.is_eq(len(officer.collidables), 8, "eight collidables, shared ones counted once")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_TAGDOC_ROUNDTRIP():
     """havok_tagwrite.TagDoc rewrites a whole tagfile -- types, items, PTCH -- byte-identical,
     so structural edits start from an exact copy. Checked on a few vanilla blobs here; all 298
@@ -2371,6 +2405,7 @@ SF_CLOTH_FIXTURES = [
 ]
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_GRAPH_ROUNDTRIP():
     """havok_graph reads a whole tagfile into Python objects and writes it back fresh: the same
     values, every reference listed in PTCH inside an item. All 298 vanilla cloth blobs were
@@ -2385,6 +2420,7 @@ def TEST_SF_CLOTH_GRAPH_ROUNDTRIP():
         assert TT.is_eq(TagDoc(out).stray_patches(), [], f"{rel[-1]}: no stray PTCH entry")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_BUILD():
     """sf_cloth_build writes a cloth whole from its model (read_model's Cloth), in vanilla's
     plainest form -- bone-space skinning, a straight copy between the buffers, links as singles
@@ -2462,6 +2498,7 @@ def TEST_SF_CLOTH_BUILD():
                           f"{rel[-1]}: TBDY ends in at most 3 bytes of padding")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_BEND_FORMULAS():
     """The bend-stiffness records the builder writes -- a hinge spring at each edge two sim
     triangles share -- follow vanilla's own, checked against the child ponytail's: wing weights
@@ -2506,6 +2543,7 @@ def TEST_SF_CLOTH_BEND_FORMULAS():
     assert TT.is_eq(matched, len(vanilla), "every vanilla record has its edge among ours")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CLOTH_SKELETON_FROM():
     """A cloth made from scratch carries the bones it uses and their ancestors up to Root,
     parents first, each posed relative to its parent, so the binds come back as given. The
@@ -2537,6 +2575,84 @@ def TEST_SF_CLOTH_SKELETON_FROM():
         assert TT.is_true('C_Nonesuch' in str(e), f"and named: {e}")
 
 
+@TT.requires_assets('SF')
+def TEST_SF_CDB_ONE_CACHE():
+    """materialsbeta.cdb is 105 MB and takes seconds to parse, so a session parses it once.
+    Material import reads it two ways -- straight from the database, and through a material's
+    Import chain -- and each used to keep its own parsed copy. Now both share one, whatever
+    the spelling of the path."""
+    from pyn import sf_cdb, sf_matchain, sf_materials
+    path = os.path.join(TT.SF_ASSETS, 'materials', 'materialsbeta.cdb')
+    sf_materials.material_from_cdb(path, r'Materials\Actors\Human\Faces\left_eye.mat')
+    first = sf_cdb.get_cdb(path)
+    assert TT.is_true(first is not None, "the database loads")
+    assert TT.is_true(sf_matchain._open_cdb(path.upper()) is first,
+                      "the Import chain uses the same parsed copy")
+    assert TT.is_true(sf_cdb.get_cdb(path.replace('\\', '/')) is first,
+                      "however the path is written")
+
+
+@TT.requires_assets('SF')
+def TEST_SF_CDB_POSITION_CACHE():
+    """Finding where each of materialsbeta.cdb's 1.4 million components starts means walking
+    them all, seconds of work. The map is saved beside the user's other caches, keyed by the
+    database's path, size and date, so only the first session pays. A second load reads it
+    back, gets the same map, and builds the same materials."""
+    from pyn import sf_cdb
+    path = os.path.join(TT.SF_ASSETS, 'materials', 'materialsbeta.cdb')
+    cache = os.path.abspath(r"tests/Out/TEST_SF_CDB_POSITION_CACHE")
+    shutil.rmtree(cache, ignore_errors=True)
+    old = sf_cdb.CACHE_DIR
+    sf_cdb.CACHE_DIR = cache
+    try:
+        first = sf_cdb.load_cdb(path)
+        first._ensure_pos_map()
+        assert TT.is_eq(first._pos_map_source, 'scan', "the first load scans")
+        second = sf_cdb.load_cdb(path)
+        second._ensure_pos_map()
+        assert TT.is_eq(second._pos_map_source, 'cache', "the second reads the saved map")
+        assert TT.is_true(list(second._pos_map) == list(first._pos_map), "the same map")
+        ref = r'Materials\Actors\Human\Faces\left_eye.mat'
+        assert TT.is_eq(second.get_material(ref), first.get_material(ref),
+                        "and the same material")
+    finally:
+        sf_cdb.CACHE_DIR = old
+
+
+def TEST_DLL_WRONG_BLOCK_TYPE():
+    """Asking the DLL for a block as the wrong type -- a NiNode's id read as an object palette
+    or a text-key block, or a palette entry looked up on a node -- returns an error. It used to
+    check the id rather than the block it looked up, and dereferenced null. Run in a separate
+    process, so a crash fails this test instead of ending the run."""
+    import subprocess
+    script = (
+        "import sys, ctypes\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "from pyn.pynifly import NifFile, NiDefaultAVObjectPalette, NiTextKeyExtraData\n"
+        "from pyn.niflydll import nifly\n"
+        "nif = NifFile(sys.argv[2])\n"
+        "rid = nif.rootNode.id\n"
+        "for cls in (NiDefaultAVObjectPalette, NiTextKeyExtraData):\n"
+        "    try:\n"
+        "        cls(file=nif, id=rid).properties\n"
+        "        print('ACCEPTED', cls.__name__)\n"
+        "    except Exception:\n"
+        "        print('REFUSED', cls.__name__)\n"
+        "name = ctypes.create_string_buffer(256)\n"
+        "ref = ctypes.c_uint32()\n"
+        "r = nifly.getAVObjectPaletteObject(nif._handle, rid, 0, 256, name, ctypes.byref(ref))\n"
+        "print('PALETTE_OBJECT', r)\n")
+    addon = os.path.join(os.path.dirname(os.getcwd()), 'io_scene_nifly')
+    nif = os.path.abspath(r"tests\Skyrim\ArmorOffset.nif")
+    r = subprocess.run([sys.executable, '-c', script, addon, nif], capture_output=True,
+                       text=True)
+    assert TT.is_eq(r.returncode, 0, f"no crash: {r.stdout} {r.stderr[-300:]}")
+    assert TT.is_true('REFUSED NiDefaultAVObjectPalette' in r.stdout, r.stdout)
+    assert TT.is_true('REFUSED NiTextKeyExtraData' in r.stdout, r.stdout)
+    assert TT.is_true('PALETTE_OBJECT 0' not in r.stdout, f"palette entry refused: {r.stdout}")
+
+
+@TT.requires_assets('SF')
 def TEST_SF_SKIN_NODE_SLOTS():
     """A Starfield skin names its bones in SkinAttach, one per slot; the BSSkin::Instance may
     also point a slot at a NiNode, which then names that slot (the Collector's cloth bones:
@@ -2983,6 +3099,7 @@ def TEST_SF_TINTBAKE_RETARGET_NIF():
     assert TT.is_eq(len(raw_b) - len(raw_a), len(new) - len(old), "only the string changed size")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_TINTBAKE_MATERIAL():
     """A variant material is the head's crowd material with another colour texture.
 
@@ -4622,6 +4739,10 @@ def TEST_RW_HEAD():
 
     nifcheck = NifFile(outfile)
     CHK.Check_malehead(nifcheck)
+    assert TT.is_eq([(s.name, len(s.verts), len(s.tris), len(s.partitions)) for s in nifcheck.shapes],
+                    [('MaleHeadIMF', 898, 1694, 3)], "head reads back with its partitions")
+    assert TT.is_eq([nifcheck.shapes[0].partitions[t].id for t in nifcheck.shapes[0].partition_tris],
+                    trilist, "partition assignment survives the round trip")
 
 
 
@@ -5002,6 +5123,7 @@ def TEST_NO_DUPLICATE_BLOCK_CLASSES():
                          f"class at buffer_types[{i}] claims that buffer type")
 
 
+@TT.requires_assets('SF')
 def TEST_SF_CDB_READ():
     """Read the real Starfield material database.
 
@@ -5275,6 +5397,10 @@ def TEST_PARTITIONS():
 
     nif3 = NifFile(r"tests/Out/PartitionsMaleHead.nif")
     CHK.Check_malehead(nif3)
+    assert TT.is_eq([(s.name, len(s.verts), len(s.tris), len(s.partitions)) for s in nif3.shapes],
+                    [('MaleHeadIMF', 898, 1694, 3)], "head reads back with its partitions")
+    assert TT.is_eq(list(nif3.shapes[0].partition_tris), list(nif.shapes[0].partition_tris),
+                    "partition assignment survives the round trip")
 
 
 def TEST_PARTITIONS_BY_ID():
@@ -5343,6 +5469,12 @@ def TEST_SEGMENTS():
 
     nif3 = NifFile(outfile)
     CHK.Check_fo4MaleBody(nif3)
+    assert TT.is_eq([(s.name, s.blockname, len(s.verts), len(s.tris), len(s.partitions))
+                     for s in nif3.shapes],
+                    [('BaseMaleBody:0', 'BSSubIndexTriShape', 1523, 2698, 7)],
+                    "body reads back with its segments")
+    assert TT.is_eq(nif3.shapes[0].segment_file,
+                    r"Meshes\Actors\Character\CharacterAssets\MaleBody.ssf", "segment file")
 
 
 @test_category('FO4', 'PARTITION', 'SHADER')
@@ -5384,6 +5516,11 @@ def TEST_BP_SEGMENTS():
 
     nif3 = NifFile(outfile)
     CHK.Check_fo4Helmet(nif3)
+    assert TT.is_eq(sorted((s.name, len(s.verts), s.shader.blockname, len(s.partitions))
+                           for s in nif3.shapes),
+                    [('Helmet:0', 2022, 'BSLightingShaderProperty', 2),
+                     ('glass:0', 30, 'BSEffectShaderProperty', 2)],
+                    "helmet and glass read back with their shaders and segments")
 
 
 @test_category('FO4', 'PARTITION')
@@ -5821,6 +5958,10 @@ def TEST_LOD():
 
     nifcheck = NifFile(outfile)
     CHK.Check_blackbriarchalet(nifcheck)
+    assert TT.is_eq([(s.name, s.blockname, len(s.verts), s.shader.blockname) for s in nifcheck.shapes],
+                    [('L2_WindowGlow', 'BSLODTriShape', 1786, 'BSEffectShaderProperty'),
+                     ('BlackBriarChalet:7', 'NiTriShape', 312, 'BSLightingShaderProperty')],
+                    "LOD shape written as BSLODTriShape with its effect shader")
 
 
 def TEST_UNSKINNED():
@@ -6262,10 +6403,15 @@ def TEST_SHADER_TYPE_OVERRIDE():
 
 
 @test_category('SHADER')
+@TT.requires_assets('FO4')
 def TEST_SHADER_SCAFFOLD():
     testfile = r"tests\FO4\ScaffFrame1x2Str01.nif"
     nif = NifFile(testfile, materialsRoot=TT.FO4_ASSETS)
     CHK.Check_ScaffoldFrame(nif)
+    assert TT.is_eq([(s.blockname, len(s.verts), s.shader.blockname) for s in nif.shapes],
+                    [('BSMeshLODTriShape', 682, 'BSLightingShaderProperty')], "scaffold shape read")
+    assert TT.is_true(nif.shapes[0].shader.name.endswith('QryCatwalksBluePaint.BGSM'),
+                      f"scaffold material: {nif.shapes[0].shader.name}")
 
 
 @test_category('SHADER')
@@ -6273,6 +6419,11 @@ def TEST_SHADER_WALL():
     testfile = r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExBrickColumn01.nif"
     nif = NifFile(testfile)
     CHK.Check_brickcolumn(nif)
+    assert TT.is_eq([(s.name, s.blockname, len(s.verts), s.shader.blockname) for s in nif.shapes],
+                    [('DExBrickColumn01:0', 'BSTriShape', 41, 'BSLightingShaderProperty')],
+                    "brick column shape read")
+    assert TT.is_true(nif.shapes[0].shader.name.endswith('BrickRed01.BGSM'),
+                      f"brick column material: {nif.shapes[0].shader.name}")
 
 
 @test_category('CONTROLLER')
@@ -6288,6 +6439,12 @@ def TEST_HIGHTECHLIGHT():
     for s in nif.shapes:
         _export_shape(s, nifOut)
     _export_controller_manager(nif.root, nifOut.root)
+    assert TT.is_eq([(s.name, len(s.verts), s.shader.blockname) for s in nifOut.shapes],
+                    [('GlassGlow:1', 312, 'BSEffectShaderProperty'),
+                     ('Workshop_HighTechLightFloor05_On:0', 718, 'BSLightingShaderProperty')],
+                    "light shapes exported")
+    assert TT.is_eq(nifOut.root.controller.blockname, 'NiControllerManager',
+                    "controller manager exported")
     nifOut.save()
 
     nifTest = NifFile(r"tests\out\TEST_HIGHTECHLIGHT.nif")
@@ -6593,7 +6750,13 @@ def TEST_PARTITION_SM():
     nifout.shapes[0].set_partitions(armor.partitions, armor.partition_tris)
     nifout.save()
 
-    # If no CTD we're good
+    # If no CTD we're good -- and the armor reads back with its segments.
+    nifcheck = NifFile(r"tests/Out/TEST_PARTITION_SM.nif")
+    assert TT.is_eq([(s.name, len(s.verts), len(s.tris), len(s.partitions)) for s in nifcheck.shapes],
+                    [('SMArmor0_Torso:0', 694, 1054, 4)], "armor reads back")
+    assert TT.is_eq(nifcheck.shapes[0].segment_file, armor.segment_file, "segment file")
+    assert TT.is_eq(list(nifcheck.shapes[0].partition_tris), list(armor.partition_tris),
+                    "segment assignment survives")
 
 
 def TEST_EXP_BODY():
@@ -6737,6 +6900,10 @@ def TEST_EFFECT_SHADER_SKY():
     print("---Check---")
     nifTest = NifFile(outfile, materialsRoot='tests/FO4')
     CHK.Check_daedriccuirass(nifTest)
+    assert TT.is_eq([(s.name, len(s.verts), s.shader.blockname) for s in nifTest.shapes],
+                    [('TorsoLow:0', 3423, 'BSLightingShaderProperty'),
+                     ('MaleTorsoGlow', 502, 'BSEffectShaderProperty')],
+                    "cuirass and its glow read back with their shaders")
 
 
 # TODO: Setting up to test the alpha threshold controller when there are multiple 
@@ -6981,6 +7148,10 @@ def TEST_COLLISION_LIST():
     nifOut.save()
 
     _checkFalmerStaff(NifFile(r"tests\out\TEST_COLLISION_LIST.nif"))
+    collcheck = NifFile(r"tests\out\TEST_COLLISION_LIST.nif").rootNode.collision_object
+    assert TT.is_eq((collcheck.blockname, collcheck.body.shape.blockname,
+                     len(collcheck.body.shape.children)),
+                    ('bhkCollisionObject', 'bhkListShape', 3), "list shape with 3 children written")
 
 
 def TEST_COLLISION_CAPSULE():
@@ -7496,6 +7667,10 @@ def TEST_ANIMATION_NOBLECHEST():
 
     nifcheck = NifFile(outfile)
     CHK.Check_noblechest01(nifcheck)
+    assert TT.is_eq([(s.name, len(s.verts)) for s in nifcheck.shapes],
+                    [('Chest01:1', 774), ('Lid01:1', 496)], "chest shapes read back")
+    assert TT.is_eq([s.name for s in nifcheck.rootNode.controller.sequences.values()],
+                    ['Open', 'Close'], "both animation sequences read back")
 
 
 def TEST_ANIMATION_ALDUIN():
@@ -8095,6 +8270,7 @@ def TEST_SET_SKINTINT():
 
 
 @test_category("HKX", "SKYRIM")
+@TT.requires_assets('SKYRIM')
 def TEST_HKX_SKELETON_ROUNDTRIP():
     """Native Skyrim skeleton.hkx round-trip (LE + SE) against vanilla files."""
     import importlib.util
@@ -10297,6 +10473,12 @@ executed_tests = {}
 def execute_test(t, stop_on_fail=True):
     if t.__name__ in executed_tests: return
 
+    if TT.missing_assets(t):
+        # A missing asset folder is a broken setup, not a reason to pass quietly.
+        print(f"FAILED {t.__name__}: asset folder missing: {TT.missing_assets(t)}")
+        executed_tests[t.__name__] = "FAILED"
+        return
+
     NifFile.clear_log()
     print(f"\n\n\n++++++++++++++++++++++++++++++ {t.__name__} ++++++++++++++++++++++++++++++")
     # the_test = __dict__[t]
@@ -10362,6 +10544,7 @@ def execute(start=None, testlist=None, exclude=None, categories:set=None, stop_o
 {", ".join([tn for tn, v in executed_tests.items() if v == "SKIPPED"])}
 ============================================================================
 """)
+    return sum(1 for v in executed_tests.values() if v == "FAILED")
 
 
 if __name__ == "__main__":

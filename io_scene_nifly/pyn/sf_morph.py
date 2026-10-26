@@ -277,15 +277,6 @@ def _float_to_half(f):
     return struct.unpack('<H', struct.pack('<e', f))[0]
 
 
-def _dec3n_to_vec(n):
-    """Decode a DEC3N-packed uint32 to a signed (x, y, z) tuple."""
-    return (
-        (n & 1023) / 511.5 - 1.0,
-        ((n >> 10) & 1023) / 511.5 - 1.0,
-        ((n >> 20) & 1023) / 511.5 - 1.0,
-    )
-
-
 def _vec_to_dec3n(v, w=1):
     """Encode a signed (x, y, z) to a DEC3N uint32 (truncating, as SGB does)."""
     n = int((v[0] + 1.0) * 511.5) & 1023

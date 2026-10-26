@@ -377,24 +377,13 @@ def _name_of(obj):
     return None
 
 
-# Parsing materialsbeta.cdb costs ~105 MB and a few seconds, and a chain may ask for
-# several templates, so a parsed database is kept per file.
-_CDB_CACHE = {}
-
-
 def _open_cdb(cdb):
-    """A CdbFile from a path (cached) or an already-parsed one. None if unavailable."""
+    """A CdbFile from a path (the session's shared copy, sf_cdb.get_cdb) or an already-parsed
+    one. None if unavailable."""
     if cdb is None or not isinstance(cdb, str):
         return cdb
-    key = os.path.normcase(os.path.abspath(cdb))
-    if key not in _CDB_CACHE:
-        try:
-            from pyn import sf_cdb
-            _CDB_CACHE[key] = sf_cdb.load_cdb(cdb)
-        except Exception as e:
-            log.warning(f"Could not open material database {cdb}: {e}")
-            _CDB_CACHE[key] = None
-    return _CDB_CACHE[key]
+    from . import sf_cdb
+    return sf_cdb.get_cdb(cdb)
 
 
 def resolve_material(path, search=None, cdb=None, _seen=None, doc=None):

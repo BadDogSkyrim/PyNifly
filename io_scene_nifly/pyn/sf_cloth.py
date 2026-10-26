@@ -383,7 +383,7 @@ BEND_BATCH = {**{f'{f}{c}': (f'{f}s{c}' if f != 'invMass' else f'invMasses{c}')
               'bendStiffness': 'bendStiffnesses', 'restCurvature': 'restCurvatures'}
 
 
-def _dist(positions, a, b):
+def dist(positions, a, b):
     return sum((x - y) ** 2 for x, y in zip(positions[a], positions[b])) ** 0.5
 
 
@@ -420,7 +420,7 @@ def _read_rest(sim, data, bones):
             if recs:
                 sim.link_stiffness['stretch'] = recs[0]['stiffness']
                 ratios = sorted(r['restLength'] / d for r in recs
-                                if (d := _dist(sim.positions, r['particleA'], r['particleB'])))
+                                if (d := dist(sim.positions, r['particleA'], r['particleB'])))
                 sim.stretch_slack = ratios[len(ratios) // 2] if ratios else 1.0
         elif t == BEND_SET:
             for r in _records(cs, BEND_BATCH):

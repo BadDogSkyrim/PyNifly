@@ -12,15 +12,10 @@ import sys
 from pathlib import Path
 
 # Set up path for imports
-if 'PYNIFLY_DEV_ROOT' in os.environ:
-    root_path = Path(os.environ['PYNIFLY_DEV_ROOT'])
-    mod_path = root_path / 'pynifly' / 'io_scene_nifly' / 'pyn'
-    tests_path = root_path / 'pynifly' / 'tests'
-else:
-    # Assume we're in the tests directory and work relative to that
-    current_path = Path(__file__).parent
-    root_path = current_path.parent
-    mod_path = root_path / 'io_scene_nifly' / 'pyn'
+# PYNIFLY_DEV_ROOT is the folder holding the PyNifly checkout; unset, this checkout's parent.
+root_path = Path(os.environ.get('PYNIFLY_DEV_ROOT', Path(__file__).resolve().parents[2]))
+mod_path = root_path / 'pynifly' / 'io_scene_nifly' / 'pyn'
+tests_path = root_path / 'pynifly' / 'tests'
 
 if str(root_path) not in sys.path:
     sys.path.insert(0, str(root_path))

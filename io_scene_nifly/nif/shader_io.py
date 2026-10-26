@@ -1993,11 +1993,14 @@ def make_mathnode(nodetree,
 
 
 class ShaderImporter:
-    def __init__(self):
+    def __init__(self, sf_cache=None):
         """
-        Machinery to handle importing shaders. 
+        Machinery to handle importing shaders.
+        * sf_cache: a dict the importer keeps for the whole import, so shapes sharing a
+          Starfield .mat share one material and the SF Base groups are filled once.
         * Logger: implements a "warn" routine to report problems.
         """
+        self._sf_cache = sf_cache if sf_cache is not None else {}
         self.material = None
         self.shape = None
         self._sf_chain = None      # the resolved Import chain of the material being read
@@ -2570,6 +2573,21 @@ class ShaderImporter:
         self.game = shape.file.game
         shape.shader.alternate_paths = self._build_alt_pathlist()
 
+        # The mesh is the authority on whether a vertex-color multiply can be built. Colors are
+        # imported before the shader, so asking the object here gives the right answer.
+        has_colors = (getattr(obj.data, 'color_attributes', None) is not None
+                      and COLOR_MAP_NAME in obj.data.color_attributes)
+
+        # Shapes that use the same .mat share its material: nothing else from the nif goes on it.
+        key = None
+        if shape.shader.name:
+            key = ('material', shape.shader.name.lower().replace('/', '\\'),
+                   shape.shader.blockname, has_colors)
+            done = self._sf_cache.get(key)
+            if done is not None and done.name in bpy.data.materials:
+                obj.active_material = done
+                return
+
         self.material = bpy.data.materials.new(name=(obj.name + ".Mat"))
         self.material.use_nodes = True
         self.material['BS_Shader_Block_Name'] = shape.shader.blockname
@@ -2615,14 +2633,12 @@ class ShaderImporter:
         layers_resolved = self._resolve_sf_layers(layers)
         blenders_resolved = self._resolve_sf_blenders(blenders)
 
-        # The mesh is the authority on whether a vertex-color multiply can be built. Colors are
-        # imported before the shader, so asking the object here gives the right answer.
-        has_colors = (getattr(obj.data, 'color_attributes', None) is not None
-                      and COLOR_MAP_NAME in obj.data.color_attributes)
         self._build_sf_nodes(resolved, settings, layers_resolved, blenders_resolved,
                              has_vertex_colors=has_colors)
         self._build_sf_base_chain(self._sf_chain)
         obj.active_material = self.material
+        if key is not None:
+            self._sf_cache[key] = self.material
 
     def _resolve_sf_texset(self, texdict):
         """Resolve a {slot: .mat-path} set to {slot: (resolved_filepath, verbatim_mat_path)} so image
@@ -3038,9 +3054,16 @@ class ShaderImporter:
         inner = None
         try:
             # Innermost (the root template) first, so each level can hold the one below it.
+            built = self._sf_cache.setdefault('sf_base_built', set())
             for path in reversed(chain.paths[1:]):
                 label = sf_matchain.material_label(path)
                 group = _ensure_sf_base_group(label)
+                if label in built:
+                    # Filled already in this import: a level's content and what it holds
+                    # below it don't depend on which material inherits from it.
+                    inner = group
+                    continue
+                built.add(label)
                 self.nodes = group.nodes
                 try:
                     level = sf_matchain.resolve_level(
