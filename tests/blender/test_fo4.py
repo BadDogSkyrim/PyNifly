@@ -716,9 +716,17 @@ def TEST_EXPORT_HANDS():
     bpy.ops.object.select_all(action='SELECT')
     bpy.context.view_layer.objects.active = bpy.data.objects["SupermutantHands"]
     test_loghandler.expect_error = logging.ERROR
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    # The export carries on past the bad vertices and writes the nif, and says at the end
+    # that it hit errors: an ERROR report, which bpy.ops raises in background mode. It used
+    # to say nothing at all.
+    reported = None
+    try:
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    except RuntimeError as e:
+        reported = str(e)
 
     assert os.path.exists(outfile)
+    assert TT.is_true(reported and 'errors' in reported, f"export reports its errors: {reported}")
 
 
 @TT.category('FO4', 'PARTITIONS')

@@ -559,13 +559,11 @@ class NifExporter:
 
     def warn(self, msg, tags=()):
         """
-        Report a warning-level error message to the log.
-
-        NB `tags` is not implemented -- nothing collects it. One caller passes
-        tags=["NOTHING"] and it is silently dropped. Left in place rather than removed
-        because the capture-and-report behaviour it implies may still be wanted.
+        Report a warning-level error message to the log. `tags` are kept in self.warnings,
+        where export_report turns them into the message the user sees at the end.
         """
         log.warning(msg)
+        self.warnings.update(tags)
 
     @property
     def export_scale(self):
@@ -2677,6 +2675,35 @@ class NifExporter:
         return NifExporter(filepath, game, scale=scale).export(objects)
 
 
+def export_report(exporter, max_error):
+    """What to tell the user when an export is done, as [(level, message)]: the particular
+    problems the exporter found, or, with none, an overall result from the worst level
+    logged (max_error)."""
+    out = []
+    if len(exporter.objs_unweighted) > 0:
+        out.append(('ERROR', f"The following objects have unweighted vertices.See the '*UNWEIGHTED*' vertex group to find them: \n{exporter.objs_unweighted}"))
+    if len(exporter.objs_scale) > 0:
+        out.append(('ERROR', f"The following objects have non-uniform scale, which nifs do not support. Scale applied to verts before export.\n{exporter.objs_scale}"))
+    if len(exporter.objs_mult_part) > 0:
+        out.append(('WARNING', f"Some faces have been assigned to more than one partition, which should never happen.\n{exporter.objs_mult_part}"))
+    if len(exporter.objs_no_part) > 0:
+        out.append(('WARNING', f"Some faces have been assigned to no partition, which should not happen for skinned body parts.\n{exporter.objs_no_part}"))
+    if len(exporter.arma_game) > 0:
+        out.append(('WARNING', f"The armature appears to be designed for a different game--check that it's correct\nArmature: {exporter.arma_game}, game: {exporter.game}"))
+    if 'NOTHING' in exporter.warnings:
+        out.append(('WARNING', "No mesh selected; nothing to export"))
+    if 'WARNING' in exporter.warnings:
+        out.append(('WARNING', "Export completed with warnings. Check the console window."))
+    if not out:
+        if max_error <= logging.INFO:
+            out.append(('INFO', "Export successful"))
+        elif max_error <= logging.WARNING:
+            out.append(('WARNING', "Export completed with warnings"))
+        else:
+            out.append(('ERROR', "Export completed with errors, see console window for details"))
+    return out
+
+
 def get_default_scale():
     return 1.0
 
@@ -3093,43 +3120,8 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
                 exporter.export_xf = BD.blender_export_xf
             exporter.export(self.objects_to_export)
             
-            rep = False
-            status = {"SUCCESS"}
-            if len(exporter.objs_unweighted) > 0:
-                status = {"ERROR"}
-                self.report(status, f"The following objects have unweighted vertices.See the '*UNWEIGHTED*' vertex group to find them: \n{exporter.objs_unweighted}")
-                rep = True
-            if len(exporter.objs_scale) > 0:
-                status = {"ERROR"}
-                self.report(status, f"The following objects have non-uniform scale, which nifs do not support. Scale applied to verts before export.\n{exporter.objs_scale}")
-                rep = True
-            if len(exporter.objs_mult_part) > 0:
-                status = {"WARNING"}
-                self.report(status, f"Some faces have been assigned to more than one partition, which should never happen.\n{exporter.objs_mult_part}")
-                rep = True
-            if len(exporter.objs_no_part) > 0:
-                status = {"WARNING"}
-                self.report(status, f"Some faces have been assigned to no partition, which should not happen for skinned body parts.\n{exporter.objs_no_part}")
-                rep = True
-            if len(exporter.arma_game) > 0:
-                status = {"WARNING"}
-                self.report(status, f"The armature appears to be designed for a different game--check that it's correct\nArmature: {exporter.arma_game}, game: {exporter.game}")
-                rep = True
-            if 'NOTHING' in exporter.warnings:
-                status = {"WARNING"}
-                self.report(status, "No mesh selected; nothing to export")
-                rep = True
-            if 'WARNING' in exporter.warnings:
-                status = {"WARNING"}
-                self.report(status, "Export completed with warnings. Check the console window.")
-                rep = True
-            if not rep:
-                if self.log_handler.max_error <= logging.INFO:
-                    self.report({'INFO'}, "Export successful")
-                elif self.log_handler.max_error <= logging.WARNING:
-                    self.report({'WARNING'}, "Export completed with warnings")
-                elif self.log_handler.max_error <= logging.WARNING:
-                    self.report({'ERROR'}, "Export failed, see console window for details")
+            for level, msg in export_report(exporter, self.log_handler.max_error):
+                self.report({level}, msg)
             
         except ShapeTooBigError as e:
             log.error(str(e))

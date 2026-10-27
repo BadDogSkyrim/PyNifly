@@ -683,3 +683,42 @@ def TEST_EXPORT_MESH_PARENT_FLATTENED():
                     "settings anchor stops at the mesh parent")
     assert TT.is_eq(pyn_props.find_settings_root(head).name, 'HeadRoot',
                     "the head's own settings still live on its root")
+
+
+def _exporter_stub(**kw):
+    """What export_report reads from an exporter, all clear unless `kw` says otherwise."""
+    from types import SimpleNamespace
+    d = dict(objs_unweighted=[], objs_scale=[], objs_mult_part=[], objs_no_part=[],
+             arma_game=[], game='SKYRIM', warnings=set())
+    d.update(kw)
+    return SimpleNamespace(**d)
+
+
+@TT.category('SKYRIM', 'GEOMETRY')
+def TEST_EXPORT_OUTCOME():
+    """The report at the end of an export follows the worst thing it logged. It tested the
+    warning level twice, so an export that logged errors and carried on reported nothing."""
+    import logging
+    from io_scene_nifly.nif.export_nif import export_report
+    levels = {lvl: [level for level, _ in export_report(_exporter_stub(), lvl)]
+              for lvl in (logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL)}
+    assert TT.is_eq(levels[logging.INFO], ['INFO'], "clean export")
+    assert TT.is_eq(levels[logging.WARNING], ['WARNING'], "warnings")
+    assert TT.is_eq(levels[logging.ERROR], ['ERROR'], "errors are reported")
+    assert TT.is_eq(levels[logging.CRITICAL], ['ERROR'], "and worse")
+
+
+@TT.category('SKYRIM', 'GEOMETRY')
+@TT.expect_errors(('No objects selected for export',))
+def TEST_EXPORT_NOTHING_TO_EXPORT():
+    """Export given nothing it writes -- a lone empty -- says there's nothing to export. The
+    warning was tagged for that message, but warn() dropped the tag."""
+    import logging
+    from io_scene_nifly.nif.export_nif import NifExporter, export_report
+    outfile = TTB.test_file(r"tests\Out\TEST_EXPORT_NOTHING_TO_EXPORT.nif")
+    bpy.ops.object.empty_add()
+    exporter = NifExporter(outfile, 'SKYRIM')
+    exporter.export([bpy.context.object])
+    reports = export_report(exporter, logging.WARNING)
+    assert TT.is_true(any('nothing to export' in msg for _, msg in reports),
+                      f"says there's nothing to export: {reports}")
