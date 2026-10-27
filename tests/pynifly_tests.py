@@ -2695,6 +2695,38 @@ def TEST_INVMARKER_NO_NAME():
     assert TT.is_true("'INV'" in r.stdout, f"named INV: {r.stdout}")
 
 
+def TEST_PYNIFLY_RELOAD():
+    """Reloading pyn.pynifly rebuilds every block family, base first, so blocks read after the
+    reload are the classes pynifly offers and isinstance holds across families. Reloaded in
+    sys.modules order instead, the families built classes on a stale NiObject: a shader
+    controller's blend interpolator stopped being a NiBlendInterpolator, and import read its
+    keys and failed. Run in a separate process: a reload here would leave this run's own
+    imports stale."""
+    import subprocess
+    script = (
+        "import sys, importlib\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "import pyn.pynifly as P\n"
+        "# The worst case: the families reloaded first, in whatever order sys.modules holds.\n"
+        "for k in [k for k in list(sys.modules) if k.startswith('pyn.blocks.')]:\n"
+        "    importlib.reload(sys.modules[k])\n"
+        "importlib.reload(P)\n"
+        "nif = P.NifFile(sys.argv[2])\n"
+        "s = next(s for s in nif.shapes if s.name.startswith('m_HeatShimmer'))\n"
+        "interp = s.shader.controller.interpolator\n"
+        "print('SAME_CLASS', type(interp) is P.NiBlendFloatInterpolator)\n"
+        "print('ISINSTANCE', isinstance(interp, P.NiBlendInterpolator), isinstance(s, P.NiShape),\n"
+        "      isinstance(s.shader, P.NiShader), isinstance(s, P.NiObject))\n"
+        "print('REGISTERED', len(P.NiObject.block_types))\n")
+    addon = os.path.join(os.path.dirname(os.getcwd()), 'io_scene_nifly')
+    testfile = os.path.abspath(r"tests/FO4/Meshes/VltGearDoor01.nif")
+    r = subprocess.run([sys.executable, '-c', script, addon, testfile], capture_output=True, text=True)
+    assert TT.is_eq(r.returncode, 0, f"ran: {r.stdout} {r.stderr[-500:]}")
+    assert TT.is_true("SAME_CLASS True" in r.stdout, f"block is pynifly's class: {r.stdout}")
+    assert TT.is_true("ISINSTANCE True True True True" in r.stdout, f"isinstance holds: {r.stdout}")
+    assert TT.is_true("REGISTERED 128" in r.stdout, f"every block type registered: {r.stdout}")
+
+
 def TEST_DLL_WRONG_BLOCK_TYPE():
     """Asking the DLL for a block as the wrong type -- a NiNode's id read as an object palette
     or a text-key block, or a palette entry looked up on a node -- returns an error. It used to

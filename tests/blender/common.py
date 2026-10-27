@@ -18,6 +18,9 @@ from mathutils import Matrix, Vector, Quaternion, Euler
 # restarting Blender. Must happen before any from-imports below.
 _addon_prefix = "io_scene_nifly"
 _stale = [name for name in sys.modules if name == _addon_prefix or name.startswith(_addon_prefix + ".")]
+# The block families reload with pyn.pynifly, in their own order; reloaded alone, in
+# sys.modules order, they'd rebuild classes on stale bases.
+_stale = [name for name in _stale if not name.startswith(_addon_prefix + ".pyn.blocks")]
 for _name in _stale:
     importlib.reload(sys.modules[_name])
 del _stale
