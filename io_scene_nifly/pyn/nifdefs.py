@@ -627,7 +627,7 @@ class bhkRigidBodyProps(pynStructure):
                 shape[fieldname] = hkQualityType(self.qualityType).name
             else:
                 super().extract_field(shape, fieldname, fieldtype, game=game)
-        except:
+        except Exception:
             super().extract_field(shape, fieldname, fieldtype, game=game)
 
 
@@ -807,14 +807,14 @@ class FurnitureMarkerDataBuf(pynStructure):
     def animation_type_name(self) -> str:
         try:
             return FurnAnimationType(self.animation_type).name
-        except:
+        except Exception:
             return str(self.animation_type)
     
     @animation_type_name.setter
     def animation_type_name(self, val):
         try:
             self.animation_type = FurnAnimationType[val].value
-        except:
+        except Exception:
             self.animation_type = int(val, 0)
 
     @property
@@ -824,7 +824,7 @@ class FurnitureMarkerDataBuf(pynStructure):
             if (self.entry_points & (1 << i)) != 0:
                 try:
                     lst.append(FurnEntryPoints(self.entry_points & (1 << i)).name)
-                except:
+                except Exception:
                     lst.append(str(self.entry_points & (1 << i)))
         return "|".join(lst)
     
@@ -836,7 +836,7 @@ class FurnitureMarkerDataBuf(pynStructure):
             if e:
                 try:
                     self.entry_points |= FurnEntryPoints[e].value
-                except:
+                except Exception:
                     self.entry_points |= int(e, 0)
 
 

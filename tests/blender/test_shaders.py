@@ -736,7 +736,7 @@ def TEST_VERTEX_ALPHA():
         objcheck = bpy.context.object
         try:
             alphamap = objcheck.data.attributes[BD.ALPHA_MAP_NAME]
-        except:
+        except Exception:
             alphamap = objcheck.data.vertex_colors[BD.ALPHA_MAP_NAME]
         assert alphamap.name == BD.ALPHA_MAP_NAME, "Expected alpha map"
 
@@ -995,7 +995,7 @@ def TEST_IMP_NORMALS():
     obj = bpy.context.object
     try:
         obj.data.calc_normals_split()
-    except:
+    except Exception:
         pass
     for l in obj.data.loops:
         for i in [0, 1, 2]:

@@ -33,7 +33,7 @@ def dump_nif(path):
             name = buf.value.decode('utf-8')
             if not name: break
             print(f"  {i}: {name}")
-        except:
+        except Exception:
             break
 
     co = f.rootNode.collision_object

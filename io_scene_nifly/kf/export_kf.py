@@ -151,7 +151,7 @@ class ExportKF(bpy.types.Operator, ExportHelper):
         settings.rename_bones_niftools = self.rename_bones_niftools
         try:
             KFExporter.Export(self.file_path, context, fps=self.fps, settings=settings)
-        except:
+        except Exception:
             log.exception("Export of KF failed")
 
         if self.log_handler.max_error >= logging.ERROR:

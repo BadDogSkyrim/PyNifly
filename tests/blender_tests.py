@@ -133,7 +133,7 @@ def do_tests(
         try:
             startindex = active_tests.index(startfrom)
             active_tests = active_tests[startindex:]
-        except:
+        except Exception:
             pass
     
     from time import perf_counter

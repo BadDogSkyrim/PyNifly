@@ -16,7 +16,7 @@ for shape in nif.shapes:
             print(f"  Extra data: {extra_data_list}")
             for ed in extra_data_list:
                 print(f"    Type: {type(ed).__name__}, Value: {ed}")
-    except:
+    except Exception:
         pass
     print()
 
@@ -50,5 +50,5 @@ for node_name in ['NPC', 'NPC Root [Root]', 'NPC COM [COM ]', 'NPC Spine [Spn0]'
                         print(f"    Name: {ed.name}")
                     if hasattr(ed, 'string_data'):
                         print(f"    String: {ed.string_data}")
-        except:
+        except Exception:
             pass

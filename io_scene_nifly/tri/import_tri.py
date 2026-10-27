@@ -249,12 +249,12 @@ class ImportTRI(bpy.types.Operator, ImportHelper):
                         ctx['area'] = area
                         ctx['region'] = area.regions[-1]
                         bpy.ops.view3d.view_selected(ctx)
-            except:
+            except Exception:
                 pass # log exception?
 
             self.log_handler.finish("IMPORT TRI", self.filepath)
 
-        except:
+        except Exception:
             self.log_handler.log.exception("Import of tri failed")
             self.report({"ERROR"}, "Import of tri failed, see console window for details")
             self.status = {'CANCELLED'}

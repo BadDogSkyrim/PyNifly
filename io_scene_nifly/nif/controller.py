@@ -400,7 +400,7 @@ def curve_bone_target(curve):
         return '', curve.data_path
 
 
-class ControllerHandler():
+class ControllerHandler(BD.Warns):
     def __init__(self, parent_handler, objlist:ReprObjectCollection=None):
         self.action = None
         self.action_group = ""
@@ -451,10 +451,6 @@ class ControllerHandler():
             self.objects_created:ReprObjectCollection = parent_handler.objs_written
 
         self.export_each_frame = False
-
-
-    def warn(self, msg):
-        self.logger.warning(msg)
 
 
     def _find_target(self, nifname):

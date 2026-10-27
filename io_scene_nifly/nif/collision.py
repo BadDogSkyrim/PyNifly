@@ -290,7 +290,7 @@ def follower_collisions(obj):
             and any(c.type == 'COPY_TRANSFORMS' and c.target is obj for c in o.constraints)]
 
 
-class CollisionHandler():
+class CollisionHandler(BD.Warns):
     def __init__(self, parent_handler):
         self.root_object = parent_handler.root_object
         self.blender_name = None
@@ -306,10 +306,6 @@ class CollisionHandler():
             parent_handler._physics_system_cache = {}
         self._physics_system_cache = parent_handler._physics_system_cache
     
-
-    def warn(self, msg):
-        self.logger.warning(msg)
-
 
     # ------- COLLISION IMPORT --------
 
@@ -946,8 +942,8 @@ class CollisionHandler():
             sh.rigid_body.linear_damping = p.linearDamping # / HAVOC_SCALE_FACTOR
             sh.rigid_body.angular_damping = p.angularDamping # / HAVOC_SCALE_FACTOR
             sh.rigid_body.collision_margin = cb.shape.properties.bhkRadius / HAVOC_SCALE_FACTOR
-        except:
-            pass
+        except Exception:
+            self.logger.debug("Rigid body settings not applied", exc_info=True)
             
         if sh.name.split('.')[0] == 'bhkListShape':
             # No collisionFilter_layer on bhkListShape
@@ -1389,7 +1385,7 @@ class CollisionHandler():
         try:
             targxf = self.export_xf @  targobj.matrix_local
             targparent = targobj
-        except:
+        except Exception:
             try:
                 # for pose bones — use the collision shape's world transform
                 # in armature space. This matches what COPY_TRANSFORMS with
@@ -1397,7 +1393,7 @@ class CollisionHandler():
                 targparent = targobj.id_data
                 targxf = targparent.matrix_world.inverted() @ coll.matrix_world
                 have_bone = True
-            except:
+            except Exception:
                 # For edit bones
                 targparent = targobj.id_data
                 targxf = targobj.matrix_local

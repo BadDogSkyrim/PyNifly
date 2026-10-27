@@ -440,7 +440,7 @@ class SkyrimHavokMaterial(PynIntEnum):
         """Turns the material enum into a string--if not found, just returns the input."""
         try:
             return SkyrimHavokMaterial(val).name
-        except:
+        except Exception:
             return str(val)
         
 class VertexFlags(PynIntFlag):
@@ -461,7 +461,7 @@ class VertexFlags(PynIntFlag):
         """Turns the material enum into a string--if not found, just returns the input."""
         try:
             return VertexFlags(val).name
-        except:
+        except Exception:
             return str(val)
 
 

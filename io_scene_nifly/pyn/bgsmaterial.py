@@ -49,7 +49,7 @@ class MaterialFile(Structure):
                 buf = self.sourcefile.read(s.size)
                 v = s.unpack(buf)
                 self.__setattr__(fieldname, v[0])
-        except:
+        except Exception:
             # Maybe hit EOF
             pass
 
@@ -96,7 +96,7 @@ class MaterialFile(Structure):
         try:
             with open(filename, 'rb') as f:
                 self._read(f)
-        except:
+        except Exception:
             MaterialFile.logWarning(f"Cannot read materials file '{filename}'")
 
     def extract(self, d):
@@ -130,7 +130,7 @@ class MaterialFile(Structure):
                 m = BGEMaterial(filepath)
             else:
                 cls.logError(f"Not a known materials file: {filepath}")
-        except:
+        except Exception:
             cls.logWarning(f"Cannot read materials file '{filepath}'")
         return m
 

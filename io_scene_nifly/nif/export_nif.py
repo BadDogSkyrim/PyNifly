@@ -1560,7 +1560,7 @@ class NifExporter:
         try:
             vc = mesh.color_attributes
             active_color = vc.active_color
-        except:
+        except Exception:
             vc = mesh.vertex_colors
             active_color = vc.active
         alphamap = None
@@ -1691,7 +1691,7 @@ class NifExporter:
             try:
                 c = editmesh.color_attributes.active_color
                 export = True
-            except:
+            except Exception:
                 export = (len(editmesh.vertex_colors) > 0)
             if export: loopcolors = self.extract_colors(editmesh)
     
@@ -3134,7 +3134,7 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             log.error(str(e))
             self.report({"ERROR"}, str(e))
             res.add("CANCELLED")
-        except:
+        except Exception:
             self.log_handler.log.exception("Export of nif failed")
             self.report({"ERROR"}, "Export of nif failed, see console window for details")
             res.add("CANCELLED")

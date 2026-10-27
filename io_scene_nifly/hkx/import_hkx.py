@@ -279,7 +279,7 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                           f"Fallout 4 (hk_2014) HKX file, so PyNifly can't read it.")
                 res.add('CANCELLED')
 
-        except:
+        except Exception:
             self.log_handler.log.exception("Import of HKX file failed")
             log.error("Import of HKX failed, see console window for details")
             res.add('CANCELLED')

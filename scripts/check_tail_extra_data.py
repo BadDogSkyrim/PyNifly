@@ -39,5 +39,5 @@ for attr in dir(root):
             val = getattr(root, attr)
             if not callable(val) and 'data' in attr.lower():
                 print(f"{attr}: {val}")
-        except:
+        except Exception:
             pass

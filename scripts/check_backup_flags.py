@@ -20,5 +20,5 @@ for suffix in ["", ".backup", ".backup2", ".backup3", ".backup4"]:
         
         label = "CURRENT" if not suffix else suffix
         print(f"{label:12} - VG:{vg_flags:6}  CT:{ct_flags:6}  TAIL:{tail_flags:6}")
-    except:
+    except Exception:
         print(f"{suffix or 'CURRENT':12} - Not found")

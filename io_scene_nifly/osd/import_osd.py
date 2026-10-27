@@ -114,7 +114,7 @@ class ImportOSD(bpy.types.Operator, ImportHelper):
 
             self.log_handler.finish("IMPORT OSD", self.filepath)
 
-        except:
+        except Exception:
             self.log_handler.log.exception("Import of OSD failed")
             self.report({"ERROR"}, "Import of OSD failed, see console window for details")
             self.status = {'CANCELLED'}

@@ -536,6 +536,13 @@ def get_export_objects(ctxt:bpy.types.Context) -> list:
     return ctxt.selected_objects
 
 
+class Warns:
+    """warn() for the import and export handlers. Every warning goes to the pynifly log,
+    where the operator's LogHandler counts it for the end-of-run report."""
+    def warn(self, msg):
+        logging.getLogger("pynifly").warning(msg)
+
+
 class LogHandler(logging.Handler):
     def __init__(self):
         super().__init__()

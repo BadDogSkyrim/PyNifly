@@ -50,7 +50,6 @@ ignore = [
     # Still outstanding, deliberately not muted forever -- see the note at the bottom.
     "F401",   # 153 unused imports
     "F841",   # 170 unused variables
-    "E722",   #  53 bare except, in the files Phase 2 did not reach
     "E721",   #  29 type(x) == y -- isinstance is not a drop-in, it accepts subclasses
     "E711",   #  20 == None -- `is None` is not a drop-in for types with custom __eq__
 ]
@@ -68,9 +67,6 @@ ignore = [
 #   F841  170  unused variables. Worth reading rather than fixing: some are dead code,
 #              and in tests some are assertions that got dropped. This is how
 #              `m = make_mixnode(...)` going nowhere in shader_io.py was spotted.
-#   E722   53  bare except, in the files Phase 2 did not reach -- pyn/, hkx/, tri/,
-#              export_nif.py, collision.py. shader_io.py, import_nif.py, controller.py
-#              and blender_defs.py are already at zero and would stay there.
 #   E721   29  type(x) == y. A misplaced paren in one of these was a live bug
 #              (BoneDict.dismem); the rest need reading, since isinstance accepts
 #              subclasses and type() == does not.

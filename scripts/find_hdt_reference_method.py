@@ -37,5 +37,5 @@ with open(sky_tail, 'rb') as f:
         try:
             print(f"Found 'HDT' at position {hdt_pos}")
             print(f"Context (as text): {context.decode('latin-1', errors='replace')}")
-        except:
+        except Exception:
             print(f"Found 'HDT' at position {hdt_pos} (binary data)")

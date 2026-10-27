@@ -363,7 +363,7 @@ POSED_BONE_THRESHOLD = 0.1
 POSED_SKELETON_THRESHOLD = 20.0
 
 
-class NifImporter():
+class NifImporter(BD.Warns):
     """
     Does the work of importing a nif, independent of Blender's operator interface.
     """
@@ -440,7 +440,6 @@ class NifImporter():
         
         self.nif = None # P.NifFile(filename)
         self.loc = Vector((0, 0, 0))   # location for new objects 
-        self.warnings = []
         self.root_object = None  # Blender representation of root object
         self.auxbones = False
         self.ref_compat = False
@@ -455,10 +454,6 @@ class NifImporter():
             connect points: {[x.name for x in self.connect_points.parents]}, {[x.names for x in self.connect_points.child]} 
             mesh objects: {[obj.name for obj in self.loaded_meshes]}
         """
-
-    def warn(self, text:str):
-        self.warnings.append(('WARNING', text))
-        log.warning(text)
 
     def incr_loc(self):
         self.loc = self.loc + (Vector((.5, .5, .5)) * self.scale) 

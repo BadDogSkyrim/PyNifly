@@ -170,7 +170,7 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
                 anim_fo4.write_fo4_animation(self.filepath, anim_data)
                 log.info(f"Exported FO4 animation: {self.filepath}")
                 res.add('FINISHED')
-        except:
+        except Exception:
             log.exception("HKX export failed")
             res.add('CANCELLED')
 

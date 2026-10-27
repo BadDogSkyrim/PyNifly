@@ -16,7 +16,7 @@ try:
             print(f"  Name: {ed.name}")
             if hasattr(ed, 'string_data'):
                 print(f"  Config: {ed.string_data}")
-except:
+except Exception:
     pass
 
 print("\n=== Shapes ===")

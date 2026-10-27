@@ -307,7 +307,7 @@ def get_obj_bbox(obj, worldspace=False, scale=1.0):
         # So punt--make a copy, apply everything, then return the bounds on the copy.
         try:
             bpy.ops.object.mode_set(mode = 'OBJECT')
-        except:
+        except Exception:
             pass
         bpy.ops.object.select_all(action='DESELECT')
         BD.ObjectSelect([obj], active=True)
@@ -427,12 +427,12 @@ def assert_equiv(actual, expected, msg, e=0.0001):
         assert MatNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
     except AssertionError:
         raise
-    except:
+    except Exception:
         try:
             assert VNearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
         except AssertionError:
             raise
-        except:
+        except Exception:
             assert NearEqual(actual, expected, epsilon=e), f"Values are equal for {msg}: {actual} != {expected}"
 
 

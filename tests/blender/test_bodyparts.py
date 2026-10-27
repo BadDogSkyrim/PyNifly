@@ -1759,7 +1759,7 @@ def TEST_NIFTOOLS_NAMES():
     try:
         bpy.ops.import_scene.nif(filepath=testfile, scale_correction=0.1)
         have_niftools = True
-    except:
+    except Exception:
         pass
 
     if have_niftools:

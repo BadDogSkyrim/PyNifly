@@ -588,7 +588,7 @@ def get_effective_colormaps(mesh):
 
 
 
-class ShaderImporter:
+class ShaderImporter(BD.Warns):
     def __init__(self, sf_cache=None):
         """
         Machinery to handle importing shaders.
@@ -639,10 +639,6 @@ class ShaderImporter:
         if 'Emission' in self.bsdf.inputs:
             return self.bsdf.inputs['Emission']
         
-
-    def warn(self, msg):
-        self.logger.warning(msg)
-
 
     def import_shader_attrs(self, shape:NiShape):
         """
@@ -1175,7 +1171,7 @@ def has_msn_shader(obj):
     return val
 
 
-class ShaderExporter:
+class ShaderExporter(BD.Warns):
     def __init__(self, blender_obj, game):
         self.obj = blender_obj
         self.is_obj_space = False
@@ -1211,10 +1207,6 @@ class ShaderExporter:
                     raise Exception(f"Have material but no shader node for {self.material.name}")
 
         self.vertex_colors, self.vertex_alpha = get_effective_colormaps(blender_obj.data)
-
-    def warn(self, msg):
-        self.logger.warning(msg)
-
 
     def _export_shader_attrs(self, shape):
         if not self.material:

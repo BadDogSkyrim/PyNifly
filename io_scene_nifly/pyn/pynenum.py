@@ -38,7 +38,7 @@ class PynIntFlag(IntFlag):
             try:
                 flags |= cls[vclean]
                 have_val = True
-            except:
+            except Exception:
                 pass
             if not have_val:
                 log.debug(f"Unknown flag value: {vclean} for {cls.__name__}")

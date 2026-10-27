@@ -4925,7 +4925,7 @@ def TEST_SHAPE_QUERY():
     # The bone_names property returns the names of these bones.
     try:
         assert 'NPC Spine [Spn0]' in body.bone_names, "ERROR: Spine not in shape: {body.bone_names}"
-    except:
+    except Exception:
         print("ERROR: Did not find bone in list")
     
     # A shape has a list of bone_ids in the shape. These are just an index, 0..#-of-bones.
@@ -5317,7 +5317,7 @@ def TEST_READ_WRITE():
     # bone-level transformations when we exported it with the armor
     try:
         assert sstb.translation[2] < 0, f"ERROR: Body should be lifted above origin in {testfile}"
-    except:
+    except Exception:
         # This is an open bug having to do with exporting two shapes at once (I think)
         pass
 
@@ -6835,7 +6835,7 @@ def TEST_EXP_BODY():
     print('....This causes an error')
     try:
         os.remove(r"tests/Out/TEST_EXP_BODY2.nif")
-    except:
+    except Exception:
         pass
 
     nifout2 = NifFile()
@@ -10546,7 +10546,7 @@ def execute_test(t, stop_on_fail=True):
         try:
             t()
             executed_tests[t.__name__] = "PASSED"
-        except:
+        except Exception:
             log.exception("Test failed with exception")
             executed_tests[t.__name__] = "FAILED"
     print("------------- done")

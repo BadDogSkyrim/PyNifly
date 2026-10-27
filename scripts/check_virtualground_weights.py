@@ -33,6 +33,6 @@ for shape in nif.shapes:
                     transform = shape.get_shape_skin_to_bone(bone_name)
                     if transform:
                         print(f"  {bone_name}: {transform}")
-                except:
+                except Exception:
                     pass
         break

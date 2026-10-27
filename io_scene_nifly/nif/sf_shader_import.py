@@ -15,7 +15,7 @@ from .sf_shader_groups import (PYN_SF_BASE, PYN_SF_BLEND, PYN_SF_CHAIN, PYN_SF_C
 
 log = logging.getLogger("pynifly")
 
-class SFShaderImporter:
+class SFShaderImporter(BD.Warns):
     """Builds a Blender material from a Starfield .mat. ShaderImporter hands every
     Starfield shape here."""
     def __init__(self, sf_cache=None):
@@ -31,9 +31,6 @@ class SFShaderImporter:
         self._sf_chain = None      # the resolved Import chain of the material being read
         self._sf_origins = {}      # {object id: provenance entry} from that chain
         self.logger = logging.getLogger("pynifly")
-
-    def warn(self, msg):
-        self.logger.warning(msg)
 
     def _build_alt_pathlist(self):
         return BD.alt_texture_paths(self.game)

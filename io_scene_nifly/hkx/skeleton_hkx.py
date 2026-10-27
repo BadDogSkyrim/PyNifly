@@ -254,7 +254,7 @@ class ImportSkel(bpy.types.Operator, ImportHelper):
 
             self.status = {'FINISHED'}
 
-        except:
+        except Exception:
             self.log_handler.log.exception("Import of skeleton failed")
             self.report({"ERROR"}, "Import of skeleton failed, see console window for details")
             self.status = {'CANCELLED'}
@@ -497,7 +497,7 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
 
             self.status = {'FINISHED'}
 
-        except:
+        except Exception:
             self.log_handler.log.exception("Export of skeleton failed")
             self.report({"ERROR"}, "Export failed, see console window for details")
             self.status = {'CANCELLED'}
@@ -530,7 +530,7 @@ class ExportSkel(bpy.types.Operator, ExportHelper):
             if n == 0:
                 log.debug("Must select one or more bones in pose mode to export")
                 return False
-        except:
+        except Exception:
             log.debug("Must have a selected armature with selected bones.")
             return False
         

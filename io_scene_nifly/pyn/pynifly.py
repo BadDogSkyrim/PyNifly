@@ -263,7 +263,7 @@ class FO4Subsegment(FO4Segment):
                         mat = fo4Dict.dismem[m[4]]
                     else:
                         mat = int(m[4], 0)
-            except:
+            except Exception:
                 log.error(f"Cannot parse segment name: {name}")
             return(m[1], id, mat)
 
@@ -440,7 +440,7 @@ class bhkShape(NiObject):
                     parent.id if parent else None)
             return file.read_node(
                 id=id, parent=parent, properties=properties)
-        except:
+        except Exception:
             return None
 
 
@@ -1194,7 +1194,7 @@ class NiCollisionObject(NiObject):
                     byref(properties), 
                     parent.id if parent else None)
             return file.read_node(id=id, parent=parent, properties=properties)
-        except:
+        except Exception:
             return None
 
     def __init__(self, handle=None, file=None, id=NODEID_NONE, properties=None, parent=None):
@@ -3739,7 +3739,7 @@ class NiShader(NiProperty):
                         self._textures["EnvMap"] = self._readtexture(f, s, 5)
                     if self.properties.shaderflags1_test(ShaderFlags1.FACEGEN_DETAIL_MAP):
                         self._textures["FacegenDetail"] = self._readtexture(f, s, 7)
-                except:
+                except Exception:
                     pass
 
                 if (self.properties.shaderflags1_test(ShaderFlags1.ENVIRONMENT_MAPPING) 
@@ -5743,7 +5743,7 @@ class NifFile:
             try:
                 if hasattr(node, 'name') and node.name and isinstance(node, NiNode): 
                     self._nodes[node.name] = node
-            except:
+            except Exception:
                 pass
             return node
         else:
