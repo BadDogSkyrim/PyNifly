@@ -309,7 +309,7 @@ def import_colors(mesh:bpy.types.Mesh, shape:P.NiShape):
     try:
         use_vertex_colors = False
         use_vertex_alpha = False
-        if shape.file.game in ['SKYRIM', 'SKYRIMSE']:
+        if BD.game_traits(shape.file.game).skyrim:
             use_vertex_colors = shape.shader.properties.shaderflags2_test(ShaderFlags2.VERTEX_COLORS)
             use_vertex_alpha = shape.shader.properties.shaderflags1_test(ShaderFlags1.VERTEX_ALPHA)
         else:
@@ -2481,7 +2481,7 @@ class NifImporter(BD.Warns):
 
         # Import shapes
         for s in self.nif.shapes:
-            if self.nif.game in ['FO4', 'FO76'] and BD.is_facebones(s.bone_names):
+            if BD.game_traits(self.nif.game).face_bone_dict and BD.is_facebones(s.bone_names):
                 self.nif.dict = fo4FaceDict
             self.nif.dict.use_niftools = self.settings.rename_bones_niftools
             self.import_shape(s)

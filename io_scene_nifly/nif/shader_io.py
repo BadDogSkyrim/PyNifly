@@ -1017,7 +1017,7 @@ class ShaderImporter(BD.Warns):
                 self.warn(f"Could not load normal texture '{self.shape.textures['Normal']}'")
 
             self.link(nimgnode.outputs['Color'], self.bsdf.inputs['Normal'])
-            if self.game in ['SKYRIM', 'SKYRIMSE']:
+            if BD.game_traits(self.game).skyrim:
                 if not self.shape.shader.properties.shaderflags1_test(ShaderFlags1.MODEL_SPACE_NORMALS):
                     # Tangent normals have specular in alpha channel.
                     if 'Specular' in self.bsdf.inputs:

@@ -16,7 +16,7 @@ from pathlib import Path
 from .niflytools import *
 from .nifdefs import *
 from .niflydll import nifly, nifly_path
-from .nifconstants import BSXFlagsValues, HAVOC_SCALE_FACTOR
+from .nifconstants import BSXFlagsValues, HAVOC_SCALE_FACTOR, game_traits
 
 
 # Set up logging
@@ -4872,7 +4872,7 @@ class NiShape(NiNode):
         
         tbuf = (c_uint16 * len(trilist))()
 
-        if self.file.game in ['SKYRIM', 'SKYRIMSE']:
+        if game_traits(self.file.game).skyrim:
             # nifly wants indices into the partition list. The trilist may already be
             # indices (as returned by partition_tris) or partition IDs (the older idiom).
             pbuf = (c_uint16 * 2 * len(parts))()

@@ -1,6 +1,7 @@
 """
 Magic constants and data structures used in nif files.
 """
+from dataclasses import dataclass
 from .pynenum import PynIntFlag, PynIntEnum
 
 
@@ -495,3 +496,35 @@ class ExtraDataType(PynIntEnum):
     Cloth = 3
     InvMarker = 4
     BSXFlags = 5
+
+
+# ---------------------------------------------------------------------------------------
+# What sets one game apart from another, in one place. Code asks a game's traits instead
+# of listing games, so a game can't drop out of a family by a typo in one list.
+# ---------------------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class GameTraits:
+    skyrim: bool = False               # Skyrim LE/SE: Skyrim shader flags, partitions, TRIP
+    fallout: bool = False              # FO3, New Vegas, FO4, FO76
+    facebones_companion: bool = False  # head parts ship a _faceBones nif beside the main one
+    face_bone_dict: bool = False       # face bones are renamed through fo4FaceDict
+    bodytri_extra_data: bool = False   # BodySlide tri path goes in a BODYTRI string extra data
+
+
+_GAME_TRAITS = {
+    'SKYRIM':   GameTraits(skyrim=True),
+    'SKYRIMSE': GameTraits(skyrim=True),
+    'FO3':      GameTraits(fallout=True),
+    'FONV':     GameTraits(fallout=True),
+    'FO4':      GameTraits(fallout=True, facebones_companion=True, face_bone_dict=True,
+                           bodytri_extra_data=True),
+    'FO76':     GameTraits(fallout=True, facebones_companion=True, face_bone_dict=True,
+                           bodytri_extra_data=True),
+    'SF':       GameTraits(facebones_companion=True),
+}
+
+
+def game_traits(game) -> GameTraits:
+    """The traits of `game`; a game PyNifly doesn't know (or none) has none of them."""
+    return _GAME_TRAITS.get(game, GameTraits())

@@ -16,7 +16,7 @@ from .nifconstants import (
     NiAVFlags, BSXFlagsValues, BSValueNodeFlags, VertexFlags, EffectShaderControlledVariable,
     SkyrimCollisionLayer, BroadPhaseType, hkResponseType, hkMotionType, hkDeactivatorType,
     hkSolverDeactivation, hkQualityType, ShaderFlags1, ShaderFlags2, ShaderFlags1FO4,
-    ShaderFlags2FO4, BSLSPShaderType, SkyrimHavokMaterial, AnimType, CycleType)
+    ShaderFlags2FO4, BSLSPShaderType, SkyrimHavokMaterial, AnimType, CycleType, game_traits)
 
 
 class PynBufferTypes(IntEnum):
@@ -237,12 +237,12 @@ class NiShaderBuf(pynStructure):
     def extract_field(self, shape, fieldname, fieldtype, game='SKYRIM'):
         """Extract a single field value to the shape."""
         if fieldname == 'Shader_Flags_1':
-            if game in ['SKYRIM', 'SKYRIMSE']:
+            if game_traits(game).skyrim:
                 shape[fieldname] = ShaderFlags1(self.Shader_Flags_1).fullname
             else:
                 shape[fieldname] = ShaderFlags1FO4(self.Shader_Flags_1).fullname
         elif fieldname == 'Shader_Flags_2':
-            if game in ['SKYRIM', 'SKYRIMSE']:
+            if game_traits(game).skyrim:
                 shape[fieldname] = ShaderFlags2(self.Shader_Flags_2).fullname
             else:
                 shape[fieldname] = ShaderFlags2FO4(self.Shader_Flags_2).fullname

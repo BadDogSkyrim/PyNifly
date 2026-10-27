@@ -236,7 +236,7 @@ def expected_game(nif, bonelist):
     """ Check whether the nif's game is the best match for the given bonelist """
     matchgame = BD.best_game_fit(bonelist)
     return matchgame == "" or matchgame == nif.game or \
-        (matchgame in ['SKYRIM', 'SKYRIMSE'] and nif.game in ['SKYRIM', 'SKYRIMSE'])
+        (BD.game_traits(matchgame).skyrim and BD.game_traits(nif.game).skyrim)
 
 
 @lru_cache(maxsize=None)
@@ -268,7 +268,7 @@ def partitions_from_vert_groups(obj, game):
     # (FO4_CUT_OFFSETS, set on import). Decode once; default to empty so older
     # objects round-trip with no cuts (the supply step in Phase 4 will fill in).
     cut_offsets_map = {}
-    if game in ['FO4', 'FO76', 'FO3', 'FONV']:
+    if BD.game_traits(game).fallout:
         raw = obj.get('FO4_CUT_OFFSETS')
         if raw:
             import json
@@ -281,11 +281,11 @@ def partitions_from_vert_groups(obj, game):
         for nm in vg_sorted:
             vg = obj.vertex_groups[nm]
             skyid = -1
-            if game in ['SKYRIM', 'SKYRIMSE']:
+            if BD.game_traits(game).skyrim:
                 skyid = pynifly.SkyPartition.name_match(vg.name)
             if skyid >= 0:
                 val[vg.name] = pynifly.SkyPartition(part_id=skyid, flags=0, name=vg.name)
-            elif game in ['FO4', 'FO76', 'FO3', 'FONV']:
+            elif BD.game_traits(game).fallout:
                 segid = pynifly.FO4Segment.name_match(vg.name)
                 if segid >= 0:
                     val[vg.name] = pynifly.FO4Segment(part_id=len(val), index=segid, name=vg.name)
@@ -845,7 +845,8 @@ class NifExporter:
         modifier and is authoritative — it overrides any prior armature added as a
         fallback (e.g. a bare ARMATURE child of a root EMPTY).
         """
-        facebones_arma = (self.game in ['FO4', 'FO76', 'SF']) and BD.is_facebones_armature(arma)
+        facebones_arma = (BD.game_traits(self.game).facebones_companion
+                          and BD.is_facebones_armature(arma))
         if facebones_arma:
             # An armature marked as the facebones armature beats one only named like one: a
             # crowd head can carry the chargen face rig yet want its own armature for both nifs.
@@ -2421,7 +2422,7 @@ class NifExporter:
 
         # Write TRIP extra data 
         if self.settings.write_bodytri \
-            and self.game in ['SKYRIM', 'SKYRIMSE'] \
+            and BD.game_traits(self.game).skyrim \
             and len(self.trip.shapes) > 0:
             from ..pyn.pynifly import NiStringExtraData
             NiStringExtraData.New(new_shape.file, name='BODYTRI', 
@@ -2556,7 +2557,7 @@ class NifExporter:
 
         # Check for bodytri morphs--write the extra data node if needed
         if self.settings.write_bodytri \
-                and self.game in ['FO4', 'FO76'] \
+                and BD.game_traits(self.game).bodytri_extra_data \
                 and len(self.trip.shapes) > 0 \
                 and  not self.bodytri_written:
             from ..pyn.pynifly import NiStringExtraData

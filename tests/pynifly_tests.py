@@ -365,6 +365,25 @@ def TEST_EDITORMARKERS():
 
 
 @test_category('NIFDEFS')
+def TEST_GAME_TRAITS():
+    """Each game trait answers exactly as the list of games it replaced did -- including
+    for a game not in the table, which has none of them."""
+    from pyn.nifconstants import game_traits
+    replaced = {
+        'skyrim': ['SKYRIM', 'SKYRIMSE'],
+        'fallout': ['FO4', 'FO76', 'FO3', 'FONV'],
+        'facebones_companion': ['FO4', 'FO76', 'SF'],
+        'face_bone_dict': ['FO4', 'FO76'],
+        'bodytri_extra_data': ['FO4', 'FO76'],
+    }
+    for game in ['SKYRIM', 'SKYRIMSE', 'FO3', 'FONV', 'FO4', 'FO76', 'SF',
+                 'FO4VR', 'SKYRIMVR', '', None]:
+        for trait, games in replaced.items():
+            assert TT.is_eq(getattr(game_traits(game), trait), game in games,
+                            f"{game} {trait}")
+
+
+@test_category('NIFDEFS')
 def TEST_NIFDEFS():
     """Test nifdefs functionality."""
     # The different shape buffers initialize their ID values, but can also be set from

@@ -9,6 +9,7 @@ from mathutils import Matrix, Vector, Quaternion, Euler
 import bpy
 from math import pi, radians
 from .pyn.nifdefs import NiKeyType
+from .pyn.nifconstants import game_traits
 from .pyn.niflytools import VNearEqual, NearEqual, gameSkeletons, fo4FaceDict, texture_path
 from .gamefinder import find_game
 from . import __package__ as base_package
@@ -831,7 +832,7 @@ def alt_texture_paths(game):
     if bpy.context.preferences.filepaths.texture_directory:
         altpaths.append(bpy.context.preferences.filepaths.texture_directory)
 
-    if game in ('SKYRIM', 'SKYRIMSE'):
+    if game_traits(game).skyrim:
         path_prefs = [prefs.sky_texture_path_1, prefs.sky_texture_path_2,
                       prefs.sky_texture_path_3, prefs.sky_texture_path_4]
     elif game == 'SF':

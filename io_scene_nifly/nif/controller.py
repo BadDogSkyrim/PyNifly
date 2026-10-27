@@ -76,7 +76,7 @@ class ControlledVariable:
                     if nodetype == n:
                         if game == 'FO4' and 'Skyrim' not in nodename:
                             return nodename, s, d
-                        if game in ['SKYRIM', 'SKYRIMSE'] and 'Skyrim' in nodename:
+                        if BD.game_traits(game).skyrim and 'Skyrim' in nodename:
                             return nodename, s, d
                 return n, s, d
         return None, None, None
