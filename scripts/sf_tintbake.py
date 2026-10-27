@@ -131,6 +131,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'io_scene_nifly'))
 
 import uv_transfer                                  # noqa: E402
 from pyn.sf_materials import material_id            # noqa: E402
+from pyn.sf_files import nif_header_strings         # noqa: E402
 
 ROLES = ('face', 'hands', 'eyes', 'teeth')
 DERMAESTHETIC = 'Dermaesthetic'
@@ -658,38 +659,6 @@ def load_texture(r, path, cache):
     if path not in cache:
         cache[path] = uv_transfer.load_image(find_texture(r, path))
     return cache[path]
-
-
-def nif_header_strings(b):
-    """Locate a Bethesda NIF's header string table.
-
-    Returns (max_len_offset, [(offset, string)]), each offset that of the string's u32 length.
-    The layout follows nifly's NiHeader::Put for a 20.2.0.7 Bethesda file."""
-    o = b.index(b'\n') + 1
-    o += 4 + 1 + 4                                   # version, endian, user version
-    nblocks, = struct.unpack_from('<I', b, o)
-    o += 4
-    stream, = struct.unpack_from('<I', b, o)
-    o += 4
-    o += 1 + b[o]                                    # creator
-    if stream > 130:
-        o += 4
-    for _ in range(3 if stream == 130 else 2):       # export info
-        o += 1 + b[o]
-    ntypes, = struct.unpack_from('<H', b, o)
-    o += 2
-    for _ in range(ntypes):
-        o += 4 + struct.unpack_from('<I', b, o)[0]
-    o += 2 * nblocks + 4 * nblocks                   # block type indices, block sizes
-    nstrings, = struct.unpack_from('<I', b, o)
-    max_off = o + 4
-    o += 8
-    strings = []
-    for _ in range(nstrings):
-        n, = struct.unpack_from('<I', b, o)
-        strings.append((o, b[o + 4:o + 4 + n].decode('utf-8', 'replace')))
-        o += 4 + n
-    return max_off, strings
 
 
 def nif_material(path):

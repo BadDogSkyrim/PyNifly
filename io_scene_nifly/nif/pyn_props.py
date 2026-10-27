@@ -987,7 +987,7 @@ class PYN_OT_set_facebones(bpy.types.Operator):
 # which of those values this file owns -- and writing an inherited value back as though it
 # were local is exactly what produces a material that renders nothing in game.
 #
-# Import stamps the answer on every node (see shader_io.PYN_SF_ORIGIN). This panel reads it.
+# Import stamps the answer on every node (see sf_shader_groups.PYN_SF_ORIGIN). This panel reads it.
 
 class PYN_PT_sf_provenance(bpy.types.Panel):
     bl_idname = "PYN_PT_sf_provenance"
@@ -998,13 +998,13 @@ class PYN_PT_sf_provenance(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        from .shader_io import PYN_SF_CHAIN
+        from .sf_shader_groups import PYN_SF_CHAIN
         mat = _panel_material(context)
         return mat is not None and PYN_SF_CHAIN in mat.keys()
 
     def draw(self, context):
         from ..pyn.sf_matchain import LOCAL
-        from .shader_io import (PYN_SF_BASE, PYN_SF_CHAIN, PYN_SF_IMPORT, PYN_SF_ORIGIN,
+        from .sf_shader_groups import (PYN_SF_BASE, PYN_SF_CHAIN, PYN_SF_IMPORT, PYN_SF_ORIGIN,
                                 PYN_SF_OVERRIDE)
         layout = self.layout
         mat = _panel_material(context)
@@ -1082,7 +1082,7 @@ class PYN_OT_sf_claim_node(bpy.types.Operator):
         return getattr(context, 'active_node', None) is not None
 
     def execute(self, context):
-        from .shader_io import PYN_SF_OVERRIDE
+        from .sf_shader_groups import PYN_SF_OVERRIDE
         context.active_node[PYN_SF_OVERRIDE] = True
         return {'FINISHED'}
 

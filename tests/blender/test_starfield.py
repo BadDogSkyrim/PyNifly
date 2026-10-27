@@ -429,7 +429,7 @@ def TEST_SF_NORMAL_GREEN():
     Red must pass through untouched (X is the same in both conventions) and blue is the
     reconstructed Z, which squares Y and so is a control: it must not move.
     """
-    from io_scene_nifly.nif.shader_io import _reconstruct_normal_rgb
+    from io_scene_nifly.nif.sf_shader_groups import _reconstruct_normal_rgb
 
     mat = bpy.data.materials.new("pyn_normal_green")
     mat.use_nodes = True
@@ -599,8 +599,7 @@ def TEST_SF_PARAMS():
     emissive but no AlphaSettings (opaque). SSS Weight = AND(Translucency Enable, Use SSS) drives
     Subsurface Weight.
     """
-    from io_scene_nifly.nif.shader_io import (sf_component_node_of, SF_SHADER_MODEL_PROP,
-                                              SF_SUBSURFACE_SCALE)
+    from io_scene_nifly.nif.sf_shader_groups import (sf_component_node_of, SF_SHADER_MODEL_PROP, SF_SUBSURFACE_SCALE)
 
     testfile = TTB.test_file(r"tests\SF\meshes\naked_f.nif")
     bpy.ops.import_scene.pynifly(filepath=testfile)
@@ -663,10 +662,11 @@ def TEST_SF_ALPHA():
     Driven directly through _build_sf_nodes with a synthetic settings/resolved pair (the real
     hair material lives in the cdb) so the test needs no game assets.
     """
-    from io_scene_nifly.nif.shader_io import ShaderImporter, sf_component_node_of
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_groups import sf_component_node_of
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")  # content irrelevant; test wiring
-    si = ShaderImporter()
+    si = SFShaderImporter()
     mat = bpy.data.materials.new("SF_Alpha_Test")
     mat.use_nodes = True
     si.material = mat
@@ -693,7 +693,7 @@ def TEST_SF_ALPHA():
     # Without opacity the component is still wired, so ticking Has Opacity takes effect live.
     mat2 = bpy.data.materials.new("SF_Alpha_Test_Off")
     mat2.use_nodes = True
-    si2 = ShaderImporter()
+    si2 = SFShaderImporter()
     si2.material = mat2
     si2._build_sf_nodes({'Albedo': tex, 'Opacity': tex},
                         {'shader_model': 'Hair1Layer', 'alpha': {'has_opacity': False}})
@@ -713,13 +713,14 @@ def TEST_SF_ALPHA_VERTEX():
     input, as in the game: the vertex alpha is PyNifly's VERTEX_ALPHA attribute, the red channel
     is VERTEX_COLOR's. Both are written back, and plugging in another channel changes the one
     written."""
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, sf_component_node_of,
-                                              recover_sf_material)
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
+    from io_scene_nifly.nif.sf_shader_groups import sf_component_node_of
     from pyn.sf_materials import write_mat, parse_mat
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")
     for channel, attr in (('Alpha', 'VERTEX_ALPHA'), ('Red', 'VERTEX_COLOR')):
-        si = ShaderImporter()
+        si = SFShaderImporter()
         mat = bpy.data.materials.new(f"SF_AlphaVertex_{channel}")
         mat.use_nodes = True
         mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Decal.mat'
@@ -767,13 +768,14 @@ def TEST_SF_TEXTURE_BY_SOCKET():
     unplugged was still exported. The socket an image feeds now names its slot, and a slot that
     had a texture but has nothing plugged in is reported as removed, so the writer drops the file
     the texture set carried."""
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material, _is_group,
-                                              SF_LAYER_GROUP)
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
+    from io_scene_nifly.nif.sf_shader_groups import _is_group, SF_LAYER_GROUP
     from pyn.sf_materials import write_mat, parse_mat
 
     color = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
     ao = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")
-    si = ShaderImporter()
+    si = SFShaderImporter()
     mat = bpy.data.materials.new("SF_TexBySocket")
     mat.use_nodes = True
     mat['BSLSP_Shader_Name'] = r'MATERIALS\Test\Tail.mat'
@@ -811,12 +813,13 @@ def TEST_SF_HAIR():
     settings groups), holds the ~11 hair params for round-trip, and drives Principled Sheen
     (Backscatter -> Sheen Weight, Roughness -> Sheen Roughness). Transmission scales are held only.
     """
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, sf_component_node_of,
-                                              recover_sf_material)
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
+    from io_scene_nifly.nif.sf_shader_groups import sf_component_node_of
     from pyn.sf_materials import write_mat, parse_mat
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
-    si = ShaderImporter()
+    si = SFShaderImporter()
     mat = bpy.data.materials.new("SF_Hair_Test")
     mat.use_nodes = True
     si.material = mat
@@ -856,13 +859,13 @@ def TEST_SF_LAYERED():
     Driven through _build_sf_nodes directly with a synthetic 2-layer/1-blender graph (test PNGs,
     no game assets).
     """
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, SF_LAYER_GROUP, SF_BLEND_GROUP,
-                                              SF_NORMAL_BLEND_GROUP)
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_groups import (SF_LAYER_GROUP, SF_BLEND_GROUP, SF_NORMAL_BLEND_GROUP)
 
     alb = TTB.test_file(r"tests\SF\textures\SF\test\body_color.png")
     nrm = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
     mask = TTB.test_file(r"tests\SF\textures\SF\test\body_ao.png")
-    si = ShaderImporter()
+    si = SFShaderImporter()
     mat = bpy.data.materials.new("SF_Layered_Test")
     mat.use_nodes = True
     si.material = mat
@@ -877,7 +880,7 @@ def TEST_SF_LAYERED():
 
     # Matched via the production helper: group datablocks carry a version suffix ("SF Layer v5"),
     # and a plain startswith would also match "SF LayeredEmissivityComponent".
-    from io_scene_nifly.nif.shader_io import _is_group
+    from io_scene_nifly.nif.sf_shader_groups import _is_group
 
     def groups(prefix):
         return [n for n in nt.nodes if _is_group(n, prefix)]
@@ -914,11 +917,12 @@ def TEST_SF_MAT_ROUNDTRIP():
     Parameters node), recover_sf_material() walks it back to a normalised dict, write_mat() emits a
     loose .mat, and parse_mat() reads it -- reproducing the layers/blenders/settings. Proves the
     graph is the recoverable source of truth (the 'build for export' payoff)."""
-    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
     from pyn.sf_materials import write_mat, parse_mat
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
-    si = ShaderImporter()
+    si = SFShaderImporter()
     mat = bpy.data.materials.new("SF_RT_Test")
     mat.use_nodes = True
     si.material = mat
@@ -942,7 +946,7 @@ def TEST_SF_MAT_ROUNDTRIP():
     # Recovery reads texture paths from the ASSIGNED image (the graph is the source of truth), so
     # give each stamped node an image sitting at its intended game location. Deriving that back
     # reproduces the .mat-relative path -- the same path the import stamp carries.
-    from io_scene_nifly.nif.shader_io import PYN_SF_PATH
+    from io_scene_nifly.nif.sf_shader_groups import PYN_SF_PATH
     for n in mat.node_tree.nodes:
         if n.type == 'TEX_IMAGE' and PYN_SF_PATH in n:
             img = bpy.data.images.new(os.path.basename(n[PYN_SF_PATH]), 8, 8)
@@ -985,12 +989,12 @@ def TEST_SF_MAT_UNWIRED_LAYER_DROPPED():
     and the exported .mat still carried all 6 layers, because recovery collected every stamped
     node regardless of connectivity. Here: build 2 layers + 1 blender, rewire layer 0 direct,
     and only layer 0 should survive recovery."""
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material, _is_group,
-                                              SF_LAYER_GROUP, SF_BLEND_GROUP, PYN_SF_LAYER,
-                                              PYN_SF_PATH)
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
+    from io_scene_nifly.nif.sf_shader_groups import (_is_group, SF_LAYER_GROUP, SF_BLEND_GROUP, PYN_SF_LAYER, PYN_SF_PATH)
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
-    si = ShaderImporter()
+    si = SFShaderImporter()
     mat = bpy.data.materials.new("SF_Unwired_Test")
     mat.use_nodes = True
     si.material = mat
@@ -1091,9 +1095,9 @@ def TEST_SF_GROUP_VERSION_KEEPS_OLD_MATERIALS():
     head. The import rebuilt SF Layer at the new version and cut all six of the Lykaios material's
     layer nodes loose, along with every link in the material.
     """
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, ensure_sf_layer_group, _is_group,
-                                              SF_LAYER_GROUP, PYN_SF_LAYER)
-    from io_scene_nifly.nif import shader_io as S
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_groups import (ensure_sf_layer_group, _is_group, SF_LAYER_GROUP, PYN_SF_LAYER)
+    from io_scene_nifly.nif import sf_shader_groups as S
 
     old_group = ensure_sf_layer_group()
     mat = bpy.data.materials.new("SF_OldVersion")
@@ -1149,8 +1153,10 @@ def TEST_SF_VERTEX_COLOR_OVERRIDE_NO_COLORS():
     The component is still recorded on the layer either way -- it is part of the material and has
     to survive export whether or not this mesh gives us anything to multiply by.
     """
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material,
-                                              PYN_SF_OVERRIDE_COLOR_TYPE, COLOR_MAP_NAME)
+    from io_scene_nifly.nif.shader_io import COLOR_MAP_NAME
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
+    from io_scene_nifly.nif.sf_shader_groups import PYN_SF_OVERRIDE_COLOR_TYPE
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
     A = (tex, r'Textures\Skin\color.dds')
@@ -1158,7 +1164,7 @@ def TEST_SF_VERTEX_COLOR_OVERRIDE_NO_COLORS():
                'override_color': 'Multiply'}]
 
     def build(has_colors):
-        si = ShaderImporter()
+        si = SFShaderImporter()
         mat = bpy.data.materials.new(f"SF_VC_{has_colors}")
         mat.use_nodes = True
         si.material = mat
@@ -1208,7 +1214,8 @@ def TEST_SF_MAT_PROVENANCE():
     this is about provenance, not pixels.
     """
     import json
-    from io_scene_nifly.nif.shader_io import ShaderImporter, PYN_SF_IMPORT, PYN_SF_ORIGIN, _group_base
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_groups import PYN_SF_IMPORT, PYN_SF_ORIGIN, _group_base
     from pyn.sf_matchain import LOCAL
 
     path = TTB.test_file(r"tests\SF\materials\Actors\Human\Faces\left_eye.mat")
@@ -1216,7 +1223,7 @@ def TEST_SF_MAT_PROVENANCE():
     assert TT.is_eq(local.get('Import'), ['materials/layered/shadermodels/eye1layer.mat'],
                     "the fixture is the authored file, and it derives from the template")
 
-    si = ShaderImporter()
+    si = SFShaderImporter()
     si.material = bpy.data.materials.new("SF_Provenance")
     si.material.use_nodes = True
     si._sf_altpaths = []
@@ -1327,12 +1334,13 @@ def TEST_SF_EYE_IRIS_PREVIEW():
     with the game the moment someone edits the value.
     """
     import numpy as np
-    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
 
     path = TTB.test_file(r"tests\SF\materials\Actors\Human\Faces\left_eye.mat")
     texdir = TTB.test_file(r"tests\SF\textures\Actors\human\faces\Eyes")
 
-    si = ShaderImporter()
+    si = SFShaderImporter()
     si.material = bpy.data.materials.new("SF_EyePreview")
     si.material.use_nodes = True
     si._sf_altpaths = []
@@ -1473,14 +1481,14 @@ def TEST_SF_MAT_BASE_GROUPS():
     test that matters is the last one: adding them changes nothing about what comes out.
     """
     import json
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, SF_BASE_GROUP, PYN_SF_BASE,
-                                              recover_sf_material, _is_group,
-                                              SF_LAYER_GROUP)
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
+    from io_scene_nifly.nif.sf_shader_groups import (SF_BASE_GROUP, PYN_SF_BASE, _is_group, SF_LAYER_GROUP)
 
     mats = TTB.test_file(r"tests\SF\materials")
     src = os.path.join(mats, r"Actors\Human\Faces\left_eye.mat")
 
-    si = ShaderImporter()
+    si = SFShaderImporter()
     si.material = bpy.data.materials.new("SF_BaseGroups")
     si.material.use_nodes = True
     si._sf_altpaths = []
@@ -1544,7 +1552,8 @@ def TEST_SF_MAT_DERIVED_EXPORT():
     came in with, and that resolving it gives the material back.
     """
     import json
-    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
     from pyn import sf_materials
     from pyn.sf_matchain import resolve_material, resolve_parents
 
@@ -1552,7 +1561,7 @@ def TEST_SF_MAT_DERIVED_EXPORT():
     src = os.path.join(mats, r"Actors\Human\Faces\left_eye.mat")
     authored = json.load(open(src, encoding='utf-8-sig'))
 
-    si = ShaderImporter()
+    si = SFShaderImporter()
     si.material = bpy.data.materials.new("SF_DerivedExport")
     si.material.use_nodes = True
     si._sf_altpaths = []
@@ -1626,7 +1635,8 @@ def TEST_SF_MAT_COMPONENT_ROUNDTRIP():
     and the field-for-field comparison still holds.
     """
     import json
-    from io_scene_nifly.nif.shader_io import ShaderImporter, recover_sf_material
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
     from pyn.sf_materials import parse_mat_doc, patch_mat_doc, build_mat_doc
 
     def flat_fields(data, prefix=''):
@@ -1665,7 +1675,7 @@ def TEST_SF_MAT_COMPONENT_ROUNDTRIP():
             doc = json.load(f)
         parsed = parse_mat_doc(doc)
 
-        si = ShaderImporter()
+        si = SFShaderImporter()
         mat = bpy.data.materials.new(f"SF_Comp_{n}")
         mat.use_nodes = True
         si.material = mat
@@ -1739,11 +1749,12 @@ def TEST_SF_MAT_IMAGE_SWAP():
     only a fallback for images that don't resolve under a 'textures' tree (matches how FO4/Skyrim
     export reads the node, not a stored property). Regression: the swap was ignored and the human
     paths re-exported, so the head stayed pink in-game."""
-    from io_scene_nifly.nif.shader_io import (ShaderImporter, recover_sf_material,
-                                              PYN_SF_LAYER, PYN_SF_SLOT, PYN_SF_PATH, PYN_SF_BLEND)
+    from io_scene_nifly.nif.sf_shader_import import SFShaderImporter
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
+    from io_scene_nifly.nif.sf_shader_groups import (PYN_SF_LAYER, PYN_SF_SLOT, PYN_SF_PATH, PYN_SF_BLEND)
 
     tex = TTB.test_file(r"tests\SF\textures\SF\test\body_normal.png")
-    si = ShaderImporter()
+    si = SFShaderImporter()
     mat = bpy.data.materials.new("SF_Swap_Test")
     mat.use_nodes = True
     si.material = mat
@@ -1800,7 +1811,8 @@ def TEST_SF_HEAD_MATERIAL():
     color path (base layer multiplies albedo by VERTEX_COLOR -- an unpainted layer renders the head
     black in-game). Textures are 64x64 fixtures copied from the game. Recovery + write/parse round-
     trip the masks/channels/scales/override."""
-    from io_scene_nifly.nif.shader_io import recover_sf_material, COLOR_MAP_NAME
+    from io_scene_nifly.nif.shader_io import COLOR_MAP_NAME
+    from io_scene_nifly.nif.sf_shader_export import recover_sf_material
     from pyn.sf_materials import write_mat, parse_mat
 
     testfile = TTB.test_file(r"tests\SF\meshes\malehead.nif")

@@ -440,7 +440,7 @@ def write_sf_materials(exporter):
     after nif.save()). Only materials with a recoverable SF graph (shader model or layers) are
     written; the file lands in the output tree, not over the source material. Each output file is
     written once per export: the other nifs of a file set use the same materials."""
-    from . import shader_io
+    from .sf_shader_export import recover_sf_material
     from ..pyn import sf_materials
     written = exporter.sf_mats_written
     for mat in getattr(exporter, '_sf_materials', []):
@@ -451,7 +451,7 @@ def write_sf_materials(exporter):
         if os.path.normcase(out_path) in written:
             continue
         written.add(os.path.normcase(out_path))
-        data = shader_io.recover_sf_material(mat)
+        data = recover_sf_material(mat)
         if not data or (not data.get('layers') and not data['settings'].get('shader_model')):
             continue
         # A material imported from a .mat PyNifly couldn't find has no layers and nothing carried,
@@ -485,17 +485,17 @@ def _parent_chain(data, out_path, mat_ref, exporter):
     chain; both are the caller's problem to know about, and writing a partial file for them
     would be worse.
     """
-    from . import shader_io
+    from .sf_shader_groups import sf_cdb_path, sf_material_search
     imports = data.get('imports')
     if not imports:
         return None
     src = find_referenced_file(mat_ref, nifpath=exporter.nif.filepath, root='materials',
                                alt_pathlist=mesh_search_paths())
-    search = shader_io.sf_material_search(out_path, mesh_search_paths(), extra=[src])
+    search = sf_material_search(out_path, mesh_search_paths(), extra=[src])
     try:
         from ..pyn import sf_matchain
         chain = sf_matchain.resolve_parents(imports, out_path, search=search,
-                                            cdb=shader_io.sf_cdb_path())
+                                            cdb=sf_cdb_path())
     except Exception as e:
         exporter.warn(f"Could not resolve what '{mat_ref}' derives from ({e}); writing it "
                       f"complete rather than as a derivation.")

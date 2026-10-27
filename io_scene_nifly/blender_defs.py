@@ -9,7 +9,9 @@ from mathutils import Matrix, Vector, Quaternion, Euler
 import bpy
 from math import pi, radians
 from .pyn.nifdefs import NiKeyType
-from .pyn.niflytools import VNearEqual, NearEqual, gameSkeletons, fo4FaceDict
+from .pyn.niflytools import VNearEqual, NearEqual, gameSkeletons, fo4FaceDict, texture_path
+from .gamefinder import find_game
+from . import __package__ as base_package
 from .pyn.niflydll import pynifly_dev_path, pynifly_addon_path
 from .pyn.pynifly import NiTransformData, NiShape, TransformBuf, MATRIX3
 
@@ -808,3 +810,35 @@ def TEST_CAM():
             ( 0.0000, 0.0000,  0.0000,    1.0000)))
     inv, z = cam_to_inv(mx, 38)
     assert VNearEqual(inv, [0, 0, 1570], epsilon=2), f"Cam shows right profile: {inv}"
+
+
+def alt_texture_paths(game):
+    """Build the alternate-path list used to locate textures and material files.
+
+    Includes Blender's texture directory, the user's per-game texture path prefs,
+    and a registry-derived game data folder as a last resort.
+    """
+    prefs = bpy.context.preferences.addons[base_package].preferences
+    altpaths = []
+
+    if bpy.context.preferences.filepaths.texture_directory:
+        altpaths.append(bpy.context.preferences.filepaths.texture_directory)
+
+    if game in ('SKYRIM', 'SKYRIMSE'):
+        path_prefs = [prefs.sky_texture_path_1, prefs.sky_texture_path_2,
+                      prefs.sky_texture_path_3, prefs.sky_texture_path_4]
+    elif game == 'SF':
+        path_prefs = [prefs.sf_texture_path_1, prefs.sf_texture_path_2,
+                      prefs.sf_texture_path_3, prefs.sf_texture_path_4]
+    else:
+        path_prefs = [prefs.fo4_texture_path_1, prefs.fo4_texture_path_2,
+                      prefs.fo4_texture_path_3, prefs.fo4_texture_path_4]
+    for path_pref in path_prefs:
+        if path_pref and (cleaned_path := texture_path(path_pref)):
+            altpaths.append(cleaned_path)
+
+    game_data = find_game(game)
+    if game_data:
+        altpaths.append(game_data)
+
+    return altpaths

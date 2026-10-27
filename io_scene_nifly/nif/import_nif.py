@@ -1262,7 +1262,7 @@ class NifImporter():
         if os.path.exists(sibling):
             ssf_path = sibling
         else:
-            altpaths = shader_io.ShaderImporter._build_alt_pathlist_for_game(self.nif.game)
+            altpaths = BD.alt_texture_paths(self.nif.game)
             ssf_path = find_referenced_file(
                 seg_file, nifpath=self.nif.filepath, root='meshes',
                 alt_pathlist=altpaths)
@@ -2698,7 +2698,7 @@ class NifImporter():
             # one-shot BGSM lookup). Otherwise the lookup runs with no alt paths and
             # the failure gets cached.
             if hasattr(self.nif, 'shapes'):
-                alt_paths = shader_io.ShaderImporter._build_alt_pathlist_for_game(
+                alt_paths = BD.alt_texture_paths(
                     self.nif.game)
                 for shp in self.nif.shapes:
                     if shp.shader is not None:
