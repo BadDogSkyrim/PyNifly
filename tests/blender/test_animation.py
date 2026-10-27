@@ -990,6 +990,13 @@ def TEST_ANIMATRON_2():
                for cb in seq.controlled_blocks
                if cb.node_name == 'ClothesHider' and cb.controller_type == 'NiVisController'}
     assert TT.is_eq(interps['off'].properties.value, 1, "'off' exports visible")
+    # The bones' animation goes out too: 158 transform blocks in the source's anim01 (the
+    # root, CamTargetParent and 156 bones). The skeleton carries the face rig's 63 skin_bone_
+    # bones, and was taken for a facebones armature, whose animation export skipped.
+    anim01 = nif.root.controller.sequences['anim01']
+    n_xf = sum(1 for cb in anim01.controlled_blocks
+               if cb.controller_type == 'NiTransformController')
+    assert TT.is_true(n_xf >= 150, f"anim01 keeps its bone animation: {n_xf} transform blocks")
     data = interps['clothesOff'].data
     assert TT.is_true(data is not None and {k.value for k in data.keys} == {0, 1},
                       "'clothesOff' exports its visibility keys")

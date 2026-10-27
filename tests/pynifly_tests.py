@@ -2654,6 +2654,28 @@ def TEST_SF_CDB_POSITION_CACHE():
         sf_cdb.CACHE_DIR = old
 
 
+def TEST_INVMARKER_NO_NAME():
+    """An inventory marker added with no name gets vanilla's 'INV'. The DLL built its name
+    from a null pointer -- an access violation -- when the camera's marker group had an empty
+    name. Run in a separate process, so a crash fails this test instead of ending the run."""
+    import subprocess
+    script = (
+        "import sys\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "from pyn.pynifly import NifFile, BSInvMarker\n"
+        "nif = NifFile()\n"
+        "nif.initialize('SKYRIM', sys.argv[2])\n"
+        "inv = BSInvMarker.New(nif, name='', rotation=(0, 0, 0), zoom=1.0, parent=nif.rootNode)\n"
+        "nif.save()\n"
+        "back = NifFile(sys.argv[2])\n"
+        "print('NAMES', [e.name for e in back.rootNode.extra_data()])\n")
+    addon = os.path.join(os.path.dirname(os.getcwd()), 'io_scene_nifly')
+    out = os.path.abspath(r"tests/Out/TEST_INVMARKER_NO_NAME.nif")
+    r = subprocess.run([sys.executable, '-c', script, addon, out], capture_output=True, text=True)
+    assert TT.is_eq(r.returncode, 0, f"no crash: {r.stdout} {r.stderr[-300:]}")
+    assert TT.is_true("'INV'" in r.stdout, f"named INV: {r.stdout}")
+
+
 def TEST_DLL_WRONG_BLOCK_TYPE():
     """Asking the DLL for a block as the wrong type -- a NiNode's id read as an object palette
     or a text-key block, or a palette entry looked up on a node -- returns an error. It used to

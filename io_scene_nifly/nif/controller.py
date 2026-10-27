@@ -9,6 +9,7 @@ import logging
 import math
 from dataclasses import dataclass
 from collections.abc import Iterator
+from types import SimpleNamespace
 import bpy
 import bpy.props 
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
@@ -390,9 +391,11 @@ def curve_bone_target(curve):
     Return the curve target and type for the curve. The target is the bone name if any,
     otherwise ''. Type is '.location', '.scale', etc.
     """
-    m = re.match(r"""pose.bones\[('|")([^'"]+)('|")\]\.?(.*)""", curve.data_path)
-    if m: 
-        return m.groups()[1], m.groups()[3]
+    # The name runs to the quote that opened it: a bone can have the other kind inside
+    # (the FO4 face rig's skin_bone_C_Adam'sApple), and Blender escapes its own kind.
+    m = re.match(r"""pose\.bones\[(["'])((?:\\.|(?!\1).)*)\1\]\.?(.*)""", curve.data_path)
+    if m:
+        return re.sub(r'\\(.)', r'\1', m.group(2)), m.group(3)
     else:
         return '', curve.data_path
 
@@ -1185,7 +1188,10 @@ class ControllerHandler():
         # A sequence may animate objects and bones both, and the two are found separately,
         # so sequences are looked up by name rather than assumed to arrive together.
         sequences = {}
-        arma = getattr(self.parent, 'armature', None)
+        # The skeleton's animation, whichever role the export gave the armature: a full
+        # skeleton that carries the face rig (the FO4 animatrons) is taken as the facebones
+        # armature, and its bones still animate.
+        arma = getattr(self.parent, 'armature', None) or getattr(self.parent, 'facebones', None)
         anims = list(all_named_animations(self.export_objs))
         if arma:
             anims += list(armature_named_animations(arma))
@@ -1274,12 +1280,20 @@ class ControllerHandler():
         self.stop_time = (self.action.curve_frame_range[1]-1)/(self.fps * ANIMATION_TIME_ADJUST)
         curves = actionslot_fcurves(anim.action, anim.slot)
         while curves:
+            # Whether the bone about to be exported actually moves, or only holds a pose.
+            first = curve_bone_target(curves[0])[0]
+            holds = all(len({round(k.co.y, 6) for k in c.keyframe_points}) <= 1
+                        for c in curves if curve_bone_target(c)[0] == first)
             bonename, ti = NiTransformController.fcurve_exporter(self, curves, arma)
             if not (bonename and ti):
                 continue
             nifname = self.nif_name(bonename)
             if nifname not in self.nif.nodes:
-                self.warn(f"Animated bone {bonename} was not exported; dropping its animation")
+                if holds:
+                    # A static channel on a bone this export doesn't write: nothing moves.
+                    log.info(f"Bone {bonename} isn't exported; its static channel is dropped")
+                else:
+                    self.warn(f"Animated bone {bonename} was not exported; dropping its animation")
                 continue
             self.controller_sequence.add_controlled_block(
                 name=nifname,
@@ -1845,11 +1859,6 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
     - Returns the rotation mode that must be set on the target. If this interpolator
         is using XYZ rotations, the rotation mode must be set to Euler. 
     """
-    if not ti.data:
-        # Some NiTransformController blocks have null duration and no data. Not sure
-        # how to interpret those, so ignore them.
-        return None
-    
     # ti, the parent NiTransformInterpolator, has the transform-to-global necessary
     # for this animation. It matches the transform of the target being animated.
     #
@@ -1890,6 +1899,16 @@ def _import_transform_interpolator(ti:NiTransformInterpolator,
                 tiv[i] = 0
     qinv = tiq.inverted()
 
+    if not ti.data:
+        # No keys: the interpolator holds one transform for the whole sequence. On a bone
+        # that's every channel static, which pulls the bone from its rest to that transform
+        # (the animatron's anim01 holds 137 of its 156 bones this way; dropped, they lost
+        # their place in the animation and on export). Elsewhere -- some controllers have no
+        # data and no duration -- there's nothing to interpret.
+        if rest_rel is not None:
+            _add_static_bone_channels(importer, ti, _NO_KEYS, qinv, tiv, always=True)
+        return None
+
     ti.data.import_node(importer, have_parent_rotation, tiv, tiq)
 
     if rest_rel is not None:
@@ -1917,7 +1936,12 @@ def _import_path_interpolator(pi:NiPathInterpolator,
 NiPathInterpolator.import_node = _import_path_interpolator
 
 
-def _add_static_bone_channels(importer, ti, td, qinv, tiv):
+# Stands in for transform data with no keys at all, for _add_static_bone_channels.
+_NO_KEYS = SimpleNamespace(qrotations=[], xrotations=[], yrotations=[], zrotations=[],
+                           translations=[])
+
+
+def _add_static_bone_channels(importer, ti, td, qinv, tiv, always=False):
     """
     Give a bone a constant key for any channel the nif leaves static.
 
@@ -1926,7 +1950,8 @@ def _add_static_bone_channels(importer, ti, td, qinv, tiv):
     mean "no delta": a foot with rotation keys and a static translation has to be pulled
     from its bind position to the node's, or it animates in the wrong place. Where rest
     and node agree -- unskinned rigs, and anything imported with import_pose -- the delta
-    is zero and nothing is written.
+    is zero and nothing is written, unless `always`: a channel with no keys at all is in the
+    sequence only to hold the bone, and keeps its place there (and on export) by its key.
     """
     static = (BD.transform_to_matrix(importer.target_node.transform)
               if getattr(importer, 'target_node', None) is not None else Matrix.Identity(4))
@@ -1951,7 +1976,7 @@ def _add_static_bone_channels(importer, ti, td, qinv, tiv):
         vq = qinv @ static_q
         if pretty_R_q:
             vq = pretty_R_q_inv @ vq @ pretty_R_q
-        if abs(abs(vq.w) - 1.0) > 1e-6:
+        if always or abs(abs(vq.w) - 1.0) > 1e-6:
             importer.bone_target.rotation_mode = "QUATERNION"
             for i in range(4):
                 c = importer.action.fcurve_ensure_for_datablock(
@@ -1963,7 +1988,7 @@ def _add_static_bone_channels(importer, ti, td, qinv, tiv):
         v = qinv @ (static_t - tiv)
         if pretty_R_inv_3x3:
             v = pretty_R_inv_3x3 @ v
-        if v.length > 1e-5:
+        if always or v.length > 1e-5:
             for i in range(3):
                 c = importer.action.fcurve_ensure_for_datablock(
                     importer.action_target, path_prefix + "location", index=i)

@@ -3751,7 +3751,8 @@ int setInvMarker(void* nifref, const char* name, void* buffer, uint32_t parent)
     BSInvMarkerBuf* buf = static_cast<BSInvMarkerBuf*>(buffer);
 
     auto inv = std::make_unique<BSInvMarker>();
-    inv->name.get() = name;
+    // No name given: vanilla's. (A std::string made from a null pointer is an access violation.)
+    inv->name.get() = (name && *name) ? name : "INV";
     inv->rotationX = buf->rot[0];
     inv->rotationY = buf->rot[1];
     inv->rotationZ = buf->rot[2];

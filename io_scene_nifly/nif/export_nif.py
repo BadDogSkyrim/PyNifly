@@ -1328,7 +1328,7 @@ class NifExporter:
             from . import pyn_props
             g = pyn_props.get_group(self.inv_marker, 'pyn_invmarker')
             invm = BSInvMarker.New(self.nif,
-                name=g.name,
+                name=g.name or 'INV',
                 rotation=(inv_rot[0], inv_rot[1], inv_rot[2]),
                 zoom=inv_zoom,
                 parent=self.nif.rootNode)
@@ -2572,8 +2572,9 @@ class NifExporter:
         self.connect_points.export_all(self.nif, BD.asset_path)
         if self.settings.export_animations:
             controller.ControllerHandler.export_named_animations(self, self.objs_written)
-            if self.armature:
-                controller.ControllerHandler.export_animated_armature(self, self.armature)
+            if self.armature or self.facebones:
+                controller.ControllerHandler.export_animated_armature(
+                    self, self.armature or self.facebones)
             # Child nodes get their animation exported as they're created; the root
             # node isn't created on that path, so its own animation needs exporting
             # here or it's silently dropped. (The vanilla FO4 workbenches animate

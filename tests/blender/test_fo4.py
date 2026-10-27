@@ -1463,12 +1463,12 @@ def TEST_POWERARMOR_FURNITURE():
                        Vector(nif.nodes['RLeg_Foot'].transform.translation),
                        "Constant translation is the node's own", e=0.01)
 
-    # KNOWN GAP: 34 of the source's 96 controllers don't come back. All 34 have no
-    # NiTransformData at all -- they hold a single static value, and that value is the
-    # node's own transform, which the export writes anyway. So the nif behaves the same;
-    # it just says so with a node instead of a controller. Pinned so it can't quietly get
+    # KNOWN GAP: 29 of the source's 96 controllers don't come back. They hold a single
+    # static value with no NiTransformData. Static channels import as constant keys since
+    # 2026-10-26 (34 were missing before); the ones still missing are on bones whose static
+    # value is their rest and this export doesn't write. Pinned so it can't quietly get
     # worse--if it gets better, raise the number.
-    assert TT.is_eq(len([n for n in nifcheck.nodes.values() if n.controller]), 62,
+    assert TT.is_eq(len([n for n in nifcheck.nodes.values() if n.controller]), 67,
                     "Animated nodes exported")
     nodata = [n for n, v in nif.nodes.items()
               if v.controller and v.controller.interpolator.data is None]
@@ -1490,11 +1490,23 @@ def TEST_CONNECT_WORKSHOP2():
                     17, 
                     "Number of connect points")
     # smart_edit_markers uses the editor marker shape for connect points.
-    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects 
-                        if obj.name.startswith('EditorMarker')]), 
-                    0, 
+    assert TT.is_eq(len([obj for obj in bpy.context.scene.objects
+                        if obj.name.startswith('EditorMarker')]),
+                    0,
                     "Number of editor markers")
-    
+
+    # Every marker sits on the shack's edge with its flat side, local -X, facing out
+    # from the origin. The nif's marker is turned -90 degrees from its connect point; the
+    # marker mesh standing in for the connect point has to keep that turn.
+    for obj in [o for o in bpy.context.scene.objects
+                if o.name.startswith('BSConnectPointParents') and o.type == 'MESH']:
+        # Out from the wall it sits on: the larger horizontal coordinate.
+        x, y = obj.matrix_world.translation[:2]
+        out = Vector((x, 0, 0)) if abs(x) > abs(y) else Vector((0, y, 0))
+        flat = obj.matrix_world.to_3x3() @ Vector((-1, 0, 0))
+        assert TT.is_true(flat.normalized().dot(out.normalized()) > 0.99,
+                          f"{obj.name} at {obj.matrix_world.translation[:]} faces out: {flat[:]}")
+
     print('### Write ###')
     BD.ObjectSelect([obj for obj in bpy.context.scene.objects if 'pynRoot' in obj], active=True)    
     bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
@@ -1513,7 +1525,18 @@ def TEST_CONNECT_WORKSHOP2():
                      "Number of floor connect points"
     assert TT.is_eq(len([c for c in ccp_names if c == 'P-WS-Origin']), 1), \
                      "Number of origin connect points"
-    
+
+    # And each connect point goes back out with the rotation it came in with.
+    src = pyn.NifFile(testfile)
+    for cp in nif.connect_points_parent:
+        orig = next(c for c in src.connect_points_parent
+                    if c.name == cp.name
+                    and BD.VNearEqual(c.translation, cp.translation, epsilon=0.01))
+        delta = Quaternion(orig.rotation[:]).rotation_difference(Quaternion(cp.rotation[:])).angle
+        assert TT.is_true(BD.NearEqual(delta, 0, epsilon=0.01),
+                          f"{cp.name} at {cp.translation[:]} keeps its rotation: "
+                          f"{orig.rotation[:]} -> {cp.rotation[:]}")
+
     # Editor markers are distributed reasonably
     assert TT.is_eq(len([em for em in emarkers if em.transform.translation[0] > 0.5]), 6, "X location")
     assert TT.is_eq(len([em for em in emarkers if em.transform.translation[1] > 0.5]), 6, "Y location")

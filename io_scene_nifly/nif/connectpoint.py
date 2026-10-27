@@ -190,20 +190,26 @@ class ConnectPointParent():
 
         pcp.name = "BSConnectPointParents" + "::" + cpname
 
+        # An editor marker mesh has its flat side on -X, and the nif turns it -90 degrees
+        # from its connect point so that side faces out. Standing in for the connect point,
+        # it keeps that turn; export takes it back off.
+        marker_turn = (Matrix.Rotation(math.radians(-90), 4, 'Z') if pcp.type == 'MESH'
+                       else Matrix.Identity(4))
+
         if parentobj:
             if bonename: 
                 pcp.parent = parentobj 
                 bone = parentobj.pose.bones[bonename]
                 pcp.parent_type = 'BONE'
                 pcp.parent_bone = bonename
-                pcp.matrix_world = (parentobj.matrix_world @ bone.matrix @ mx)
+                pcp.matrix_world = (parentobj.matrix_world @ bone.matrix @ mx @ marker_turn)
             else:
                 mx = connectpoint_transform(cp, scale)
-                pcp.matrix_basis = mx
+                pcp.matrix_basis = mx @ marker_turn
                 pcp.parent = parentobj 
 
         else:
-            pcp.matrix_basis = mx
+            pcp.matrix_basis = mx @ marker_turn
             pcp.parent = blendroot
 
         BD.link_to_collection(blendroot.users_collection[0], pcp)

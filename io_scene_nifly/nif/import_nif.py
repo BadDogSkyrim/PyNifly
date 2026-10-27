@@ -2057,6 +2057,12 @@ class NifImporter():
             # parent-relative whatever the setting says.
             needed['preserve_hierarchy'] = True
 
+            # A whole skeleton isn't a face rig, however many face bones it carries: the
+            # FO4 animatron's has 63 skin_bone_ among 209, and taken for a facebones
+            # armature its unskinned bones and their animation were never written.
+            if not arma.is_property_set('pyn_facebones'):
+                arma.pyn_facebones = False
+
             # Bones the nif placed itself that no shape is skinned to: attachment points,
             # animation markers, the head of a chain nothing is weighted to. Bones added
             # from a reference skeleton don't count -- they belong to the skeleton, not to
