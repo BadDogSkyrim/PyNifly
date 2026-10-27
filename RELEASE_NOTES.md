@@ -1,3 +1,127 @@
+# PyNifly 30.2.0 Release Notes
+
+**Fallout 4 animatronics animate, workshop connect points face the right way**
+
+Fallout 4 nifs that carry their own animated skeleton—the animatronics—now come through
+import and export with their animation, their clothes, and their visibility switches
+intact. Workshop connect points import facing out. Re-import any of these you have.
+
+## Fallout 4 animation
+
+- **A nif's own skeleton isn't mistaken for a face rig.** The animatronics' skeletons
+  include face bones, and export took the whole armature for a facebones armature: the
+  armature's animation wasn't written, nor were the bones nothing is skinned to (weapon
+  and camera attachment points, animation objects). PyNifly now recognizes on import that
+  a nif carries its own skeleton and marks the armature as a regular one; you can change
+  that on the armature's panel. If a facebones armature is the only one being exported,
+  its animation is exported too.
+
+- **Fixed-value animation channels come in as keys.** Many bones in a nif animation have
+  no keyframes, just one value they hold for the whole animation. These used to be
+  dropped on import, so the bone fell out of the animation and export lost it. They now
+  import as a constant key, and export writes them back.
+
+- **Clothes sit on the body and move with it.** A skinned shape hanging from an offset
+  node (the animatron outfits under `ClothesHider`) imported a little high and back from
+  the body. And an outfit whose skin binds are the body's shifted by one offset now shares
+  the body's armature, so the animation moves it too; before, it got an armature of its
+  own that nothing animated.
+
+- **Visibility animation.** Objects switched on and off by keys (a `NiBoolData`, such as
+  the animatron's `ClothesHider` in `clothesOff`) import as keyframes on the object's
+  *Disable in Viewports* setting and export back. Note that in Blender that setting is
+  "hidden", the opposite of the nif's "visible".
+  - An object whose own animation hides it is still exported; only objects hidden by hand
+    are left out.
+
+- **Fixed visibility values read correctly.** A visibility interpolator's value was read
+  wrong: shown came back as hidden, and exporting "shown" wrote hidden.
+
+- Bones whose names contain a quote, such as `skin_bone_C_Adam'sApple`, export their
+  animation.
+
+- Export warns about a dropped bone only when the animation actually moves it. A bone
+  that only holds still, and isn't exported, is noted in the log instead.
+
+- Exporting an inventory marker with no name crashed Blender. It's now named `INV`.
+
+## Fallout 4 workshop
+
+- **Connect points face out.** With smart editor markers on, a connect point imports as
+  its editor marker, and the marker came in turned a quarter turn: the flat side should
+  face out from the piece. Export turned it the other way, so connect points exported
+  rotated 90° from where they started. Both are fixed; connect points round-trip their
+  rotation.
+
+## Starfield
+
+- **Starfield materials load faster.** `materialsbeta.cdb` is read once and its index
+  saved; the first material lookup in a session drops from about 4 seconds to about 1.
+- **Shapes using the same `.mat` share one Blender material** on import, instead of one
+  copy each.
+
+## General
+
+- **Export tells you when it hits errors.** An export that logged errors but carried on
+  used to end with no message at all; it now says "Export completed with errors". And an
+  export with nothing it can write says "nothing to export" instead of a general warning.
+
+- **Faster import and export of large meshes.** Positions, shape keys, normals and
+  colors export, and weights and colors import, in bulk.
+
+- **Fallout 3 and New Vegas.** Choosing New Vegas as the export target exported as Fallout 3;
+  it now exports as New Vegas. And both games get the Fallout-style handling that a
+  missing comma had been skipping.
+
+- The shader panel's Starfield section used a different game code from the rest of
+  PyNifly; it now uses `SF`.
+
+- A malformed `PYN_TRANSFORM` property is ignored rather than run as Python.
+
+## PyNifly-level fixes
+
+*For script writers*
+
+- **The DLL guards against bad input.** Null blocks and out-of-range buffer types return
+  errors instead of crashing, and an exception inside any DLL call is caught and logged.
+  Fixed a buffer overrun in `getShaderTextureSlot`.
+
+- **Setting block properties works on every block type.** The DLL's table of setters was
+  one entry short, so from `BSEffectShaderProperty` on, setting a block's properties
+  called the next type's setter (or none).
+
+- New: `NiBoolData`, and `NiBoolInterpolator.data`. `NiBoolInterpolator`'s value reads as
+  the 0/1 the nif stores.
+
+- `BSInvMarker.New` with an empty name names the marker `INV`.
+
+- Bone-name tables moved from `niflytools` to `pyn/bone_tables.py`.
+
+- **`pynifly.py` is split by block family** into `pyn/blocks/` (nodes, shapes, shaders,
+  collision, animation, extra data, `NifFile`). `from pyn.pynifly import ...` works as
+  before; nothing needs to change.
+
+- **Starfield shading moved out of `nif/shader_io.py`** into `sf_shader_import`,
+  `sf_shader_export` and `sf_shader_groups`; shared node helpers are in `shader_nodes`.
+  Scripts that imported Starfield names from `shader_io` need the new module.
+
+- `game_traits(game)` (in `pyn.nifconstants`) says what sets a game apart -- Skyrim or
+  Fallout family, facebones companion and so on -- in place of lists of games.
+
+- `pyn.sf_files` reads a nif's header strings, a `.mesh`'s vertex count and a BA2's file
+  names without the DLL.
+
+- **Developers:** an interactive Blender loads `NiflyDLL\staging\NiflyDLL.dll` when it's
+  there, so the Debug build stays free to rebuild. The test runners exit 1 on failure and
+  take test names on the command line; a test whose asset folder is missing fails rather
+  than skips.
+
+## Known limitations
+
+- Some fixed-value channels still don't export: those on bones the export doesn't
+  write. The vanilla power armor furniture brings back 67 of its 96 controllers. The rest
+  hold the bone's own position, so the nif behaves the same.
+
 # PyNifly 30.1.0 Release Notes
 
 **Starfield cloth physics in Blender**
@@ -7,9 +131,9 @@ edited, and built from scratch in Blender. See
 [Starfield cloth](https://github.com/BadDogSkyrim/PyNifly/blob/main/docs/Starfield_Cloth.md)
 for how.
 
-## Starfield cloth
+## Starfield cloth physics
 
-- **Cloth imports as pictures you can edit.** Under the `BSClothExtraData` empty you get the
+- **Cloth data imports as Blender objects.** Under the `BSClothExtraData` empty you get the
   simulation mesh (its vertices are the particles that move), the collision shapes that
   keep it off the body, and the bone planes. Settings such as gravity, damping and
   iterations are Custom Properties on the sim mesh; per-particle and per-edge values are
@@ -21,12 +145,14 @@ for how.
   from the pictures every time.
 
 - **Collision shapes are read from their meshes.** Edit them like any mesh: scale, apply
-  transforms, mirror one to the other leg with a negative scale. 
+  transforms, mirror one to the other leg with a negative scale. BUT there are only a few
+  valid collision shapes - don't turn a capsule into Suzanne.
 
 - **Bone planes keep cloth on one side of a plane that follows a bone.** Vanilla uses them
-  to keep hair out of the face. A plane on `Root`, facing up a few centimetres above the
-  feet, works as a floor and keeps a tail out of the ground. Starfield ignores Havok's own
-  ground collision, so a plane is the way to do it.
+  to keep hair out of the face; we use them to keep tails out of the floor. A plane on
+  `Root`, facing up a few centimetres above the feet, works as a floor and keeps a tail
+  out of the ground. Starfield ignores Havok's own ground collision, so a plane is the way
+  to do it.
 
 - **New cloth from scratch.** Add an Empty named `BSClothExtraData` under the nif's root
   and model a mesh under it: pin the particles that follow the body, and give every
@@ -35,59 +161,62 @@ for how.
   has: name them whatever you like, give them parents in the armature, and weight the
   render mesh to them.
 
-- Keep sim meshes simple. A flat strip works well. A closed tube twitches whatever the
-  settings.
+- Keep sim meshes simple. A flat strip works well. Overly-constrained meshes, such as a
+  closed tube, twitches whatever the settings.
 
-- Vertex groups whose names start with `*` are ignored on export, like `*` shape keys,
-  so you can keep selections on a mesh.
+- Vertex groups whose names start with `*` are ignored on export, like `*` shape keys and
+  vertex groups.
 
-## Starfield
+- **Clothes skinned to cloth bones import correctly.** The Collector outfit and others
+  used to come in scrambled.
+
+## Starfield LOD levels
 
 - **Every LOD imports and exports.** A Starfield shape can hold up to four LODs. Import
   brings in one object per distinct `.mesh`, named `<shape>:LOD0`, `:LOD1-2` and so on,
-  with the higher LODs hidden. Export gathers them back into one shape. To add LODs to
+  with the higher LODs hidden. Export gathers them back into one nif. To add LODs to
   your own mesh, name the objects `Rock:LOD0`, `Rock:LOD1`. Previously re-exporting a
   vanilla mesh dropped its LODs.
   - Some vanilla meshes (the hands, about a fifth of clothing) also carry LODs inside the
     `.mesh` file. Import warns about these; they aren't imported, and export drops them.
 
-- **Clothes skinned to cloth bones import correctly.** The Collector outfit and others
-  came in scrambled.
+## Crowd race features
 
 - **Crowd heads keep their eye positions.** Vanilla crowd heads carry a `BoneTranslations`
-  block that places the eyes; it was dropped. It now imports as an Empty with a marker
-  per eye and exports back. Put the eye bones at the eyeball centres and the markers on
-  the eye bones, and the eyes turn in their sockets. For a new head, copy the Empty from
-  an imported vanilla crowd head.
+  block that places the eyes. It now imports as an Empty with a marker per eye and exports
+  back. Put the eye bones at the eyeball centres and the markers on the eye bones, and the
+  eyes will turn in their sockets correctly. For a new head, copy the Empty from an
+  imported vanilla crowd head.
 
 - **Facebones armature flag.** An armature's *Facebones armature* setting (Yes / No /
   Auto on the PyNifly Skeleton Export panel) says whether it's the face rig. Auto decides
-  by bone names, as before. A crowd head whose mesh also carried the chargen face rig
-  exported its companion skinned to the wrong rig and was invisible in game; set the
-  crowd head's armature to Yes.
+  by bone names, as before. Crowd heads do not use the facebones mechanism but DO require a _facebones companion nif. Give the head two armatures in Blender, one marked "facebones" and one not, and you'll get both nifs on export.
 
-- **Crowd head morphs.** A crowd head (Starfield Morphs > crowd) writes only the
-  performance `morph.dat`, with vanilla's crowd keys; each right-side key is merged into
-  its left.
+- **Crowd head morphs.** A crowd head only uses the "performance" morphs, and only a
+  subset of a full race's performance morphs. That subset includes morphs that are marked
+  as for the left side but in fact are left and right sides merged. On exporting a crowd
+  head only the crowd morphs are written and right-side morphs are merged into the left as
+  necessary.
 
-- **Body types.** Each `_`-prefixed shape key writes its own nif and now its own `.mesh`
-  (they all shared one, so every body type came out as the last). A shape key named just
-  `_` writes the plain nif, so `_`, `_thin` and `_overweight` give vanilla's names.
+- **Body types.** Each `_`-prefixed shape key writes its own nif and now its own `.mesh`.
+  A shape key named just `_` writes the plain nif. Define `_`, `_thin` and `_overweight` morphs and you'll get 3 nifs on export: no extension, thin version, overweight version.
+
+## Better morph.dat checking
 
 - Shape keys starting with `*` or `_` are never written to a `morph.dat`.
 
-- A morph path naming a folder gets `morph.dat` added.
+- A morph path naming a folder gets the filename `morph.dat` added.
 
 - An empty `morph.dat` is not written: a head part pointing at one crashes the Creation
-  Kit. You get an error instead.
-
-- Each loose `.mat` is written once per export, not once per nif.
+  Kit. PyNifly will show an error.
 
 ## General
 
-- **Exporting a selected shape brings its whole nif.** Select one shape under an imported
-  nif and export writes the nif's root and everything visible under it, with the root's
-  game and file name.
+- Each loose `.mat` is written once per export, not once per nif.
+
+- **Exporting a selected shape brings its whole nif.** Select one shape under a visible
+  ROOT object and export writes root and everything visible under it, with defaults coming
+  from the root. To export just the shape itself, hide the root.
 
 - **A shape parented to another mesh exports without that mesh**, under the mesh's parent at
   the same position, with a warning.
@@ -99,12 +228,13 @@ for how.
 
 *In github, not the kit*
 
-- **New: `sf_tintbake.py`** bakes crowd-head variants. A crowd head has one texture, so the
-  variety chargen gets from skin tones and tint layers has to be baked into separate
-  heads. From a recipe, it picks a sample of tone, tint and eye combinations and writes
-  each variant's texture, material and nifs (all body types, with companions), and a
-  manifest for building the plugin. It also bakes tails to match each tone, teeth and
-  beard options, with optional weights. See `docs/Crowd_Race_Instructions.md`.
+- `sf_tintbake.py` **New**:
+  - Bakes crowd-head variants. A crowd head has one texture, so the variety chargen gets
+  from skin tones and tint layers has to be baked into separate texture files and heads.
+  From a recipe, it picks a sample of tone, tint and eye combinations and writes each
+  variant's texture, material and nifs (all body types, with companions), and a manifest
+  for building the plugin. It also bakes tails to match each tone, teeth and beard
+  options, with optional weights. See `docs/Crowd_Race_Instructions.md`.
 
 - `sf_racecheck.py`:
     - Crowd races are checked through their NPCs' outfits: every head and tail nif,
