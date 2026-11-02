@@ -675,6 +675,45 @@ def TEST_SKYRIMSE_ANIM_ROUNDTRIP():
         assert TT.is_equiv(ra.time, oa.time, f"SE annotation {i} time", e=0.001)
 
 
+def TEST_SKYRIM_LE_STRUCT_LAYOUT():
+    """A written LE animation lays its objects out the way Havok's 32-bit loaders read them.
+
+    Both bugs here were invisible in SE, where 8-byte pointers happen to pad things into
+    place, and to our own reader, which follows fixups. Havok's tools (hkxcmd,
+    HavokBehaviorPostProcess) crashed on them. Issue #440.
+    - hkaSplineCompressedAnimation runs to 0x84 (data hkArray at 0x74, endian at 0x80).
+      Written 0x80 long, the annotation-track array sat on top of endian.
+    - hkMemoryResourceContainer is name, parent, resourceHandles[], children[]. Written as
+      three arrays, children's pointer read as 0x80000000."""
+    import struct as _s
+
+    def layout(path):
+        with open(path, 'rb') as f:
+            data = f.read()
+        secs = anim_skyrim._parse_hkx_sections(data)
+        ds = secs['__data__']
+        objs = anim_skyrim._parse_virtual_fixups(data, ds, secs['__classnames__']['offset'])
+        spline = next(o for o, c in objs if c == 'hkaSplineCompressedAnimation')
+        fixups = anim_skyrim._parse_local_fixups(data, ds)
+        mrc = ds['offset'] + next(o for o, c in objs if c == 'hkMemoryResourceContainer')
+        caps = [_s.unpack_from('<I', data, mrc + off)[0] for off in (0x18, 0x24)]
+        return spline, fixups, caps
+
+    out = str(_OUT_DIR / "TEST_SKYRIM_LE_STRUCT_LAYOUT.hkx")
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    fp = str(_SKYRIM_DIR / "1hm_staggerbacksmallest.hkx")
+    anim_skyrim.write_skyrim_animation(out, anim_skyrim.load_skyrim_animation(fp), ptr_size=4)
+
+    for path in (fp, out):
+        spline, fixups, caps = layout(path)
+        assert (spline + 0x80) not in fixups, f"{path}: pointer written over endian"
+        ann_array = fixups[spline + 0x1C]
+        assert ann_array >= spline + 0x84, \
+            f"{path}: annotation tracks start {ann_array - spline:#x} into the animation"
+        assert caps == [0x80000000, 0x80000000], \
+            f"{path}: resource container array capacities {[hex(c) for c in caps]}"
+
+
 def TEST_SKYRIMSE_HKX_BINARY_FORMAT():
     """Validate the binary structure of a written Skyrim SE HKX file.
 
@@ -1120,6 +1159,7 @@ ALL_TESTS = [
     TEST_SKYRIM_SKELETON_XML,
     TEST_SKYRIM_TROLL_ANIM,
     TEST_SKYRIM_ANIM_ROUNDTRIP,
+    TEST_SKYRIM_LE_STRUCT_LAYOUT,
     TEST_SKYRIM_HKX_DETECTION,
     TEST_READ_SKYRIMSE_ANIM,
     TEST_SKYRIMSE_SKELETON,

@@ -864,7 +864,8 @@ def _build_anim_data_section(anim: AnimationData,
     o_transform_off = o_float_block_off + arr_sz
     o_float_off = o_transform_off + arr_sz
     o_data = o_float_off + arr_sz
-    spline_struct_size = _align(o_data + arr_sz, 16)
+    o_endian = o_data + arr_sz        # hkInt8, left 0 (little-endian)
+    spline_struct_size = _align(o_endian + 4, 16)
 
     spline_rel = rel()
     fx.add_virtual(spline_rel, 0, name_offs['hkaSplineCompressedAnimation'])
@@ -1022,15 +1023,21 @@ def _build_anim_data_section(anim: AnimationData,
         align16()
 
     # ═══ hkMemoryResourceContainer ═══
-    # Full struct: base(2P) + 3 hkArrays + name(P) + pad(P)
+    # base(2P) + name(P) + parent(P) + resourceHandles(arr) + children(arr)
+    o_mrc_name = base_sz
+    o_mrc_handles = base_sz + 2 * P
+    o_mrc_children = o_mrc_handles + arr_sz
     mrc_rel = rel()
     fx.add_virtual(mrc_rel, 0, name_offs['hkMemoryResourceContainer'])
     fx.add_global(nv1_variant, 2, mrc_rel)
-    mrc_buf = bytearray(base_sz + 3 * arr_sz + 2 * P)
-    # Arrays 2 and 3 need DONT_DEALLOCATE flag on capacity
-    pack_arr_at(mrc_buf, base_sz + arr_sz, 0)       # externalLinks (empty, flagged)
-    pack_arr_at(mrc_buf, base_sz + 2 * arr_sz, 0)   # objectData (empty, flagged)
+    mrc_buf = bytearray(o_mrc_children + arr_sz)
+    pack_arr_at(mrc_buf, o_mrc_handles, 0)      # empty, flagged
+    pack_arr_at(mrc_buf, o_mrc_children, 0)     # empty, flagged
     write(bytes(mrc_buf))
+    # name is an empty string, as vanilla writes it, not null
+    mrc_name_rel = rel()
+    write_string("")
+    fx.add_local(mrc_rel + o_mrc_name, mrc_name_rel)
     align16()
 
     return bytes(data), fx
