@@ -2468,6 +2468,114 @@ def TEST_AUXBONES():
 
 
 @TT.category('SKYRIM', 'HKX')
+def TEST_HKX_BLEND_ON_ACTION():
+    """Additive is a property of the action, not the armature.
+
+    It used to be a flag on the armature, set by importing any additive animation, so every
+    later export from that armature came out additive."""
+    from io_scene_nifly.hkx import anim_skyrim
+
+    hkx_skel = TTB.test_file(r"tests\Skyrim\SOSskeleton.hkx")
+    additive_file = TTB.test_file(r"tests\Skyrim\SOSFastErect.hkx")
+    out_normal = TTB.test_file(r"tests\Out\TEST_HKX_BLEND_ON_ACTION_normal.hkx")
+    out_additive = TTB.test_file(r"tests\Out\TEST_HKX_BLEND_ON_ACTION_additive.hkx")
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=additive_file, rename_bones=False)
+    additive = arma.animation_data.action
+    TT.assert_eq(additive.pyn_hkx.blend, 'ADDITIVE', "additive import marks its action")
+
+    # A new action made in Blender, on the same armature.
+    normal = bpy.data.actions.new("normal")
+    arma.animation_data.action = normal
+    pb = arma.pose.bones['NPC Genitals06 [Gen06]']
+    for frame, deg in ((1, 0.0), (10, 30.0)):
+        pb.rotation_quaternion = Quaternion((1, 0, 0), math.radians(deg))
+        pb.keyframe_insert("rotation_quaternion", frame=frame)
+    TT.assert_eq(normal.pyn_hkx.blend, 'NORMAL', "a new action is normal")
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=out_normal)
+    TT.assert_eq(anim_skyrim.load_skyrim_animation(out_normal).blend_hint, 0,
+                 "normal action exports normal")
+
+    arma.animation_data.action = additive
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=out_additive)
+    TT.assert_eq(anim_skyrim.load_skyrim_animation(out_additive).blend_hint, 1,
+                 "additive action exports additive")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_HKX_PARTIAL_TAIL_ROUNDTRIP():
+    """A partial animation (vanilla dog tail wag: 3 of the dog skeleton's 50 bones) exports
+    partial again, tracks bound to the same bones."""
+    from io_scene_nifly.hkx import anim_skyrim
+
+    hkx_skel = TTB.test_file(r"tests\Skyrim\canine\dog_skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\Skyrim\canine\dog_idle_spice_tail1.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_PARTIAL_TAIL_ROUNDTRIP.hkx")
+    orig = anim_skyrim.load_skyrim_animation(hkx_anim)
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False)
+    action = arma.animation_data.action
+    TT.assert_eq(action.pyn_hkx.tracks, 'KEYED', "partial file imports as keyed bones")
+    TT.assert_eq(action.pyn_hkx.blend, 'NORMAL', "and not additive")
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_skyrim.load_skyrim_animation(outfile)
+    TT.assert_eq(out.track_to_bone_indices, orig.track_to_bone_indices,
+                 "tail tracks bound to the same bones")
+    worst = max(_quat_angle(a, b) for i in range(orig.num_tracks)
+                for a, b in zip(orig.tracks[i].rotations, out.tracks[i].rotations))
+    assert TT.is_lt(worst, 0.5, f"tail rotations survive (worst {worst:.3f} deg)")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_HKX_UNKEYED_BONE_NO_STRAY_POSE():
+    """A bone the action doesn't key exports at rest, not at a pose left in the scene
+    (#434: a hip bone with no keys picked up a pose and threw the legs off)."""
+    from io_scene_nifly.hkx import anim_skyrim
+
+    skel_nif = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    skel_hkx = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_UNKEYED_BONE_NO_STRAY_POSE.hkx")
+    skel_bones = anim_skyrim.load_skyrim_skeleton(skel_hkx).bones
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly(filepath=skel_nif, rename_bones=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    arma.animation_data_create()
+    arma.animation_data.action = bpy.data.actions.new("stray_434")
+    keyed = arma.pose.bones['NPC L UpperArm [LUar]']
+    for frame, deg in ((1, 0.0), (10, 30.0)):
+        keyed.rotation_quaternion = Quaternion((1, 0, 0), math.radians(deg))
+        keyed.keyframe_insert("rotation_quaternion", frame=frame)
+    stray = arma.pose.bones['NPC Pelvis [Pelv]']
+    stray.rotation_quaternion = Quaternion((0, 1, 0), math.radians(40))
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=skel_hkx)
+    out = anim_skyrim.load_skyrim_animation(outfile)
+
+    TT.assert_eq(out.num_tracks, len(skel_bones), "a normal action writes every bone")
+    rest = _hkx_track_rotations(out, skel_bones)['NPC Pelvis [Pelv]'][0]
+    want = anim_skyrim.load_skyrim_skeleton(skel_hkx).reference_pose[
+        skel_bones.index('NPC Pelvis [Pelv]')].rotation
+    assert TT.is_lt(_quat_angle(rest, want), 0.5, "unkeyed pelvis exported at rest")
+    TT.assert_equiv(stray.rotation_quaternion.angle, math.radians(40),
+                    "the scene's pose is left as it was", e=0.001)
+
+
+@TT.category('SKYRIM', 'HKX')
 def TEST_IMPORT_TAIL():
     """Regression: Import of a single bodypart onto a skeleton should work correctly."""
 
@@ -2683,6 +2791,97 @@ def TEST_SKYRIM_HKX_FLOAT_TRACKS():
     worst = max(abs(a - b) for t0, t1 in zip(orig.float_tracks, out.float_tracks)
                 for a, b in zip(t0, t1))
     assert TT.is_lt(worst, 0.01, f"float values survive the round trip ({worst:.4f})")
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_ADDITIVE_ROUNDTRIP():
+    """An FO4 additive animation imports as deltas from rest and exports additive again,
+    with its exact blendHint (2, ADDITIVE; FO4 also has 1, ADDITIVE_DEPRECATED)."""
+    from io_scene_nifly.hkx import anim_fo4
+
+    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\FO4\Animations\WPNFireAutoAdditive.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_HKX_ADDITIVE_ROUNDTRIP.hkx")
+    orig = anim_fo4.load_fo4_animation(hkx_anim)
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False, blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False, blender_xf=False)
+    action = arma.animation_data.action
+    TT.assert_eq(action.pyn_hkx.blend, 'ADDITIVE', "action is additive")
+    TT.assert_eq(action.pyn_hkx.blend_hint_raw, 2, "exact blendHint kept")
+
+    # Deltas from rest: on frame 1 each additive bone's own pose is (near) identity. The
+    # file's frame 0 is identity to within its 0.14 degree quantisation.
+    skel_bones = anim_fo4.load_fo4_skeleton(hkx_skel).bones
+    bpy.context.scene.frame_set(1)
+    moved = [skel_bones[b] for b in orig.track_to_bone_indices
+             if arma.pose.bones[skel_bones[b]].rotation_quaternion.angle > math.radians(0.5)
+             or arma.pose.bones[skel_bones[b]].location.length > 0.01]
+    TT.assert_eq(moved, [], "additive bones at rest on frame 1")
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_fo4.load_fo4_animation(outfile)
+    TT.assert_eq(out.blend_hint, 2, "exported with the same blendHint")
+    TT.assert_eq(action.pyn_hkx.tracks, 'KEYED', "partial file imports as keyed bones")
+    TT.assert_eq(sorted(out.track_to_bone_indices), sorted(orig.track_to_bone_indices),
+                 "exported partial: the same 13 bones (order is the binding's business)")
+
+    out_track = {b: i for i, b in enumerate(out.track_to_bone_indices or range(out.num_tracks))}
+    worst = 0.0
+    for i, b in enumerate(orig.track_to_bone_indices):
+        for qa, qb in zip(orig.tracks[i].rotations, out.tracks[out_track[b]].rotations):
+            worst = max(worst, _quat_angle(qa, qb))
+    assert TT.is_lt(worst, 0.5, f"additive rotations survive (worst {worst:.3f} deg)")
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_LOSSLESS_IMPORT():
+    """A 1st-person animation (lossless-compressed, unnamed tracks) imports onto the
+    1st-person skeleton, and its action remembers it's lossless."""
+    from io_scene_nifly.hkx import anim_fo4
+
+    d = r"tests\FO4\Animations\1stPerson"
+    hkx_skel = TTB.test_file(d + r"\skeleton_1stperson.hkx")
+    hkx_anim = TTB.test_file(d + r"\WPNIdleReadyA.hkx")
+    orig = anim_fo4.load_fo4_animation(hkx_anim)
+    skel_bones = anim_fo4.load_fo4_skeleton(hkx_skel).bones
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False, blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False, blender_xf=False)
+    action = arma.animation_data.action
+    TT.assert_eq(action.pyn_hkx.compression, 'LOSSLESS', "action remembers lossless")
+    TT.assert_eq(int(action.frame_end), orig.num_frames, "every frame imported")
+
+    # The track that turns the most moves its bone in Blender too.
+    i = max(range(orig.num_tracks),
+            key=lambda k: _quat_angle(orig.tracks[k].rotations[0], orig.tracks[k].rotations[-1]))
+    bone = skel_bones[orig.track_to_bone_indices[i] if orig.track_to_bone_indices else i]
+    turn = _quat_angle(orig.tracks[i].rotations[0], orig.tracks[i].rotations[-1])
+    pb = arma.pose.bones[bone]
+    bpy.context.scene.frame_set(1)
+    q1 = pb.rotation_quaternion.copy()
+    bpy.context.scene.frame_set(orig.num_frames)
+    got = math.degrees(q1.rotation_difference(pb.rotation_quaternion).angle)
+    TT.assert_equiv(got, turn, f"{bone} turns as in the file", e=0.5)
+
+    # Export writes it lossless again, values exact but for Blender's float math.
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_HKX_LOSSLESS_IMPORT.hkx")
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_fo4.load_fo4_animation(outfile)
+    TT.assert_eq(out.compression, 'LOSSLESS', "exported lossless")
+    out_track = {b: k for k, b in enumerate(out.track_to_bone_indices)}
+    worst = max(_quat_angle(qa, qb)
+                for k, b in enumerate(orig.track_to_bone_indices or range(orig.num_tracks))
+                for qa, qb in zip(orig.tracks[k].rotations, out.tracks[out_track[b]].rotations))
+    assert TT.is_lt(worst, 0.05, f"rotations exact (worst {worst:.4f} deg)")
 
 
 @TT.category('FO4', 'HKX')
@@ -3240,9 +3439,15 @@ def _hkx_track_rotations(anim, skel_bones):
 
 
 def _quat_angle(a, b):
-    """Angle in degrees between two xyzw rotations, ignoring the sign of the quaternion."""
-    dot = min(1.0, abs(sum(x * y for x, y in zip(a, b))))
-    return math.degrees(2 * math.acos(dot))
+    """Angle in degrees between two xyzw rotations, ignoring the sign of the quaternion.
+
+    2*atan2(|a-b|, |a+b|), not 2*acos(a.b): acos is ill-conditioned near 1, so float32
+    rounding alone (a dot of 1 - 1e-7) would read as 0.05 degrees."""
+    if sum(x * y for x, y in zip(a, b)) < 0:
+        b = [-y for y in b]
+    diff = math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+    total = math.sqrt(sum((x + y) ** 2 for x, y in zip(a, b)))
+    return math.degrees(4 * math.atan2(diff, total))
 
 
 @TT.category('SKYRIM', 'HKX')

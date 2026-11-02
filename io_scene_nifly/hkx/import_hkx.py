@@ -17,6 +17,7 @@ from .. import bl_info
 from ..util.settings import ImportSettings, PYN_RENAME_BONES_PROP, PYN_RENAME_BONES_NIFTOOLS_PROP, PYN_BLENDER_XF_PROP, PYN_ROTATE_BONES_PRETTY_PROP
 from . import anim_fo4
 from . import anim_skyrim
+from . import hkx_props
 
 PYN_HKX_BONES_PROP = 'PYN_HKX_BONES'
 PYN_HKX_GAME_PROP = 'PYN_HKX_GAME'
@@ -684,9 +685,6 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
 
         _apply_float_tracks(armature, anim_data)
 
-        if anim_data.blend_hint == 1:
-            armature[PYN_HKX_ADDITIVE_PROP] = True
-
         context.scene.frame_start = min(context.scene.frame_start, 1)
         context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
         context.scene.frame_set(1)
@@ -757,6 +755,27 @@ def _bone_rest_local(bone):
     return local_mx.to_quaternion(), local_mx.to_translation()
 
 
+def _is_partial(armature, anim_data):
+    """Whether the animation has tracks for only some of the skeleton's bones: fewer tracks
+    than the armature's HKX skeleton has bones, or a binding that isn't simply 0..n-1."""
+    indices = list(anim_data.track_to_bone_indices or [])
+    if indices and indices != list(range(len(indices))):
+        return True
+    hkx_bones = armature.get(PYN_HKX_BONES_PROP)
+    return bool(hkx_bones) and anim_data.num_tracks < len(hkx_bones.split(";"))
+
+
+def _driven_bones(action, armature):
+    """Names of the pose bones the action keys or a live constraint drives."""
+    keyed = set()
+    for fc in bdefs.action_fcurves(action):
+        m = re.match(r'pose\.bones\["(.+?)"\]', fc.data_path)
+        if m:
+            keyed.add(m.group(1))
+    return keyed | {pb.name for pb in armature.pose.bones
+                    if any(not c.mute and c.influence > 0 for c in pb.constraints)}
+
+
 def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
                         rename_bones=False, rename_bones_niftools=False,
                         bone_dict=None):
@@ -776,9 +795,9 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
     if bone_dict is None:
         bone_dict = fo4Dict
 
-    additive = getattr(anim_data, 'blend_hint', 0) == 1
+    additive = getattr(anim_data, 'blend_hint', 0) != hkx_props.BLEND_HINT_NORMAL
     if additive:
-        log.info("Animation is ADDITIVE (blend_hint=1)")
+        log.info(f"Animation is additive (blendHint {anim_data.blend_hint})")
 
     # When the skeleton was imported with pretty-bone rotation, each bone has a
     # constant per-game rotation R baked into its rest, so the HKX bone-local
@@ -827,6 +846,7 @@ def apply_fo4_animation(armature, anim_data, bone_names, anim_name, fps,
     action.use_frame_range = True
     action.use_fake_user = True
     action.asset_mark()
+    hkx_props.set_from_file(action, anim_data, _is_partial(armature, anim_data))
 
     # Assign action to armature
     if not armature.animation_data:
@@ -985,7 +1005,8 @@ def extract_fo4_animation(armature, fps=None, skeleton=None, game=None):
     # Select the correct bone dictionary based on game
     game = game or armature.get(PYN_HKX_GAME_PROP, 'FO4')
     bone_dict = skyrimDict if game == 'SKYRIM' else fo4Dict
-    additive = armature.get(PYN_HKX_ADDITIVE_PROP, False)
+    blend_hint = hkx_props.blend_hint_for(action, armature, game)
+    additive = blend_hint != hkx_props.BLEND_HINT_NORMAL
 
     # Reverse the pretty-bone rotation (see apply_fo4_animation) so track values
     # are written in raw NIF space.  No-op when pretty is off.
@@ -1089,60 +1110,88 @@ def extract_fo4_animation(armature, fps=None, skeleton=None, game=None):
 
         return [q.x, q.y, q.z, q.w], [v.x, v.y, v.z], [s.x, s.y, s.z]
 
-    for f in range(num_frames):
-        # Convert export frame to Blender frame (fractional) for resampling
-        time = f / fps if fps > 0 else 0.0
-        bl_frame = frame_start + time * blender_fps
-        int_frame = int(bl_frame)
-        subframe = bl_frame - int_frame
-        scene.frame_set(int_frame, subframe=subframe)
-        depsgraph.update()
-        eval_armature = armature.evaluated_get(depsgraph)
-        eval_pose_bones = eval_armature.pose.bones
+    def _sample_tracks():
+        for f in range(num_frames):
+            # Convert export frame to Blender frame (fractional) for resampling
+            time = f / fps if fps > 0 else 0.0
+            bl_frame = frame_start + time * blender_fps
+            int_frame = int(bl_frame)
+            subframe = bl_frame - int_frame
+            scene.frame_set(int_frame, subframe=subframe)
+            depsgraph.update()
+            eval_armature = armature.evaluated_get(depsgraph)
+            eval_pose_bones = eval_armature.pose.bones
 
-        for track_idx, pb_name in enumerate(track_pb_names):
-            td = tracks[track_idx]
+            for track_idx, pb_name in enumerate(track_pb_names):
+                td = tracks[track_idx]
 
-            if pb_name is None:
-                if skeleton is not None and track_idx < len(skeleton.reference_pose):
-                    pose = skeleton.reference_pose[track_idx]
-                    td.rotations.append(list(pose.rotation))
-                    td.translations.append(list(pose.translation))
-                    td.scales.append(list(pose.scale))
-                else:
-                    td.rotations.append([0.0, 0.0, 0.0, 1.0])
-                    td.translations.append([0.0, 0.0, 0.0])
-                    td.scales.append([1.0, 1.0, 1.0])
-                continue
+                if pb_name is None:
+                    if skeleton is not None and track_idx < len(skeleton.reference_pose):
+                        pose = skeleton.reference_pose[track_idx]
+                        td.rotations.append(list(pose.rotation))
+                        td.translations.append(list(pose.translation))
+                        td.scales.append(list(pose.scale))
+                    else:
+                        td.rotations.append([0.0, 0.0, 0.0, 1.0])
+                        td.translations.append([0.0, 0.0, 0.0])
+                        td.scales.append([1.0, 1.0, 1.0])
+                    continue
 
-            # Unselected bones: repeat frame-0 value
-            if not animate_all and pb_name not in selected_bones and f > 0:
-                td.rotations.append(td.rotations[0])
-                td.translations.append(td.translations[0])
-                td.scales.append(td.scales[0])
-                continue
+                # Unselected bones: repeat frame-0 value
+                if not animate_all and pb_name not in selected_bones and f > 0:
+                    td.rotations.append(td.rotations[0])
+                    td.translations.append(td.translations[0])
+                    td.scales.append(td.scales[0])
+                    continue
 
-            eval_pb = eval_pose_bones[pb_name]
-            rot, loc, scl = _read_bone_local(eval_pb)
-            td.rotations.append(rot)
-            td.translations.append(loc)
-            td.scales.append(scl)
+                eval_pb = eval_pose_bones[pb_name]
+                rot, loc, scl = _read_bone_local(eval_pb)
+                td.rotations.append(rot)
+                td.translations.append(loc)
+                td.scales.append(scl)
 
-    scene.frame_set(original_frame)
+    # A bone the action doesn't drive is sampled from its rest, not from whatever pose
+    # another action or the user left on it (#434). Constraints still move it.
+    driven = _driven_bones(action, armature)
+    saved_poses = {}
+    for pb in pose_bones:
+        if pb.name not in driven:
+            saved_poses[pb.name] = (pb.location.copy(), pb.rotation_quaternion.copy(),
+                                    pb.rotation_euler.copy(), tuple(pb.rotation_axis_angle),
+                                    pb.scale.copy())
+            pb.location = (0, 0, 0)
+            pb.rotation_quaternion = (1, 0, 0, 0)
+            pb.rotation_euler = (0, 0, 0)
+            pb.rotation_axis_angle = (0, 0, 1, 0)
+            pb.scale = (1, 1, 1)
+    try:
+        _sample_tracks()
+    finally:
+        for name, (loc, quat, euler, axis_angle, scale) in saved_poses.items():
+            pb = pose_bones[name]
+            pb.location, pb.rotation_quaternion, pb.rotation_euler = loc, quat, euler
+            pb.rotation_axis_angle, pb.scale = axis_angle, scale
+        scene.frame_set(original_frame)
+
+    # Keyed bones: write tracks only for the bones the action drives, bound to their place
+    # in the skeleton.
+    keep = list(range(len(nif_bone_names)))
+    if action.pyn_hkx.tracks == 'KEYED':
+        keep = [i for i in keep if track_pb_names[i] in driven]
 
     # Build AnimationData
-    binding_indices = list(range(len(nif_bone_names)))
     # duration was computed from the Blender frame range above
     anim_out = anim_fo4.AnimationData(
         duration=duration,
         num_frames=num_frames,
-        num_tracks=len(tracks),
+        num_tracks=len(keep),
         frame_duration=1.0 / fps,
-        tracks=tracks,
-        bone_names=list(nif_bone_names),
-        track_to_bone_indices=binding_indices,
+        tracks=[tracks[i] for i in keep],
+        bone_names=[nif_bone_names[i] for i in keep],
+        track_to_bone_indices=keep,
         original_skeleton_name="Root",
-        blend_hint=1 if additive else 0,
+        blend_hint=blend_hint,
+        compression=hkx_props.file_compression(action),
     )
     anim_out.annotations = _read_annotations(
         action, frame_start, frame_end, blender_fps)

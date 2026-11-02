@@ -95,7 +95,11 @@ class AnimationData:
     # Binding info (from hkaAnimationBinding)
     track_to_bone_indices: List[int] = field(default_factory=list)
     original_skeleton_name: str = ""
-    blend_hint: int = 0  # 0=NORMAL, 1=ADDITIVE
+    blend_hint: int = 0  # 0 NORMAL; 1 ADDITIVE (Skyrim), ADDITIVE_DEPRECATED (FO4); 2 ADDITIVE (FO4)
+    # The animation class the data came from: 'SPLINE' (hkaSplineCompressedAnimation),
+    # 'LOSSLESS' (hkaLosslessCompressedAnimation, FO4), 'INTERLEAVED'
+    # (hkaInterleavedUncompressedAnimation)
+    compression: str = 'SPLINE'
 
     # Float tracks: one value per frame for each, and the skeleton float slot each drives
     # (floatTrackToFloatSlotIndices). Skyrim's are the hkVis visibility switches; FO4
@@ -801,8 +805,110 @@ def _read_null_string(data, abs_off):
         return ''
 
 
+_ANIM_CLASSES = {'hkaSplineCompressedAnimation': 'SPLINE',
+                 'hkaLosslessCompressedAnimation': 'LOSSLESS',
+                 'hkaInterleavedUncompressedAnimation': 'INTERLEAVED'}
+
+# hkaLosslessCompressedAnimation (hk_2014, 64-bit), after the hkaAnimation base (0x38):
+#   +0x38 dynamicTranslations        hkArray<float>
+#   +0x48 staticTranslations         hkArray<float>
+#   +0x58 translationTypeAndOffsets  hkArray of 4 x u16 per track (x, y, z, pad)
+#   +0x68 dynamicRotations           hkArray<hkQuaternion> (xyzw, 16 bytes)
+#   +0x78 staticRotations            hkArray<hkQuaternion>
+#   +0x88 rotationTypeAndOffsets     hkArray<u16>, one per track
+#   +0x98 dynamicScales              hkArray<float>
+#   +0xA8 staticScales               hkArray<float>
+#   +0xB8 scaleTypeAndOffsets        hkArray of 4 x u16 per track
+#   +0xC8 floats                     hkArray<float>
+#   +0xD8 numFrames                  int32
+# Each u16 code is (offset << 2) | type: type 0 identity, 1 static (index into the static
+# array), 2 dynamic (index of the component among one frame's dynamic values). Dynamic
+# arrays are frame-major: frame f's values start at f * (dynamic components per frame).
+_LL_STATIC, _LL_DYNAMIC = 1, 2
+
+
+def _hkarray_raw(data, data_abs, obj_rel, field_off, fixups):
+    """(absolute content offset, count) of a 64-bit hkArray, or (None, 0) if it's empty."""
+    count = _u32(data, data_abs + obj_rel + field_off + 8)
+    content = fixups.get(obj_rel + field_off)
+    if content is None or count == 0:
+        return None, 0
+    return data_abs + content, count
+
+
+def _read_lossless(data, data_abs, anim_rel, fixups, anim):
+    """Fill anim from an hkaLosslessCompressedAnimation. False if it has no frames."""
+    def floats(off):
+        start, n = _hkarray_raw(data, data_abs, anim_rel, off, fixups)
+        return struct.unpack_from(f'<{n}f', data, start) if n else ()
+
+    def quats(off):
+        start, n = _hkarray_raw(data, data_abs, anim_rel, off, fixups)
+        return [struct.unpack_from('<4f', data, start + 16 * i) for i in range(n)]
+
+    def codes(off, per_track):
+        start, n = _hkarray_raw(data, data_abs, anim_rel, off, fixups)
+        return [struct.unpack_from(f'<{per_track}H', data, start + 2 * per_track * i)
+                for i in range(n)]
+
+    num_frames = _u32(data, data_abs + anim_rel + 0xD8)
+    if not num_frames:
+        return False
+    anim.num_frames = num_frames
+    if num_frames > 1 and anim.duration > 0:
+        anim.frame_duration = anim.duration / (num_frames - 1)
+
+    dyn_t, static_t, t_codes = floats(0x38), floats(0x48), codes(0x58, 4)
+    dyn_r, static_r, r_codes = quats(0x68), quats(0x78), codes(0x88, 1)
+    dyn_s, static_s, s_codes = floats(0x98), floats(0xA8), codes(0xB8, 4)
+    t_stride = len(dyn_t) // num_frames
+    r_stride = len(dyn_r) // num_frames
+    s_stride = len(dyn_s) // num_frames
+
+    def component(code, static, dynamic, stride, frame, identity):
+        kind, off = code & 3, code >> 2
+        if kind == _LL_STATIC:
+            return static[off]
+        if kind == _LL_DYNAMIC:
+            return dynamic[frame * stride + off]
+        return identity
+
+    anim.tracks = []
+    for i in range(anim.num_tracks):
+        t = TrackData()
+        for f in range(num_frames):
+            t.translations.append([component(c, static_t, dyn_t, t_stride, f, 0.0)
+                                   for c in t_codes[i][:3]])
+            t.rotations.append(list(component(r_codes[i][0], static_r, dyn_r, r_stride, f,
+                                              (0.0, 0.0, 0.0, 1.0))))
+            t.scales.append([component(c, static_s, dyn_s, s_stride, f, 1.0)
+                             for c in s_codes[i][:3]])
+        anim.tracks.append(t)
+    return True
+
+
+def _read_interleaved(data, data_abs, anim_rel, fixups, anim):
+    """Fill anim from an hkaInterleavedUncompressedAnimation: one hkQsTransform (0x30 bytes)
+    per track per frame, frame-major, at +0x38. False if there's no data."""
+    start, count = _hkarray_raw(data, data_abs, anim_rel, 0x38, fixups)
+    n = anim.num_tracks
+    if not n or not count or count % n:
+        return False
+    anim.num_frames = count // n
+    if anim.num_frames > 1 and anim.duration > 0:
+        anim.frame_duration = anim.duration / (anim.num_frames - 1)
+    anim.tracks = [TrackData() for _ in range(n)]
+    for i in range(count):
+        v = struct.unpack_from('<12f', data, start + i * 0x30)
+        t = anim.tracks[i % n]
+        t.translations.append(list(v[0:3]))
+        t.rotations.append(list(v[4:8]))
+        t.scales.append(list(v[8:11]))
+    return True
+
+
 def _parse_animation_hkx(data) -> Optional[AnimationData]:
-    """Parse hkaSplineCompressedAnimation from a binary HKX file."""
+    """Parse the animation (spline, lossless or interleaved) from a binary HKX file."""
     if data[:4] != _HKX_MAGIC:
         return None
 
@@ -818,31 +924,35 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     fixups = _parse_local_fixups(data, data_sec)
     objects = _parse_virtual_fixups(data, data_sec, cn_start)
 
-    # Find hkaSplineCompressedAnimation
-    anim_rel = None
-    for rel, cls in objects:
-        if cls == 'hkaSplineCompressedAnimation':
-            anim_rel = rel
-            break
+    anim_rel, compression = next(((rel, _ANIM_CLASSES[cls]) for rel, cls in objects
+                                  if cls in _ANIM_CLASSES), (None, None))
     if anim_rel is None:
         return None
 
     a = data_abs + anim_rel
     anim = AnimationData()
+    anim.compression = compression
     anim.duration = _f32(data, a + 0x14)
     anim.num_tracks = _u32(data, a + 0x18)
-    anim.num_frames = _u32(data, a + 0x38)
-    anim.num_blocks = _u32(data, a + 0x3C)
-    anim.max_frames_per_block = _u32(data, a + 0x40)
-    mask_and_quant_size = _u32(data, a + 0x44)
-    anim.block_duration = _f32(data, a + 0x48)
-    anim.frame_duration = _f32(data, a + 0x50)
+    if compression == 'LOSSLESS':
+        if not _read_lossless(data, data_abs, anim_rel, fixups, anim):
+            return None
+    elif compression == 'INTERLEAVED':
+        if not _read_interleaved(data, data_abs, anim_rel, fixups, anim):
+            return None
+    else:
+        anim.num_frames = _u32(data, a + 0x38)
+        anim.num_blocks = _u32(data, a + 0x3C)
+        anim.max_frames_per_block = _u32(data, a + 0x40)
+        mask_and_quant_size = _u32(data, a + 0x44)
+        anim.block_duration = _f32(data, a + 0x48)
+        anim.frame_duration = _f32(data, a + 0x50)
 
-    block_offsets = _read_hkarray_u32(data, data_abs, anim_rel, 0x58, fixups)
-    data_blob = _read_hkarray_u8(data, data_abs, anim_rel, 0x98, fixups)
+        block_offsets = _read_hkarray_u32(data, data_abs, anim_rel, 0x58, fixups)
+        data_blob = _read_hkarray_u8(data, data_abs, anim_rel, 0x98, fixups)
 
-    if not data_blob or not block_offsets:
-        return None
+        if not data_blob or not block_offsets:
+            return None
 
     # ── Parse annotation tracks (bone names) ──
     # annotationTracks is an hkArray at anim+0x28
@@ -896,7 +1006,12 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
                     struct.unpack_from('<h', data, idx_abs + i * 2)[0]
                     for i in range(idx_count)
                 ]
+            # +0x50: blendHint (hkEnum<int8>): 0 NORMAL, 1 ADDITIVE_DEPRECATED, 2 ADDITIVE
+            anim.blend_hint = data[data_abs + rel + 0x50]
             break
+
+    if compression != 'SPLINE':
+        return anim
 
     # ── Decompress spline data ──
     anim.tracks = _decompress_spline(
@@ -1178,7 +1293,7 @@ def load_fo4_animation(filepath: str) -> AnimationData:
     if raw[:4] == _HKX_MAGIC:
         anim = _parse_animation_hkx(raw)
         if anim is None:
-            raise ValueError("No hkaSplineCompressedAnimation found in HKX file.")
+            raise ValueError("No animation we can read in HKX file.")
         return anim
 
     # Try XML
@@ -1916,6 +2031,7 @@ _ANIM_CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0x2772C11E, 'hkRootLevelContainer'),
     (0x26859F4C, 'hkaAnimationContainer'),
     (0x8C3B5F7E, 'hkaSplineCompressedAnimation'),
+    (0x278BFFE8, 'hkaLosslessCompressedAnimation'),
     (0x60F8E0B8, 'hkaDefaultAnimatedReferenceFrame'),
     (0x0FAF9150, 'hkaAnimationBinding'),
     (0x1DE13A73, 'hkMemoryResourceContainer'),
@@ -2014,6 +2130,57 @@ def _anim_section_header(name: str, abs_start: int,
     return bytes(hdr)
 
 
+def _encode_lossless(anim: AnimationData, eps: float = 1e-7) -> Dict[str, list]:
+    """Split anim's tracks into the hkaLosslessCompressedAnimation arrays (see the layout
+    notes at _read_lossless): each component identity, static or dynamic."""
+    nf = anim.num_frames
+
+    def same(a, b):
+        return abs(a - b) <= eps
+
+    def same_quat(a, b):
+        # Component-wise, either sign. A dot-product test can't resolve small angles:
+        # 1 - cos(t/2) <= 1e-7 would let 0.05 degrees count as no change.
+        return (all(abs(x - y) <= eps for x, y in zip(a, b))
+                or all(abs(x + y) <= eps for x, y in zip(a, b)))
+
+    out = {k: [] for k in ('dyn_t', 'static_t', 't_codes', 'dyn_r', 'static_r', 'r_codes',
+                           'dyn_s', 'static_s', 's_codes')}
+    dyn_t_cols, dyn_r_cols, dyn_s_cols = [], [], []
+
+    def axis_codes(series, identity, static, dyn_cols):
+        codes = []
+        for axis in range(3):
+            vals = [v[axis] for v in series]
+            if all(same(v, identity) for v in vals):
+                codes.append(0)
+            elif all(same(v, vals[0]) for v in vals):
+                codes.append((len(static) << 2) | _LL_STATIC)
+                static.append(vals[0])
+            else:
+                codes.append((len(dyn_cols) << 2) | _LL_DYNAMIC)
+                dyn_cols.append(vals)
+        return codes + [0]
+
+    for t in anim.tracks:
+        out['t_codes'].append(axis_codes(t.translations, 0.0, out['static_t'], dyn_t_cols))
+        out['s_codes'].append(axis_codes(t.scales, 1.0, out['static_s'], dyn_s_cols))
+        rots = t.rotations
+        if all(same_quat(q, (0.0, 0.0, 0.0, 1.0)) for q in rots):
+            out['r_codes'].append(0)
+        elif all(same_quat(q, rots[0]) for q in rots):
+            out['r_codes'].append((len(out['static_r']) << 2) | _LL_STATIC)
+            out['static_r'].append(rots[0])
+        else:
+            out['r_codes'].append((len(dyn_r_cols) << 2) | _LL_DYNAMIC)
+            dyn_r_cols.append(rots)
+
+    out['dyn_t'] = [col[f] for f in range(nf) for col in dyn_t_cols]
+    out['dyn_s'] = [col[f] for f in range(nf) for col in dyn_s_cols]
+    out['dyn_r'] = [col[f] for f in range(nf) for col in dyn_r_cols]
+    return out
+
+
 def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> Tuple[bytes, '_FixupBuilder']:
     """Build the __data__ section object data for an animation HKX.
 
@@ -2046,8 +2213,14 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         while len(data) % 16:
             data.append(0)
 
-    # Compress the animation data (FO4 uses rot_quant=1, 40-bit quaternions)
-    spline_blob, block_offsets, _float_offsets = _compress_all_blocks(anim, rot_quant=1)
+    # Exact values go out lossless (FO4 has no interleaved writer; lossless is exact too).
+    lossless = anim.compression in ('LOSSLESS', 'INTERLEAVED')
+    if lossless:
+        ll = _encode_lossless(anim)
+        spline_blob, block_offsets = b'', []
+    else:
+        # Compress the animation data (FO4 uses rot_quant=1, 40-bit quaternions)
+        spline_blob, block_offsets, _float_offsets = _compress_all_blocks(anim, rot_quant=1)
 
     num_tracks = anim.num_tracks
     bone_names = anim.bone_names or [f"Bone{i}" for i in range(num_tracks)]
@@ -2113,10 +2286,38 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     bind_ptr = write(bytes(8))  # ptr → hkaAnimationBinding
     align16()
 
-    # ═══ hkaSplineCompressedAnimation ═══
-    spline_rel = rel()
-    fx.add_virtual(spline_rel, 0, name_offs['hkaSplineCompressedAnimation'])
-    fx.add_global(anim_ptr, 2, spline_rel)  # AnimContainer.animations[0] → here
+    # ═══ hkaSplineCompressedAnimation / hkaLosslessCompressedAnimation ═══
+    anim_obj_rel = rel()
+    fx.add_virtual(anim_obj_rel, 0, name_offs[
+        'hkaLosslessCompressedAnimation' if lossless else 'hkaSplineCompressedAnimation'])
+    fx.add_global(anim_ptr, 2, anim_obj_rel)  # AnimContainer.animations[0] → here
+
+    # Lossless arrays: (field offset, values, element writer, element size)
+    ll_arrays = []
+    if lossless:
+        ll_arrays = [
+            (0x38, ll['dyn_t'], lambda v: _w_f32(v)),
+            (0x48, ll['static_t'], lambda v: _w_f32(v)),
+            (0x58, ll['t_codes'], lambda c: struct.pack('<4H', *c)),
+            (0x68, ll['dyn_r'], lambda q: struct.pack('<4f', *q)),
+            (0x78, ll['static_r'], lambda q: struct.pack('<4f', *q)),
+            (0x88, ll['r_codes'], lambda c: _w_u16(c)),
+            (0x98, ll['dyn_s'], lambda v: _w_f32(v)),
+            (0xA8, ll['static_s'], lambda v: _w_f32(v)),
+            (0xB8, ll['s_codes'], lambda c: struct.pack('<4H', *c)),
+            (0xC8, [], None),                                   # floats: FO4 has none
+        ]
+        ll_hdr = bytearray(0xE0)
+        # type 0: what vanilla lossless animations carry
+        struct.pack_into('<f', ll_hdr, 0x14, anim.duration)
+        struct.pack_into('<I', ll_hdr, 0x18, num_tracks)
+        struct.pack_into('<I', ll_hdr, 0x28 + 8, num_tracks)
+        struct.pack_into('<I', ll_hdr, 0x28 + 12, num_tracks | 0x80000000)
+        for off, values, _ in ll_arrays:
+            struct.pack_into('<I', ll_hdr, off + 8, len(values))
+            struct.pack_into('<I', ll_hdr, off + 12, len(values) | 0x80000000)
+        struct.pack_into('<I', ll_hdr, 0xD8, anim.num_frames)
+        write(bytes(ll_hdr))
 
     # hkaAnimation base: type(u32) + pad + ... (0x28 bytes base, then specific fields)
     # Simplified: write 0xA8 bytes for the full hkaSplineCompressedAnimation header
@@ -2136,7 +2337,7 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     if anim.duration > 0:
         struct.pack_into('<f', spline_hdr, 0x4C, 1.0 / anim.block_duration if anim.block_duration > 0 else 0.0)
     struct.pack_into('<f', spline_hdr, 0x50, anim.frame_duration)
-    # hkArrays at known offsets (relative to spline_rel):
+    # hkArrays at known offsets (relative to anim_obj_rel):
     # +0x58: blockOffsets
     # +0x68: floatBlockOffsets
     # +0x78: transformOffsets
@@ -2160,7 +2361,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     struct.pack_into('<I', spline_hdr, 0x28 + 8, num_tracks)
     struct.pack_into('<I', spline_hdr, 0x28 + 12, num_tracks | 0x80000000)
 
-    write(bytes(spline_hdr))
+    if not lossless:
+        write(bytes(spline_hdr))
     align16()
 
     # Annotation track structs (0x18 each: name_ptr + annotations hkArray).
@@ -2172,7 +2374,7 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         raise ValueError("Cannot export annotations: animation has no tracks.")
 
     annot_tracks_rel = rel()
-    fx.add_local(spline_rel + 0x28, annot_tracks_rel)
+    fx.add_local(anim_obj_rel + 0x28, annot_tracks_rel)
     annot_track_offsets = []
     annot_array_offsets = []
     for i in range(num_tracks):
@@ -2204,30 +2406,38 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         fx.add_local(annot_track_offsets[i], name_str_rel)
     align16()
 
-    # Block offsets array
-    block_off_data_rel = rel()
-    fx.add_local(spline_rel + 0x58, block_off_data_rel)
-    for bo in block_offsets:
-        write(_w_u32(bo))
-    align16()
+    if lossless:
+        for off, values, pack in ll_arrays:
+            if values:
+                fx.add_local(anim_obj_rel + off, rel())
+                for v in values:
+                    write(pack(v))
+                align16()
+    else:
+        # Block offsets array
+        block_off_data_rel = rel()
+        fx.add_local(anim_obj_rel + 0x58, block_off_data_rel)
+        for bo in block_offsets:
+            write(_w_u32(bo))
+        align16()
 
-    # Float block offsets array
-    float_block_off_data_rel = rel()
-    fx.add_local(spline_rel + 0x68, float_block_off_data_rel)
-    for _ in range(n_blocks):
-        write(_w_u32(0))
-    align16()
+        # Float block offsets array
+        float_block_off_data_rel = rel()
+        fx.add_local(anim_obj_rel + 0x68, float_block_off_data_rel)
+        for _ in range(n_blocks):
+            write(_w_u32(0))
+        align16()
 
-    # Spline data blob
-    spline_data_rel = rel()
-    fx.add_local(spline_rel + 0x98, spline_data_rel)
-    write(spline_blob)
-    align16()
+        # Spline data blob
+        spline_data_rel = rel()
+        fx.add_local(anim_obj_rel + 0x98, spline_data_rel)
+        write(spline_blob)
+        align16()
 
     # extractedMotion → hkaDefaultAnimatedReferenceFrame
     ref_frame_rel = rel()
     fx.add_virtual(ref_frame_rel, 0, name_offs['hkaDefaultAnimatedReferenceFrame'])
-    fx.add_global(spline_rel + 0x20, 2, ref_frame_rel)
+    fx.add_global(anim_obj_rel + 0x20, 2, ref_frame_rel)
 
     # hkaDefaultAnimatedReferenceFrame: 0x70 header + referenceFrameSamples
     # Base class is 0x20 bytes (16-byte base + padding for vec4 alignment)
@@ -2265,7 +2475,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     struct.pack_into('<I', bind_hdr, 0x30 + 12, 0x80000000)
     # +0x40: partitionIndices (empty, flagged)
     struct.pack_into('<I', bind_hdr, 0x40 + 12, 0x80000000)
-    # +0x50: blendHint = 0
+    # +0x50: blendHint
+    bind_hdr[0x50] = anim.blend_hint
     write(bytes(bind_hdr))
 
     # Skeleton name string
@@ -2273,7 +2484,7 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     fx.add_local(binding_rel + 0x10, skel_name_rel)
 
     # Animation ptr (global fixup — inter-object reference)
-    fx.add_global(binding_rel + 0x18, 2, spline_rel)
+    fx.add_global(binding_rel + 0x18, 2, anim_obj_rel)
 
     # Binding indices array
     bind_idx_rel = rel()

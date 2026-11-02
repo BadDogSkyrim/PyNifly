@@ -119,6 +119,107 @@ def TEST_FO4_ANIM_TRACKS():
     assert TT.is_eq(animated_trans, 5, "Animated translation track count")
 
 
+def TEST_FO4_ANIM_ADDITIVE_ROUNDTRIP():
+    """FO4 additive animations keep their blendHint and their partial track list.
+
+    hk_2014 has two additive values: ADDITIVE_DEPRECATED (1) and ADDITIVE (2). The reader
+    didn't read blendHint and the writer always wrote 0. Both of these vanilla files are
+    also partial: 13 and 2 of the skeleton's 95 bones."""
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for fname, hint, ntracks in (("WPNFireAutoAdditive.hkx", 2, 13),
+                                 ("CameraHit01.hkx", 1, 2)):
+        orig = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / fname))
+        assert TT.is_eq(orig.blend_hint, hint, f"{fname} blendHint read")
+        assert TT.is_eq(orig.num_tracks, ntracks, f"{fname} track count")
+
+        out = str(_OUT_DIR / f"TEST_FO4_ANIM_ADDITIVE_ROUNDTRIP_{fname}")
+        anim_fo4.write_fo4_animation(out, orig)
+        back = anim_fo4.load_fo4_animation(out)
+        assert TT.is_eq(back.blend_hint, hint, f"{fname} blendHint written")
+        assert TT.is_eq(back.track_to_bone_indices, orig.track_to_bone_indices,
+                        f"{fname} track-to-bone binding")
+
+
+def TEST_FO4_LOSSLESS_READ():
+    """Read FO4's hkaLosslessCompressedAnimation, the format of every 1st-person animation.
+
+    Raw floats and quaternions, split into static and dynamic arrays; each track's
+    components say identity, static or dynamic, and where. Vanilla 44 pistol idles (normal;
+    IdleReadyA has 31 dynamic rotation tracks, so reading them component-major instead of
+    frame-major would jump 130 degrees) and its pitch-down add (additive)."""
+    import math
+    d = _FO4_ANIM_DIR / "1stPerson"
+    skel = anim_fo4.load_fo4_skeleton(str(d / "skeleton_1stperson.hkx"))
+    for fname, additive in (("WPNIdleReady.hkx", False), ("WPNIdleReadyA.hkx", False),
+                            ("WPNPitchDownReadyAdd.hkx", True)):
+        anim = anim_fo4.load_fo4_animation(str(d / fname))
+        assert TT.is_eq(anim.compression, 'LOSSLESS', f"{fname} compression")
+        assert TT.is_eq(len(anim.tracks), anim.num_tracks, f"{fname} one TrackData per track")
+        assert TT.is_eq(bool(anim.blend_hint), additive, f"{fname} additive")
+        assert TT.is_le(anim.num_tracks, len(skel.bones), f"{fname} fits the 1st-person skeleton")
+        for t in anim.tracks:
+            for series in (t.rotations, t.translations, t.scales):
+                assert TT.is_eq(len(series), anim.num_frames, f"{fname} a value every frame")
+            for q in t.rotations:
+                assert abs(math.sqrt(sum(c * c for c in q)) - 1) < 0.001, f"unit quaternion {q}"
+        # Frame-to-frame continuity: what tells frame-major from component-major storage.
+        rot_step = max(math.degrees(2 * math.acos(min(1.0, abs(sum(a * b for a, b in zip(q0, q1))))))
+                       for t in anim.tracks for q0, q1 in zip(t.rotations, t.rotations[1:]))
+        pos_step = max(math.dist(p0, p1) for t in anim.tracks
+                       for p0, p1 in zip(t.translations, t.translations[1:]))
+        assert TT.is_lt(rot_step, 20, f"{fname} rotations continuous ({rot_step:.1f} deg)")
+        assert TT.is_lt(pos_step, 5, f"{fname} translations continuous ({pos_step:.2f})")
+        if additive:
+            worst0 = max(math.degrees(2 * math.acos(min(1.0, abs(t.rotations[0][3]))))
+                         for t in anim.tracks)
+            assert TT.is_lt(worst0, 0.5, f"{fname} additive frame 0 is identity")
+
+
+def _max_track_diff(a, b):
+    """Largest difference between two animations' track values, any component."""
+    worst = 0.0
+    for ta, tb in zip(a.tracks, b.tracks):
+        for sa, sb in ((ta.translations, tb.translations), (ta.scales, tb.scales)):
+            worst = max([worst] + [abs(x - y) for va, vb in zip(sa, sb) for x, y in zip(va, vb)])
+        for qa, qb in zip(ta.rotations, tb.rotations):
+            sign = 1 if sum(x * y for x, y in zip(qa, qb)) >= 0 else -1
+            worst = max([worst] + [abs(x - sign * y) for x, y in zip(qa, qb)])
+    return worst
+
+
+def TEST_FO4_LOSSLESS_ROUNDTRIP():
+    """A lossless animation writes back lossless, values exact to float precision, with its
+    blendHint and binding."""
+    d = _FO4_ANIM_DIR / "1stPerson"
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for fname in ("WPNIdleReadyA.hkx", "WPNPitchDownReadyAdd.hkx"):
+        orig = anim_fo4.load_fo4_animation(str(d / fname))
+        out = str(_OUT_DIR / f"TEST_FO4_LOSSLESS_ROUNDTRIP_{fname}")
+        anim_fo4.write_fo4_animation(out, orig)
+        back = anim_fo4.load_fo4_animation(out)
+        assert TT.is_eq(back.compression, 'LOSSLESS', f"{fname} written lossless")
+        assert TT.is_eq(back.blend_hint, orig.blend_hint, f"{fname} blendHint")
+        assert TT.is_eq(back.track_to_bone_indices, orig.track_to_bone_indices, f"{fname} binding")
+        assert TT.is_eq(back.num_frames, orig.num_frames, f"{fname} frames")
+        worst = _max_track_diff(orig, back)
+        assert TT.is_lt(worst, 1e-6, f"{fname} values exact (worst {worst:.2e})")
+
+
+def TEST_SKYRIM_UNCOMPRESSED_ROUNDTRIP():
+    """An interleaved uncompressed animation writes back interleaved, LE and SE, exact."""
+    orig = anim_skyrim.load_skyrim_animation(str(_SKYRIMSE_DIR / "SE_InterleavedUncompressed.hkx"))
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for ptr_size, game in ((8, "SE"), (4, "LE")):
+        out = str(_OUT_DIR / f"TEST_SKYRIM_UNCOMPRESSED_ROUNDTRIP_{game}.hkx")
+        anim_skyrim.write_skyrim_animation(out, orig, ptr_size=ptr_size)
+        back = anim_skyrim.load_skyrim_animation(out)
+        assert TT.is_eq(back.compression, 'INTERLEAVED', f"{game} written interleaved")
+        assert TT.is_eq(back.num_frames, orig.num_frames, f"{game} frames")
+        assert TT.is_eq(back.num_tracks, orig.num_tracks, f"{game} tracks")
+        worst = _max_track_diff(orig, back)
+        assert TT.is_lt(worst, 1e-6, f"{game} values exact (worst {worst:.2e})")
+
+
 def TEST_FO4_ANIM_ROUNDTRIP():
     """Write a loaded animation back to HKX, reload, and compare tracks."""
     fp = str(_FO4_ANIM_DIR / "Death1.hkx")
@@ -578,6 +679,29 @@ def TEST_SKYRIMSE_SKELETON():
     assert TT.is_eq(skel.parents[0], -1, "Root parent is -1")
     assert TT.is_eq(skel.bones[4], "NPC COM [COM ]", "COM bone name")
     assert TT.is_eq(len(skel.reference_pose), 99, "Reference pose count")
+
+
+def TEST_SKYRIMSE_INTERLEAVED_READ():
+    """Read an hkaInterleavedUncompressedAnimation (#442): one raw hkQsTransform per track per
+    frame, frame-major. Not in vanilla, but some modded creature animations use it.
+    Fixture from BodySlide and Outfit Studio's test data (GPL-3)."""
+    import math
+    anim = anim_skyrim.load_skyrim_animation(str(_SKYRIMSE_DIR / "SE_InterleavedUncompressed.hkx"))
+    assert anim is not None, "interleaved animation loads"
+    assert TT.is_eq(anim.compression, 'INTERLEAVED', "compression recorded")
+    assert TT.is_gt(anim.num_tracks, 0, "has tracks")
+    assert TT.is_gt(anim.num_frames, 1, "has frames")
+    assert TT.is_eq(len(anim.tracks), anim.num_tracks, "one TrackData per track")
+    for t in anim.tracks:
+        assert TT.is_eq(len(t.rotations), anim.num_frames, "a rotation every frame")
+        for q in t.rotations:
+            assert abs(math.sqrt(sum(c * c for c in q)) - 1) < 0.001, f"unit quaternion {q}"
+    assert TT.is_equiv(anim.frame_duration, anim.duration / (anim.num_frames - 1),
+                       "frame duration from duration and frame count")
+    # Raw data is continuous: no track jumps more than 30 degrees between frames.
+    worst = max(math.degrees(2 * math.acos(min(1.0, abs(sum(a * b for a, b in zip(q0, q1))))))
+                for t in anim.tracks for q0, q1 in zip(t.rotations, t.rotations[1:]))
+    assert TT.is_lt(worst, 30, f"rotations continuous (worst step {worst:.1f} deg)")
 
 
 def TEST_SKYRIMSE_ANIM_TRACKS():
@@ -1151,6 +1275,10 @@ ALL_TESTS = [
     TEST_READ_FO4_ANIM,
     TEST_FO4_ANIM_TRACKS,
     TEST_FO4_ANIM_ROUNDTRIP,
+    TEST_FO4_ANIM_ADDITIVE_ROUNDTRIP,
+    TEST_FO4_LOSSLESS_READ,
+    TEST_FO4_LOSSLESS_ROUNDTRIP,
+    TEST_SKYRIM_UNCOMPRESSED_ROUNDTRIP,
     TEST_FO4_ANIM_ROUNDTRIP_VARIETY,
     TEST_FO4_ANIM_QUATERNION_VALID,
     TEST_READ_SKYRIM_ANIM,
@@ -1164,6 +1292,7 @@ ALL_TESTS = [
     TEST_READ_SKYRIMSE_ANIM,
     TEST_SKYRIMSE_SKELETON,
     TEST_SKYRIMSE_ANIM_TRACKS,
+    TEST_SKYRIMSE_INTERLEAVED_READ,
     TEST_SKYRIMSE_ANIM_ROUNDTRIP,
     TEST_SKYRIMSE_HKX_BINARY_FORMAT,
     TEST_SKYRIMSE_ANIM_ROUNDTRIP_VARIETY,

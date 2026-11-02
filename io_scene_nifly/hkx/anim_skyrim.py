@@ -242,8 +242,44 @@ def _read_hkarray_u8(data, data_abs, obj_rel, field_off, fixups, ptr_size=4):
 
 # ── Animation parser ─────────────────────────────────────────────────────────
 
+_INTERLEAVED = 'hkaInterleavedUncompressedAnimation'
+_ANIM_CLASSES = ('hkaSplineCompressedAnimation', _INTERLEAVED)
+
+
+def _read_interleaved(data, data_abs, anim_rel, o_transforms, fixups, ptr_size, anim):
+    """Fill anim's tracks and float tracks from an hkaInterleavedUncompressedAnimation: one
+    raw hkQsTransform (translation, rotation xyzw, scale; 0x30 bytes) per track per frame,
+    frame-major, then the float tracks' values the same way. False if there's no data."""
+    arr_size = ptr_size + 8
+    n = anim.num_tracks
+    count = _u32(data, data_abs + anim_rel + o_transforms + ptr_size)
+    content = fixups.get(anim_rel + o_transforms)
+    if not n or content is None or count == 0 or count % n:
+        return False
+    anim.num_frames = count // n
+    anim.tracks = [TrackData() for _ in range(n)]
+    for i in range(count):
+        v = struct.unpack_from('<12f', data, data_abs + content + i * 0x30)
+        t = anim.tracks[i % n]
+        t.translations.append(list(v[0:3]))
+        t.rotations.append(list(v[4:8]))
+        t.scales.append(list(v[8:11]))
+    if anim.num_frames > 1 and anim.duration > 0:
+        anim.frame_duration = anim.duration / (anim.num_frames - 1)
+
+    o_floats = o_transforms + arr_size
+    nf = _u32(data, data_abs + anim_rel + o_floats + ptr_size)
+    fcontent = fixups.get(anim_rel + o_floats)
+    n_float = nf // anim.num_frames if anim.num_frames else 0
+    if fcontent is not None and n_float:
+        values = struct.unpack_from(f'<{nf}f', data, data_abs + fcontent)
+        anim.float_tracks = [list(values[k::n_float]) for k in range(n_float)]
+    return True
+
+
 def _parse_animation_hkx(data) -> Optional[AnimationData]:
-    """Parse hkaSplineCompressedAnimation from a Skyrim binary HKX file.
+    """Parse the animation (spline-compressed or interleaved uncompressed) from a Skyrim
+    binary HKX file.
 
     Handles both 4-byte (LE) and 8-byte (SE) pointer packfiles.
     """
@@ -264,12 +300,8 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     fixups = _parse_local_fixups(data, data_sec)
     objects = _parse_virtual_fixups(data, data_sec, cn_start)
 
-    # Find hkaSplineCompressedAnimation
-    anim_rel = None
-    for rel, cls in objects:
-        if cls == 'hkaSplineCompressedAnimation':
-            anim_rel = rel
-            break
+    anim_rel, anim_cls = next(((rel, cls) for rel, cls in objects if cls in _ANIM_CLASSES),
+                              (None, None))
     if anim_rel is None:
         return None
 
@@ -308,21 +340,28 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
     anim.duration = _f32(data, a + o_duration)
     anim.num_tracks = _u32(data, a + o_num_tracks)
     num_float_tracks = _u32(data, a + o_num_float_tracks)
-    anim.num_frames = _u32(data, a + o_num_frames)
-    anim.num_blocks = _u32(data, a + o_num_blocks)
-    anim.max_frames_per_block = _u32(data, a + o_max_frames)
-    mask_and_quant_size = _u32(data, a + o_mask_quant)
-    anim.block_duration = _f32(data, a + o_block_dur)
-    anim.frame_duration = _f32(data, a + o_frame_dur)
 
-    block_offsets = _read_hkarray_u32(data, data_abs, anim_rel, o_block_offsets, fixups, ptr_size)
-    float_block_offsets = (_read_hkarray_u32(data, data_abs, anim_rel, o_float_block_offsets,
-                                             fixups, ptr_size)
-                           if num_float_tracks else [])
-    data_blob = _read_hkarray_u8(data, data_abs, anim_rel, o_data, fixups, ptr_size)
+    if anim_cls == _INTERLEAVED:
+        anim.compression = 'INTERLEAVED'
+        if not _read_interleaved(data, data_abs, anim_rel, spline_base, fixups, ptr_size, anim):
+            return None
+    else:
+        anim.num_frames = _u32(data, a + o_num_frames)
+        anim.num_blocks = _u32(data, a + o_num_blocks)
+        anim.max_frames_per_block = _u32(data, a + o_max_frames)
+        mask_and_quant_size = _u32(data, a + o_mask_quant)
+        anim.block_duration = _f32(data, a + o_block_dur)
+        anim.frame_duration = _f32(data, a + o_frame_dur)
 
-    if not data_blob or not block_offsets:
-        return None
+        block_offsets = _read_hkarray_u32(data, data_abs, anim_rel, o_block_offsets, fixups,
+                                          ptr_size)
+        float_block_offsets = (_read_hkarray_u32(data, data_abs, anim_rel,
+                                                 o_float_block_offsets, fixups, ptr_size)
+                               if num_float_tracks else [])
+        data_blob = _read_hkarray_u8(data, data_abs, anim_rel, o_data, fixups, ptr_size)
+
+        if not data_blob or not block_offsets:
+            return None
 
     # ── Parse annotation tracks (bone names) ──
     ann_arr_rel = anim_rel + o_ann_tracks
@@ -392,6 +431,9 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
             blend_hint_off = bind_idx_off + 2 * arr_sz
             anim.blend_hint = _u32(data, data_abs + rel + blend_hint_off)
             break
+
+    if anim_cls == _INTERLEAVED:
+        return anim
 
     # ── Decompress spline data ──
     anim.tracks = _decompress_spline(
@@ -587,7 +629,7 @@ def load_skyrim_animation(filepath: str) -> AnimationData:
     if raw[:4] == _HKX_MAGIC:
         anim = _parse_animation_hkx(raw)
         if anim is None:
-            raise ValueError("No hkaSplineCompressedAnimation found in HKX file.")
+            raise ValueError("No animation we can read in HKX file.")
         return anim
 
     # Try XML (hkpackfile format — e.g. from hkxpack-cli)
@@ -648,6 +690,7 @@ _ANIM_CLASS_ENTRIES_V8: List[Tuple[int, str]] = [
     (0x2772C11E, 'hkRootLevelContainer'),
     (0x8DC20333, 'hkaAnimationContainer'),
     (0x792EE0BB, 'hkaSplineCompressedAnimation'),
+    (0x930AF031, 'hkaInterleavedUncompressedAnimation'),
     (0x66EAC971, 'hkaAnimationBinding'),
     (0x4762F92A, 'hkMemoryResourceContainer'),
 ]
@@ -772,9 +815,11 @@ def _build_anim_data_section(anim: AnimationData,
         struct.pack_into('<I', buf, off + P, count)
         struct.pack_into('<I', buf, off + P + 4, count | 0x80000000)
 
-    # Compress animation
-    spline_blob, block_offsets, float_block_offsets = _compress_all_blocks(
-        anim, rot_quant=1, include_floats=True)
+    # Exact values go out interleaved: hk_2010 has no lossless class.
+    interleaved = anim.compression in ('INTERLEAVED', 'LOSSLESS')
+    if not interleaved:
+        spline_blob, block_offsets, float_block_offsets = _compress_all_blocks(
+            anim, rot_quant=1, include_floats=True)
     num_float = len(anim.float_tracks)
 
     num_tracks = anim.num_tracks
@@ -843,7 +888,7 @@ def _build_anim_data_section(anim: AnimationData,
     bind_ptr = write_ptr()
     align16()
 
-    # ═══ hkaSplineCompressedAnimation ═══
+    # ═══ hkaSplineCompressedAnimation / hkaInterleavedUncompressedAnimation ═══
     # Compute struct offsets (same logic as reader)
     o_type = base_sz
     o_duration = base_sz + 4
@@ -867,9 +912,28 @@ def _build_anim_data_section(anim: AnimationData,
     o_endian = o_data + arr_sz        # hkInt8, left 0 (little-endian)
     spline_struct_size = _align(o_endian + 4, 16)
 
-    spline_rel = rel()
-    fx.add_virtual(spline_rel, 0, name_offs['hkaSplineCompressedAnimation'])
-    fx.add_global(anim_ptr, 2, spline_rel)
+    anim_obj_rel = rel()
+    fx.add_virtual(anim_obj_rel, 0, name_offs[
+        _INTERLEAVED if interleaved else 'hkaSplineCompressedAnimation'])
+    fx.add_global(anim_ptr, 2, anim_obj_rel)
+
+    if interleaved:
+        # hkaAnimation base, then transforms (hkQsTransform per track per frame) and
+        # floats (per float track per frame), both frame-major.
+        o_transforms = spline_base
+        o_floats = o_transforms + arr_sz
+        hdr = bytearray(_align(o_floats + arr_sz, 16))
+        struct.pack_into('<I', hdr, o_type, 1)  # HK_INTERLEAVED_ANIMATION
+        struct.pack_into('<f', hdr, o_duration, anim.duration)
+        struct.pack_into('<I', hdr, o_num_tracks, num_tracks)
+        struct.pack_into('<I', hdr, o_num_float, num_float)
+        pack_arr_at(hdr, o_ann_tracks, num_tracks)
+        pack_arr_at(hdr, o_transforms, num_tracks * anim.num_frames)
+        if num_float:
+            pack_arr_at(hdr, o_floats, num_float * anim.num_frames)
+        else:
+            pack_arr_at(hdr, o_floats, 0)
+        write(bytes(hdr))
 
     spline_hdr = bytearray(spline_struct_size)
     struct.pack_into('<I', spline_hdr, o_type, 5)  # SPLINE_COMPRESSED
@@ -891,15 +955,16 @@ def _build_anim_data_section(anim: AnimationData,
     pack_arr_at(spline_hdr, o_float_block_off, n_blocks)  # one offset per block
     pack_arr_at(spline_hdr, o_transform_off, 0)      # empty, flagged
     pack_arr_at(spline_hdr, o_float_off, 0)           # empty, flagged
-    pack_arr_at(spline_hdr, o_data, len(spline_blob))
-    write(bytes(spline_hdr))
+    if not interleaved:
+        pack_arr_at(spline_hdr, o_data, len(spline_blob))
+        write(bytes(spline_hdr))
 
     # Annotation track structs: name_ptr(P) + hkArray(arr_sz) each
     # All annotation events go on track 0 (standard convention).
     ann_events = anim.annotations if anim.annotations else []
     anntrack_stride = P + arr_sz
     annot_tracks_rel = rel()
-    fx.add_local(spline_rel + o_ann_tracks, annot_tracks_rel)
+    fx.add_local(anim_obj_rel + o_ann_tracks, annot_tracks_rel)
     annot_track_offsets = []
     for i in range(num_tracks):
         at_rel = rel()
@@ -951,26 +1016,42 @@ def _build_anim_data_section(anim: AnimationData,
         fx.add_local(annot_track_offsets[i], name_str_rel)
     align16()
 
-    # Block offsets array
-    block_off_data_rel = rel()
-    fx.add_local(spline_rel + o_block_offsets, block_off_data_rel)
-    for bo in block_offsets:
-        write(_w_u32(bo))
-    align16()
+    if interleaved:
+        transforms_rel = rel()
+        fx.add_local(anim_obj_rel + o_transforms, transforms_rel)
+        for f in range(anim.num_frames):
+            for t in anim.tracks:
+                write(struct.pack('<12f', *t.translations[f], 0.0, *t.rotations[f],
+                                  *t.scales[f], 0.0))
+        align16()
+        if num_float:
+            floats_rel = rel()
+            fx.add_local(anim_obj_rel + o_floats, floats_rel)
+            for f in range(anim.num_frames):
+                for values in anim.float_tracks:
+                    write(_w_f32(values[f]))
+            align16()
+    else:
+        # Block offsets array
+        block_off_data_rel = rel()
+        fx.add_local(anim_obj_rel + o_block_offsets, block_off_data_rel)
+        for bo in block_offsets:
+            write(_w_u32(bo))
+        align16()
 
-    # Float block offsets array: where each block's float data starts, block-relative
-    # (still one per block when there are no float tracks, as vanilla does).
-    float_block_off_data_rel = rel()
-    fx.add_local(spline_rel + o_float_block_off, float_block_off_data_rel)
-    for fbo in float_block_offsets:
-        write(_w_u32(fbo))
-    align16()
+        # Float block offsets array: where each block's float data starts, block-relative
+        # (still one per block when there are no float tracks, as vanilla does).
+        float_block_off_data_rel = rel()
+        fx.add_local(anim_obj_rel + o_float_block_off, float_block_off_data_rel)
+        for fbo in float_block_offsets:
+            write(_w_u32(fbo))
+        align16()
 
-    # Spline data blob
-    spline_data_rel = rel()
-    fx.add_local(spline_rel + o_data, spline_data_rel)
-    write(spline_blob)
-    align16()
+        # Spline data blob
+        spline_data_rel = rel()
+        fx.add_local(anim_obj_rel + o_data, spline_data_rel)
+        write(spline_blob)
+        align16()
 
     # extractedMotion left as null pointer (no fixup) — vanilla Skyrim
     # idle animations don't use extracted motion reference frames.
@@ -1005,7 +1086,7 @@ def _build_anim_data_section(anim: AnimationData,
     align_to(2)
 
     # Animation pointer
-    fx.add_global(binding_rel + o_bind_anim, 2, spline_rel)
+    fx.add_global(binding_rel + o_bind_anim, 2, anim_obj_rel)
 
     # Binding indices array
     bind_idx_rel = rel()

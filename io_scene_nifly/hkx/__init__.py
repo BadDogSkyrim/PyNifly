@@ -11,10 +11,12 @@ from . import import_hkx
 from . import export_hkx
 from . import skeleton_hkx
 from . import anim_fo4
+from . import hkx_props
 
 if _needs_reload:
     import importlib
     anim_fo4 = importlib.reload(anim_fo4)
+    hkx_props = importlib.reload(hkx_props)
     import_hkx = importlib.reload(import_hkx)
     export_hkx = importlib.reload(export_hkx)
     skeleton_hkx = importlib.reload(skeleton_hkx)
@@ -37,6 +39,7 @@ def nifly_menu_export_skel(self, context):
 
 
 def unregister():
+    hkx_props.unregister()
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_hkx)
     bpy.types.TOPBAR_MT_file_import.remove(nifly_menu_import_skel)
     bpy.types.TOPBAR_MT_file_export.remove(nifly_menu_export_hkx)
@@ -57,6 +60,7 @@ def unregister():
         del bpy.types.WindowManager.pynifly_last_export_path_skel
 
 def register():
+    hkx_props.register()
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_hkx)
     bpy.types.TOPBAR_MT_file_import.append(nifly_menu_import_skel)
     bpy.types.TOPBAR_MT_file_export.append(nifly_menu_export_hkx)
