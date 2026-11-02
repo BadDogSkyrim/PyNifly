@@ -385,6 +385,11 @@ class NifImporter(BD.Warns):
         self.filename_list = filename_list
         self.target_armatures = set(target_armatures) if target_armatures else set()
         self.preexisting_armatures = set(self.target_armatures)  # armatures that existed before import
+        # Existing bones by lowercase name. The games match bone names regardless of case
+        # (FO4's skeleton.hkx says Spine1, its nifs SPINE1), so a nif bone that differs
+        # only in case is the existing bone.
+        self.existing_bone_case = {b.name.lower(): b.name
+                                   for a in self.preexisting_armatures for b in a.data.bones}
         self.collection = collection
         self.settings = import_settings
         self.reference_skel = reference_skel
@@ -475,10 +480,11 @@ class NifImporter(BD.Warns):
         if self.is_facegen and nif_name == "Head":
             # Facegen nifs use a "Head" bone, which appears to be the "HEAD" bone misnamed.
             return "HEAD"  
-        elif self.settings.rename_bones or self.settings.rename_bones_niftools:
-            return self.nif.blender_name(nif_name)
+        if self.settings.rename_bones or self.settings.rename_bones_niftools:
+            name = self.nif.blender_name(nif_name)
         else:
-            return nif_name
+            name = nif_name
+        return self.existing_bone_case.get(name.lower(), name)
 
     def calc_obj_transform(self, the_shape:P.NiShape, scale_factor=1.0) -> Matrix:
         """

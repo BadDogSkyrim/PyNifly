@@ -2817,6 +2817,40 @@ def TEST_FO4_HKX_SKEL_WITH_NIF():
     assert TT.is_eq(chest_skin.parent.name, 'Chest', "Chest_skin parented to Chest")
 
 
+@TT.category('FO4', 'HKX', 'ARMATURE')
+def TEST_FO4_HKX_SKEL_NIF_BONE_CASE():
+    """Nifs imported onto an HKX skeleton's armature use its bones even when the names
+    differ in case (#446).
+
+    FO4's skeleton.hkx says Spine1, Spine2, Head; MaleBody.nif and BaseMaleHead.nif say
+    SPINE1, SPINE2, HEAD. The game doesn't care about case; import used to add a second
+    bone for each, which then got none of the HKX animation."""
+    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+    body_nif = TTB.test_file(r"tests\FO4\MaleBody.nif")
+    head_nif = TTB.test_file(r"tests\FO4\BaseMaleHead.nif")
+
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=True,
+                                     rotate_bones_pretty=True)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    for nif in (body_nif, head_nif):
+        BD.ObjectSelect([arma], active=True)
+        bpy.ops.import_scene.pynifly(filepath=nif, rename_bones=True,
+                                     rotate_bones_pretty=True)
+
+    names = [b.name for b in arma.data.bones]
+    lower = [n.lower() for n in names]
+    dups = sorted(n for n in names if lower.count(n.lower()) > 1)
+    TT.assert_eq(dups, [], "no bones differ only in case")
+    for n in ('Spine1', 'Spine2', 'Head'):
+        assert n in arma.data.bones, f"armature keeps the skeleton's {n}"
+
+    meshes = [o for o in bpy.data.objects if o.type == 'MESH']
+    unbound = sorted({vg.name for o in meshes for vg in o.vertex_groups
+                      if vg.name.lower() in ('spine1', 'spine2', 'head')
+                      and vg.name not in arma.data.bones})
+    TT.assert_eq(unbound, [], "spine and head weights deform the armature's bones")
+
+
 @TT.category('SKYRIM', 'FO4', 'HKX', 'ARMATURE')
 @TT.parameterize("game", ['SKYRIM', 'FO4'])
 def TEST_HKX_ANIM_ORIENT(game):
@@ -3290,6 +3324,38 @@ def TEST_HKX_EXPORT_EULER_ROTATION():
     rots = _hkx_track_rotations(out, skel_bones)[bone]
     assert TT.is_equiv(_quat_angle(rots[0], rots[9]), 60.0, "bone turns 60 degrees by frame 10", e=0.5)
     assert TT.is_equiv(_quat_angle(rots[0], rots[19]), 0.0, "and back by frame 20", e=0.5)
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_HKX_EXPORT_POSE_MARKERS_NEW_ACTION():
+    """Pose markers on an action made in Blender, on an armature that never came from an
+    HKX file, export as annotations on the first export (#440)."""
+    from io_scene_nifly.hkx import anim_skyrim
+
+    skel_nif = TTB.test_file(r"tests\Skyrim\skeleton_vanilla.nif")
+    skel_hkx = TTB.test_file(r"tests\Skyrim\skeleton.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_HKX_EXPORT_POSE_MARKERS_NEW_ACTION.hkx")
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly(filepath=skel_nif, rename_bones=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    pb = arma.pose.bones['NPC L UpperArm [LUar]']
+    arma.animation_data_create()
+    action = bpy.data.actions.new("markers_440")
+    arma.animation_data.action = action
+    for frame, deg in ((1, 0.0), (31, 45.0)):
+        pb.rotation_quaternion = Quaternion((1, 0, 0), math.radians(deg))
+        pb.keyframe_insert("rotation_quaternion", frame=frame)
+    for name, frame in (("SoundPlay.NPCHumanFootstep", 7), ("weaponSwing", 16)):
+        action.pose_markers.new(name).frame = frame
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile, reference_skel=skel_hkx)
+    out = anim_skyrim.load_skyrim_animation(outfile)
+
+    got = [(a.text, round(a.time * 30) + 1) for a in out.annotations]
+    TT.assert_eq(got, [("SoundPlay.NPCHumanFootstep", 7), ("weaponSwing", 16)],
+                 "pose markers exported as annotations")
 
 
 @TT.category('SKYRIM', 'HKX')
