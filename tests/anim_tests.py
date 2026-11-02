@@ -1269,7 +1269,176 @@ def TEST_SKYRIM_FLOAT_TRACKS():
             assert TT.is_eq(len(back.tracks), len(anim.tracks), f"{name} {label}: transform tracks kept")
 
 
+def _root_track(anim):
+    """The track bound to skeleton bone 0 (FO4's Root)."""
+    return anim.tracks[anim.track_to_bone_indices.index(0)]
+
+
+def TEST_FO4_REFERENCE_FRAME_ROUNDTRIP():
+    """FO4 root motion (hkaDefaultAnimatedReferenceFrame) reads and writes back.
+
+    One sample per frame: (x, y, z) the actor's travel from frame 0, w its turn about Z in
+    radians, cumulative. The writer wrote all zeros, so every moving animation lost its
+    motion. Vanilla: a run to idle (travels 116 units forward) and a full turn (-2 pi)."""
+    import math
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for fname, last in (("run_forward_to_idle.hkx", (0.0, 116.153, 0.0, 0.0)),
+                        ("RifleIdleAltTurnAroundFull_01.hkx", (0.0, 0.0, 0.0, -2 * math.pi))):
+        orig = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / fname))
+        assert TT.is_eq(len(orig.root_motion), orig.num_frames, f"{fname} one sample per frame")
+        assert TT.is_equiv(orig.root_motion[-1], last, f"{fname} last sample", e=0.01)
+
+        out = str(_OUT_DIR / f"TEST_FO4_REFERENCE_FRAME_ROUNDTRIP_{fname}")
+        anim_fo4.write_fo4_animation(out, orig)
+        back = anim_fo4.load_fo4_animation(out)
+        assert TT.is_eq(len(back.root_motion), len(orig.root_motion), f"{fname} samples written")
+        worst = max(abs(a - b) for sa, sb in zip(orig.root_motion, back.root_motion)
+                    for a, b in zip(sa, sb))
+        assert TT.is_lt(worst, 1e-5, f"{fname} samples exact ({worst})")
+
+
+def TEST_FO4_ROOT_MOTION_FOLD():
+    """Root motion folds into the Root track for Blender and comes back out on export.
+
+    Folded, Root itself travels and turns, as the actor does in game. Extracted again, the
+    samples match the file's and Root is back to its static value."""
+    import math
+    for fname in ("run_forward_to_idle.hkx", "RifleIdleAltTurnAroundFull_01.hkx",
+                  "Paired/PairedKill1HMShortShank_Lead.hkx"):
+        orig = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / fname))
+        anim = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / fname))
+        assert TT.is_true(anim_fo4.fold_root_motion(anim), f"{fname} folded")
+        assert TT.is_eq(anim.root_motion, [], f"{fname} samples moved onto Root")
+
+        # Root on the last frame is the motion applied to the file's Root.
+        x, y, z, w = orig.root_motion[-1]
+        r = _root_track(orig).translations[-1]
+        c, s = math.cos(w), math.sin(w)
+        expect = [x + c * r[0] - s * r[1], y + s * r[0] + c * r[1], z + r[2]]
+        assert TT.is_equiv(_root_track(anim).translations[-1], expect,
+                           f"{fname} Root carries the motion", e=0.01)
+
+        assert TT.is_true(anim_fo4.extract_root_motion(anim), f"{fname} extracted")
+        worst = max(abs(a - b) for sa, sb in zip(orig.root_motion, anim.root_motion)
+                    for a, b in zip(sa, sb))
+        assert TT.is_lt(worst, 1e-3, f"{fname} samples come back ({worst})")
+        worst = _max_track_diff(orig, anim)
+        assert TT.is_lt(worst, 1e-3, f"{fname} Root comes back static ({worst})")
+
+
+def TEST_FO4_ROOT_MOTION_NO_ROOT_TRACK():
+    """An additive weapon animation has root-motion samples but no Root track. There's
+    nothing to fold them into, so they stay as samples and are written back."""
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    fname = "WPNFireSingleAdditive.hkx"
+    orig = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / fname))
+    assert TT.is_true(any(abs(v) > 1e-4 for s in orig.root_motion for v in s), "it moves")
+    anim = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / fname))
+    assert TT.is_true(not anim_fo4.fold_root_motion(anim), "nothing to fold into")
+    assert TT.is_eq(anim.root_motion, orig.root_motion, "samples kept")
+    out = str(_OUT_DIR / f"TEST_FO4_ROOT_MOTION_NO_ROOT_TRACK_{fname}")
+    anim_fo4.write_fo4_animation(out, anim)
+    back = anim_fo4.load_fo4_animation(out)
+    worst = max(abs(a - b) for sa, sb in zip(orig.root_motion, back.root_motion)
+                for a, b in zip(sa, sb))
+    assert TT.is_lt(worst, 1e-5, f"samples written back ({worst})")
+
+
+def TEST_FO4_SYNC_OFFSET_ROUNDTRIP():
+    """A paired animation's SyncAnimOffset (an hkSimpleLocalFrame root-level variant) reads
+    as (x, y, z, yaw) and writes back. In the Lead file it equals Root's start; in the
+    tackle victim's, Root is at the origin and the offset is 203 units away, turned 180."""
+    import math
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    for fname, expect in (("PairedKill1HMShortShank_Lead.hkx", (3.17, 1.21, 0.0, 0.0)),
+                          ("PairedKillH2HSlideTackle_Victim.hkx", (-0.78, 203.24, 0.0, math.pi))):
+        orig = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / "Paired" / fname))
+        so = orig.sync_offset
+        assert TT.is_true(so is not None, f"{fname} has an offset")
+        yaw_err = abs((so[3] - expect[3] + math.pi) % (2 * math.pi) - math.pi)
+        assert TT.is_equiv(so[:3], expect[:3], f"{fname} offset position", e=0.01)
+        assert TT.is_lt(yaw_err, 0.001, f"{fname} offset yaw ({so[3]})")
+
+        out = str(_OUT_DIR / f"TEST_FO4_SYNC_OFFSET_ROUNDTRIP_{fname}")
+        anim_fo4.write_fo4_animation(out, orig)
+        back = anim_fo4.load_fo4_animation(out)
+        assert TT.is_true(back.sync_offset is not None, f"{fname} offset written")
+        assert TT.is_equiv(back.sync_offset, so, f"{fname} offset kept", e=1e-5)
+
+    # An animation without one writes none.
+    orig = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / "run_forward_to_idle.hkx"))
+    assert TT.is_eq(orig.sync_offset, None, "unpaired animation has no offset")
+    out = str(_OUT_DIR / "TEST_FO4_SYNC_OFFSET_ROUNDTRIP_none.hkx")
+    anim_fo4.write_fo4_animation(out, orig)
+    assert TT.is_eq(anim_fo4.load_fo4_animation(out).sync_offset, None, "none written")
+
+
+def TEST_SPLINE_ROTATION_BITS():
+    """Spline rotations are 40-bit or 48-bit. Import records which; export writes it, and
+    48-bit is the more accurate."""
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    orig = anim_fo4.load_fo4_animation(str(_FO4_ANIM_DIR / "PoseA_Talk_L5.hkx"))
+    assert TT.is_eq(orig.rot_quant, 1, "vanilla is 40-bit")
+    errs = {}
+    for quant in (1, 2):
+        orig.rot_quant = quant
+        out = str(_OUT_DIR / f"TEST_SPLINE_ROTATION_BITS_{quant}.hkx")
+        anim_fo4.write_fo4_animation(out, orig)
+        back = anim_fo4.load_fo4_animation(out)
+        assert TT.is_eq(back.rot_quant, quant, f"rot_quant {quant} written")
+        errs[quant] = _max_track_diff(orig, back)
+    assert TT.is_lt(errs[2], errs[1], f"48-bit more accurate ({errs})")
+
+    sk = anim_skyrim.load_skyrim_animation(str(_SKYRIM_DIR / "canine" / "dog_idle_spice_tail1.hkx"))
+    assert TT.is_eq(sk.rot_quant, 1, "Skyrim vanilla is 40-bit")
+    sk.rot_quant = 2
+    out = str(_OUT_DIR / "TEST_SPLINE_ROTATION_BITS_skyrim.hkx")
+    anim_skyrim.write_skyrim_animation(out, sk)
+    assert TT.is_eq(anim_skyrim.load_skyrim_animation(out).rot_quant, 2, "Skyrim 48-bit written")
+
+
+def TEST_SKYRIM_REFERENCE_FRAME_ROUNDTRIP():
+    """Skyrim keeps root motion in the behaviour project, except for dragon flight, whose
+    HKX has a reference frame like FO4's. A vertical takeoff rises 2048 units. It reads,
+    folds onto Root and back, and writes back, LE and SE (hk_2010 places the samples
+    array at +0x34 or +0x38)."""
+    _OUT_DIR.mkdir(parents=True, exist_ok=True)
+    src = str(_SKYRIM_DIR / "dragon" / "mttakeoffvertical.hkx")
+    orig = anim_skyrim.load_skyrim_animation(src)
+    assert TT.is_eq(len(orig.root_motion), orig.num_frames, "one sample per frame")
+    assert TT.is_equiv(orig.root_motion[-1], (0.0, 0.0, 2048.0, 0.0), "rises 2048 units", e=0.01)
+
+    anim = anim_skyrim.load_skyrim_animation(src)
+    assert TT.is_true(anim_fo4.fold_root_motion(anim), "folded onto NPC Root")
+    assert TT.is_true(anim_fo4.extract_root_motion(anim), "extracted again")
+    worst = max(abs(a - b) for sa, sb in zip(orig.root_motion, anim.root_motion)
+                for a, b in zip(sa, sb))
+    assert TT.is_lt(worst, 1e-3, f"samples come back ({worst})")
+
+    for ptr_size, label in ((4, "LE"), (8, "SE")):
+        out = str(_OUT_DIR / f"TEST_SKYRIM_REFERENCE_FRAME_ROUNDTRIP_{label}.hkx")
+        anim_skyrim.write_skyrim_animation(out, anim, ptr_size=ptr_size)
+        back = anim_skyrim.load_skyrim_animation(out)
+        assert TT.is_eq(len(back.root_motion), len(orig.root_motion), f"{label} samples written")
+        worst = max(abs(a - b) for sa, sb in zip(orig.root_motion, back.root_motion)
+                    for a, b in zip(sa, sb))
+        assert TT.is_lt(worst, 1e-3, f"{label} samples kept ({worst})")
+
+    # An animation without root motion still writes none.
+    tail = anim_skyrim.load_skyrim_animation(str(_SKYRIM_DIR / "canine" / "dog_idle_spice_tail1.hkx"))
+    assert TT.is_eq(tail.root_motion, [], "no reference frame")
+    out = str(_OUT_DIR / "TEST_SKYRIM_REFERENCE_FRAME_ROUNDTRIP_none.hkx")
+    anim_skyrim.write_skyrim_animation(out, tail)
+    assert TT.is_eq(anim_skyrim.load_skyrim_animation(out).root_motion, [], "none written")
+
+
 ALL_TESTS = [
+    TEST_FO4_REFERENCE_FRAME_ROUNDTRIP,
+    TEST_SKYRIM_REFERENCE_FRAME_ROUNDTRIP,
+    TEST_FO4_ROOT_MOTION_FOLD,
+    TEST_FO4_ROOT_MOTION_NO_ROOT_TRACK,
+    TEST_FO4_SYNC_OFFSET_ROUNDTRIP,
+    TEST_SPLINE_ROTATION_BITS,
     TEST_ANIM_BLOCK_OVERLAP,
     TEST_SKYRIM_FLOAT_TRACKS,
     TEST_READ_FO4_ANIM,

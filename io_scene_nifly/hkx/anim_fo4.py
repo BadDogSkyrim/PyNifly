@@ -100,6 +100,17 @@ class AnimationData:
     # 'LOSSLESS' (hkaLosslessCompressedAnimation, FO4), 'INTERLEAVED'
     # (hkaInterleavedUncompressedAnimation)
     compression: str = 'SPLINE'
+    # Spline rotation quantisation (Havok's enum): 1 THREECOMP40, 2 THREECOMP48. Read from
+    # the file; the writer writes 1 or 2.
+    rot_quant: int = 1
+
+    # Root motion (hkaDefaultAnimatedReferenceFrame): samples evenly spaced over the
+    # duration, each (x, y, z, w) = the actor's travel from frame 0 and its cumulative turn
+    # about Z in radians. Empty when there's none, or when fold_root_motion() has moved it
+    # onto the Root track.
+    root_motion: List[List[float]] = field(default_factory=list)
+    # Paired animations: the SyncAnimOffset local frame, (x, y, z, yaw in radians).
+    sync_offset: Optional[List[float]] = None
 
     # Float tracks: one value per frame for each, and the skeleton float slot each drives
     # (floatTrackToFloatSlotIndices). Skyrim's are the hkVis visibility switches; FO4
@@ -907,6 +918,140 @@ def _read_interleaved(data, data_abs, anim_rel, fixups, anim):
     return True
 
 
+def _read_reference_frame(data, data_abs, objects, fixups, anim):
+    """Root motion: hkaDefaultAnimatedReferenceFrame's samples, an hkArray of vec4 at
+    +0x48. (Up (0,0,1) at +0x20 and forward (0,1,0) at +0x30 in every vanilla file.)"""
+    rf_rel = next((rel for rel, cls in objects if cls == 'hkaDefaultAnimatedReferenceFrame'), None)
+    if rf_rel is None:
+        return
+    start, count = _hkarray_raw(data, data_abs, rf_rel, 0x48, fixups)
+    if start is not None:
+        anim.root_motion = [list(struct.unpack_from('<4f', data, start + 16 * i))
+                            for i in range(count)]
+
+
+def _read_sync_offset(data, data_abs, objects, anim):
+    """A paired animation's SyncAnimOffset: hkSimpleLocalFrame's hkTransform at +0x10,
+    three rotation columns then the translation. Vanilla's are all a yaw."""
+    rel = next((rel for rel, cls in objects if cls == 'hkSimpleLocalFrame'), None)
+    if rel is not None:
+        m = struct.unpack_from('<16f', data, data_abs + rel + 0x10)
+        anim.sync_offset = [m[12], m[13], m[14], math.atan2(m[1], m[0])]
+
+
+def _spline_rot_quant(data_blob, block_offsets, num_tracks):
+    """The rotation quantisation most of the first block's animated rotations use."""
+    counts = {}
+    if block_offsets:
+        for t in range(num_tracks):
+            b0, rot_flags = data_blob[block_offsets[0] + 4 * t], data_blob[block_offsets[0] + 4 * t + 1]
+            if rot_flags:
+                q = (b0 >> 2) & 0x0F
+                counts[q] = counts.get(q, 0) + 1
+    return max(counts, key=counts.get) if counts else 1
+
+
+def _writable_rot_quant(rot_quant):
+    """The writers have 40-bit (1) and 48-bit (2). The more precise formats (uncompressed)
+    go out 48-bit; the less precise go out 40-bit."""
+    return 2 if rot_quant in (2, 5) else 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Root motion: between the reference frame and the Root track
+# ═══════════════════════════════════════════════════════════════════════════════
+# The game places the actor by the reference frame M(t), a translation plus a turn about
+# Z, and Root's track is relative to that. So Root, in the actor's starting space, is
+# M(t) * Root(t). Quaternions are (x, y, z, w).
+
+def _qmul(a, b):
+    ax, ay, az, aw = a
+    bx, by, bz, bw = b
+    return [aw * bx + ax * bw + ay * bz - az * by,
+            aw * by - ax * bz + ay * bw + az * bx,
+            aw * bz + ax * by - ay * bx + az * bw,
+            aw * bw - ax * bx - ay * by - az * bz]
+
+
+def _qconj(q):
+    return [-q[0], -q[1], -q[2], q[3]]
+
+
+def _qrot(q, v):
+    return _qmul(_qmul(q, [v[0], v[1], v[2], 0.0]), _qconj(q))[:3]
+
+
+def _yaw_quat(w):
+    return [0.0, 0.0, math.sin(w / 2), math.cos(w / 2)]
+
+
+def _root_track_index(anim):
+    """The track bound to skeleton bone 0, Root; None if the animation doesn't have one."""
+    indices = anim.track_to_bone_indices
+    if indices:
+        return indices.index(0) if 0 in indices else None
+    return 0 if anim.tracks else None
+
+
+def _sample_at(samples, f, num_frames):
+    """The reference frame at frame f; samples are evenly spaced over the duration, and
+    some static ones have just two."""
+    n = len(samples)
+    if n == num_frames or n < 2 or num_frames < 2:
+        return samples[min(f, n - 1)]
+    u = f * (n - 1) / (num_frames - 1)
+    i = min(int(u), n - 2)
+    k = u - i
+    return [a + (b - a) * k for a, b in zip(samples[i], samples[i + 1])]
+
+
+def fold_root_motion(anim: AnimationData) -> bool:
+    """Move the root motion onto the Root track, so Root travels and turns as the actor
+    does in game. False, leaving the samples as they are, if there's no Root track."""
+    root = _root_track_index(anim)
+    if root is None or not anim.root_motion:
+        return False
+    track = anim.tracks[root]
+    for f in range(len(track.translations)):
+        x, y, z, w = _sample_at(anim.root_motion, f, anim.num_frames)
+        q = _yaw_quat(w)
+        t = _qrot(q, track.translations[f])
+        track.translations[f] = [x + t[0], y + t[1], z + t[2]]
+        track.rotations[f] = _qmul(q, track.rotations[f])
+    anim.root_motion = []
+    return True
+
+
+def extract_root_motion(anim: AnimationData) -> bool:
+    """The reverse of fold_root_motion, as Havok's exporter does it: Root's travel and turn
+    about Z since frame 0 become the root motion, and Root keeps the rest. False, leaving
+    anim as it is, if there's no Root track."""
+    root = _root_track_index(anim)
+    if root is None:
+        return False
+    track = anim.tracks[root]
+    if not track.rotations:
+        return False
+    q0, t0 = track.rotations[0], track.translations[0]
+    samples = []
+    prev = 0.0
+    for f in range(len(track.rotations)):
+        qf, tf = track.rotations[f], track.translations[f]
+        qm = _qmul(qf, _qconj(q0))
+        r = _qrot(qm, t0)
+        tm = [tf[0] - r[0], tf[1] - r[1], tf[2] - r[2]]
+        # Turn about Z: the twist part of qm, kept continuous so a full turn reaches 2 pi.
+        w = 2 * math.atan2(qm[2], qm[3])
+        w += 2 * math.pi * round((prev - w) / (2 * math.pi))
+        prev = w
+        samples.append([tm[0], tm[1], tm[2], w])
+        qi = _qconj(_yaw_quat(w))
+        track.translations[f] = _qrot(qi, [tf[0] - tm[0], tf[1] - tm[1], tf[2] - tm[2]])
+        track.rotations[f] = _qmul(qi, qf)
+    anim.root_motion = samples
+    return True
+
+
 def _parse_animation_hkx(data) -> Optional[AnimationData]:
     """Parse the animation (spline, lossless or interleaved) from a binary HKX file."""
     if data[:4] != _HKX_MAGIC:
@@ -1010,6 +1155,9 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
             anim.blend_hint = data[data_abs + rel + 0x50]
             break
 
+    _read_reference_frame(data, data_abs, objects, fixups, anim)
+    _read_sync_offset(data, data_abs, objects, anim)
+
     if compression != 'SPLINE':
         return anim
 
@@ -1019,6 +1167,7 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
         anim.num_blocks, anim.max_frames_per_block, block_offsets,
         mask_and_quant_size
     )
+    anim.rot_quant = _spline_rot_quant(data_blob, block_offsets, anim.num_tracks)
 
     return anim
 
@@ -2035,6 +2184,7 @@ _ANIM_CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0x60F8E0B8, 'hkaDefaultAnimatedReferenceFrame'),
     (0x0FAF9150, 'hkaAnimationBinding'),
     (0x1DE13A73, 'hkMemoryResourceContainer'),
+    (0x798ADF92, 'hkSimpleLocalFrame'),
 ]
 
 
@@ -2076,11 +2226,14 @@ class _FixupBuilder:
         return out
 
 
-def _build_anim_classnames() -> Tuple[bytes, Dict[str, int]]:
-    """Build __classnames__ section for animation HKX."""
+def _build_anim_classnames(sync_offset=False) -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for animation HKX. hkSimpleLocalFrame is listed only
+    for a paired animation, which has one."""
     data = b''
     name_offs: Dict[str, int] = {}
     for hash_val, name in _ANIM_CLASS_ENTRIES:
+        if name == 'hkSimpleLocalFrame' and not sync_offset:
+            continue
         name_offs[name] = len(data) + 5
         data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
     data = _pad16(data, fill=0xFF)
@@ -2219,8 +2372,8 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
         ll = _encode_lossless(anim)
         spline_blob, block_offsets = b'', []
     else:
-        # Compress the animation data (FO4 uses rot_quant=1, 40-bit quaternions)
-        spline_blob, block_offsets, _float_offsets = _compress_all_blocks(anim, rot_quant=1)
+        spline_blob, block_offsets, _float_offsets = _compress_all_blocks(
+            anim, rot_quant=_writable_rot_quant(anim.rot_quant))
 
     num_tracks = anim.num_tracks
     bone_names = anim.bone_names or [f"Bone{i}" for i in range(num_tracks)]
@@ -2230,11 +2383,12 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # ═══ hkRootLevelContainer (0x00) ═══
     rlc_rel = rel()
     fx.add_virtual(rlc_rel, 0, name_offs['hkRootLevelContainer'])
-    # namedVariants hkArray — 2 entries
-    arr_rlc = write(_hkarray(2))
+    # namedVariants hkArray — 2 entries, 3 with a paired animation's SyncAnimOffset
+    sync = anim.sync_offset is not None
+    arr_rlc = write(_hkarray(3 if sync else 2))
     align16()
 
-    # namedVariant data: 2 entries, each 0x18 bytes (name_ptr + class_ptr + variant_ptr)
+    # namedVariant data: each 0x18 bytes (name_ptr + class_ptr + variant_ptr)
     nv_data_rel = rel()
     fx.add_local(arr_rlc, nv_data_rel)
     # Variant 0: animation container
@@ -2245,6 +2399,11 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     nv1_name = write(bytes(8))
     nv1_class = write(bytes(8))
     nv1_variant = write(bytes(8))
+    # Variant 2: sync offset
+    if sync:
+        nv2_name = write(bytes(8))
+        nv2_class = write(bytes(8))
+        nv2_variant = write(bytes(8))
     align16()
 
     # Variant strings
@@ -2252,6 +2411,9 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     nv0_class_str = write_string("hkaAnimationContainer")
     nv1_name_str = write_string("Resource Data")
     nv1_class_str = write_string("hkMemoryResourceContainer")
+    if sync:
+        fx.add_local(nv2_name, write_string("SyncAnimOffset"))
+        fx.add_local(nv2_class, write_string("hkSimpleLocalFrame"))
     align16()
 
     # Fixups for variant name/class strings (local)
@@ -2449,15 +2611,17 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     # +0x40: duration
     struct.pack_into('<f', ref_hdr, 0x40, anim.duration)
     # +0x48: referenceFrameSamples hkArray
-    n_samples = anim.num_frames
+    samples = anim.root_motion or [[0.0] * 4] * anim.num_frames
+    n_samples = len(samples)
     struct.pack_into('<I', ref_hdr, 0x48 + 8, n_samples)
     struct.pack_into('<I', ref_hdr, 0x48 + 12, n_samples | 0x80000000)
     write(bytes(ref_hdr))
 
-    # referenceFrameSamples data (vec4 per sample, all zeros = no root motion)
+    # referenceFrameSamples data: vec4 (x, y, z, turn) per sample, all zeros = no motion
     ref_samples_rel = rel()
     fx.add_local(ref_frame_rel + 0x48, ref_samples_rel)
-    write(bytes(16 * n_samples))
+    for s in samples:
+        write(struct.pack('<4f', *s))
     align16()
 
     # ═══ hkaAnimationBinding ═══
@@ -2505,6 +2669,20 @@ def _build_anim_data_section(anim: AnimationData, name_offs: Dict[str, int]) -> 
     write(bytes(mrc_buf))
     align16()
 
+    # ═══ hkSimpleLocalFrame (paired animations' SyncAnimOffset) ═══
+    # base(16), +0x10 hkTransform (3 rotation columns, translation), +0x50 children
+    # hkArray, then null parentFrame, group and name pointers: 0x80 bytes.
+    if sync:
+        slf_rel = rel()
+        fx.add_virtual(slf_rel, 0, name_offs['hkSimpleLocalFrame'])
+        fx.add_global(nv2_variant, 2, slf_rel)
+        x, y, z, yaw = anim.sync_offset
+        c, s = math.cos(yaw), math.sin(yaw)
+        slf = bytearray(0x80)
+        struct.pack_into('<16f', slf, 0x10, c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, x, y, z, 0)
+        struct.pack_into('<I', slf, 0x5C, 0x80000000)  # children cap: DONT_DEALLOCATE
+        write(bytes(slf))
+
     return bytes(data), fx
 
 
@@ -2524,7 +2702,7 @@ def write_fo4_animation(filepath: str, anim: AnimationData) -> None:
     _set_block_layout(anim)
 
     # Build sections
-    cn_data, name_offs = _build_anim_classnames()
+    cn_data, name_offs = _build_anim_classnames(anim.sync_offset is not None)
     obj_data, fx = _build_anim_data_section(anim, name_offs)
 
     local_tbl = fx.build_local_table()

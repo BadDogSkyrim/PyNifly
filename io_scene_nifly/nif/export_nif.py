@@ -918,7 +918,10 @@ class NifExporter:
             self.inv_marker = obj
 
         elif obj.type == 'EMPTY':
-            if obj.get('pynRigidBody') == 'bhkPhysicsSystem':
+            if obj.get('pynHkxSyncOffset'):
+                pass  # A paired HKX animation's sync offset: HKX export writes it
+
+            elif obj.get('pynRigidBody') == 'bhkPhysicsSystem':
                 pass  # Multi-shape collision container: exported via COPY_TRANSFORMS on target
 
             elif obj.name.startswith("BSBehaviorGraphExtraData"):

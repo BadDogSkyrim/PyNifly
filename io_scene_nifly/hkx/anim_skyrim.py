@@ -28,6 +28,7 @@ try:
     from .anim_fo4 import (
         AnimationData, Annotation, BonePose, Skeleton, TrackData,
         _decompress_spline, _parse_skeleton_xml, _parse_animation_xml,
+        _spline_rot_quant, _writable_rot_quant,
         _read_null_string,
         _compress_all_blocks, _set_block_layout, _decode_float_tracks,
         _write_48bit_quat, _write_40bit_quat,
@@ -39,6 +40,7 @@ except ImportError:
     from anim_fo4 import (
         AnimationData, Annotation, BonePose, Skeleton, TrackData,
         _decompress_spline, _parse_skeleton_xml, _parse_animation_xml,
+        _spline_rot_quant, _writable_rot_quant,
         _read_null_string,
         _compress_all_blocks, _set_block_layout, _decode_float_tracks,
         _write_48bit_quat, _write_40bit_quat,
@@ -277,6 +279,27 @@ def _read_interleaved(data, data_abs, anim_rel, o_transforms, fixups, ptr_size, 
     return True
 
 
+def _reference_frame_layout(ptr_size):
+    """hkaDefaultAnimatedReferenceFrame (hk_2010): base, up (+0x10), forward (+0x20),
+    duration (+0x30), then the samples hkArray. Returns (samples offset, struct size)."""
+    o_samples = 0x34 if ptr_size == 4 else 0x38
+    return o_samples, _align(o_samples + ptr_size + 8, 16)
+
+
+def _read_reference_frame(data, data_abs, objects, fixups, ptr_size, anim):
+    """Root motion. In Skyrim only dragon flight has it: the rest is in the behaviour
+    project."""
+    rf_rel = next((rel for rel, cls in objects if cls == 'hkaDefaultAnimatedReferenceFrame'), None)
+    if rf_rel is None:
+        return
+    o_samples, _ = _reference_frame_layout(ptr_size)
+    count = _u32(data, data_abs + rf_rel + o_samples + ptr_size)
+    content = fixups.get(rf_rel + o_samples)
+    if content is not None:
+        anim.root_motion = [list(struct.unpack_from('<4f', data, data_abs + content + 16 * i))
+                            for i in range(count)]
+
+
 def _parse_animation_hkx(data) -> Optional[AnimationData]:
     """Parse the animation (spline-compressed or interleaved uncompressed) from a Skyrim
     binary HKX file.
@@ -432,6 +455,8 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
             anim.blend_hint = _u32(data, data_abs + rel + blend_hint_off)
             break
 
+    _read_reference_frame(data, data_abs, objects, fixups, ptr_size, anim)
+
     if anim_cls == _INTERLEAVED:
         return anim
 
@@ -441,6 +466,7 @@ def _parse_animation_hkx(data) -> Optional[AnimationData]:
         anim.num_blocks, anim.max_frames_per_block, block_offsets,
         mask_and_quant_size
     )
+    anim.rot_quant = _spline_rot_quant(data_blob, block_offsets, anim.num_tracks)
     if num_float_tracks and float_block_offsets:
         anim.float_tracks = _decode_float_tracks(
             data_blob, anim.num_tracks, num_float_tracks, anim.num_frames,
@@ -693,6 +719,7 @@ _ANIM_CLASS_ENTRIES_V8: List[Tuple[int, str]] = [
     (0x930AF031, 'hkaInterleavedUncompressedAnimation'),
     (0x66EAC971, 'hkaAnimationBinding'),
     (0x4762F92A, 'hkMemoryResourceContainer'),
+    (0x6D85E445, 'hkaDefaultAnimatedReferenceFrame'),
 ]
 
 
@@ -718,11 +745,14 @@ def _ptr(ptr_size: int) -> bytes:
     return bytes(ptr_size)
 
 
-def _build_anim_classnames_v8() -> Tuple[bytes, Dict[str, int]]:
-    """Build __classnames__ section for a Skyrim animation HKX."""
+def _build_anim_classnames_v8(root_motion=False) -> Tuple[bytes, Dict[str, int]]:
+    """Build __classnames__ section for a Skyrim animation HKX. The reference frame class
+    is listed only for an animation with root motion, as vanilla does."""
     data = b''
     name_offs: Dict[str, int] = {}
     for hash_val, name in _ANIM_CLASS_ENTRIES_V8:
+        if name == 'hkaDefaultAnimatedReferenceFrame' and not root_motion:
+            continue
         name_offs[name] = len(data) + 5
         data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
     data = _pad16(data, fill=0xFF)
@@ -819,7 +849,7 @@ def _build_anim_data_section(anim: AnimationData,
     interleaved = anim.compression in ('INTERLEAVED', 'LOSSLESS')
     if not interleaved:
         spline_blob, block_offsets, float_block_offsets = _compress_all_blocks(
-            anim, rot_quant=1, include_floats=True)
+            anim, rot_quant=_writable_rot_quant(anim.rot_quant), include_floats=True)
     num_float = len(anim.float_tracks)
 
     num_tracks = anim.num_tracks
@@ -1053,8 +1083,24 @@ def _build_anim_data_section(anim: AnimationData,
         write(spline_blob)
         align16()
 
-    # extractedMotion left as null pointer (no fixup) — vanilla Skyrim
-    # idle animations don't use extracted motion reference frames.
+    # extractedMotion: only when there's root motion (dragon flight). Other Skyrim
+    # animations leave it null; their motion is in the behaviour project.
+    if anim.root_motion:
+        o_samples, rf_size = _reference_frame_layout(P)
+        rf_rel = rel()
+        fx.add_virtual(rf_rel, 0, name_offs['hkaDefaultAnimatedReferenceFrame'])
+        fx.add_global(anim_obj_rel + o_extr_motion, 2, rf_rel)
+        rf = bytearray(rf_size)
+        struct.pack_into('<4f', rf, 0x10, 0.0, 0.0, 1.0, 0.0)   # up
+        struct.pack_into('<4f', rf, 0x20, 0.0, 1.0, 0.0, 0.0)   # forward
+        struct.pack_into('<f', rf, 0x30, anim.duration)
+        pack_arr_at(rf, o_samples, len(anim.root_motion))
+        write(bytes(rf))
+        samples_rel = rel()
+        fx.add_local(rf_rel + o_samples, samples_rel)
+        for smp in anim.root_motion:
+            write(struct.pack('<4f', *smp))
+        align16()
 
     # ═══ hkaAnimationBinding ═══
     # base(base_sz) + originalSkeletonName(P) + animation(P)
@@ -1143,7 +1189,7 @@ def write_skyrim_animation(filepath: str, anim: AnimationData,
     _set_block_layout(anim)
 
     # Build sections
-    cn_data, name_offs = _build_anim_classnames_v8()
+    cn_data, name_offs = _build_anim_classnames_v8(bool(anim.root_motion))
     obj_data, fx = _build_anim_data_section(anim, name_offs, ptr_size)
 
     local_tbl = fx.build_local_table()

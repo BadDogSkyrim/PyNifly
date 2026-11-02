@@ -3427,6 +3427,158 @@ def TEST_SKYRIMSE_ANIM_EXPORT():
     assert TT.is_eq(rot_quant, 1, "Skyrim uses rot_quant=1 (40-bit), not 2 (48-bit)")
 
 
+def _import_fo4_hkx(anim_file):
+    """Import the FO4 HKX skeleton, then anim_file onto it. Returns (armature, original
+    AnimationData)."""
+    from io_scene_nifly.hkx import anim_fo4
+    hkx_skel = TTB.test_file(r"tests\FO4\Animations\skeleton.hkx")
+    hkx_anim = TTB.test_file(anim_file)
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False, blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False, blender_xf=False)
+    return arma, anim_fo4.load_fo4_animation(hkx_anim)
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_ROOT_MOTION():
+    """FO4 root motion goes on the Root bone: a run runs across the scene. Export takes it
+    off Root again, as Havok's exporter does, and writes it as the reference frame.
+
+    The file's Root track is static, and its reference frame carries the travel (116 units
+    forward). Export wrote all zeros, so every moving animation lost its motion."""
+    from io_scene_nifly.hkx import anim_fo4
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_HKX_ROOT_MOTION.hkx")
+    arma, orig = _import_fo4_hkx(r"tests\FO4\Animations\run_forward_to_idle.hkx")
+    action = arma.animation_data.action
+
+    root = arma.pose.bones['Root']
+    bpy.context.scene.frame_set(1)
+    start = root.head.copy()
+    bpy.context.scene.frame_set(orig.num_frames)
+    travel = root.head - start
+    TT.assert_equiv(travel, orig.root_motion[-1][:3], "Root travels with the actor", e=0.1)
+    TT.assert_eq(action.pyn_hkx.rotation_bits, '40', "40-bit rotations recorded")
+
+    action.pyn_hkx.rotation_bits = '48'
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_fo4.load_fo4_animation(outfile)
+    TT.assert_eq(out.rot_quant, 2, "48-bit rotations written")
+    TT.assert_eq(len(out.root_motion), out.num_frames, "a sample per frame")
+    worst = max(abs(a - b) for sa, sb in zip(orig.root_motion, out.root_motion)
+                for a, b in zip(sa, sb))
+    assert TT.is_lt(worst, 0.05, f"root motion written back ({worst:.4f})")
+    r = out.tracks[out.track_to_bone_indices.index(0)]
+    spread = max(abs(a - b) for t in r.translations for a, b in zip(t, r.translations[0]))
+    assert TT.is_lt(spread, 0.05, f"Root track static again ({spread:.4f})")
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_ROOT_MOTION_TURN():
+    """A full turn on the spot: Root turns -360 degrees in Blender, and export writes the
+    turn back as a cumulative -2 pi, not wrapped to 0."""
+    from io_scene_nifly.hkx import anim_fo4
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_HKX_ROOT_MOTION_TURN.hkx")
+    arma, orig = _import_fo4_hkx(r"tests\FO4\Animations\RifleIdleAltTurnAroundFull_01.hkx")
+    root = arma.pose.bones['Root']
+    bpy.context.scene.frame_set(orig.num_frames // 2 + 1)
+    half = orig.root_motion[orig.num_frames // 2][3]
+    yaw = root.matrix.to_euler().z
+    err = abs((yaw - half + math.pi) % (2 * math.pi) - math.pi)
+    assert TT.is_lt(err, 0.01, f"Root turned halfway ({yaw:.3f} vs {half:.3f})")
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_fo4.load_fo4_animation(outfile)
+    TT.assert_equiv(out.root_motion[-1][3], -2 * math.pi, "cumulative turn", e=0.01)
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_ROOT_MOTION_NO_ROOT():
+    """An additive weapon animation has root-motion samples but no Root track. The action
+    keeps them and export writes them back."""
+    from io_scene_nifly.hkx import anim_fo4
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_HKX_ROOT_MOTION_NO_ROOT.hkx")
+    arma, orig = _import_fo4_hkx(r"tests\FO4\Animations\WPNFireSingleAdditive.hkx")
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_fo4.load_fo4_animation(outfile)
+    TT.assert_eq(0 in out.track_to_bone_indices, False, "still no Root track")
+    worst = max(abs(a - b) for sa, sb in zip(orig.root_motion, out.root_motion)
+                for a, b in zip(sa, sb))
+    assert TT.is_lt(worst, 1e-4, f"samples written back ({worst})")
+
+
+@TT.category('FO4', 'HKX')
+def TEST_FO4_HKX_SYNC_OFFSET():
+    """A paired animation's sync offset is an Empty, child of the armature, that the action
+    points to. Moving the Empty moves the exported offset; nif export ignores it."""
+    from io_scene_nifly.hkx import anim_fo4
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_HKX_SYNC_OFFSET.hkx")
+    nif_out = TTB.test_file(r"tests\Out\TEST_FO4_HKX_SYNC_OFFSET.nif")
+    arma, orig = _import_fo4_hkx(
+        r"tests\FO4\Animations\Paired\PairedKillH2HSlideTackle_Victim.hkx")
+    action = arma.animation_data.action
+    marker = action.pyn_hkx.sync_offset
+    assert TT.is_true(marker is not None, "action points to its sync offset")
+    TT.assert_eq(marker.parent, arma, "the Empty is the armature's child")
+    TT.assert_equiv(marker.location, orig.sync_offset[:3], "Empty at the offset", e=0.01)
+    yaw_err = abs((marker.rotation_euler.z - orig.sync_offset[3] + math.pi) % (2 * math.pi)
+                  - math.pi)
+    assert TT.is_lt(yaw_err, 0.001, "Empty turned as the offset")
+
+    marker.location.x += 10
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_fo4.load_fo4_animation(outfile)
+    expect = [orig.sync_offset[0] + 10] + list(orig.sync_offset[1:])
+    TT.assert_equiv(out.sync_offset[:3], expect[:3], "moved Empty, moved offset", e=0.01)
+
+    # Nif export of the armature and everything under it writes no node for the Empty.
+    bpy.ops.mesh.primitive_cube_add()
+    cube = bpy.context.object
+    cube.parent = arma
+    BD.ObjectSelect([arma, cube, marker], active=True)
+    bpy.ops.export_scene.pynifly(filepath=nif_out, target_game='FO4')
+    nif = pyn.NifFile(nif_out)
+    TT.assert_eq([n for n in nif.nodes if 'SyncAnimOffset' in n], [], "no node for the Empty")
+
+
+@TT.category('SKYRIM', 'HKX')
+def TEST_SKYRIM_HKX_DRAGON_ROOT_MOTION():
+    """Skyrim dragon flight has root motion in the HKX, like FO4: a vertical takeoff's NPC
+    Root rises 2048 units in Blender, and export writes it back as the reference frame.
+    Other Skyrim animations keep a moving Root in its track (motion lives in the behaviour
+    project), so the action records that this one extracts."""
+    from io_scene_nifly.hkx import anim_skyrim
+    hkx_skel = TTB.test_file(r"tests\Skyrim\dragon\dragon_skeleton.hkx")
+    hkx_anim = TTB.test_file(r"tests\Skyrim\dragon\mttakeoffvertical.hkx")
+    outfile = TTB.test_file(r"tests\Out\TEST_SKYRIM_HKX_DRAGON_ROOT_MOTION.hkx")
+    orig = anim_skyrim.load_skyrim_animation(hkx_anim)
+
+    bpy.context.scene.render.fps = 30
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_skel, rename_bones=False, blender_xf=False)
+    arma = next(a for a in bpy.data.objects if a.type == 'ARMATURE')
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.import_scene.pynifly_hkx(filepath=hkx_anim, rename_bones=False, blender_xf=False)
+    action = arma.animation_data.action
+    TT.assert_eq(action.pyn_hkx.root_motion, 'EXTRACT', "action extracts root motion")
+
+    root = arma.pose.bones['NPC Root [Root]']
+    bpy.context.scene.frame_set(1)
+    start = root.head.copy()
+    bpy.context.scene.frame_set(orig.num_frames)
+    TT.assert_equiv(root.head - start, (0, 0, 2048), "NPC Root rises", e=0.5)
+
+    BD.ObjectSelect([arma], active=True)
+    bpy.ops.export_scene.pynifly_hkx(filepath=outfile)
+    out = anim_skyrim.load_skyrim_animation(outfile)
+    TT.assert_eq(len(out.root_motion), out.num_frames, "reference frame written")
+    TT.assert_equiv(out.root_motion[-1], orig.root_motion[-1], "rise written back", e=0.5)
+
+
 def _hkx_track_rotations(anim, skel_bones):
     """{bone name: per-frame rotations (xyzw)} for an HKX animation, naming the tracks
     from the binding against the skeleton's bone list."""

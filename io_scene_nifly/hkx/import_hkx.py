@@ -460,11 +460,16 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                       "Import the skeleton HKX first to create the armature.")
             return 'CANCELLED'
 
+        _fold_root_motion(anim_data, bone_names, armature)
+
         # ── Create Blender action ──
         self.fps = _match_scene_fps(context, anim_data)
         anim_name = self.hkx_filepath.stem
         apply_fo4_animation(armature, anim_data, bone_names, anim_name,
                             self.fps, self.rename_bones, self.rename_bones_niftools)
+        if anim_data.sync_offset is not None:
+            hkx_props.add_sync_offset(armature.animation_data.action, armature,
+                                      *anim_data.sync_offset)
 
         # ── Extend scene frame range to cover animation ──
         context.scene.frame_start = min(context.scene.frame_start, 1)
@@ -677,11 +682,17 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
                       "Import the skeleton HKX first to create the armature.")
             return 'CANCELLED'
 
+        # Dragon flight: the only Skyrim animations with root motion in the HKX.
+        has_root_motion = bool(anim_data.root_motion)
+        _fold_root_motion(anim_data, bone_names, armature)
+
         self.fps = _match_scene_fps(context, anim_data)
         anim_name = self.hkx_filepath.stem
         apply_fo4_animation(armature, anim_data, bone_names, anim_name,
                             self.fps, self.rename_bones, self.rename_bones_niftools,
                             bone_dict=skyrimDict)
+        if has_root_motion:
+            armature.animation_data.action.pyn_hkx.root_motion = 'EXTRACT'
 
         _apply_float_tracks(armature, anim_data)
 
@@ -740,6 +751,28 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
             return skel_bones[:anim_data.num_tracks]
 
         return None
+
+
+# Root motion past this many game units from the start is broken data, not travel: three
+# vanilla Stand_to_Run_L180 files have values in the millions.
+_ROOT_MOTION_LIMIT = 100000.0
+
+
+def _fold_root_motion(anim_data, bone_names, armature):
+    """Put the root motion on the Root bone, so the animation travels and turns in Blender
+    as the actor does in game. With no Root track, or no Root bone in the armature, the
+    samples stay on anim_data, for the action to keep and export to write back."""
+    if any(abs(v) > _ROOT_MOTION_LIMIT for s in anim_data.root_motion for v in s[:3]):
+        log.warning(f"Root motion is out of range (over {_ROOT_MOTION_LIMIT:g} units); "
+                    "ignoring it")
+        anim_data.root_motion = []
+        return
+    root = anim_fo4._root_track_index(anim_data)
+    if root is None or root >= len(bone_names):
+        return
+    lower = {pb.name.lower() for pb in armature.pose.bones}
+    if bone_names[root].lower() in lower:
+        anim_fo4.fold_root_motion(anim_data)
 
 
 def _bone_rest_local(bone):
@@ -1192,7 +1225,16 @@ def extract_fo4_animation(armature, fps=None, skeleton=None, game=None):
         original_skeleton_name="Root",
         blend_hint=blend_hint,
         compression=hkx_props.file_compression(action),
+        rot_quant=2 if action.pyn_hkx.rotation_bits == '48' else 1,
     )
+    if game == 'FO4':
+        anim_out.sync_offset = hkx_props.sync_offset_for(action, armature)
+    # Root's travel and turn become the root motion, as import put them there. With no
+    # Root bone written, the action's stored samples go back as they came.
+    if hkx_props.extracts_root_motion(action, game):
+        if not (0 in keep and track_pb_names[0] is not None
+                and anim_fo4.extract_root_motion(anim_out)):
+            anim_out.root_motion = hkx_props.stored_root_motion(action)
     anim_out.annotations = _read_annotations(
         action, frame_start, frame_end, blender_fps)
     # Float tracks (Skyrim's float slots; FO4 skeletons have none), sampled at the same

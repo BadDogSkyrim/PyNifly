@@ -12,6 +12,11 @@ import bpy
 BLEND_HINT_NORMAL = 0
 BLEND_HINT_ADDITIVE = {'SKYRIM': 1, 'FO4': 2}
 
+# Custom properties: on a sync-offset Empty, marking it (nif export skips it); on an action,
+# root-motion samples import had no Root bone to put on, written back as they were.
+SYNC_OFFSET_TAG = 'pynHkxSyncOffset'
+ROOT_MOTION_PROP = 'PYN_HKX_ROOT_MOTION'
+
 
 class PynHkxActionProps(bpy.types.PropertyGroup):
     blend: bpy.props.EnumProperty(
@@ -39,6 +44,30 @@ class PynHkxActionProps(bpy.types.PropertyGroup):
                 "Exact values, every bone every frame (interleaved). Not used by vanilla "
                 "animations; some modded creatures have it")],
         default='SPLINE')
+    rotation_bits: bpy.props.EnumProperty(
+        name="Rotation bits",
+        description="Precision of spline-compressed rotations",
+        items=[('40', "40-bit", "What vanilla animations mostly use"),
+               ('48', "48-bit", "More precise; for jitter on fine motion, such as weapons")],
+        default='40')
+    root_motion: bpy.props.EnumProperty(
+        name="Root motion",
+        description="Where the Root bone's travel and turn go on export",
+        items=[('AUTO', "Game default",
+                "FO4: the reference frame. Skyrim: Root's own track (Skyrim keeps root "
+                "motion in the behaviour project)"),
+               ('EXTRACT', "Reference frame",
+                "Root's travel and turn about Z become the reference frame, which moves the "
+                "actor; Root's track keeps the rest. Skyrim's dragon flight does this"),
+               ('KEEP', "Root bone", "Root's track keeps all its motion")],
+        default='AUTO')
+    sync_offset: bpy.props.PointerProperty(
+        name="Sync offset",
+        description="Paired animations: an Empty, child of the armature, placing this "
+                    "actor relative to its partner. Its location and turn about Z are "
+                    "the offset",
+        type=bpy.types.Object,
+        poll=lambda self, obj: obj.type == 'EMPTY')
 
 
 # AnimationData.compression (the file's animation class) -> the action's setting
@@ -53,6 +82,47 @@ def set_from_file(action, anim_data, partial):
     action.pyn_hkx.blend_hint_raw = blend_hint
     action.pyn_hkx.tracks = 'KEYED' if partial else 'ALL'
     action.pyn_hkx.compression = _COMPRESSION.get(anim_data.compression, 'SPLINE')
+    action.pyn_hkx.rotation_bits = '48' if anim_data.rot_quant in (2, 5) else '40'
+    if any(abs(v) > 1e-6 for s in anim_data.root_motion for v in s):
+        action[ROOT_MOTION_PROP] = [v for s in anim_data.root_motion for v in s]
+
+
+def extracts_root_motion(action, game):
+    """Whether export takes the root motion off Root, for this action and game."""
+    setting = action.pyn_hkx.root_motion
+    return setting == 'EXTRACT' or (setting == 'AUTO' and game == 'FO4')
+
+
+def stored_root_motion(action):
+    """Root-motion samples kept on the action because import had no Root bone for them."""
+    flat = list(action.get(ROOT_MOTION_PROP, []))
+    return [flat[i:i + 4] for i in range(0, len(flat) - 3, 4)]
+
+
+def add_sync_offset(action, armature, x=0.0, y=0.0, z=0.0, yaw=0.0):
+    """Create the action's sync-offset Empty under the armature and point the action to it."""
+    empty = bpy.data.objects.new(f"{action.name} SyncAnimOffset", None)
+    empty.empty_display_type = 'ARROWS'
+    empty.empty_display_size = 20.0
+    empty[SYNC_OFFSET_TAG] = True
+    for coll in armature.users_collection:
+        coll.objects.link(empty)
+    empty.parent = armature
+    empty.location = (x, y, z)
+    empty.rotation_euler = (0.0, 0.0, yaw)
+    action.pyn_hkx.sync_offset = empty
+    return empty
+
+
+def sync_offset_for(action, armature):
+    """The action's sync offset as (x, y, z, yaw), relative to the armature; None if the
+    action has none."""
+    empty = action.pyn_hkx.sync_offset
+    if empty is None:
+        return None
+    m = armature.matrix_world.inverted() @ empty.matrix_world
+    t = m.to_translation()
+    return [t.x, t.y, t.z, m.to_euler().z]
 
 
 def file_compression(action):
@@ -105,9 +175,33 @@ class PYN_PT_hkx_action(bpy.types.Panel):
         col.prop(grp, 'blend')
         col.prop(grp, 'tracks')
         col.prop(grp, 'compression')
+        if grp.compression == 'SPLINE':
+            col.prop(grp, 'rotation_bits')
+        col.prop(grp, 'root_motion')
+        row = col.row(align=True)
+        row.prop(grp, 'sync_offset')
+        if grp.sync_offset is None:
+            row.operator(PYN_OT_add_sync_offset.bl_idname, text="", icon='ADD')
 
 
-_classes = (PynHkxActionProps, PYN_PT_hkx_action)
+class PYN_OT_add_sync_offset(bpy.types.Operator):
+    """Add a sync-offset Empty for this paired animation, at the armature's origin"""
+    bl_idname = "pynifly.hkx_add_sync_offset"
+    bl_label = "Add Sync Offset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return (obj is not None and obj.type == 'ARMATURE'
+                and PYN_PT_hkx_action._action(context) is not None)
+
+    def execute(self, context):
+        add_sync_offset(PYN_PT_hkx_action._action(context), context.active_object)
+        return {'FINISHED'}
+
+
+_classes = (PynHkxActionProps, PYN_OT_add_sync_offset, PYN_PT_hkx_action)
 
 
 def register():
