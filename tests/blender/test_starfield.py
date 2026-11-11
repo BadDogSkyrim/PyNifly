@@ -205,6 +205,46 @@ def TEST_SF_IMPORT():
 
 
 @TT.category('STARFIELD', 'GEOMETRY')
+@TT.expect_errors(('the extra weights are dropped',))
+def TEST_SF_WEIGHTS_PER_VERTEX_WARNS():
+    """Export says when Weights per vertex throws weights away.
+
+    Import records each shape's own influence count, and a vanilla eye has one. A crowd head
+    made by joining the head and arms INTO the eye keeps the eye's 1, and exports with every
+    vertex on a single bone: the head warps in game, and nothing said why -- twice. A cap at
+    or above the mesh's own count, or 0 (auto), says nothing."""
+    import logging
+    messages = []
+
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    bpy.ops.import_scene.pynifly(filepath=TTB.test_file(r"tests\SF\meshes\naked_f.nif"))
+    body = TTB.find_shape("Naked_F:0")
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_WEIGHTS_PER_VERTEX_WARNS.nif")
+
+    def export(cap):
+        body.pyn_sf_geometry.weights_per_vertex = cap
+        messages.clear()
+        handler = _Cap(level=logging.WARNING)
+        logging.getLogger("pynifly").addHandler(handler)
+        try:
+            BD.ObjectSelect([body], active=True)
+            bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+        finally:
+            logging.getLogger("pynifly").removeHandler(handler)
+        return [m for m in messages if 'weights per vertex' in m.lower()]
+
+    warned = export(1)
+    assert TT.is_eq(len(warned), 1, f"one warning at a cap of 1 (saw {messages[:4]})")
+    assert TT.is_true(body.name in warned[0] and 'up to 6' in warned[0],
+                      f"names the object and its real count: {warned[0]}")
+    assert TT.is_eq(export(6), [], "a cap of the mesh's own 6 drops nothing")
+    assert TT.is_eq(export(0), [], "auto drops nothing")
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
 def TEST_SF_EXPORT_DEFAULT_FLAGS():
     """A BSGeometry made from a plain Blender mesh gets flags 14, what vanilla uses.
 
@@ -565,6 +605,59 @@ def TEST_SF_LOD_NEW():
     counts = [n for n, _ in _sf_slot_meshes(outfile, shape)]
     assert TT.is_true(counts[0] >= n0 and n1 <= counts[1] < counts[0],
                       f"LOD0 then the smaller LOD1 ({counts}; Blender {n0}, {n1})")
+
+
+@TT.category('STARFIELD', 'GEOMETRY')
+def TEST_SF_LOD_FILE_KEYS():
+    """Each body type's nif carries that body type in every LOD slot, not just LOD0.
+
+    A crowd head's _thin and _overweight keys write their own nifs. The further LOD slots were
+    always read from the plain shape, so a thin crowd NPC's head went average at a distance. A
+    LOD with the key exports it; a LOD without it falls back to the plain shape."""
+    outfile = TTB.test_file(r"tests\Out\TEST_SF_LOD_FILE_KEYS\meshes\Rock.nif")
+    outdir = os.path.dirname(os.path.dirname(outfile))
+    if os.path.exists(outdir):
+        shutil.rmtree(outdir)
+    os.makedirs(os.path.dirname(outfile))
+
+    def lod(name, make):
+        make()
+        obj = bpy.context.object
+        obj.name = name
+        obj.shape_key_add(name='Basis')
+        return obj
+
+    lod0 = lod("Rock:LOD0", lambda: bpy.ops.mesh.primitive_uv_sphere_add(segments=16, ring_count=8, radius=10))
+    lod1 = lod("Rock:LOD1", lambda: bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=2, radius=10))
+    lod2 = lod("Rock:LOD2", lambda: bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=1, radius=10))
+    for obj in (lod0, lod1, lod2):
+        obj.shape_key_add(name='_')
+    for obj in (lod0, lod1):          # LOD2 has no _thin: it stays plain
+        sk = obj.shape_key_add(name='_thin')
+        for p in sk.data:
+            p.co.x *= 0.5
+
+    BD.ObjectSelect([lod0, lod1, lod2], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SF', intuit_defaults=False)
+
+    def widths(name):
+        path = os.path.join(os.path.dirname(outfile), name)
+        shape = pyn.NifFile(path).shapes[0]
+        out = []
+        for slot, p in enumerate(shape.mesh_paths()):
+            with open(os.path.join(outdir, 'geometries', p + '.mesh'), 'rb') as f:
+                assert shape.load_mesh(f.read(), slot), f"{name} slot {slot} loads"
+            xs = [v[0] for v in shape.verts]
+            out.append(max(xs) - min(xs))
+        return out
+
+    plain, thin = widths('Rock.nif'), widths('Rock_thin.nif')
+    assert TT.is_eq(len(thin), 3, "three slots")
+    for slot in (0, 1):
+        assert TT.is_true(thin[slot] < 0.6 * plain[slot],
+                          f"slot {slot} of the thin nif is thin ({thin[slot]:.2f} vs {plain[slot]:.2f})")
+    assert TT.is_true(abs(thin[2] - plain[2]) < 0.01 * plain[2],
+                      f"LOD2 has no _thin key, so it stays plain ({thin[2]:.2f} vs {plain[2]:.2f})")
 
 
 @TT.category('STARFIELD', 'GEOMETRY')

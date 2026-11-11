@@ -1639,6 +1639,22 @@ class NifExporter:
         return [tuple(c) for c in colors.tolist()]
 
 
+    def _warn_dropped_weights(self, obj, mesh, arma, cap):
+        """Say when a Starfield shape's Weights per vertex is below what its vertices carry.
+
+        Import records each shape's own count, and a vanilla eye's is 1: a mesh joined INTO an
+        eye keeps that, and its export puts every vertex on one bone with no word why."""
+        bones = set(arma.data.bones.keys())
+        in_arma = [g.name in bones for g in obj.vertex_groups]
+        counts = [sum(1 for g in v.groups
+                      if g.weight > 0 and g.group < len(in_arma) and in_arma[g.group])
+                  for v in mesh.vertices]
+        over = sum(1 for n in counts if n > cap)
+        if over:
+            log.warning(f"{obj.name}: weights per vertex is {cap}, but {over} vertices have "
+                        f"more, up to {max(counts)}; the extra weights are dropped. Set "
+                        f"Starfield Geometry > weights per vertex to 0 (auto) to keep them.")
+
     def extract_mesh_data(self, obj, arma, target_key):
         """ 
         Extract the triangularized mesh data from the given object
@@ -1684,6 +1700,8 @@ class NifExporter:
             sfg = getattr(obj, 'pyn_sf_geometry', None)
             recorded = getattr(sfg, 'weights_per_vertex', 0) if sfg else 0
             max_weights = recorded if recorded > 0 else SF_MAX_WEIGHTS_PER_VERTEX
+            if 0 < recorded and arma is not None:
+                self._warn_dropped_weights(obj, editmesh, arma, recorded)
         verts, weights_by_vert, morphdict \
             = extract_vert_info(obj1, editmesh, arma, target_key, self.scale, max_weights)
     
@@ -2135,11 +2153,18 @@ class NifExporter:
         return recentered, morphdict, new_xform
 
 
-    def _sf_lod_data(self, obj, arma, lead_xform, obj_space_normals):
+    def _sf_lod_data(self, obj, arma, lead_xform, obj_space_normals, target_key=''):
         """The geometry of a further Starfield LOD object, ready for a slot of its LOD0's
         BSGeometry: a dict of obj, verts, uvs, norms, tris, colors, weights. Verts are moved
         into LOD0's space if the object sits elsewhere, since the slots share one transform and
-        one set of binds. A LOD hidden on import is shown while its mesh is read."""
+        one set of binds. A LOD hidden on import is shown while its mesh is read.
+
+        `target_key` is the file key LOD0 is writing (a body type, '_thin'): the LOD takes its
+        own key of that name, so every slot of a body type's nif has that body type, or its
+        plain shape if it has no such key."""
+        keys = obj.data.shape_keys.key_blocks if obj.data.shape_keys else {}
+        if target_key not in keys:
+            target_key = ''
         hidden = obj.hide_get()
         obj.hide_set(False)
         try:
@@ -2147,7 +2172,7 @@ class NifExporter:
                                             for vg in obj.vertex_groups):
                 arma = None
             verts, norms, uvs, colors, tris, weights, *_ = \
-                self.extract_mesh_data(obj, arma, '')
+                self.extract_mesh_data(obj, arma, target_key)
         finally:
             obj.hide_set(hidden)
         my_xform = self._export_shape_transform(obj)
@@ -2337,7 +2362,7 @@ class NifExporter:
                 if lod_group:
                     owners = sf_geometry.slot_owners(lod_group)
                     lods = [self._sf_lod_data(o, arma if is_skinned else None, new_xform,
-                                              norms_exp is None)
+                                              norms_exp is None, target_key)
                             for o, _ in lod_group[1:]]
                     ObjectSelect([obj], active=True)
                     self.active_obj = obj
