@@ -781,6 +781,18 @@ def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_na
         needed |= {c.bone for c in cloth.collidables}
         needed |= {nif_name(o['cloth_plane_bone']) for o in planes}
         cloth.skeleton = sf_cloth.skeleton_from(bones, needed)
+    elif arma is not None:
+        # An imported cloth keeps its own skeleton, but the bones it drives take their rest from
+        # the armature: re-posing a tail in Blender has to re-pose the cloth's rest too, or a
+        # cloth that isn't simulating holds the tail where it used to be. Body bones keep the
+        # block's pose; the armature's come from the reference skeleton, which needn't match
+        # what the cloth was authored against.
+        driven = {b for sim in cloth.sims for b, _t in sim.driven}
+        cloth.skeleton, moved = sf_cloth.repose_skeleton(
+            cloth.skeleton, _armature_bones(arma, cloth_obj, s, nif_name), driven)
+        if moved:
+            log.info(f"{cloth_obj.name}: cloth rest pose taken from the armature for "
+                     f"{', '.join(moved)}")
     for o, sim in pieces:
         sim.planes = _planes_from_objects(o, planes, cloth, cloth_obj, s, nif_name)
     return cloth

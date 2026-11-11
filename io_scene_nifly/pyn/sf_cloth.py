@@ -519,6 +519,35 @@ def skeleton_from(bones, needed, root='Root'):
     return out
 
 
+def repose_skeleton(skeleton, bones, only, move_tol=0.005, turn_tol=1e-3):
+    """`skeleton` with the reference pose of each bone in `only` taken from `bones`, and
+    [the bones that moved]. `bones` maps a name to (parent name, model-space row-major 4x4 in
+    metres), as for skeleton_from. Names, order and parents are kept -- the rest of the cloth
+    refers to bones by index. A bone not reposed keeps its pose relative to its parent, so it
+    rides along with a reposed parent.
+
+    Compared bone to parent, not in model space: the armature can sit a constant few mm from
+    the cloth's own skeleton (5 mm on the formal half dress, 1.3 mm on the child ponytail, same
+    rotations), which cancels between a bone and its parent while a bend doesn't. A bone is
+    reposed when its pose relative to its parent turned (a rotation element off by more than
+    `turn_tol`, about 0.06 degrees) or moved more than `move_tol` metres. A bone whose parent
+    the cloth or the armature lacks keeps its pose."""
+    names = [n for n, _p, _q in skeleton]
+    out, moved = [], []
+    for name, parent, pose in skeleton:
+        pname = names[parent] if parent >= 0 else None
+        if name in only and name in bones and pname in bones:
+            want = matmul(_invert_rigid(bones[pname][1]), bones[name][1])
+            have = _qs_matrix(*pose)
+            dt = max(abs(want[r][3] - have[r][3]) for r in range(3))
+            dr = max(abs(want[r][c] - have[r][c]) for r in range(3) for c in range(3))
+            if dt > move_tol or dr > turn_tol:
+                pose = _matrix_qs(want)
+                moved.append(name)
+        out.append((name, parent, pose))
+    return out, moved
+
+
 def bind_matrices(skeleton):
     """Each bone's model-space bind matrix (row-major 4x4, metres), from the skeleton's
     reference pose composed down the hierarchy (parents come before children)."""
