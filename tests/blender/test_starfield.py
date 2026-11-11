@@ -4591,3 +4591,109 @@ def TEST_UV_TRANSFER_MATERIAL_PARTS():
             hits['wrong'] += 1
     assert TT.is_true(hits['r'] > 50 and hits['b'] > 50 and hits['wrong'] == 0,
                       f"each material painted with its own colour: {hits}")
+
+
+@TT.category('STARFIELD', 'SHADER')
+def TEST_UV_TRANSFER_PAINT_SCRIPT():
+    """Mapping writes a PowerShell script beside the map: a paint command for each texture layer,
+    every part's texture the file its material uses.
+
+    The commands went only to Blender's system console, hidden on Windows, so Bad Dog typed the
+    script by hand and misnamed a part in one of its four commands."""
+    import shlex
+    import tempfile
+    import numpy as np
+    U = _uv_transfer()
+    target, hands, eye, n_hand = _uv_transfer_rig()
+    work = tempfile.mkdtemp()
+
+    def png(name, value):
+        """A flat grey file. 16 bits: Blender's Python has no Pillow, which 8 bits needs."""
+        path = os.path.join(work, name)
+        U.save_image(np.full((16, 16, 1), value, np.float32), path, bits=16)
+        return path
+
+    def textured(obj, *layers):
+        """The object's only material: a layer group per dict of files feeding its inputs,
+        stamped with its layer index the way import does (0 the base, then the detail layers)."""
+        mat = bpy.data.materials.new(obj.name + "Mat")
+        mat.use_nodes = True
+        nt = mat.node_tree
+        for index, files in enumerate(layers):
+            grp = bpy.data.node_groups.new(f"{obj.name}Layer{index}", 'ShaderNodeTree')
+            for sock in files:
+                grp.interface.new_socket(sock, in_out='INPUT', socket_type='NodeSocketColor')
+            g = nt.nodes.new('ShaderNodeGroup')
+            g.node_tree = grp
+            g['pyn_sf_layer'] = index
+            for sock, path in files.items():
+                tex = nt.nodes.new('ShaderNodeTexImage')
+                tex.image = bpy.data.images.load(path)
+                nt.links.new(tex.outputs['Color'], g.inputs[sock])
+        obj.data.materials.clear()
+        obj.data.materials.append(mat)
+
+    # The hands are skin: a base layer, then a detail layer with its own normal and AO, as the
+    # fox head and hands have (pores, cheeks, lips). The base layer's maps are the ones to use.
+    hand_files = {'AO': png('hand_ao.png', 0.9), 'Albedo': png('hand_color.png', 0.8),
+                  'Normal Tex': png('hand_normal.png', 0.5), 'Roughness': png('hand_rough.png', 0.7)}
+    textured(hands, hand_files, {'AO': png('pore_ao.png', 0.6), 'Normal Tex': png('pore_normal.png', 0.4)})
+    textured(eye, {'Albedo': png('eye_color.png', 0.2)})
+    m = U.build_map(target, [hands, eye])
+    map_path = os.path.join(work, "CrowdTarget.uvmap.npz")
+    U.write_map(map_path, m)
+
+    def commands(path):
+        """{layer: argv from the script name on}, as PowerShell would hand them over."""
+        with open(path, encoding='utf-8') as f:
+            text = f.read().replace("`\n", " ")
+        out, layer = {}, None
+        for line in text.splitlines():
+            if line.startswith('# ') and line.endswith(':'):
+                layer = line[2:-1]
+            elif line.startswith('python '):
+                argv = shlex.split(line)
+                assert TT.is_eq(argv[2], 'paint', "a paint command")
+                out[layer] = argv[1:]
+        return out
+
+    def parts_of(argv):
+        return dict(argv[i + 1].split('=', 1) for i, a in enumerate(argv) if a == '--part')
+
+    script = U.write_paint_script(map_path, target, [hands, eye])
+    assert TT.is_eq(script, os.path.join(work, "CrowdTarget.paint.ps1"), "script beside the map")
+    cmds = commands(script)
+    assert TT.is_eq(list(cmds), ['AO', 'Color', 'Normal', 'Rough'], "the four layers, no metal")
+    for layer, sock in (('AO', 'AO'), ('Color', 'Albedo'), ('Normal', 'Normal Tex'), ('Rough', 'Roughness')):
+        got = parts_of(cmds[layer])
+        assert TT.is_eq(os.path.normcase(got[hands.name]), os.path.normcase(hand_files[sock]),
+                        f"{layer}: the hands' file from their material")
+        assert TT.is_eq(('--normal' in cmds[layer]), layer == 'Normal', f"{layer}: --normal only on normals")
+    assert TT.is_eq(parts_of(cmds['Color'])[eye.name], os.path.join(work, 'eye_color.png'), "eye colour")
+    assert TT.is_true(parts_of(cmds['AO'])[eye.name].startswith('<'), "a missing texture is a placeholder")
+
+    # All filled in, every command runs, with ordinary Python as PowerShell would, and paints
+    # from the files named.
+    textured(eye, {'AO': png('eye_ao.png', 0.3), 'Albedo': png('eye_color.png', 0.2),
+                   'Normal Tex': png('eye_normal.png', 0.5), 'Roughness': png('eye_rough.png', 0.4),
+                   'Metallic': png('eye_metal.png', 0.1)})
+    cmds = commands(U.write_paint_script(map_path, target, [hands, eye]))
+    assert TT.is_eq(list(cmds), ['AO', 'Color', 'Normal', 'Rough', 'Metal'],
+                    "metal too, once a part has a metal map")
+    assert TT.is_true(parts_of(cmds['Metal'])[hands.name].startswith('<'), "hands have no metal map")
+    del cmds['Metal']
+    import shutil
+    import subprocess
+    python = shutil.which('python')
+    assert TT.is_true(python, "a system python to run the commands")
+    for layer, argv in cmds.items():
+        r = subprocess.run([python, *argv], capture_output=True, text=True)
+        assert TT.is_eq(r.returncode, 0, f"{layer} command runs: {r.stderr[-400:]}")
+        out = argv[argv.index('--out') + 1]
+        assert TT.is_true(os.path.isfile(out), f"{layer} written")
+        if layer == 'Color':
+            img = bpy.data.images.load(out)
+            px = np.empty(img.size[0] * img.size[1] * 4, np.float32)
+            img.pixels.foreach_get(px)
+            assert TT.is_true(np.isclose(px, 0.8, atol=0.01).any() and np.isclose(px, 0.2, atol=0.01).any(),
+                              "colour painted from the hands' and eye's files")

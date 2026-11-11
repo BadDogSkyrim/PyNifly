@@ -6,9 +6,10 @@ stages:
 
 MAP, once, inside Blender. Select the parts, make the joined mesh active, open this file in the
 Text Editor and Run Script. Every triangle of the joined mesh is matched to the part triangle it
-is a copy of, and the result is written to "<active object>.uvmap.npz" next to the .blend. The
-report it prints ends with the paint commands for this set of objects, the textures filled in from
-the parts' materials where they can be.
+is a copy of, and the result is written to "<active object>.uvmap.npz" next to the .blend. Beside
+it goes "<active object>.paint.ps1", the paint commands for this set of objects: AO, colour,
+normal and rough (and metal if a part has one), each part's texture the file its material uses.
+Run it from PowerShell, after filling in any <placeholder> where a material has no such file.
 
     Headless: blender <file.blend> --background --python uv_transfer.py --
                   map --target CrowdHead --parts CanineMaleHead "RightEye:0:LOD0" ... [--out x.npz]
@@ -275,27 +276,42 @@ def _images_feeding(sock):
     return found
 
 
+# Starfield import stamps each SF Layer node with its layer index; 0 is the base layer.
+_SF_LAYER_KEY = 'pyn_sf_layer'
+
+
 def material_textures(obj, index=None):
     """{channel: (file path or None, note)} from the object's materials, or just the one in
-    slot `index`."""
-    images = {ch: set() for ch in _CHANNELS}
+    slot `index`. Where a Starfield material's layers feed a channel from several images (skin's
+    detail layers: pores, cheeks, lips), the lowest layer's image is the one used."""
+    # {channel: {layer index, or None off any SF layer: images}}
+    images = {ch: {} for ch in _CHANNELS}
     mats = obj.data.materials if index is None else obj.data.materials[index:index + 1]
     for mat in mats:
         if mat is None or not mat.node_tree:
             continue
         for n in mat.node_tree.nodes:
+            layer = n.get(_SF_LAYER_KEY) if n.type == 'GROUP' else None
             for ch, (names, by_type) in _CHANNELS.items():
                 socks = [i for i in n.inputs if i.name in names and i.is_linked]
                 if n.type in by_type and by_type[n.type] in n.inputs:
                     socks.append(n.inputs[by_type[n.type]])
                 for s in socks:
-                    images[ch] |= _images_feeding(s)
+                    images[ch].setdefault(layer, set()).update(_images_feeding(s))
     out = {}
-    for ch, ims in images.items():
+    for ch, by_layer in images.items():
+        by_layer = {k: v for k, v in by_layer.items() if v}
+        ims = set().union(*by_layer.values()) if by_layer else set()
+        note = ''
+        layered = sorted(k for k in by_layer if k is not None)
+        if len(ims) > 1 and layered and len(by_layer[layered[0]]) == 1:
+            ims = by_layer[layered[0]]
+            skipped = sorted({i.name for k in by_layer if k != layered[0] for i in by_layer[k]} - {i.name for i in ims})
+            note = f"layer {layered[0]}'s map; detail layers' skipped: {', '.join(skipped)}"
         if len(ims) == 1:
             im = next(iter(ims))
             path = bpy.path.abspath(im.filepath) if im.filepath else ''
-            out[ch] = (os.path.normpath(path), '') if path and os.path.isfile(path) else \
+            out[ch] = (os.path.normpath(path), note) if path and os.path.isfile(path) else \
                 (None, f"image {im.name} has no file on disk")
         elif ims:
             out[ch] = (None, "several images: " + ", ".join(sorted(i.name for i in ims)))
@@ -304,28 +320,45 @@ def material_textures(obj, index=None):
     return out
 
 
-def paint_commands(map_path, target, parts):
-    """One paint command per texture type, textures filled in from the parts' materials."""
+# The layers the script paints, in its order, with their headings. Metal only when a part has one.
+_LAYERS = [('ao', 'AO'), ('color', 'Color'), ('normal', 'Normal'), ('rough', 'Rough'), ('metal', 'Metal')]
+
+
+def paint_script(map_path, target, parts):
+    """A PowerShell script: one paint command per texture layer, each part's texture the file its
+    material uses. A part with no such file gets a <placeholder>, and a comment says why."""
     script = os.path.abspath(__file__) if os.path.isfile(__file__) else 'uv_transfer.py'
     folder = os.path.dirname(map_path)
     plist = part_list(parts)
     tex = {name: material_textures(o, i) for name, o, i in plist}
-    lines = []
-    for ch in _CHANNELS:
-        out = os.path.join(folder, f"{target.name}_{ch}.png")
-        cmd = [f'python "{script}" paint --map "{map_path}" --out "{out}"']
+    lines = [f"# Paint commands for {target.name}, written by uv_transfer.py with the map.",
+             "# Textures come from the parts' materials; fill in any <placeholder>.", ""]
+    for ch, heading in _LAYERS:
+        if ch == 'metal' and not any(tex[name][ch][0] for name, _o, _i in plist):
+            continue
+        out = os.path.join(folder, f"{_safe_name(target.name)}_{ch}.png")
+        cmd = [f'python "{script}" paint']
         if ch == 'normal':
             cmd.append('--normal')
-        notes = []
+        cmd += [f'--map "{map_path}"', f'--out "{out}"']
+        lines.append(f"# {heading}:")
         for name, _o, _i in plist:
             path, note = tex[name][ch]
             cmd.append(f'--part "{name}={path or f"<{name} {ch}>"}"')
             if note:
-                notes.append(f"#   {name}: {note}")
-        lines.append(f"# {ch}")
-        lines.extend(notes)
-        lines.append(" ".join(cmd))
+                lines.append(f"#   {name}: {note}")
+        lines.append(" `\n".join(cmd))
+        lines.append("")
     return "\n".join(lines)
+
+
+def write_paint_script(map_path, target, parts):
+    """paint_script beside the map, as <map name>.paint.ps1. Returns its path."""
+    path = map_path[:-len(".uvmap.npz")] if map_path.endswith(".uvmap.npz") else os.path.splitext(map_path)[0]
+    path += ".paint.ps1"
+    with open(path, 'w', encoding='utf-8', newline='\n') as f:
+        f.write(paint_script(map_path, target, parts))
+    return path
 
 
 def print_report(m, map_path=None, target=None, parts=None):
@@ -335,9 +368,11 @@ def print_report(m, map_path=None, target=None, parts=None):
         print(f"  {name}: {r['triangles']} triangles, scale {r['scale']:.3f} "
               f"({lo:.3f}-{hi:.3f}), rotated {r['rotation']} deg, {r['mirrored']} mirrored")
     if map_path:
-        print(f"Map written to {map_path}\n")
-        print("Paint commands (fill in any <placeholder>):\n")
-        print(paint_commands(map_path, target, parts))
+        script = write_paint_script(map_path, target, parts)
+        print(f"Map written to {map_path}")
+        print(f"Paint script written to {script}\n")
+        print(paint_script(map_path, target, parts))
+        return script
 
 
 def _safe_name(name):
@@ -389,7 +424,15 @@ def run_in_blender():
             print(f"{e}\nThose faces are selected in {target.name}; no map written.")
         raise
     write_map(map_path, m)
-    print_report(m, map_path, target, parts)
+    script = print_report(m, map_path, target, parts)
+
+    def draw(menu, _context):
+        menu.layout.label(text=f"Map: {map_path}")
+        menu.layout.label(text=f"Paint script: {script}")
+    try:
+        bpy.context.window_manager.popup_menu(draw, title="uv_transfer", icon='INFO')
+    except Exception:   # no window: run from a script with no UI
+        pass
 
 
 def run_headless(argv):
