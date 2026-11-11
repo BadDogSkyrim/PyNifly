@@ -4,7 +4,7 @@ A crowd head can't wear tint layers: it is one merged mesh (head, eyes, mouth, a
 baked texture set. So the variety a chargen face gets from its skin tone and tint layers has to
 be baked into separate crowd heads. This builds them from a recipe:
 
-    python scripts/sf_tintbake.py bake recipe.toml [--dry-run] [--force]
+    python scripts/sf_tintbake.py bake recipe.toml [--dry-run] [--force] [--out FOLDER]
 
 For every crowd-head nif in the recipe's `heads` folder it enumerates every combination of skin
 tone and tint-layer option the race offers, keeps a stable random sample of `limit` of them, and
@@ -31,6 +31,8 @@ addons' male model and the female tails in their female model.
 It writes a manifest, <recipe name>.variants.json beside the recipe, that the plugin builder reads to write the
 records. Normal, rough, metal and AO are shared by every variant of a head and are not touched.
 
+The variants go under --out, or without it the recipe's first `data` folder, the game's Data.
+
 The recipe (TOML; relative paths are relative to the recipe file):
 
     race = "FSFFoxRace"
@@ -39,9 +41,17 @@ The recipe (TOML; relative paths are relative to the recipe file):
     plugin = "FSFPlayer_FOX.esm"      # optional: it and its masters; default the active load order
     data = ["C:/Steam/steamapps/common/Starfield/Data", "C:/Modding/Starfield/00StarfieldAssets"]
     heads = "C:/Steam/steamapps/common/Starfield/Data/Meshes/Actors/FSFFox_Crowd/Mesh/Male"
+                                      # a folder (every head in it), or a pattern on the nif
+                                      # names, e.g. ".../Mesh/Female/crowdf_fennec_*.nif": a
+                                      # recipe paints one UV layout, so one recipe per layout
     uvmap = "CrowdHead.uvmap.npz"
-    out = "C:/Modding/Starfield/Mods/FSF_test"    # mod root the variants are written under
-    tones = [1, 2, 3, 4]              # optional: skin-tone indices, 0-based; default all
+    race_config = "C:/Modding/Starfield/sf_furrify/races/FSFFoxRace.toml"
+                                      # optional: the furrifier's race file. Each variant is
+                                      # baked only in the tones of the breed whose crowd_heads
+                                      # match its name, as the plugin build will sort it; a head
+                                      # no breed takes is an error
+    tones = [1, 2, 3, 4]              # optional: skin-tone indices, 0-based; default all (with
+                                      # race_config, narrows the breeds' tones)
     limit = 40                        # how many variants in all, across every head
     seed = 1
     size = 1024                       # colour texture size
@@ -107,12 +117,14 @@ no-option, a file's name for `files`. Weights are relative; an option not named 
 means never. A variant weighs its options' weights multiplied, and the `limit` sample is a
 weighted pick: the same set every run, and with no weights the same set as ever.
 
-Layers composite the way the chargen face does, in the stack's order: a full-colour layer
-(*_color) is laid over what's below by its own alpha (proven in game for dermaesthetics); a mask
-layer blends its colour in by mask x intensity (not yet proven against a vanilla bake).
+Layers composite the way the chargen face does, in the stack's order and in linear space: a
+full-colour layer (*_color) is laid over what's below by its own alpha, and a mask layer blends
+its colour in by mask x intensity. Both match the Creation Kit's FaceGen bakes. A recipe's
+#rrggbb is an ordinary sRGB colour. (An NPC's NNAM is different: x, B, G, R, already linear.)
 """
 import argparse
 import copy
+import fnmatch
 import hashlib
 import itertools
 import json
@@ -153,8 +165,8 @@ class RecipeError(Exception):
 # [parts] keys are the uv map's part names, so they're free. Anything else is a typo the bake
 # would otherwise ignore -- [beard] for [beards] baked no beards and said nothing.
 RECIPE_KEYS = {
-    '': {'race', 'phenotype', 'sex', 'plugin', 'data', 'heads', 'uvmap', 'out', 'tones', 'limit',
-         'seed', 'size', 'parts', 'layers', 'eyes', 'teeth', 'beards', 'tail'},
+    '': {'race', 'phenotype', 'sex', 'plugin', 'data', 'heads', 'uvmap', 'tones', 'limit',
+         'seed', 'size', 'parts', 'layers', 'eyes', 'teeth', 'beards', 'tail', 'race_config'},
     'layers': {'slot', 'code', 'optional', 'files', 'colors', 'weights'},
     'eyes': {'code', 'weights'},
     'teeth': {'code', 'weights'},
@@ -166,6 +178,10 @@ RECIPE_KEYS = {
 def check_recipe_keys(r):
     """Refuse a table or key RECIPE_KEYS doesn't know, suggesting the close one."""
     import difflib
+
+    if 'out' in r:
+        raise RecipeError("recipe: `out` is gone -- remove it; the variants go to the game's Data "
+                          "folder, or the --out folder")
 
     def check(keys, where, known):
         for k in keys:
@@ -186,13 +202,14 @@ def check_recipe_keys(r):
         check(ly, f"[[layers]] #{i}", RECIPE_KEYS['layers'])
 
 
-def load_recipe(path):
+def load_recipe(path, out=None):
+    """The recipe at `path`. The variants go under `out`, else its first data folder."""
     with open(path, 'rb') as f:
         r = tomllib.load(f)
     check_recipe_keys(r)
     r['_dir'] = os.path.dirname(os.path.abspath(path))
     r['_name'] = os.path.splitext(os.path.basename(path))[0]
-    for key in ('race', 'phenotype', 'data', 'heads', 'uvmap', 'out', 'parts'):
+    for key in ('race', 'phenotype', 'data', 'heads', 'uvmap', 'parts'):
         if key not in r:
             raise RecipeError(f"recipe has no {key!r}")
     r.setdefault('layers', [])
@@ -207,8 +224,12 @@ def load_recipe(path):
     if r['sex'] not in ('male', 'female'):
         raise RecipeError(f"sex must be male or female, not {r['sex']!r}")
     r['data'] = [recipe_path(r, d) for d in r['data']]
-    for key in ('heads', 'uvmap', 'out'):
+    for key in ('heads', 'uvmap'):
         r[key] = recipe_path(r, r[key])
+    r['out'] = os.path.abspath(out) if out else r['data'][0]
+    if 'race_config' in r:
+        r['race_config'] = recipe_path(r, r['race_config'])
+        r['breeds'] = race_breeds(r['race_config'], r['sex'])
     if 'beards' in r:
         r['beards'].setdefault('code', 'b')
         r['beards'].setdefault('percent', 50)
@@ -329,13 +350,71 @@ def race_tail(R, plugins, r, simple):
 
 # --- the variants ---------------------------------------------------------------------------
 
-def find_heads(folder):
-    """The crowd-head nifs in `folder`: every nif except the _facebones companions."""
+def race_breeds(path, sex):
+    """[(breed name, crowd_heads globs, tones)] from the furrifier's race file, for `sex`.
+
+    The tones follow the furrifier's RaceConfig.tones_for: the breed's skin_tone_override_female
+    (female), its skin_tone_override, else the race's skin_tones_female (female) or skin_tones.
+    Only breeds with crowd_heads, whatever their weight: a breed at 0 can be baked ahead."""
+    if not os.path.isfile(path):
+        raise RecipeError(f"race_config {path} isn't there")
+    try:
+        with open(path, 'rb') as f:
+            cfg = tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise RecipeError(f"race_config {path}: {e}") from None
+    race = cfg.get('race', {})
+    female = sex == 'female'
+    out = []
+    for b in cfg.get('breeds', []):
+        if not b.get('crowd_heads'):
+            continue
+        tones = None
+        if female:
+            tones = b.get('skin_tone_override_female')
+        if tones is None:
+            tones = b.get('skin_tone_override')
+        if tones is None and female:
+            tones = race.get('skin_tones_female')
+        if tones is None:
+            tones = race.get('skin_tones')
+        if tones is None:
+            raise RecipeError(f"{path}: breed {b.get('name')} has no tones, and the race no skin_tones")
+        out.append((b.get('name', '?'), list(b['crowd_heads']), list(tones)))
+    if not out:
+        raise RecipeError(f"{path}: no breed has crowd_heads")
+    return out
+
+
+def breed_of(r, name, tone):
+    """The first breed whose crowd_heads match variant `name` and whose tones have `tone`, as the
+    plugin builder will sort it, or None."""
+    for breed, globs, tones in r['breeds']:
+        if tone in tones and any(fnmatch.fnmatch(name.lower(), g.lower()) for g in globs):
+            return breed
+    return None
+
+
+def _is_pattern(path):
+    return any(c in os.path.basename(path) for c in '*?[')
+
+
+def heads_folder(heads):
+    """The folder the heads are in: `heads` itself, or a pattern's folder."""
+    return os.path.dirname(heads) if _is_pattern(heads) else heads
+
+
+def find_heads(heads):
+    """The crowd-head nifs `heads` names: every nif in a folder, or those a pattern on the file
+    names matches (any case). Never the _facebones companions."""
+    folder = heads_folder(heads)
+    pattern = os.path.basename(heads).lower() if _is_pattern(heads) else '*'
     names = sorted(f for f in os.listdir(folder)
                    if f.lower().endswith('.nif')
-                   and not os.path.splitext(f)[0].lower().endswith(FACEBONES))
+                   and not os.path.splitext(f)[0].lower().endswith(FACEBONES)
+                   and fnmatch.fnmatch(f.lower(), pattern))
     if not names:
-        raise RecipeError(f"no head nifs in {folder}")
+        raise RecipeError(f"no head nifs in {heads}")
     return [os.path.join(folder, f) for f in names]
 
 
@@ -375,7 +454,14 @@ def find_beards(heads_folder, cfg, head_names):
     folder = os.path.join(heads_folder, cfg['folder'])
     if not os.path.isdir(folder):
         return {}
-    by_len = sorted(head_names, key=len, reverse=True)
+    # Every head in the folder, so a beard fitted to a head this recipe doesn't bake (another
+    # recipe's, with `heads` a pattern) is passed over rather than refused.
+    mine = {h.lower() for h in head_names}
+    try:
+        every = set(group_heads(find_heads(heads_folder))) | set(head_names)
+    except RecipeError:                  # no head nifs on disk: only the ones named
+        every = set(head_names)
+    by_len = sorted(every, key=len, reverse=True)
     out = {}
     for f in sorted(os.listdir(folder)):
         stem, ext = os.path.splitext(f)
@@ -386,6 +472,8 @@ def find_beards(heads_folder, cfg, head_names):
         if head is None:
             raise RecipeError(f"{os.path.join(folder, f)}: names no head in {heads_folder} "
                               f"(beards are <head>_<beard>.nif)")
+        if head.lower() not in mine:
+            continue
         beard = name[len(head) + 1:]
         bodies = out.setdefault(head, {}).setdefault(beard, {})
         if body in bodies:
@@ -531,6 +619,11 @@ def variant_space(r, opts, heads, beards=None, log=print):
     bad = [t for t in tones if not 0 <= t < len(opts.tones)]
     if bad:
         raise RecipeError(f"skin tone(s) {bad} out of range 0..{len(opts.tones) - 1}")
+    for breed, _globs, btones in r.get('breeds', []):
+        bad = [t for t in btones if not 0 <= t < len(opts.tones)]
+        if bad:
+            raise RecipeError(f"{r['race_config']}: breed {breed}'s {r['sex']} tone(s) {bad} are past "
+                              f"the race's {len(opts.tones)} face skin tones")
     def weighted(table, options, what):
         ws = option_weights(table, [lab for lab, _ in options], what)
         return [(f"{i}", p, w) for i, ((_, p), w) in enumerate(zip(options, ws), 1) if w > 0]
@@ -570,6 +663,11 @@ def variant_space(r, opts, heads, beards=None, log=print):
                         codes.append(r['teeth']['code'] + teeth_code)
                     base = f"{stem}_sk{tone}_{''.join(codes)}"
                     beard_code, beard, beard_nifs = beard_choice(r, stem, bodies, beards, base)
+                    breed = None
+                    if 'breeds' in r:
+                        breed = breed_of(r, base + (beard_code or ''), tone)
+                        if breed is None:
+                            continue
                     weight = eye_w * teeth_w
                     for _, ch in combo:
                         weight *= ch[3]
@@ -579,7 +677,15 @@ def variant_space(r, opts, heads, beards=None, log=print):
                                 'layers': [(ly.get('slot'), ch[1], ch[2])
                                            for ly, ch in combo if ch[1]],
                                 'eye': eye, 'teeth': tooth, 'beard': beard,
-                                'beard_nifs': beard_nifs})
+                                'beard_nifs': beard_nifs, 'breed': breed})
+    if 'breeds' in r:
+        made = {v['stem'] for v in out}
+        none = [s for s in group_heads(heads) if s not in made and s not in skipped]
+        if none:
+            raise RecipeError(
+                f"{', '.join(none)}: no breed in {r['race_config']} takes this head in the recipe's "
+                f"tones -- its crowd_heads must match the head's variant names (e.g. "
+                f"{none[0]}_sk0_...), and the breed's {r['sex']} tones must meet the recipe's")
     if skipped:
         if not out:
             raise RecipeError(f"no head has a beard in {cfg['folder']}, and the recipe gives "
@@ -618,12 +724,22 @@ def resized(img, h, w):
                      for i in range(img.shape[-1])], axis=-1).astype(np.float32)
 
 
+def srgb_to_linear(a):
+    a = np.asarray(a, np.float32)
+    return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+
+
+def linear_to_srgb(a):
+    a = np.clip(a, 0, 1)
+    return np.where(a <= 0.0031308, a * 12.92, 1.055 * np.power(a, 1 / 2.4) - 0.055).astype(np.float32)
+
+
 def composite(base, layers):
-    """Lay `layers` over `base` (H x W x 3, 0..1), bottom first.
+    """Lay `layers` over `base` (H x W x 3, sRGB 0..1), bottom first, blending in linear space.
 
     Each layer is (image, colour, intensity). A colour image (colour None) is laid on by its own
     alpha; a mask (one channel) blends `colour` in by mask x intensity x the colour's alpha."""
-    out = base[..., :3].astype(np.float32).copy()
+    out = srgb_to_linear(base[..., :3])
     h, w = out.shape[:2]
     for img, color, intensity in layers:
         img = resized(img, h, w)
@@ -631,11 +747,11 @@ def composite(base, layers):
             alpha = img[..., 3:4] if img.shape[-1] == 4 else np.ones((h, w, 1), np.float32)
             rgb = img[..., :3] if img.shape[-1] >= 3 else np.repeat(img[..., :1], 3, axis=-1)
             a = alpha * intensity
-            out = out * (1 - a) + rgb * a
+            out = out * (1 - a) + srgb_to_linear(rgb) * a
         else:
             a = img[..., :1] * intensity * color[3]
-            out = out * (1 - a) + np.asarray(color[:3], np.float32) * a
-    return out
+            out = out * (1 - a) + srgb_to_linear(color[:3]) * a
+    return linear_to_srgb(out)
 
 
 # --- files ----------------------------------------------------------------------------------
@@ -785,12 +901,22 @@ def write_material(out, mat_game, doc):
         json.dump(doc, f, indent=2)
 
 
+def tail_tones(slot0, body_tones, sex, who):
+    """The texture a tail's material has now, and the body tones to replace it with.
+
+    The texture is whichever slot-0 texture is in any of the race's groups: the male fox tail's
+    material holds a female one. The tones are the recipe's sex's, so they number what its
+    heads do."""
+    for group in body_tones:
+        old = next((s for s in slot0 for g in group if same_path(s, 'Data\\' + g)), None)
+        if old:
+            return old, for_sex(body_tones, sex)
+    raise RecipeError(f"{who}: no colour texture is one of the race's body skin tones")
+
+
 def bake_tails(r, tail, tones, log):
     """One copy of the race's tail per skin tone in `tones`, its material switched to that tone's
-    body texture. Returns {tone: nif path under Meshes}.
-
-    The body-tone group is whichever of the race's groups holds the tail material's current
-    colour texture, so the tail keeps the texture layout it was painted for."""
+    body texture. Returns {tone: nif path under Meshes}."""
     nif = data_file(r, 'Meshes', tail['nif'])
     if nif is None:
         raise RecipeError(f"tail nif {tail['nif']} not found under the data folders")
@@ -798,12 +924,7 @@ def bake_tails(r, tail, tones, log):
     doc = load_material(r, mat_rel, nif)
     slot0 = [c['Data']['FileName'] for o in doc['Objects'] for c in o.get('Components', [])
              if c.get('Type') == 'BSMaterial::MRTextureFile' and c.get('Index') == 0]
-    for group in tail['body_tones']:
-        old = next((s for s in slot0 for g in group if same_path(s, 'Data\\' + g)), None)
-        if old:
-            break
-    else:
-        raise RecipeError(f"{mat_rel}: no colour texture is one of the race's body skin tones")
+    old, group = tail_tones(slot0, tail['body_tones'], r['sex'], mat_rel)
     stem = os.path.splitext(os.path.basename(tail['nif']))[0]
     mat_stem = os.path.splitext(os.path.basename(mat_rel))[0]
     out = {}
@@ -852,14 +973,17 @@ def bake(r, force=False, dry_run=False, log=print):
     opts = read_options(r)
     heads = find_heads(r['heads'])
     groups = group_heads(heads)
-    beards = find_beards(r['heads'], r['beards'], list(groups)) if 'beards' in r else None
+    beards = find_beards(heads_folder(r['heads']), r['beards'], list(groups)) if 'beards' in r else None
     space = variant_space(r, opts, heads, beards, log=log)
     chosen = pick(space, r['limit'], r['seed'])
     log(f"{len(space)} combinations over {len(groups)} head(s); baking {len(chosen)}")
     for head, bodies in groups.items():
         fitted = sorted((beards or {}).get(head, {}))
+        mine = [v for v in space if v['stem'] == head]
+        breeds = sorted({v['breed'] for v in mine if v['breed']})
         log(f"  {head}: {', '.join(BODY_NAMES[b] for b in sorted(bodies))}"
-            + (f"; beards {', '.join(fitted) or 'none'}" if beards is not None else ''))
+            + (f"; beards {', '.join(fitted) or 'none'}" if beards is not None else '')
+            + (f"; breed {', '.join(breeds)}, tones {sorted({v['tone'] for v in mine})}" if breeds else ''))
     if dry_run:
         for v in chosen:
             log(f"  {v['name']}")
@@ -951,11 +1075,13 @@ def main(argv=None):
     b.add_argument('recipe')
     b.add_argument('--dry-run', action='store_true', help="list the variants it would bake")
     b.add_argument('--force', action='store_true', help="re-bake textures that already exist")
+    b.add_argument('--out', help="folder to write under; default the game's Data folder, the "
+                                 "recipe's first `data`")
     b.add_argument('--limit', type=int,
                    help="override the recipe's limit; a smaller one picks a subset of its set")
     a = ap.parse_args(argv)
     try:
-        r = load_recipe(a.recipe)
+        r = load_recipe(a.recipe, out=a.out)
         if a.limit is not None:
             r['limit'] = a.limit
         bake(r, force=a.force, dry_run=a.dry_run)

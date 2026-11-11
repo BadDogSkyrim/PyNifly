@@ -2107,6 +2107,54 @@ def TEST_SF_RACECHECK_CROWD_RACE():
     assert TT.is_eq(one_addon_warnings(True), [], "a crowd race's one-addon skin is normal")
 
 
+def TEST_SF_RACECHECK_SPACESUIT_KEYWORD():
+    """A race shows spacesuits only if it is HumanRace, HumanCorpseRace or ChildRace, or carries
+    the keyword RaceAllowShowSpacesuit (Starfield.esm's ActorShouldShowSpacesuit condition). A
+    custom race without it leaves every NPC dressed by a space outfit naked, and the player's suit
+    invisible -- FSFFoxRace, found in game 2026-11-10. Crowd races don't wear spacesuits."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+
+    class Kw:
+        def __init__(self, edid):
+            self.editor_id = edid
+
+    class Kwda:
+        def __init__(self, ids):
+            self.ids = ids
+
+        def get_form_id_array(self):
+            return self.ids
+
+    class Race:
+        def __init__(self, edid, keywords):
+            self.editor_id, self.plugin = edid, None
+            self.kwda = Kwda(keywords) if keywords is not None else None
+
+        def get_subrecord(self, sig):
+            return self.kwda if sig == 'KWDA' else None
+
+    class Plugins:
+        def resolve_form_id(self, fid, plugin):
+            return Kw(fid) if fid != 'unresolvable' else None
+
+    def fails(race, crowd=False):
+        rep = R.Report()
+        R.check_spacesuit(rep, race, Plugins(), crowd)
+        return [m for lv, a, m, _d in rep.findings if lv == R.FAIL and a == 'spacesuit']
+
+    assert TT.is_eq(len(fails(Race('FSFFoxRace', ['ActorTypeNPC', 'ActorTypeHuman']))), 1,
+                    "a custom race without the keyword fails")
+    assert TT.is_eq(len(fails(Race('FSFFoxRace', None))), 1, "no keywords at all fails")
+    assert TT.is_eq(len(fails(Race('FSFFoxRace', ['unresolvable']))), 1,
+                    "an unresolvable keyword is not the spacesuit one")
+    assert TT.is_eq(fails(Race('FSFFoxRace', ['ActorTypeNPC', 'RaceAllowShowSpacesuit'])), [],
+                    "the keyword passes")
+    assert TT.is_eq(fails(Race('HumanRace', [])), [], "HumanRace passes by name")
+    assert TT.is_eq(fails(Race('FSFFoxCrowdRace', []), crowd=True), [],
+                    "crowd races aren't held to it")
+
+
 def TEST_SF_RACECHECK_CROWD_HEADS():
     """sf_racecheck follows a crowd race's heads: NPC -> outfit -> leveled lists -> head armor ->
     addons -> NIFs, and checks their meshes, materials, textures and _faceBones companions.
@@ -2797,11 +2845,10 @@ def TEST_SF_SKIN_NODE_SLOTS():
 
 
 def TEST_SF_TINTBAKE_COMPOSITE():
-    """sf_tintbake lays tint layers over a skin tone the way the chargen face does.
+    """sf_tintbake lays tint layers over a skin tone the way the chargen face does, in linear space.
 
-    A full-colour layer goes on by its own alpha -- what Bad Dog saw in game for
-    dermaesthetics. A mask blends one colour in by mask x intensity x the colour's alpha. A
-    layer at another resolution is resized to the skin tone's."""
+    A full-colour layer goes on by its own alpha. A mask blends one colour in by mask x intensity
+    x the colour's alpha. A layer at another resolution is resized to the skin tone's."""
     import numpy as np
     B = _tintbake()
     base = np.full((4, 4, 3), 0.5, np.float32)
@@ -2810,18 +2857,18 @@ def TEST_SF_TINTBAKE_COMPOSITE():
     color[0, :, 3] = 1.0                   # ... opaque on the top row
     color[1, :, 3] = 0.25                  # ... a quarter on the next
     out = B.composite(base, [(color, None, 1.0)])
-    assert TT.is_eq(tuple(out[0, 0]), (1.0, 0.0, 0.0), "opaque colour replaces")
-    assert TT.is_eq(tuple(np.round(out[1, 0], 4)), (0.625, 0.375, 0.375), "alpha blends")
-    assert TT.is_eq(tuple(out[3, 0]), (0.5, 0.5, 0.5), "zero alpha lets the tone through")
+    assert TT.is_eq(tuple(np.round(out[0, 0], 4)), (1.0, 0.0, 0.0), "opaque colour replaces")
+    assert TT.is_eq(tuple(np.round(out[1, 0], 4)), (0.673, 0.4373, 0.4373), "alpha blends in linear")
+    assert TT.is_eq(tuple(np.round(out[3, 0], 4)), (0.5, 0.5, 0.5), "zero alpha lets the tone through")
 
     mask = np.zeros((2, 2, 1), np.float32)     # half-size: resized to the tone's 4x4
     mask[...] = 1.0
     out = B.composite(base, [(mask, (0.0, 0.0, 1.0, 0.5), 1.0)])
     assert TT.is_eq(out.shape, (4, 4, 3), "a smaller layer is resized")
-    assert TT.is_eq(tuple(np.round(out[2, 2], 4)), (0.25, 0.25, 0.75),
-                    "a mask blends its colour by the colour's alpha")
+    assert TT.is_eq(tuple(np.round(out[2, 2], 4)), (0.3608, 0.3608, 0.8019),
+                    "a mask blends its colour by the colour's alpha, in linear")
     out = B.composite(base, [(color, None, 1.0), (mask, (0.0, 0.0, 1.0, 1.0), 1.0)])
-    assert TT.is_eq(tuple(out[0, 0]), (0.0, 0.0, 1.0), "later layers paint over earlier ones")
+    assert TT.is_eq(tuple(np.round(out[0, 0], 4)), (0.0, 0.0, 1.0), "later layers paint over earlier ones")
 
 
 def TEST_SF_TINTBAKE_BODY_TYPES():
@@ -3025,7 +3072,7 @@ def TEST_SF_TINTBAKE_RECIPE_KEYS():
     import tempfile
     B = _tintbake()
     head = '''race = "R"\nphenotype = "male_fox_md1"\ndata = ["."]\nheads = "h"\nuvmap = "u.npz"
-out = "o"\nparts = { "Head" = "face" }\n'''
+parts = { "Head" = "face" }\n'''
 
     def load(text):
         with tempfile.TemporaryDirectory() as d:
@@ -3049,6 +3096,174 @@ out = "o"\nparts = { "Head" = "face" }\n'''
             assert TT.is_true(bad in str(e), f"names {bad!r}: {e}")
             if hint:
                 assert TT.is_true(hint in str(e), f"suggests {hint!r}: {e}")
+
+
+def TEST_SF_TINTBAKE_OUT_FOLDER():
+    """sf_tintbake writes to --out, or the game's Data folder (the recipe's first `data`) without it.
+
+    A folder in the recipe meant every bake went wherever the recipe last said."""
+    import tempfile
+    B = _tintbake()
+    head = '''race = "R"\nphenotype = "male_fox_md1"\nheads = "h"\nuvmap = "u.npz"
+data = ["C:/Game/Data", "C:/Assets"]\nparts = { "Head" = "face" }\n'''
+
+    def load(text='', **kw):
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, 'r.toml')
+            with open(p, 'w', encoding='utf-8') as f:
+                f.write(head + text)
+            return B.load_recipe(p, **kw)
+
+    assert TT.is_eq(load()['out'], 'C:/Game/Data', "no --out: the game's Data folder")
+    assert TT.is_eq(load(out=r'C:\Mods\Test')['out'], r'C:\Mods\Test', "--out wins")
+    assert TT.is_eq(load(out='rel')['out'], os.path.abspath('rel'),
+                    "a relative --out is from where you ran it")
+    try:
+        load('out = "C:/Mods/Test"\n')
+        raise AssertionError("`out` in a recipe should be refused")
+    except B.RecipeError as e:
+        assert TT.is_true('--out' in str(e), f"says what replaced it: {e}")
+
+
+def TEST_SF_TINTBAKE_RACE_CONFIG():
+    """sf_tintbake's `race_config`: the furrifier's race file says which breed each head belongs
+    to and that breed's tones, and the bake makes only those variants.
+
+    The bake made every head in every tone; the plugin build then dropped the variants no breed
+    takes, so most of the fennec head's sample was fox tones, thrown away. A head is a breed's
+    when its crowd_heads globs match the variant names, and the tones are the furrifier's: the
+    breed's skin_tone_override_female (female), its skin_tone_override, else the race's
+    skin_tones_female (female) or skin_tones."""
+    import tempfile
+    B = _tintbake()
+    race = '''[race]
+editorid = "R"
+skin_tones = [0, 1, 2]
+skin_tones_female = [0, 1]
+[[breeds]]
+name = "red"
+weight = 90
+crowd_heads = ["Crowd_Fox_*", "crowdf_fox_*"]
+[[breeds]]
+name = "fennec"
+weight = 0
+crowd_heads = ["crowdf_fennec_*"]
+skin_tone_override = [3, 4]
+skin_tone_override_female = [4]
+[[breeds]]
+name = "arctic"
+weight = 0
+skin_tone_override = [0]
+'''
+    opts = B.Options(tones=[(f'f{t}', f'h{t}') for t in range(5)], slots={},
+                     derm=[[('x', 'd0_derm_color.dds')]] * 5, eyes=[('Blue', 'blue.dds')],
+                     stack=['Dermaesthetic'])
+    heads = [r"x\crowdf_fox_01.nif", r"x\crowdf_fennec_01.nif"]
+
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, 'FoxRace.toml'), 'w', encoding='utf-8') as f:
+            f.write(race)
+
+        def load(sex, extra=''):
+            p = os.path.join(d, 'r.toml')
+            with open(p, 'w', encoding='utf-8') as f:
+                f.write(f'race = "R"\nphenotype = "{sex}_fox_md1"\ndata = ["."]\nheads = "h"\n'
+                        f'uvmap = "u.npz"\nrace_config = "FoxRace.toml"\n{extra}'
+                        '[eyes]\ncode = "e"\n[[layers]]\nslot = "Dermaesthetic"\ncode = "d"\n'
+                        '[parts]\n"Head" = "face"\n')
+            return B.load_recipe(p)
+
+        def tones(r, hs=heads):
+            out = {}
+            for v in B.variant_space(r, opts, hs):
+                out.setdefault(v['stem'], set()).add(v['tone'])
+            return out
+
+        assert TT.is_eq(tones(load('female')), {'crowdf_fox_01': {0, 1}, 'crowdf_fennec_01': {4}},
+                        "female: the race's female tones, and the fennec breed's female override")
+        assert TT.is_eq(tones(load('male')), {'crowdf_fox_01': {0, 1, 2}, 'crowdf_fennec_01': {3, 4}},
+                        "male: the race's tones, and the fennec breed's override")
+        assert TT.is_eq(tones(load('male', 'tones = [1, 3]\n')),
+                        {'crowdf_fox_01': {1}, 'crowdf_fennec_01': {3}}, "the recipe's tones narrow them")
+        v = B.variant_space(load('female'), opts, heads)
+        assert TT.is_eq({x['stem']: x['breed'] for x in v},
+                        {'crowdf_fox_01': 'red', 'crowdf_fennec_01': 'fennec'}, "each variant knows its breed")
+
+        try:
+            B.variant_space(load('female'), opts, heads + [r"x\crowdf_wolf_01.nif"])
+            raise AssertionError("a head no breed takes should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('crowdf_wolf_01' in str(e) and 'crowd_heads' in str(e), f"names it: {e}")
+
+        try:
+            B.variant_space(load('male', 'tones = [0]\n'), opts, heads)
+            raise AssertionError("a head left with no tones should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('crowdf_fennec_01' in str(e), f"names it: {e}")
+
+        no_cfg = load('male').copy()
+        no_cfg.pop('breeds')
+        assert TT.is_eq(tones(no_cfg), {'crowdf_fox_01': {0, 1, 2, 3, 4}, 'crowdf_fennec_01': {0, 1, 2, 3, 4}},
+                        "without race_config, every tone, as before")
+
+        with open(os.path.join(d, 'r2.toml'), 'w', encoding='utf-8') as f:
+            f.write('race = "R"\nphenotype = "male_fox_md1"\ndata = ["."]\nheads = "h"\n'
+                    'uvmap = "u.npz"\nrace_config = "Missing.toml"\n[parts]\n"Head" = "face"\n')
+        try:
+            B.load_recipe(os.path.join(d, 'r2.toml'))
+            raise AssertionError("a race_config that isn't there should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('Missing.toml' in str(e), f"names it: {e}")
+
+
+def TEST_SF_TINTBAKE_HEADS_PATTERN():
+    """sf_tintbake's `heads` is a folder (every head nif in it) or a pattern on the nif names.
+
+    A recipe paints one UV layout, and the female fox md1, md2 and fennec heads are three meshes
+    in one folder, so each recipe has to pick its own heads out of it. Beards are found beside
+    the heads either way."""
+    import tempfile
+    B = _tintbake()
+    with tempfile.TemporaryDirectory() as d:
+        for n in ('crowdf_fox_01', 'crowdf_fox_01_thin', 'crowdf_fox_01_facebones', 'crowdf_fox_02',
+                  'crowdf_fennec_01', 'crowdf_fennec_01_overweight'):
+            open(os.path.join(d, n + '.nif'), 'wb').close()
+
+        def names(paths):
+            return sorted(os.path.basename(p) for p in paths)
+        assert TT.is_eq(names(B.find_heads(d)),
+                        ['crowdf_fennec_01.nif', 'crowdf_fennec_01_overweight.nif', 'crowdf_fox_01.nif',
+                         'crowdf_fox_01_thin.nif', 'crowdf_fox_02.nif'], "a folder: every head")
+        assert TT.is_eq(names(B.find_heads(os.path.join(d, 'CrowdF_Fennec_*.nif'))),
+                        ['crowdf_fennec_01.nif', 'crowdf_fennec_01_overweight.nif'],
+                        "a pattern: its heads, any case, body types included")
+        assert TT.is_eq(names(B.find_heads(os.path.join(d, 'crowdf_fox_01*'))),
+                        ['crowdf_fox_01.nif', 'crowdf_fox_01_thin.nif'], "no companions")
+        assert TT.is_eq(B.heads_folder(os.path.join(d, 'crowdf_fox_01*')), d, "beards look beside them")
+        assert TT.is_eq(B.heads_folder(d), d, "a folder is its own")
+
+        # The heads share their Beards folder: a recipe takes its own heads' beards, passes
+        # over the others', and still refuses a beard that fits no head at all.
+        os.mkdir(os.path.join(d, 'Beards'))
+        for n in ('crowdf_fox_01_Ruff01', 'crowdf_fennec_01_Ruff02'):
+            open(os.path.join(d, 'Beards', n + '.nif'), 'wb').close()
+        cfg = {'folder': 'Beards'}
+        pattern = os.path.join(d, 'crowdf_fennec_*.nif')
+        found = B.find_beards(B.heads_folder(pattern), cfg, list(B.group_heads(B.find_heads(pattern))))
+        assert TT.is_eq({h: sorted(b) for h, b in found.items()}, {'crowdf_fennec_01': ['Ruff02']},
+                        "its own heads' beards; the fox's passed over")
+        open(os.path.join(d, 'Beards', 'crowdf_wolf_01_Ruff01.nif'), 'wb').close()
+        try:
+            B.find_beards(B.heads_folder(pattern), cfg, list(B.group_heads(B.find_heads(pattern))))
+            raise AssertionError("a beard for no head in the folder should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('crowdf_wolf_01_Ruff01' in str(e), f"names it: {e}")
+
+        try:
+            B.find_heads(os.path.join(d, 'crowdf_wolf_*.nif'))
+            raise AssertionError("a pattern matching nothing should be refused")
+        except B.RecipeError as e:
+            assert TT.is_true('crowdf_wolf_' in str(e), f"names it: {e}")
 
 
 def TEST_SF_TINTBAKE_WEIGHTS():
@@ -3208,6 +3423,35 @@ def TEST_SF_TINTBAKE_RETARGET_NIF():
 
 
 @TT.requires_assets('SF')
+def TEST_SF_TINTBAKE_TAIL_TONES():
+    """A tail's tones come from the recipe's sex, whichever group its material's texture is in.
+
+    The male fox tail's material holds a female body texture, and the male tones outnumber the
+    female ones."""
+    B = _tintbake()
+    male = [rf"Textures\M_sk{i}.dds" for i in range(13)]
+    female = [rf"Textures\F_sk{i}.dds" for i in range(6)]
+    slot0 = [r"Data\textures\f_SK1.dds", r"Data\Textures\Hands_Mask.dds"]
+
+    old, group = B.tail_tones(slot0, [male, female], 'male', 'Tail.mat')
+    assert TT.is_eq(old, slot0[0], "the texture to replace is found in either group")
+    assert TT.is_eq(group, male, "male tones for a male tail")
+
+    old, group = B.tail_tones(slot0, [male, female], 'female', 'Tail.mat')
+    assert TT.is_eq(old, slot0[0], "the same texture for a female tail")
+    assert TT.is_eq(group, female, "female tones for a female tail")
+
+    old, group = B.tail_tones(slot0, [female], 'female', 'Tail.mat')
+    assert TT.is_eq(group, female, "one group serves both sexes")
+
+    try:
+        B.tail_tones([r"Data\Textures\Other.dds"], [male, female], 'male', 'Tail.mat')
+    except B.RecipeError as e:
+        assert TT.is_true('Tail.mat' in str(e), f"names the material: {e}")
+    else:
+        assert TT.is_true(False, "a texture in no group is refused")
+
+
 def TEST_SF_TINTBAKE_MATERIAL():
     """A variant material is the head's crowd material with another colour texture.
 
@@ -3443,6 +3687,56 @@ def TEST_SF_RACECHECK_AVM_GROUPS():
         assert TT.is_true('Good' not in allfound, "a group whose entries all resolve is clean")
 
 
+def TEST_SF_RACECHECK_AVM_VNAM_IS_EDID():
+    """A Complex entry's VNAM names its target group by EDITOR ID, not by '<Kind>_' + TNAM.
+
+    Vanilla can't tell the two apart: its EDIDs are always '<Kind>_' + TNAM where anything points
+    at them. Bad Dog's fox dermaesthetic filter pointed at SimpleGroup_..._SkinTone1..9 -- the
+    TNAMs -- while the groups' EDIDs were zero-padded ...SkinTone01..09. In game, tones 2-10
+    had no dermaesthetic options at all, while 1 and 11-13 (whose EDIDs matched) did; pointing
+    the filter at the EDIDs fixed every tone. sf_racecheck passed it, resolving by TNAM."""
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck as R
+    from esplib import Plugin
+
+    def group(p, edid, kind, name, entries):
+        rec = p.new_record('AVMD', edid)
+        rec.add_subrecord('MNAM', kind.to_bytes(4, 'little'))
+        rec.add_subrecord('TNAM', name.encode() + b'\0')
+        for key, target in entries:
+            rec.add_subrecord('LNAM', key.encode() + b'\0')
+            rec.add_subrecord('VNAM', target.encode() + b'\0')
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Plugin.new_plugin(os.path.join(d, 'RCMod.esm'), masters=[], game='fo4', is_esm=True)
+        group(p, 'SimpleGroup_chargen_FoxDermTone0', R.AVM_SIMPLE, 'chargen_FoxDermTone0', [])
+        group(p, 'SimpleGroup_chargen_FoxDermTone01', R.AVM_SIMPLE, 'chargen_FoxDermTone1', [])
+        group(p, 'ComplexGroup_Chargen_Dermaesthetic', R.AVM_COMPLEX, 'Chargen_Dermaesthetic',
+              [('chargen_DermaestheticSkinTone0', 'SimpleGroup_chargen_FoxDermTone0'),
+               ('chargen_DermaestheticSkinTone1', 'SimpleGroup_chargen_FoxDermTone1')])  # TNAM
+        p.save_as(os.path.join(d, 'RCMod.esm'))
+
+        rep = R.Report()
+        plugins = R.load_plugins(rep, [d], ['RCMod.esm'])
+        avm = R.avm_index(plugins)
+        filt = avm[(R.AVM_COMPLEX, 'Chargen_Dermaesthetic')]
+
+        kids = R.complex_children(filt, avm)
+        assert TT.is_eq(kids['chargen_DermaestheticSkinTone0'].editor_id,
+                        'SimpleGroup_chargen_FoxDermTone0', "EDID == <Kind>_TNAM resolves")
+        assert TT.is_true(kids['chargen_DermaestheticSkinTone1'] is None,
+                          "a VNAM naming only the target's TNAM resolves to nothing")
+
+        r = R.Report()
+        R.check_avm_groups(r, [d], plugins, R.winning_records(plugins, 'AVMD'), set())
+        fails = [m + ' ' + str(det) for lv, _a, m, det in r.findings if lv == R.FAIL]
+        assert TT.is_eq(len(fails), 1, f"one broken filter entry: {fails}")
+        assert TT.is_true('chargen_DermaestheticSkinTone1' in fails[0]
+                          and 'SimpleGroup_chargen_FoxDermTone01' in fails[0],
+                          f"names the entry and the EDID it should use: {fails}")
+
+
 def TEST_SF_RACECHECK_FACE_TEXTURE_SIZES():
     """sf_racecheck fails a face whose textures aren't all one size.
 
@@ -3643,6 +3937,120 @@ def TEST_SF_RACECHECK_FOLLICLE_MASK():
         assert TT.is_ge(checked, 115, "every vanilla hair/beard mask was actually checked")
 
 
+def TEST_SF_RACECHECK_COLOR_KEYS():
+    """sf_racecheck checks a hair or beard colour group's keys against the vanilla colour names.
+
+    A part's NAM2 names a Simple AVMD group of colours. Bad Dog's fox beard group had White,
+    Platinum and Aqua: the first two rendered, Aqua rendered black. Changing its path from
+    backslashes to forward slashes did nothing; renaming the key to AquaPurple fixed it, with
+    the same texture. Platinum points at his own texture, so the key matters and the texture
+    doesn't. Vanilla's Modulation_FacialHair_Shared is the reference list.
+    """
+    import tempfile
+    sys.path.insert(0, os.path.join(os.path.dirname(os.getcwd()), 'scripts'))
+    import sf_racecheck
+    from esplib import Plugin
+
+    HAIR, BEARD, BROW = 3, 4, 6
+    TEX = 'textures/rctest/colour.dds'
+
+    def simple(p, name, keys):
+        rec = p.new_record('AVMD', 'SimpleGroup_' + name)
+        rec.add_subrecord('MNAM', (1).to_bytes(4, 'little'))
+        rec.add_subrecord('TNAM', name.encode() + b'\0')
+        for key in keys:
+            rec.add_subrecord('LNAM', key.encode() + b'\0')
+            rec.add_subrecord('VNAM', TEX.encode() + b'\0')
+
+    def part(p, edid, pnam, nam2):
+        rec = p.new_record('HDPT', edid)
+        rec.add_subrecord('PNAM', pnam.to_bytes(4, 'little'))
+        rec.add_subrecord('NAM2', nam2.encode() + b'\0')
+
+    def findings(rep, level):
+        return [(m, d) for lv, _area, m, d in rep.findings if lv == level]
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Plugin.new_plugin(os.path.join(d, 'RCColor.esm'), masters=[], game='fo4', is_esm=True)
+        mod = p.new_record('AVMD', 'Modulation_FacialHair_Shared')
+        mod.add_subrecord('MNAM', (3).to_bytes(4, 'little'))
+        mod.add_subrecord('TNAM', b'FacialHair_Shared\0')
+        for key in ('White', 'Platinum', 'AquaPurple'):
+            mod.add_subrecord('LNAM', key.encode() + b'\0')
+            mod.add_subrecord('NNAM', (0).to_bytes(4, 'little'))
+        simple(p, 'RCBeardGood', ['White', 'Platinum', 'AquaPurple'])
+        simple(p, 'RCBeardBad', ['White', 'Platinum', 'Aqua'])
+        simple(p, 'RCHairBad', ['Mauve'])
+        simple(p, 'RCBeardCase', ['aquapurple'])
+        simple(p, 'RCBrowOdd', ['Mauve'])
+        part(p, 'RCGood', BEARD, 'RCBeardGood')
+        part(p, 'RCBad1', BEARD, 'RCBeardBad')
+        part(p, 'RCBad2', BEARD, 'RCBeardBad')
+        part(p, 'RCHair', HAIR, 'RCHairBad')
+        part(p, 'RCCase', BEARD, 'RCBeardCase')
+        part(p, 'RCBrow', BROW, 'RCBrowOdd')
+        part(p, 'RCNoGroup', BEARD, 'RCNoSuchGroup')
+        p.save_as(os.path.join(d, 'RCColor.esm'))
+
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [d], ['RCColor.esm'])
+        avm = sf_racecheck.avm_index(plugins)
+        parts = {h.editor_id: h for h in sf_racecheck.winning_records(plugins, 'HDPT')}
+
+        def check(*edids, index=avm, official=frozenset()):
+            r = sf_racecheck.Report()
+            sf_racecheck.check_color_keys(r, [parts[e] for e in edids], index, official)
+            return r
+
+        r = check('RCGood')
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL) + findings(r, sf_racecheck.WARN), [],
+                        "a group using only listed keys is clean")
+
+        r = check('RCBad1', 'RCBad2')
+        fails = findings(r, sf_racecheck.FAIL)
+        assert TT.is_eq(len(fails), 1, "a bad key is reported once, however many parts share it")
+        assert "'Aqua'" in fails[0][0] and 'RCBeardBad' in fails[0][0], \
+            f"the failure names the key and the group: {fails}"
+        assert 'Modulation_FacialHair_Shared' in str(fails[0]), f"names the list: {fails}"
+        assert 'RCBad1' in str(fails[0]) and 'RCBad2' in str(fails[0]), f"names the parts: {fails}"
+
+        r = check('RCHair')
+        assert TT.is_eq(len(findings(r, sf_racecheck.FAIL)), 1, "hair uses the same list")
+
+        r = check('RCCase')
+        assert TT.is_eq(len(findings(r, sf_racecheck.FAIL)), 0, "case-only match isn't a FAIL")
+        assert TT.is_eq(len(findings(r, sf_racecheck.WARN)), 1, "but it is a WARN")
+
+        r = check('RCBrow')
+        assert TT.is_eq(r.findings, [], "eyebrows aren't covered")
+
+        r = check('RCBad1', official={'rccolor.esm'})
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL), [], "the game's own groups aren't judged")
+
+        r = check('RCNoGroup')
+        warns = findings(r, sf_racecheck.WARN)
+        assert TT.is_eq(len(warns), 1, "a NAM2 naming no Simple group can't be checked: WARN")
+        assert 'RCNoSuchGroup' in warns[0][0], f"the warning names the group: {warns}"
+
+        without = {k: v for k, v in avm.items() if k[0] != sf_racecheck.AVM_MODULATION}
+        r = check('RCBad1', 'RCHair', index=without)
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL), [], "no reference list, nothing to fail")
+        assert TT.is_eq(len(findings(r, sf_racecheck.WARN)), 1, "says so once")
+
+    # CONTROL, on the real game: every vanilla hair and beard part's group passes, judged as if
+    # it were a mod's.
+    if os.path.exists(os.path.join(TT.SF_DATA, 'Starfield.esm')):
+        order = ['Starfield.esm'] + sf_racecheck.OFFICIAL_MASTERS
+        rep = sf_racecheck.Report()
+        plugins = sf_racecheck.load_plugins(rep, [TT.SF_DATA], order)
+        avm = sf_racecheck.avm_index(plugins)
+        r = sf_racecheck.Report()
+        sf_racecheck.check_color_keys(r, sf_racecheck.winning_records(plugins, 'HDPT'), avm, set())
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL) + findings(r, sf_racecheck.WARN), [],
+                        "vanilla hair and beard colour groups are clean")
+        assert TT.is_ge(len(findings(r, sf_racecheck.OK)), 9, "vanilla groups were really checked")
+
+
 def TEST_SF_RACECHECK_PART_MORPHS():
     """sf_racecheck checks every head part's morphs, not just the face's.
 
@@ -3731,6 +4139,19 @@ def TEST_SF_RACECHECK_PART_MORPHS():
                                   None, None)
         assert 'CK' in str(findings(r, sf_racecheck.FAIL)), \
             f"the face's zero-record morph.dat says it crashes the CK: {r.findings}"
+
+        # A face with SOME empty keys renders: the fox heads ship 2 empty squint keys and are
+        # visible. Only a zero-record file was ever proven fatal. Warn, naming the keys.
+        face = p.new_record('MRPH', 'RCFacePartialMorph')
+        face.add_subrecord('TCMP', b'Meshes\\Morphs\\RC\\chargen\\Partial\0')
+        face.add_subrecord('TMPP', b'Meshes\\Morphs\\RC\\performance\\Partial\0')
+        r = sf_racecheck.Report()
+        sf_racecheck.check_morphs(r, [d], face, None, None)
+        assert TT.is_eq(findings(r, sf_racecheck.FAIL), [],
+                        "some empty keys on a face are not a failure")
+        w = str(findings(r, sf_racecheck.WARN))
+        assert 'lipPress' in w and 'Overweight' in w and 'INVISIBLE' not in w, \
+            f"one warning per file naming the empty keys, without the invisibility claim: {w}"
 
 
 def TEST_SF_RACECHECK_CHARGEN_OPTIONS():

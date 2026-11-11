@@ -9,7 +9,7 @@
 A crowd race puts head and arms in one ARMA mesh with its own UV and texture set.
 
 1. Select eyes, arms, and head (consolidated or head, teeth, and tongue separately)
-2. Dup and join. Name the new object for the phenotype, e.g. `crowdf_fox_md1`
+2. Dup and join, with the **head active**. The join keeps the active object's settings, and an imported eye's Weights per vertex is 1: a head joined into an eye exports every vertex on one bone and warps in game (export warns). Name the new object for the phenotype, e.g. `crowdf_fox_md1`
 3. Set the "crowd" flag in the Starfield properties panel.
 4. Set the material to a crowd material
 5. Move eye bones to center of eyes. Move BoneTranslations to match.
@@ -43,7 +43,7 @@ Paint is per UV layout, not per phenotype. Phenotypes that are reshapes of the s
     - Starfield Morphs → `crowd` is on, and `performance_path` is where the crowd morph goes (one shared by all phenotypes, or one each with `{shape}`). With `crowd` on, export writes only the performance `morph.dat`, holding vanilla's 11 crowd keys with each R key merged into its L, averaged where both move a vertex (crowd faces animate both sides from the L keys), and no chargen file. Build 47 on.
 17. In xEdit, create crowd head records for each phenotype you generated.
     - "Hide Head" first person flag
-    - Assigned to the crowd race
+    - Assigned to the crowd race (the plugin build copies these and puts them on `HumanCrowdRace`)
     - Model references the phenotype nif
     - Needs a MRPH record. All the phenotypes can use the same `morph.dat`.
 
@@ -62,27 +62,31 @@ A crowd head's jaw and chin are in its mesh, and nothing morphs a beard to fit i
 The template textures are just the base level, not including the postblenddetails layers. This step creates unique crowd heads, textures, and materials for every phenotype, body weight, skin tone, eye color, and combination of postblenddetail layers. 
 
 18.  Deploy in Vortex, so the recipe's `heads` folder (under the game's Data) has the new head nifs.
-19.  If necessary, create the recipe `.TOML` file. (Only has to be done once.)
+19.  If necessary, create the recipe `.TOML` file. (Only has to be done once.) A recipe paints one UV layout and starts the faces from one phenotype's tone list. Heads that share a layout share a recipe, even when they are different meshes (other phenotypes, or decimated): the bake paints in UV space and never looks at the head's vertices. Heads with a different layout, or that need a different phenotype's tone list, need a recipe of their own. When they share a folder, `heads` can be a pattern on the nif names, e.g. `.../Mesh/Female/crowdf_fennec_*.nif`. Give each recipe `race_config`, the furrifier's race file (`C:/Modding/Starfield/sf_furrify/races/FSFFoxRace.toml`): each head is then baked only in the tones of the breed whose `crowd_heads` match it, the same tones the plugin build will keep, and a head no breed takes is an error. The dry run shows each head's breed and tones.
 20.  Bake:
     ```
     python C:\Modding\PyNifly\scripts\sf_tintbake.py bake CrowdHead_fox_female.toml --dry-run --limit 3
     python C:\Modding\PyNifly\scripts\sf_tintbake.py bake CrowdHead_fox_female.toml --force
     ```
-    The dry run lists each head with its body types and a few variant names. `--force` re-bakes textures that already exist -- needed after changing a head, its companion or its base textures. The bake writes the variants (colour textures, materials, nifs per body type, per-tone tails) into the recipe's `out` mod folder, and `CrowdHead_fox_female.variants.json` beside the recipe.
-21.  Deploy in Vortex again.
+    The dry run lists each head with its body types and a few variant names. `--force` re-bakes textures that already exist -- needed after changing a head, its companion or its base textures. The bake writes the variants (colour textures, materials, nifs per body type, per-tone tails) into the game's Data folder, or the folder you name with `--out`, and `CrowdHead_fox_female.variants.json` beside the recipe.
+21.  If you used `--out` with a mod folder, deploy in Vortex again.
 
-## Build the plugin  
+## Build the plugin
 
-Build a plugin which adds the new crowd race head variants to the crowd leveled lists so they are available in game.
+The furrifier builds crowds along with everything else, into one plugin. Crowd actors, their race and the crowd regions aren't touched: the crowd outfits change, so each spawn picks a race at the scheme's proportions. A head addon names a male and a female model, paired within a breed whatever their tones, since an actor only shows its own sex's head. Its tail addon likewise has each sex's tail in that sex's tone.
 
-22. Build the plugin:
+22. Say which heads belong to what, once:
+    - In the race's TOML, `crowd_manifests` under `[race]` lists every recipe's manifest from the bake (one per recipe, so one per UV layout per sex).
+    - Each breed with a weight has `crowd_heads`, globs on variant names, e.g. `["Crowd_Fen_*", "crowdf_fennec_*"]`. Its tones narrow them, per sex: `skin_tone_override` (and `skin_tone_override_female`), else the race's `skin_tones` (and `skin_tones_female`).
+    - In `scheme.toml`, `[proportions]` gives each race, and `_HUMAN` if you want humans, a relative weight. A race alone means all of them.
+23. Build, from `C:\Modding\Starfield\sf_furrify`:
     ```
-    python C:\Users\hughr\OneDrive\StarfieldDev\plugin_scripts\build_fsfnpc_fox.py
+    python sf_furrify.py --crowd-test --crowd-skeleton C:\Modding\Starfield\Mods\FSF_test
     ```
-    It reads both sexes' manifests and writes `FSFNPC_Fox.esm` (master + light; xEdit won't save a light `.esp`): a head list per sex and body type (`FSF_LL_Crowd_Heads_Fox[_Thin|_Overweight][_F]`), a test NPC and outfit for each, a tail per skin tone, and a beard addon per beard nif. `--dry-run` reports without writing.
-23. Check it:
+    It writes `FSFNPC.esm` to Data (master + light), holding the outfit overrides, mix lists, head lists and armors, tails and beard addons. `--crowd-skeleton` copies the crowd skeleton, which has the tail bones, over vanilla's `Actors\human_crowd\CharacterAssets` under that folder. `--crowd-test` adds six test NPCs and a batch file. To test crowds alone, add `--only NoSuchNPC`: `--only` leaves out the named NPCs it doesn't match. Add `FSFNPC.esm` to the load order and disable `FSFNPC_Fox.esm` if it's still there, then deploy in Vortex.
+24. Check it:
     ```
-    python C:\Modding\PyNifly\scripts\sf_racecheck.py --data "C:\Steam\steamapps\common\Starfield\Data" --plugin FSFNPC_Fox.esm --race FSFFoxCrowdRace
+    python C:\Modding\PyNifly\scripts\sf_racecheck.py --data "C:\Steam\steamapps\common\Starfield\Data,C:\Modding\Starfield\00StarfieldAssets" --plugin FSFNPC.esm --race HumanCrowdRace
     ```
-    It follows the NPCs' outfits to every head and tail and checks their nifs, meshes, materials, textures and companions.
-24. In game: `bat fsfnpc_fox` places the test NPCs.
+    It follows the crowd NPCs' outfits to every head and tail and checks their nifs, meshes, materials, textures and companions.
+25. In game: `bat fsfnpc_crowd` places the test NPCs, foxes whatever the proportions.

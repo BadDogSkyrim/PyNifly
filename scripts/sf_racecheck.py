@@ -196,8 +196,9 @@ def check_part_morphs(rep, data, hdpt, plugins):
     """A head part's morphs -- facial hair, eyebrows, ears, anything but the race's face, which
     check_morphs judges against the race's declared keys.
 
-    Unlike the face, a part may leave keys empty (vanilla beards leave 9+), so only a file with
-    no morph data at all is a failure: the CK crashes on it. A part with no MNAM has no morphs."""
+    A part may leave keys empty (vanilla beards leave 9+) and it isn't reported; only a file
+    with no morph data at all is a failure: the CK crashes on it. A part with no MNAM has no
+    morphs."""
     pnam = hdpt.get_subrecord('PNAM')
     if pnam is not None and pnam.get_uint32() == HDPT_FACE:
         return
@@ -270,15 +271,17 @@ def check_morphs(rep, data, mrph, declared_names, head_verts, composed_names=Non
         deltas = m.key_deltas()
         empty = [n for n in m.morph_names if not deltas[n]]
 
-        # THE check. A declared-but-empty key makes the whole head invisible, silently.
+        # A file with no data at all (zero records, above) is what made heads invisible. Some
+        # empty keys among real ones render fine -- 246 of vanilla's 1,194 morph files have them,
+        # and the fox heads ship 2 -- they just don't move anything when the game drives them.
         if empty:
-            rep.fail('morphs',
-                     f"{label}: {len(empty)} of {len(m.morph_names)} morph keys have NO "
+            rep.warn('morphs',
+                     f"{label}: {len(empty)} of {len(m.morph_names)} morph keys have no "
                      f"vertex displacement",
-                     [f"first few: {', '.join(empty[:6])}",
-                      "A declared key with no data makes the head INVISIBLE in game and in "
-                      "the CK. Either sculpt them, or trim the race's MPGM list to the "
-                      "morphs that really exist."])
+                     [', '.join(empty[:8]) + (f" (+{len(empty) - 8} more)" if len(empty) > 8
+                                              else ''),
+                      "The head still renders; these morphs just do nothing when chargen or an "
+                      "expression drives them. Sculpt them if the vanilla head uses them."])
         else:
             rep.ok('morphs', f"{label}: all {len(m.morph_names)} keys carry displacement")
 
@@ -503,6 +506,7 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
     parts = {sx: per_sex[sx]['parts'] for sx in per_sex}
     own_face = {}
     seen = set()
+    inspected = {}
     for sx in sexes:
         if not parts[sx]:
             rep.warn('head parts', f"{sx.lower()}: race lists no head parts")
@@ -516,6 +520,7 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
             if pnam is not None and pnam.get_uint32() == HDPT_FACE:
                 own_face[sx] = hdpt
             seen.add(id(hdpt))
+            inspected[id(hdpt)] = hdpt
             check_head_nif(rep, data, hdpt, nif_reader)
             check_part_morphs(rep, data, hdpt, plugins)
             if avm is not None:
@@ -529,10 +534,14 @@ def check_head_parts(rep, data, race, nif_reader, per_sex, plugins, official, se
                              f"among its defaults",
                sorted(h.editor_id or '?' for h in extra)[:8])
         for hdpt in extra:
+            inspected[id(hdpt)] = hdpt
             check_head_nif(rep, data, hdpt, nif_reader)
             check_part_morphs(rep, data, hdpt, plugins)
             if avm is not None:
                 check_follicle_mask(rep, data, hdpt, avm, official)
+
+    if avm is not None:
+        check_color_keys(rep, list(inspected.values()), avm, official)
 
     if not own_face:
         rep.warn('head parts', "Race defines no Face head part of its own (PNAM type 1)",
@@ -1577,18 +1586,29 @@ CHARGEN_DERMAESTHETIC = 'Chargen_Dermaesthetic'
 DERMAESTHETIC = 'Dermaesthetic'
 
 
+class AvmIndex(dict):
+    """avm_index()'s result: groups by (kind, TNAM), plus `by_edid`, the same groups by editor
+    ID -- which is what a Complex entry's VNAM names."""
+
+    def __init__(self):
+        super().__init__()
+        self.by_edid = {}
+
+
 def avm_index(plugins):
     """Every AVMD group in the load order, keyed by (kind, TNAM); a later plugin wins.
 
     AVMD groups are found by name, never by formID, and a name is unique only within a kind --
     ComplexionMask1 exists as both a Simple and a Modulation group -- so the kind is part of the
     key. Masters are included because a race routinely points at vanilla groups."""
-    out = {}
+    out = AvmIndex()
     for plugin in plugins:
         for rec in plugin.get_records_by_signature('AVMD'):
             name, kind = text(rec, 'TNAM'), rec.get_subrecord('MNAM')
             if name and kind is not None and kind.size == 4:
                 out[(kind.get_uint32(), name)] = rec
+            if rec.editor_id:
+                out.by_edid[rec.editor_id] = rec
     return out
 
 
@@ -1598,27 +1618,9 @@ def avm_entries(rec):
 
 
 def complex_children(rec, index):
-    """A Complex group's entries as {LNAM: the group it resolves to, or None}.
-
-    An entry's VNAM names its target as '<Kind>_<TNAM>'. With no VNAM, the LNAM names the target
-    itself, as whichever kind of group exists under that name."""
-    pairs, cur = [], None
-    for sr in rec.subrecords:
-        if sr.signature == 'LNAM':
-            cur = [sr.get_string(), None]
-            pairs.append(cur)
-        elif sr.signature == 'VNAM' and cur is not None and cur[1] is None:
-            cur[1] = sr.get_string()
-    out = {}
-    for lnam, vnam in pairs:
-        if vnam:
-            head, _, name = vnam.partition('_')
-            kind = AVM_PREFIX.get(head)
-            out[lnam] = index.get((kind, name)) if kind else None
-        else:
-            out[lnam] = next((index[(k, lnam)] for k in AVM_KIND_NAME if (k, lnam) in index),
-                             None)
-    return out
+    """A Complex group's entries as {LNAM: the group it resolves to, or None}, by complex_target's
+    rule."""
+    return {lnam: complex_target(lnam, vnam, index) for lnam, vnam in complex_entries(rec)}
 
 
 # A hair or beard head part's NAM3 "Mask" is a key into one of these Simple groups, chosen by
@@ -1643,12 +1645,28 @@ def complex_entries(rec):
 
 
 def complex_target(lnam, vnam, index):
-    """The group a Complex entry resolves to, or None -- complex_children's rule for one entry."""
+    """The group a Complex entry resolves to, or None.
+
+    An entry's VNAM is its target's EDITOR ID. Vanilla's EDIDs are always '<Kind>_' + TNAM where
+    anything points at them, so it can't tell the two apart; Bad Dog's fox dermaesthetic filter
+    named its tone lists by '<Kind>_' + TNAM while their EDIDs were zero-padded, and in game
+    every such tone had no options. With no VNAM, the LNAM names the target itself, as whichever
+    kind of group has that TNAM. An index without `by_edid` (a plain dict) falls back to
+    '<Kind>_' + TNAM."""
     if vnam:
-        head, _, name = vnam.partition('_')
-        kind = AVM_PREFIX.get(head)
-        return index.get((kind, name)) if kind else None
+        by_edid = getattr(index, 'by_edid', None)
+        if by_edid is not None:
+            return by_edid.get(vnam)
+        return tnam_target(vnam, index)
     return next((index[(k, lnam)] for k in AVM_KIND_NAME if (k, lnam) in index), None)
+
+
+def tnam_target(vnam, index):
+    """The group whose '<Kind>_' + TNAM is `vnam` -- the rule the game does NOT use, kept to
+    explain a broken entry."""
+    head, _, name = vnam.partition('_')
+    kind = AVM_PREFIX.get(head)
+    return index.get((kind, name)) if kind else None
 
 
 def check_avm_groups(rep, data, plugins, own_avmds, official):
@@ -1683,8 +1701,17 @@ def check_avm_groups(rep, data, plugins, own_avmds, official):
                     rep.info(area, f"{who}: {lnam} -> {vnam} resolves to nothing, as in "
                                    f"vanilla")
                     continue
-                detail = ["A Complex entry names its target as '<Kind>_' + TNAM; no group "
-                          "of that kind and name is in the load order."]
+                near = tnam_target(vnam, avm) if vnam else None
+                if near is not None and near.editor_id:
+                    rep.fail(area, f"{who}: {lnam} -> {vnam} names a group's TNAM, not its "
+                                   f"editor ID {near.editor_id}",
+                             ["A Complex entry's VNAM is matched against editor IDs. Point it "
+                              f"at {near.editor_id}, or rename that group's EDID to {vnam}.",
+                              "Proven in game: a dermaesthetic filter set up this way offered "
+                              "no options at the affected skin tones."])
+                    continue
+                detail = ["A Complex entry's VNAM names its target group's editor ID; no group "
+                          "with that EDID is in the load order."]
                 was = before.get(lnam)
                 if was and complex_target(lnam, was, avm) is not None:
                     detail.append(f"Vanilla's {name} has {lnam} -> {was}.")
@@ -1779,6 +1806,66 @@ def check_follicle_mask(rep, data, hdpt, avm, official):
                  [vnam, f"named by {gname} in {plugin_name(grp)}"])
     else:
         rep.ok('hair masks', f"{who}: mask '{key}' in {gname} -> {vnam}")
+
+
+# The colour names a hair or beard part's group may use. Vanilla's other hair colour groups carry
+# the same 23 keys; this is the one checked against.
+COLOR_KEY_GROUP = 'FacialHair_Shared'
+COLOR_KEY_RECORD = 'Modulation_' + COLOR_KEY_GROUP
+
+
+def check_color_keys(rep, parts, avm, official):
+    """Every colour in a hair or beard part's NAM2 group must use a vanilla colour name.
+
+    Seen in game: a beard group's 'Aqua' rendered black with a good texture, and renaming the key
+    to 'AquaPurple' fixed it. A custom texture under a vanilla key is fine. Findings are per group,
+    since many parts share one; a group from the game's own plugins isn't judged."""
+    users = {}
+    for hdpt in parts:
+        pnam = hdpt.get_subrecord('PNAM')
+        name = text(hdpt, 'NAM2')
+        if pnam is None or pnam.get_uint32() not in (HDPT_HAIR, HDPT_FACIAL_HAIR):
+            continue
+        if name and name.strip().upper() != 'NONE':
+            users.setdefault(name, []).append(hdpt.editor_id or str(hdpt.form_id))
+    if not users:
+        return
+
+    reference = avm.get((AVM_MODULATION, COLOR_KEY_GROUP))
+    if reference is None:
+        rep.warn('hair colors', f"{COLOR_KEY_RECORD} isn't in the load order, so hair and beard "
+                                f"colour names can't be checked")
+        return
+    allowed = avm_entries(reference)
+    by_lower = {k.lower(): k for k in allowed}
+
+    for name, who in sorted(users.items()):
+        parts_note = f"used by {', '.join(sorted(who)[:6])}" + (
+            f" and {len(who) - 6} more" if len(who) > 6 else "")
+        group = avm.get((AVM_SIMPLE, name))
+        if group is None:
+            rep.warn('hair colors', f"NAM2 '{name}' is not a Simple group, so its colour names "
+                                    f"can't be checked", parts_note)
+            continue
+        if plugin_name(group) in official:
+            continue
+        bad = 0
+        for key in avm_entries(group):
+            if key in allowed:
+                continue
+            bad += 1
+            if key.lower() in by_lower:
+                rep.warn('hair colors', f"{name}: colour '{key}' matches "
+                                        f"'{by_lower[key.lower()]}' in {COLOR_KEY_RECORD} only if "
+                                        f"case is ignored", parts_note)
+            else:
+                rep.fail('hair colors', f"{name}: colour '{key}' is not in {COLOR_KEY_RECORD}",
+                         ["A colour name outside this list has rendered black in game. Rename "
+                          "the key; its texture can stay as it is.",
+                          parts_note, "Allowed: " + ', '.join(sorted(allowed))])
+        if not bad:
+            rep.ok('hair colors', f"{name}: all colour names are in {COLOR_KEY_RECORD}",
+                   parts_note)
 
 
 def check_ck_simple_group(rep, who, part, name, index):
@@ -2002,13 +2089,40 @@ def check_race_misc(rep, race):
                  "It will have no animation graph.")
 
 
+# Starfield.esm's condition ActorShouldShowSpacesuit lets an actor show a spacesuit only if its
+# race is one of these, or carries the keyword. The Armor Race doesn't count.
+SPACESUIT_RACES = {'HumanRace', 'HumanCorpseRace', 'ChildRace'}
+SPACESUIT_KEYWORD = 'RaceAllowShowSpacesuit'
+
+
+def check_spacesuit(rep, race, plugins, crowd):
+    if crowd:
+        return                                  # vanilla crowds don't wear spacesuits either
+    if race.editor_id in SPACESUIT_RACES:
+        rep.ok('spacesuit', f"{race.editor_id} shows spacesuits by name")
+        return
+    kwda = race.get_subrecord('KWDA')
+    names = []
+    for fid in (kwda.get_form_id_array() if kwda is not None else []):
+        kw = plugins.resolve_form_id(fid, race.plugin)
+        if kw is not None:
+            names.append(kw.editor_id)
+    if SPACESUIT_KEYWORD in names:
+        rep.ok('spacesuit', f"Race has keyword {SPACESUIT_KEYWORD}")
+    else:
+        rep.fail('spacesuit', f"Race lacks keyword {SPACESUIT_KEYWORD}: no spacesuit will show",
+                 "Starfield.esm's ActorShouldShowSpacesuit accepts only HumanRace, "
+                 "HumanCorpseRace, ChildRace, or a race with this keyword. Without it, NPCs "
+                 "dressed by a space outfit stand naked and the player's suit is invisible.")
+
+
 # --- plugin loading ------------------------------------------------------------------------
 
 # Top-level groups to parse. Skipping the rest turns reading Starfield.esm from a minute
 # into a second, and every record type we follow by formID is here: the vanilla body morphs
 # an armor addon points at, armor or head records a race reuses wholesale, and the form lists
 # a head part's Valid Races goes through.
-GROUPS = {'RACE', 'ARMO', 'ARMA', 'MRPH', 'HDPT', 'AVMD', 'NPC_', 'FLST', 'OTFT', 'LVLI'}
+GROUPS = {'RACE', 'ARMO', 'ARMA', 'MRPH', 'HDPT', 'AVMD', 'NPC_', 'FLST', 'OTFT', 'LVLI', 'KYWD'}
 
 # What the game loads before anything in Plugins.txt, in this order, whether or not it is
 # listed there. Starfield.esm, then the official masters -- xEdit's wbOfficialDLC in
@@ -2287,6 +2401,7 @@ def run(args, out):
     crowd = is_crowd_race(race, plugins)
 
     check_race_misc(rep, race)
+    check_spacesuit(rep, race, plugins, crowd)
     if crowd:
         rep.info('race', f"crowd race (Armor Race {CROWD_RACE}): head, eyes and arms come from "
                          f"the head armor, so the head part, tint, skin tone and face texture "
