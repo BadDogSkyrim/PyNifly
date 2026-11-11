@@ -685,6 +685,88 @@ def TEST_EXPORT_MESH_PARENT_FLATTENED():
                     "the head's own settings still live on its root")
 
 
+def _pyn_warnings(fn):
+    """Run fn and return the pynifly warnings it logged."""
+    import logging
+    messages = []
+
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    cap = _Cap(level=logging.WARNING)
+    pyn_log = logging.getLogger("pynifly")
+    pyn_log.addHandler(cap)
+    try:
+        fn()
+    finally:
+        pyn_log.removeHandler(cap)
+    return messages
+
+
+def _game_folder_file(game_folder, relpath):
+    """An output path inside a fake game install, tests/Out/<game_folder>/Data/<relpath>."""
+    out_dir = Path(TTB.test_file(r"tests\Out\_")).parent
+    path = out_dir / game_folder / "Data" / relpath
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.unlink()
+    return str(path)
+
+
+@TT.category('SKYRIM', 'GEOMETRY')
+def TEST_GAME_OF_PATH():
+    """A path inside a game's Data folder names that game, by the game's install folder.
+    VR installs take their flat game's formats."""
+    from io_scene_nifly.gamefinder import game_of_path
+    cases = [
+        (r"C:\Steam\steamapps\common\Skyrim Special Edition\Data\meshes\a.nif", 'SKYRIMSE'),
+        (r"D:\Games\Skyrim\Data\meshes\a.nif", 'SKYRIM'),
+        (r"d:/games/SKYRIM SPECIAL EDITION/data/Meshes/a.hkx", 'SKYRIMSE'),
+        (r"C:\Steam\steamapps\common\SkyrimVR\Data\meshes\a.nif", 'SKYRIMSE'),
+        (r"C:\Steam\steamapps\common\Fallout 4\Data\Meshes\a.nif", 'FO4'),
+        (r"C:\Steam\steamapps\common\Fallout 4 VR\Data\Meshes\a.nif", 'FO4'),
+        (r"C:\Steam\steamapps\common\Starfield\Data\meshes\a.nif", 'SF'),
+        (r"C:\Steam\steamapps\common\Fallout New Vegas\Data\meshes\a.nif", 'FONV'),
+        (r"C:\Steam\steamapps\common\Fallout 3 goty\Data\meshes\a.nif", 'FO3'),
+        (r"C:\Steam\steamapps\common\Fallout76\Data\meshes\a.nif", 'FO76'),
+        # Not in a game's Data folder
+        (r"C:\Modding\SkyrimDev\meshes\a.nif", None),
+        (r"C:\Steam\steamapps\common\Skyrim Special Edition\a.nif", None),
+        (r"C:\MO2\mods\MyMod\meshes\a.nif", None),
+    ]
+    for path, game in cases:
+        TT.assert_eq(game_of_path(path), game, path)
+
+
+@TT.category('SKYRIMSE', 'GEOMETRY')
+@TT.expect_errors(('game folder',))
+def TEST_EXPORT_NIF_WRONG_GAME_FOLDER():
+    """A nif exported into a game's folder for a different game is written as asked, with a
+    warning: the game can't load it, and nothing else would say why."""
+    outfile = _game_folder_file("Fallout 4", r"meshes\TEST_EXPORT_NIF_WRONG_GAME_FOLDER.nif")
+    shape = _tri_obj("WrongGame")
+    BD.ObjectSelect([shape], active=True)
+    warnings = _pyn_warnings(lambda: bpy.ops.export_scene.pynifly(
+        filepath=outfile, target_game='SKYRIMSE', intuit_defaults=False))
+
+    TT.assert_eq(pyn.NifFile(outfile).game, 'SKYRIMSE', "written as asked")
+    warned = [m for m in warnings if "game folder" in m]
+    TT.assert_eq(len(warned), 1, f"one warning (saw {warnings})")
+    TT.assert_contains("Skyrim SE", warned[0], "names the format written")
+    TT.assert_contains("Fallout 4", warned[0], "names the folder's game")
+
+
+@TT.category('FO4', 'GEOMETRY')
+def TEST_EXPORT_NIF_RIGHT_GAME_FOLDER():
+    """A nif exported into its own game's folder exports with no warning."""
+    outfile = _game_folder_file("Fallout 4", r"meshes\TEST_EXPORT_NIF_RIGHT_GAME_FOLDER.nif")
+    shape = _tri_obj("RightGame")
+    BD.ObjectSelect([shape], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', intuit_defaults=False)
+    TT.assert_eq(pyn.NifFile(outfile).game, 'FO4', "written as FO4")
+
+
 def _exporter_stub(**kw):
     """What export_report reads from an exporter, all clear unless `kw` says otherwise."""
     from types import SimpleNamespace

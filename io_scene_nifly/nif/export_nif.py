@@ -26,6 +26,7 @@ BSGEOMETRY_FLAGS = (NiAVFlags.SELECTIVE_UPDATE | NiAVFlags.SELECTIVE_UPDATE_TRAN
                     | NiAVFlags.SELECTIVE_UPDATE_CONTR)
 from .. import blender_defs as BD
 from ..blender_defs import ObjectSelect, ObjectActive
+from ..gamefinder import wrong_game_folder_warning
 from ..util.settings import (ExportSettings,
     PYN_BLENDER_XF_PROP,
     PYN_GAME_PROP, 
@@ -3122,7 +3123,10 @@ class ExportNIF(bpy.types.Operator, ExportHelper):
             if self.blender_xf:
                 exporter.export_xf = BD.blender_export_xf
             exporter.export(self.objects_to_export)
-            
+            if (msg := wrong_game_folder_warning(self.filepath, self.target_game)):
+                log.warning(msg)
+                self.report({'WARNING'}, msg)
+
             for level, msg in export_report(exporter, self.log_handler.max_error):
                 self.report({level}, msg)
             

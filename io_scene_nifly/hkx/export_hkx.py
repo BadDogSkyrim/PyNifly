@@ -14,6 +14,7 @@ from . import skeleton_hkx
 from . import anim_fo4
 from . import anim_skyrim
 from .import_hkx import PYN_HKX_BONES_PROP, PYN_HKX_GAME_PROP, PYN_HKX_PTR_SIZE_PROP, extract_fo4_animation
+from ..gamefinder import wrong_game_folder_warning
 
 
 log = logging.getLogger("pynifly")
@@ -37,6 +38,17 @@ def _load_reference_skeleton(filepath):
     if not skel or not skel.bones:
         return None
     return skel, game, ptr_size
+
+
+# HKX export game -> the nif game code naming the game that loads it.
+_HKX_GAME_CODES = {'FO4': 'FO4', 'SKYRIM_LE': 'SKYRIM', 'SKYRIM_SE': 'SKYRIMSE'}
+
+
+def _warn_wrong_game_folder(operator, filepath, game):
+    """Warn when an HKX file written for game goes into another game's Data folder."""
+    if (msg := wrong_game_folder_warning(filepath, _HKX_GAME_CODES[game])):
+        log.warning(msg)
+        operator.report({'WARNING'}, msg)
 
 
 ################################################################################
@@ -170,6 +182,8 @@ class ExportHKX(bpy.types.Operator, ExportHelper):
                 anim_fo4.write_fo4_animation(self.filepath, anim_data)
                 log.info(f"Exported FO4 animation: {self.filepath}")
                 res.add('FINISHED')
+            if 'FINISHED' in res:
+                _warn_wrong_game_folder(self, self.filepath, game)
         except Exception:
             log.exception("HKX export failed")
             res.add('CANCELLED')
@@ -231,6 +245,7 @@ class ExportSkelHKX(bpy.types.Operator, ExportHelper):
                 ptr_size = 8 if self.game == 'SKYRIM_SE' else 4
                 anim_skyrim.write_skyrim_skeleton(self.filepath, skel, ptr_size=ptr_size)
             log.info(f"Exported {self.game} skeleton: {self.filepath} ({len(skel.bones)} bones)")
+            _warn_wrong_game_folder(self, self.filepath, self.game)
 
             wm = context.window_manager
             wm.pynifly_last_export_path_skel_hkx = self.filepath

@@ -108,6 +108,62 @@ _game_finders = {
     "SKYRIM": find_skyrim,
 }
 
+# Steam install folder name (lower case) -> the game whose file formats it loads. The VR
+# versions load their flat game's formats.
+INSTALL_FOLDERS = {
+    "skyrim": "SKYRIM",
+    "skyrim special edition": "SKYRIMSE",
+    "skyrimvr": "SKYRIMSE",
+    "fallout 4": "FO4",
+    "fallout 4 vr": "FO4",
+    "fallout76": "FO76",
+    "fallout new vegas": "FONV",
+    "fallout 3": "FO3",
+    "fallout 3 goty": "FO3",
+    "starfield": "SF",
+}
+
+GAME_NAMES = {
+    "SKYRIM": "Skyrim LE",
+    "SKYRIMSE": "Skyrim SE",
+    "FO4": "Fallout 4",
+    "FO76": "Fallout 76",
+    "FONV": "Fallout New Vegas",
+    "FO3": "Fallout 3",
+    "SF": "Starfield",
+}
+
+
+def game_of_path(filepath) -> str | None:
+    """The game whose Data folder filepath is in ('SKYRIMSE', 'FO4' ...), or None.
+    Known by the game's install folder name, or by where an installed game is."""
+    p = Path(os.path.abspath(filepath))
+    parts = [s.lower() for s in p.parts]
+    for i in range(len(parts) - 1, 0, -1):
+        if parts[i] == "data" and parts[i-1] in INSTALL_FOLDERS:
+            return INSTALL_FOLDERS[parts[i-1]]
+    for game in _game_finders:
+        data_dir = find_game(game)
+        if data_dir:
+            try:
+                p.relative_to(Path(os.path.abspath(data_dir)))
+                return game
+            except ValueError:
+                pass
+    return None
+
+
+def wrong_game_folder_warning(filepath, game) -> str | None:
+    """The warning to give when a file written for game goes into another game's Data
+    folder, or None when it doesn't."""
+    folder_game = game_of_path(filepath)
+    if folder_game is None or folder_game == game:
+        return None
+    have = GAME_NAMES.get(game, game)
+    want = GAME_NAMES.get(folder_game, folder_game)
+    return (f"Exported for {have} into a {want} game folder; {want} can't load it. "
+            f"Choose {want} as the export's game to write it for {want}: {filepath}")
+
 _cache = {}
 
 def find_game(game_name: str) -> Path | None:
