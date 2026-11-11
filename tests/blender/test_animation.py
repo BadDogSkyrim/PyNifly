@@ -3524,6 +3524,9 @@ def TEST_FO4_HKX_SYNC_OFFSET():
     marker = action.pyn_hkx.sync_offset
     assert TT.is_true(marker is not None, "action points to its sync offset")
     TT.assert_eq(marker.parent, arma, "the Empty is the armature's child")
+    TT.assert_eq(marker.name, f"SyncAnimOffset:{action.name}", "named what it is:whose")
+    TT.assert_eq((marker.empty_display_type, marker.empty_display_size), ('CONE', 5.0),
+                 "drawn as a 5m cone")
     TT.assert_equiv(marker.location, orig.sync_offset[:3], "Empty at the offset", e=0.01)
     yaw_err = abs((marker.rotation_euler.z - orig.sync_offset[3] + math.pi) % (2 * math.pi)
                   - math.pi)
@@ -3577,6 +3580,72 @@ def TEST_SKYRIM_HKX_DRAGON_ROOT_MOTION():
     out = anim_skyrim.load_skyrim_animation(outfile)
     TT.assert_eq(len(out.root_motion), out.num_frames, "reference frame written")
     TT.assert_equiv(out.root_motion[-1], orig.root_motion[-1], "rise written back", e=0.5)
+
+
+@TT.category('FO4', 'HKX')
+@TT.expect_errors(('game folder',))
+def TEST_HKX_EXPORT_WRONG_GAME_FOLDER():
+    """An HKX animation exported into a game's folder for a different game is written as
+    asked, with a warning. Three Skyrim LE tail animations went into Skyrim SE's Data
+    folder this way, where SE can't read them, and nothing said so."""
+    from io_scene_nifly.hkx import anim_fo4
+    outfile = str(Path(TTB.test_file(r"tests\Out\_")).parent
+                  / "Skyrim Special Edition" / "Data" / "meshes" / "TEST_HKX_WRONG_FOLDER.hkx")
+    Path(outfile).parent.mkdir(parents=True, exist_ok=True)
+    arma, _ = _import_fo4_hkx(r"tests\FO4\Animations\run_forward_to_idle.hkx")
+
+    messages = []
+
+    class _Cap(logging.Handler):
+        def emit(self, record):
+            messages.append(record.getMessage())
+
+    cap = _Cap(level=logging.WARNING)
+    logging.getLogger("pynifly").addHandler(cap)
+    try:
+        BD.ObjectSelect([arma], active=True)
+        bpy.ops.export_scene.pynifly_hkx(filepath=outfile, game='FO4')
+    finally:
+        logging.getLogger("pynifly").removeHandler(cap)
+
+    TT.assert_true(anim_fo4.is_fo4_hkx(outfile), "written as asked")
+    warned = [m for m in messages if "game folder" in m]
+    TT.assert_eq(len(warned), 1, f"one warning (saw {messages})")
+    TT.assert_contains("Fallout 4", warned[0], "names the format written")
+    TT.assert_contains("Skyrim SE", warned[0], "names the folder's game")
+
+
+@TT.category('FO4', 'HKX')
+def TEST_HKX_IMPORT_SETS_SCENE_RANGE():
+    """HKX import sets the scene's frame range to the animation's. It only ever widened
+    it, so a 30-frame animation left Blender's default 1-250."""
+    bpy.context.scene.frame_start = 1
+    bpy.context.scene.frame_end = 250
+    arma, orig = _import_fo4_hkx(r"tests\FO4\Animations\run_forward_to_idle.hkx")
+    TT.assert_eq(bpy.context.scene.frame_start, 1, "scene starts on the animation's first frame")
+    TT.assert_eq(bpy.context.scene.frame_end, orig.num_frames,
+                 "scene ends on the animation's last frame")
+
+
+@TT.category('SKYRIMSE', 'ANIMATION')
+def TEST_NIF_IMPORT_SETS_SCENE_RANGE():
+    """Nif import sets the scene's frame range to the animation it leaves active, the first
+    sequence. The jail door's Open and Close run about 30 frames; the scene stayed at 1-250."""
+    testfile = TTB.test_file(r"tests\SkyrimSE\impjaildoor01.nif")
+    bpy.context.scene.frame_start = 1
+    bpy.context.scene.frame_end = 250
+    bpy.context.scene.render.fps = 30
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    active = [o.animation_data.action for o in bpy.context.scene.objects
+              if o.animation_data and o.animation_data.action]
+    TT.assert_true(active, "an animation is active")
+    act = active[0]
+    TT.assert_eq((bpy.context.scene.frame_start, bpy.context.scene.frame_end),
+                 (int(act.frame_start), int(act.frame_end)),
+                 f"scene range is the active animation's ({act.name})")
+    TT.assert_lt(bpy.context.scene.frame_end, 60, "not the default 250")
 
 
 def _hkx_track_rotations(anim, skel_bones):

@@ -179,8 +179,8 @@ def apply_action(act):
                     obj.animation_data_create()
                 obj.animation_data.action = act
                 obj.animation_data.action_slot = s
-    bpy.context.scene.frame_start = min(bpy.context.scene.frame_start, int(act.frame_start))
-    bpy.context.scene.frame_end = max(bpy.context.scene.frame_end, int(act.frame_end))
+    bpy.context.scene.frame_start = int(act.frame_start)
+    bpy.context.scene.frame_end = int(act.frame_end)
 
 
 @dataclass
@@ -427,6 +427,7 @@ class ControllerHandler(BD.Warns):
         self.cm_obj_palette = None
         
         self.controlled_objects = ReprObjectCollection.New()
+        self.scene_range_set = False  # the scene range has been set by this import
         self.start_time = sys.float_info.max
         self.end_time = -sys.float_info.max
 
@@ -649,7 +650,8 @@ class ControllerHandler(BD.Warns):
         During export, we look for this property to find which action slots apply to this
         object.
 
-        Also set the frame range to include these fcurves.
+        Also set the frame range to include these fcurves. The scene's range is set from
+        the first action this import records, then widened for the rest.
         """
         ## _add_actionslot(self.action_target, self.action.name, self.action_slot)
         if self.action_target.animation_data and self.action_target.animation_data.action_slot:
@@ -665,10 +667,14 @@ class ControllerHandler(BD.Warns):
             maxtime = max([fc.keyframe_points[-1].co[0] for fc in populated])
             self.action.frame_start = round(min(self.action.frame_start, mintime))
             self.action.frame_end = round(max(self.action.frame_end, maxtime))
-            self.context.scene.frame_start = min(self.context.scene.frame_start,
-                                                  round(self.action.frame_start))
-            self.context.scene.frame_end = max(self.context.scene.frame_end,
-                                                round(self.action.frame_end))
+            sc = self.context.scene
+            if self.scene_range_set:
+                sc.frame_start = min(sc.frame_start, round(self.action.frame_start))
+                sc.frame_end = max(sc.frame_end, round(self.action.frame_end))
+            else:
+                sc.frame_start = round(self.action.frame_start)
+                sc.frame_end = round(self.action.frame_end)
+                self.scene_range_set = True
 
 
     def _animate_bone(self, bone_name:str):

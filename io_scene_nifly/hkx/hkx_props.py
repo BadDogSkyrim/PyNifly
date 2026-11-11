@@ -101,9 +101,9 @@ def stored_root_motion(action):
 
 def add_sync_offset(action, armature, x=0.0, y=0.0, z=0.0, yaw=0.0):
     """Create the action's sync-offset Empty under the armature and point the action to it."""
-    empty = bpy.data.objects.new(f"{action.name} SyncAnimOffset", None)
-    empty.empty_display_type = 'ARROWS'
-    empty.empty_display_size = 20.0
+    empty = bpy.data.objects.new(f"SyncAnimOffset:{action.name}", None)
+    empty.empty_display_type = 'CONE'
+    empty.empty_display_size = 5.0
     empty[SYNC_OFFSET_TAG] = True
     for coll in armature.users_collection:
         coll.objects.link(empty)

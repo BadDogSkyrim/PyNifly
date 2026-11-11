@@ -471,9 +471,9 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
             hkx_props.add_sync_offset(armature.animation_data.action, armature,
                                       *anim_data.sync_offset)
 
-        # ── Extend scene frame range to cover animation ──
-        context.scene.frame_start = min(context.scene.frame_start, 1)
-        context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
+        # ── The scene plays the animation just imported ──
+        context.scene.frame_start = 1
+        context.scene.frame_end = anim_data.num_frames
         context.scene.frame_set(1)
 
         # ── Import annotation events as pose markers on the action ──
@@ -696,8 +696,8 @@ class ImportHKX(bpy.types.Operator, ImportHelper):
 
         _apply_float_tracks(armature, anim_data)
 
-        context.scene.frame_start = min(context.scene.frame_start, 1)
-        context.scene.frame_end = max(context.scene.frame_end, anim_data.num_frames)
+        context.scene.frame_start = 1
+        context.scene.frame_end = anim_data.num_frames
         context.scene.frame_set(1)
 
         _store_annotations(armature, anim_data.annotations, self.fps)
