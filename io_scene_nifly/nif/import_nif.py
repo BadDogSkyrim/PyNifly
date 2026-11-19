@@ -2418,6 +2418,48 @@ class NifImporter(BD.Warns):
         return arma
     
 
+    def fill_facegen_placeholder_bones(self):
+        """
+        Give facegen bone NiNodes parked at the origin their reference skeleton position.
+
+        RaceMenu's CharGen export (SKSE/Plugins/CharGen/*.nif) writes the bone NiNodes as
+        identity placeholders; the game skins the head to the actor's skeleton and never
+        reads them. Taken at face value they pull every bone to the origin: the shapes'
+        skin transform (calc_global_to_skin averages the bones) and the bone poses both go
+        wrong, and facegen_cleanup bakes that in, tearing any shape weighted to more than
+        one bone (neck seam, hair). Creation Kit facegen has its bones at their skeleton
+        positions, so put them there, in memory only. It's the same source set_bone_poses
+        already uses for facegen bone rotations.
+        """
+        skel = self.reference_skel
+        if not skel:
+            return
+        identity = Matrix.Identity(4)
+        bones = {b for s in self.nif.shapes for b in s.bone_names}
+        # Decide which bones are placeholders before moving any: once a parent moves, a
+        # child placeholder under it no longer reads as identity.
+        placeholders = [
+            b for b in bones
+            if b in self.nif.nodes and b != self.nif.rootName and b in skel.nodes
+            and MatNearEqual(BD.transform_to_matrix(self.nif.nodes[b].global_transform), identity)]
+
+        def depth(name):
+            d, n = 0, self.nif.nodes[name]
+            while n.parent is not None:
+                d, n = d + 1, n.parent
+            return d
+
+        for b in sorted(placeholders, key=depth):  # parents first
+            node = self.nif.nodes[b]
+            parent_xf = (BD.transform_to_matrix(node.parent.global_transform)
+                         if node.parent is not None else identity)
+            target = BD.transform_to_matrix(skel.nodes[b].global_transform)
+            node.properties.transform = BD.make_transformbuf(parent_xf.inverted() @ target)
+            node.write_properties()
+            log.debug(f"Facegen bone {b} is a placeholder at the origin; "
+                      f"using its reference skeleton position")
+
+
     def facegen_cleanup(self, obj):
         """
         Correct FO4 facegen shape locations.
@@ -2470,6 +2512,7 @@ class NifImporter(BD.Warns):
         self.is_facegen = ("BSFaceGenNiNodeSkinned" in self.nif.nodes)
         if self.is_facegen:
             self.settings.import_pose = False
+            self.fill_facegen_placeholder_bones()
 
         # A skinned tree (BSTreeNode root and/or a NiSwitchNode) is authored at rest,
         # not posed: its bone NiNodes describe the standing tree. Some vanilla trees

@@ -1262,6 +1262,38 @@ def TEST_FACEGEN_SE():
                         e=0.1)
 
 
+@TT.category('SKYRIMSE', 'FACEGEN')
+def TEST_FACEGEN_PLACEHOLDER_BONES():
+    """Facegen whose bone NiNodes sit at the origin imports undistorted.
+
+    RaceMenu's CharGen export (SKSE/Plugins/CharGen/*.nif) writes the bone NiNodes as
+    identity placeholders. Taken at face value they dragged the shapes to the origin and
+    tore any shape weighted to more than one bone (head neck seam, hair).
+    facegen_placeholder_bones.nif is facegen.nif with its three bone NiNodes set to
+    identity; geometry and skin binds are untouched, so both files must import to the
+    same place.
+    """
+    reffile = TTB.test_file(r"tests\SkyrimSE\meshes\facegen.nif")
+    testfile = TTB.test_file(r"tests\SkyrimSE\meshes\facegen_placeholder_bones.nif")
+
+    bpy.ops.import_scene.pynifly(filepath=reffile, create_collection=True)
+    ref = {obj.name.split('.')[0]: TTB.get_obj_bbox(obj, worldspace=True)
+           for obj in bpy.context.selected_objects if obj.type == 'MESH'}
+
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.import_scene.pynifly(filepath=testfile, create_collection=True)
+    got = {obj.name.split('.')[0]: TTB.get_obj_bbox(obj, worldspace=True)
+           for obj in bpy.context.selected_objects if obj.type == 'MESH'}
+
+    assert TT.is_eq(sorted(got), sorted(ref), "Same shapes imported")
+    for name, bb in got.items():
+        # Unfixed, every shape landed ~120 units off. Fixed, head, hair and mouth match
+        # exactly and the eyes within ~0.1 (single-bone shapes take their rotation from
+        # the reference skeleton).
+        assert TT.is_equiv(bb[0], ref[name][0], f"{name} bbox min matches", e=0.5)
+        assert TT.is_equiv(bb[1], ref[name][1], f"{name} bbox max matches", e=0.5)
+
+
 @TT.category('FO4', 'SHADER')
 def TEST_EFFECT_SHADER_SPECULAR_FLAG():
     """An effect shader with the SPECULAR flag imports its material and exports as an
