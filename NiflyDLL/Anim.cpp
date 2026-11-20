@@ -11,7 +11,7 @@ See the included LICENSE file
 /* +++ NiflyDLL Changes +++ */
 //#include <wx/log.h>
 //#include <wx/msgdlg.h>
-#include "logger.hpp"
+#include "Logger.hpp"
 #include <unordered_set>
 
 //extern ConfigurationManager Config;

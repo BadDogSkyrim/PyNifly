@@ -3,7 +3,7 @@
 #include <string>
 #include "BasicTypes.hpp"
 #include "Object3d.hpp"
-#include "animation.hpp"
+#include "Animation.hpp"
 
 
 class INifFile {

@@ -7,8 +7,8 @@
 	for easier sync.
 	*/
 #include "pch.h" 
-#include "object3d.hpp"
-#include "geometry.hpp"
+#include "Object3d.hpp"
+#include "Geometry.hpp"
 #include "NifFile.hpp"
 #include "NifUtil.hpp"
 #include "Anim.h"

@@ -9,7 +9,7 @@ See the included LICENSE file
 
 /* +++ NiflyDLL Changes +++ */
 //#include "../utils/ConfigurationManager.h"
-#include "logger.hpp"
+#include "Logger.hpp"
 /* +++ NiflyDLL Changes +++ */
 
 #include <map>

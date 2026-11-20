@@ -119,3 +119,6 @@ NiflyDLL/out/
 NiflyDLL/NiflyDLL/Test/
 *.vcxproj.user
 NiflyDLL/staging/
+
+# Linux build: nifly, when NiflyDLL/linux/install-blender.sh clones it there
+NiflyDLL/external/

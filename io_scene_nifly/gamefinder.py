@@ -1,4 +1,7 @@
-import winreg
+try:
+    import winreg
+except ImportError:  # On Linux: no registry; Steam is found in its home folder below.
+    winreg = None
 import os
 import json
 from pathlib import Path
@@ -34,6 +37,13 @@ def _parse_steam_libraries(steam_path: Path) -> list[Path]:
 
 def _find_steam_path() -> Path | None:
     """Find Steam installation path from registry."""
+    if winreg is None:
+        # On Linux: Steam's folder in the home folder, as the Steam client puts it.
+        for candidate in [Path.home() / ".local" / "share" / "Steam", Path.home() / ".steam" / "steam",
+                          Path.home() / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam"]:
+            if (candidate / "steamapps").is_dir():
+                return candidate
+        return None
     for key_path in [r"Software\Valve\Steam", r"Software\WOW6432Node\Valve\Steam"]:
         try:
             with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as k:
@@ -87,6 +97,8 @@ def find_skyrimse() -> Path | None:
         return result
 
     # Bethesda Launcher installs
+    if winreg is None:
+        return None
     for key_path in [
         r"SOFTWARE\WOW6432Node\Bethesda Softworks\Skyrim Special Edition",
         r"SOFTWARE\Bethesda Softworks\Skyrim Special Edition",

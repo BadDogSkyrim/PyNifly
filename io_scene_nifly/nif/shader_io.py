@@ -1057,6 +1057,9 @@ class ShaderImporter(BD.Warns):
             have_face = (self.is_lighting_shader and
                         shape.shader.properties.Shader_Type == BSLSPShaderType.Face_Tint)
             self.asset_path = os.path.join(asset_path, "shaders.blend")
+            if not os.path.exists(self.asset_path):
+                # On Linux: the file is Shaders.blend, and a case-sensitive file system needs its own case.
+                self.asset_path = os.path.join(asset_path, "Shaders.blend")
 
             self.material = bpy.data.materials.new(name=(obj.name + ".Mat"))
             self.material.use_nodes = True

@@ -128,7 +128,12 @@ class NifFile:
         # We don't actually know which skeleton to use. Assume the basic human skeleton.
         g = "SKYRIM" if self._game == "SKYRIMSE" else self._game
         if g:
-            skel_path = os.path.join(os.path.dirname(nifly_path), "Skeletons", g, "skeleton.nif")
+            skel_dir = os.path.join(os.path.dirname(nifly_path), "skeletons")
+            # The game's folder (Skyrim, FO4, SF, FONV) whatever its letter case, so a
+            # case-sensitive file system (Linux) finds it as Windows does.
+            folder = next((d for d in os.listdir(skel_dir) if d.upper() == g.upper()), g) \
+                if os.path.isdir(skel_dir) else g
+            skel_path = os.path.join(skel_dir, folder, "skeleton.nif")
             if os.path.exists(skel_path):
                 self._ref_skel = NifFile(skel_path)
                 return self._ref_skel
