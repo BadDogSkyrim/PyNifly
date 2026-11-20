@@ -1,7 +1,7 @@
 # PyNifly
 Export/Import tools between Blender and the Nif format, using Bodyslide/Outfit Studio's Nifly layer. Works with official Blender versions 4.0 and later; animation import and export require Blender 4.4 or later. Can handle nifs for Skyrim LE, Skyrim SE, and Fallout 4. Limited support for Fallout 76, Fallout New Vegas, and Fallout 3. Experimental support for Starfield.
 
-Windows only.
+Windows; on Linux, build the native library from source: see [LINUX.md](LINUX.md).
 
 Full documentation in the wiki.
 

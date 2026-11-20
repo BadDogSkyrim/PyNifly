@@ -3,8 +3,8 @@
 #include <string>
 #include "BasicTypes.hpp"
 #include "Object3d.hpp"
-#include "animation.hpp"
-#include "niflydefs.hpp"
+#include "Animation.hpp"
+#include "NiflyDefs.hpp"
 
 #ifdef NIFLYDLL_EXPORTS
 	#define NIFLY_API __declspec(dllexport)

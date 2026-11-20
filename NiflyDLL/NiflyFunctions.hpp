@@ -7,8 +7,8 @@
 #include <map>
 //#include "object3d.hpp"
 #include "BasicTypes.hpp"
-#include "geometry.hpp"
-#include "skin.hpp"
+#include "Geometry.hpp"
+#include "Skin.hpp"
 //#include "NifFile.hpp"
 //#include "NifUtil.hpp"
 #include "Anim.h"
