@@ -10993,6 +10993,38 @@ def TEST_MOPP_SLGDARCHFIRE01_POINTS():
               f"{len(miss_points_blender)} misses")
 
 
+def TEST_FIND_REFERENCED_FILE_CASE():
+    """A texture named in another letter case, with backslashes, is found on a case-sensitive file system.
+
+    Nifs name their textures as the game reads them: case-insensitively, with backslashes
+    (textures\\actors\\character\\body_d.dds for Textures/Actors/Character/Body_D.DDS). Windows'
+    file system matches them; elsewhere _find_referenced_file_posix matches each part of the path
+    whatever its case. It runs on Windows too, where each part simply exists.
+    """
+    import tempfile
+    from pyn.niflytools import _find_referenced_file_posix as find
+    with tempfile.TemporaryDirectory() as d:
+        data = Path(d) / "Data"
+        (data / "Meshes" / "armor").mkdir(parents=True)
+        folder = data / "Textures" / "Actors" / "Character"
+        folder.mkdir(parents=True)
+        tex = folder / "Body_D.DDS"
+        tex.write_bytes(b"DDS ")
+        (folder / "Skin.png").write_bytes(b"PNG")
+        nif = str(data / "Meshes" / "armor" / "body.nif")
+
+        found = find(r"textures\actors\character\body_d.dds", nif)
+        assert TT.is_true(found and Path(found).samefile(tex), f"found by the nif's path: {found}")
+        found = find(r"Actors\Character\body_d.dds", nif)
+        assert TT.is_true(found and Path(found).samefile(tex), f"a path without 'textures' starts there: {found}")
+        found = find(r"textures\actors\character\skin.dds", nif, alt_suffix=".png")
+        assert TT.is_true(found and found.lower().endswith("skin.png"), f"the alternative suffix first: {found}")
+        assert TT.is_eq(find(r"textures\actors\character\missing.dds", nif), None, "a missing texture")
+        found = find(r"textures\actors\character\body_d.dds", str(Path(d) / "Other" / "x.nif"),
+                     alt_pathlist=[str(data / "Textures")])
+        assert TT.is_true(found and Path(found).samefile(tex), f"found through the alternative paths: {found}")
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

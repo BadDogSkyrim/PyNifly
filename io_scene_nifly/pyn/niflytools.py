@@ -144,6 +144,64 @@ def extend_filenames(root, separator, files=None):
         return str(sharedpart)
 
 
+def _case_insensitive(base: Path, parts) -> Path | None:
+    """On Linux: base joined with parts, each part matched in its folder whatever its letter case, as Windows does."""
+    current = base
+    for part in parts:
+        exact = current / part
+        if exact.exists():
+            current = exact
+            continue
+        try:
+            current = next(c for c in current.iterdir() if c.name.lower() == part.lower())
+        except (StopIteration, OSError):
+            return None
+    return current
+
+
+def _find_referenced_file_posix(filepath: str, nifpath: str, root='textures', alt_suffix=None, alt_pathlist=None) -> str | None:
+    """
+    find_referenced_file on a case-sensitive file system: the NIF's path uses backslashes and
+    Windows' letter case, so the path is split on either slash and each part is matched whatever its case. The
+    folders searched are find_referenced_file's: the NIF's own filetree (the folder above its `meshes`), then the
+    alternative paths.
+    """
+    parts = [p for p in filepath.replace('\\', '/').split('/') if p]
+    if not parts:
+        return None
+    lower = [p.lower() for p in parts]
+    absolute = filepath.startswith('/')
+    if absolute:
+        found = _case_insensitive(Path('/'), parts)
+        if found and alt_suffix and (alt := found.with_suffix(alt_suffix)).exists():
+            return str(alt)
+        if found and found.is_file():
+            return str(found)
+    if root in lower:
+        parts = parts[lower.index(root):]
+    elif not absolute:
+        parts = [root] + parts
+    else:
+        return None
+    bases = []
+    nif_parts = Path(nifpath).parts
+    nif_lower = [p.lower() for p in nif_parts]
+    if 'meshes' in nif_lower:
+        bases.append(Path(*nif_parts[:len(nif_lower) - 1 - nif_lower[::-1].index('meshes')]))
+    for alt_path in alt_pathlist or []:
+        if alt_path:
+            bd = Path(alt_path)
+            bases.append(bd.parent if bd.name.lower() == root else bd)
+    for base in bases:
+        if alt_suffix:
+            alt_parts = parts[:-1] + [str(Path(parts[-1]).with_suffix(alt_suffix))]
+            if (found := _case_insensitive(base, alt_parts)) and found.is_file():
+                return str(found)
+        if (found := _case_insensitive(base, parts)) and found.is_file():
+            return str(found)
+    return None
+
+
 def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=None, alt_pathlist=None) -> str:
     """
     Look for a texture file with either a PNG or DDS extension.
@@ -152,6 +210,8 @@ def find_referenced_file(filepath:str, nifpath:str, root='textures', alt_suffix=
     Look for both the dds and png extension.
     Return the path if found, else None.
     """
+    if os.name != 'nt':
+        return _find_referenced_file_posix(filepath, nifpath, root, alt_suffix, alt_pathlist)
     fp = Path(filepath.lower())
 
     # If relative, must start with `root` ("textures" or "materials"). If the

@@ -46,7 +46,8 @@ else:
     # Load from install location
     if pynifly_addon_path not in sys.path:
         sys.path.append(pynifly_addon_path)
-    nifly_path = os.path.join(pynifly_addon_path, "NiflyDLL.dll")
+    # Off Windows: libNiflyDLL.so beside it (see LINUX.md).
+    nifly_path = os.path.join(pynifly_addon_path, "NiflyDLL.dll" if sys.platform == "win32" else "libNiflyDLL.so")
 
 # Load and configure the library
 nifly = cdll.LoadLibrary(nifly_path)
