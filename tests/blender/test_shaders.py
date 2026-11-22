@@ -24,6 +24,30 @@ def TEST_CHILDHEAD():
                     "child head keeps its Face_Tint shader")
 
 
+@TT.category('SKYRIMSE', 'SHADER')
+@TT.parameterize('game', ['SKYRIMSE', 'SF'])
+def TEST_SHADER_OUTPUT_NOT_PRINCIPLED(game):
+    """A material whose Material Output is fed by a node with no emission inputs (a Diffuse
+    BSDF someone wired in to preview) exports without error. Export read 'Emission Strength'
+    off whatever node fed the output and raised KeyError for every file written."""
+    outfile = TTB.test_file(rf"tests/out/TEST_SHADER_OUTPUT_NOT_PRINCIPLED_{game}.nif")
+    bpy.ops.mesh.primitive_cube_add(size=4)
+    obj = bpy.context.object
+    obj.name = "DiffuseCube"
+    mat = bpy.data.materials.new("DiffuseMat")
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    out = next(n for n in nodes if n.type == 'OUTPUT_MATERIAL')
+    diffuse = nodes.new('ShaderNodeBsdfDiffuse')
+    mat.node_tree.links.new(diffuse.outputs[0], out.inputs['Surface'])
+    obj.data.materials.append(mat)
+
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game=game, intuit_defaults=False)
+
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq([s.name for s in nif.shapes], ["DiffuseCube"], "the cube exported")
+
+
 @TT.category('SKYRIM', 'SHADER')
 def TEST_SHADER_LE():
     """Shader attributes are read and turned into Blender shader nodes"""

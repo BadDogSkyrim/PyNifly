@@ -566,11 +566,14 @@ class LogHandler(logging.Handler):
         """
         self.log = logging.getLogger("pynifly")
         self.log.addHandler(self)
+        # The dev build number, as the add-on's start-up banner shows it: a stale add-on in a
+        # running Blender is otherwise invisible. Blank in a release install.
+        from . import _build_tag
         self.log.info(f"""
 
 
 ====================================
-PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}
+PYNIFLY {action} {importtype} V{bl_info['version'][0]}.{bl_info['version'][1]}.{bl_info['version'][2]}{_build_tag}
 
 """)
 

@@ -1268,15 +1268,17 @@ class ShaderExporter(BD.Warns):
             if 'UV_Scale_V' in nl:
                 shape.shader.properties.UV_Scale_V = nl['UV_Scale_V'].outputs['Value'].default_value
 
-            shape.shader.properties.Emissive_Mult = self.shader_node.inputs['Emission Strength'].default_value
-            shape.shader.properties.baseColorScale = self.shader_node.inputs['Emission Strength'].default_value
-            if 'Emission Color' in self.shader_node.inputs:
-                em = 'Emission Color'
-            else:
-                em = 'Emission'
-            for i in range(0, 4):
-                shape.shader.properties.Emissive_Color[i] = self.shader_node.inputs[em].default_value[i]
-                shape.shader.properties.baseColor[i] = self.shader_node.inputs[em].default_value[i] 
+            # Whatever feeds the Material Output: a Diffuse BSDF wired in to preview has no
+            # emission inputs, and then the shader keeps the values it already has.
+            inputs = self.shader_node.inputs
+            if 'Emission Strength' in inputs:
+                shape.shader.properties.Emissive_Mult = inputs['Emission Strength'].default_value
+                shape.shader.properties.baseColorScale = inputs['Emission Strength'].default_value
+            em = next((n for n in ('Emission Color', 'Emission') if n in inputs), None)
+            if em is not None:
+                for i in range(0, 4):
+                    shape.shader.properties.Emissive_Color[i] = inputs[em].default_value[i]
+                    shape.shader.properties.baseColor[i] = inputs[em].default_value[i]
 
             if not self.is_effectshader:
                 if 'Alpha Mult' in self.shader_node.inputs:
@@ -1363,10 +1365,11 @@ class ShaderExporter(BD.Warns):
                 if imagenodes: imagenode = imagenodes[0]
 
         elif textureslot == "Diffuse":
-            if "Base Color" in self.shader_node.inputs:
-                imagenodes = BD.find_node(self.shader_node.inputs["Base Color"], "ShaderNodeTexImage")
-            else:
-                imagenodes = BD.find_node(self.shader_node.inputs["Diffuse"], "ShaderNodeTexImage")
+            # Principled BSDF, PyNifly's shader group, or a plain Diffuse BSDF.
+            color_in = next((n for n in ("Base Color", "Diffuse", "Color")
+                             if n in self.shader_node.inputs), None)
+            imagenodes = (BD.find_node(self.shader_node.inputs[color_in], "ShaderNodeTexImage")
+                          if color_in else None)
             if imagenodes: imagenode = imagenodes[0]
             # Check whether this is a greyscale texture. If so, look for the diffuse behind it.
             if imagenode and imagenode.label == 'Palette Vector':
@@ -1381,7 +1384,7 @@ class ShaderExporter(BD.Warns):
 
         foundpath = relpath = None
         if imagenode:
-            if textureslot == 'Specular':
+            if textureslot == 'Specular' and "Normal" in self.shader_node.inputs:
                 # Check to see if the specular is coming from the normal texture. If so,
                 # don't use it.
                 normnodes = BD.find_node(self.shader_node.inputs["Normal"], "ShaderNodeTexImage")

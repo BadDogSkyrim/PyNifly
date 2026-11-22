@@ -28,7 +28,8 @@ if 'tests.blender_tests' in sys.modules:
     importlib.reload(sys.modules['tests.blender_tests'])
 from tests.blender_tests import *
 
-tests.blender_tests.do_tests(
+# Tests named on the command line (after --) win; otherwise these.
+tests.blender_tests.run_from_command_line(
     target_tests=[],
     test_all=True,
     stop_on_fail=False,

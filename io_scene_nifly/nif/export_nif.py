@@ -212,12 +212,14 @@ def extract_vert_info(obj, mesh, arma, target_key='', scale_factor=1.0, max_weig
 def tag_unweighted(obj, bones):
     """ Find and return verts that are not weighted to any of the given bones
         result = (v_index, ...) list of indices into the vertex list
+
+    Only groups named for one of `bones` count: a vertex in a region or morph group alone has
+    no bone to follow, and a face rig's companion doesn't see the body bones' groups.
     """
+    bone_groups = {vg.index for vg in obj.vertex_groups if vg.name in set(bones)}
     unweighted_verts = []
     for v in obj.data.vertices:
-        maxweight = 0.0
-        if len(v.groups) > 0:
-            maxweight = max([g.weight for g in v.groups])
+        maxweight = max((g.weight for g in v.groups if g.group in bone_groups), default=0.0)
         if maxweight < 0.0001:
             unweighted_verts.append(v.index)
     return unweighted_verts
@@ -861,6 +863,17 @@ class NifExporter:
                 self.armature = arma
                 if via_modifier:
                     self._armature_via_modifier = True
+
+
+    def _shape_armature(self, obj):
+        """The armature obj's own Armature modifier names, or None. A facebones companion
+        armature doesn't count: the main file's shapes go on the main armature, as before."""
+        companion = BD.game_traits(self.game).facebones_companion
+        for m in obj.modifiers:
+            if (m.type == 'ARMATURE' and m.object is not None and m.object.type == 'ARMATURE'
+                    and not (companion and BD.is_facebones_armature(m.object))):
+                return m.object
+        return None
 
 
     def add_object(self, obj):
@@ -2026,6 +2039,14 @@ class NifExporter:
                 self.write_bone(shape, arma, bone_name)
 
 
+    def _report_unweighted(self, obj, unweighted):
+        """Tag and report vertices no bone of the shape's armature weights: the game can't place
+        them."""
+        if unweighted:
+            create_group_from_verts(obj, BD.UNWEIGHTED_VERTEX_GROUP, unweighted)
+            log.warning(f"Some vertices are not weighted to the armature in object {obj.name}")
+            self.objs_unweighted.add(obj)
+
     def export_skin(self, obj, arma, new_shape, new_xform, weights_by_vert):
         """
         Export the skin for a shape, including bones used by the skin.
@@ -2377,12 +2398,10 @@ class NifExporter:
                 # placement transform. (Vanilla skinned bodies have an identity shape transform.)
                 if not is_skinned:
                     new_shape.transform = BD.make_transformbuf(new_xform)
+                self._report_unweighted(obj, unweighted)
             elif is_skinned:
                 self.export_skin(self.active_obj, arma, new_shape, new_xform, weights_by_vert)
-                if len(unweighted) > 0:
-                    create_group_from_verts(obj, BD.UNWEIGHTED_VERTEX_GROUP, unweighted)
-                    log.warning(f"Some vertices are not weighted to the armature in object {obj.name}")
-                    self.objs_unweighted.add(obj)
+                self._report_unweighted(obj, unweighted)
 
                 if len(partitions) > 0:
                     if 'FO4_SEGMENT_FILE' in obj.keys():
@@ -2556,8 +2575,12 @@ class NifExporter:
                     # Have exporting the facebones variant and have a facebones armature
                     self.export_shape(obj, sk, self.facebones)
                 elif (not suffix) and self.armature:
-                    # Exporting the main file and have an armature to do it with. 
-                    self.export_shape(obj, sk, self.armature)
+                    # Exporting the main file and have an armature to do it with. Each shape
+                    # binds against the armature its own modifier names: a scene can hold
+                    # shapes on armatures whose shared bones rest differently (the miner
+                    # helmet's glow binds C_Head turned 90 degrees from the helmet's), and
+                    # binding one against the other's bones moves it in game.
+                    self.export_shape(obj, sk, self._shape_armature(obj) or self.armature)
                 elif (not suffix) and self.facebones:
                     # Exporting the main file and have a facebones armature to do it
                     # with. Facebones armatures generally have all the necessary bones

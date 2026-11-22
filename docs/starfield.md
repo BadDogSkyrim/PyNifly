@@ -32,6 +32,28 @@ templates when it writes a `.mat`" is answered here.
 | Head morphs | `.tri` | `morph.dat`, split chargen / performance |
 | Head parts | one NIF | a **pair**: `<name>.nif` + `<name>_facebones.nif`, each with its own `.mesh` |
 
+## LODs
+
+A `BSGeometry` has up to four LOD slots, each naming a `.mesh`. PyNifly shows each distinct
+`.mesh` as its own mesh object under the shape's container empty, named for the slots it fills:
+`Head:LOD0`, `Head:LOD1-2`, `Head:LOD3`. Only LOD0 is visible after import; the others are
+hidden but still export.
+
+On export, the mesh objects under one parent whose names match before `:LOD` form one
+`BSGeometry`, and each writes its own `.mesh`. A slot no object names repeats the slot before
+it, pointing at the same `.mesh`:
+
+| Objects | Slots 0–3 |
+|---|---|
+| `:LOD0`, `:LOD1-2`, `:LOD3` | LOD0, LOD1-2, LOD1-2, LOD3 |
+| `:LOD0`, `:LOD1`, `:LOD3` | LOD0, LOD1, LOD1, LOD3 |
+| `:LOD0`, `:LOD3` | LOD0, LOD0, LOD0, LOD3 |
+
+Several LOD sets can share one container empty (copies of an imported head, say); they stay
+separate because their names differ before `:LOD`. The block's name comes from the empty's
+`pynNodeName` when it has one, otherwise from the objects' names. A body-type key (`_thin`,
+`_overweight`) is taken from each LOD that has it; a LOD without it writes its plain shape.
+
 ## Pages
 
 - **[Materials and shaders](starfield_materials.md)** — the `.mat` object graph, how PyNifly

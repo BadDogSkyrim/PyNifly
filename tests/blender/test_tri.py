@@ -386,8 +386,12 @@ def TEST_BAD_TRI():
 
 
 @TT.category('SKYRIMSE', 'EXTRA_DATA', 'TRI')
+@TT.expect_errors(("Some vertices are not weighted to the armature",))
 def TEST_TRIP_SE():
-    """Bodypart tri extra data and file are written on export"""
+    """Bodypart tri extra data and file are written on export.
+
+    The fixture has one vertex weighted only to NPC Pelvis and NPC Thigh.L, which aren't in its
+    armature, so export writes it with no weight and reports it. The files are still written."""
     # Special bodytri files allow for Bodyslide or FO4 body morphing.
     outfile = TTB.test_file(r"tests/Out/TEST_TRIP_SE.nif")
     outfile1 = TTB.test_file(r"tests/Out/TEST_TRIP_SE_1.nif")
@@ -402,8 +406,11 @@ def TEST_TRIP_SE():
 
     # intuit_defaults=False honors these kwargs directly, so the test doesn't depend on the
     # (user-configurable) addon preference default for write_bodytri.
-    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', write_bodytri=True,
-                                 intuit_defaults=False)
+    try:
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='SKYRIMSE', write_bodytri=True,
+                                     intuit_defaults=False)
+    except RuntimeError:
+        pass                        # the fixture's one unweighted vertex; see the docstring
 
     print(' ------- Check --------- ')
     nifcheck = pyn.NifFile(outfile1)

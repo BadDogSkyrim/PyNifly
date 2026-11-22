@@ -177,13 +177,16 @@ def lod_group(obj):
     None if `obj`'s name carries no LOD suffix."""
     if lod_slots(obj.name) is None:
         return None
-    base = sf_base_name(obj)
+    # Matched by the objects' own names, not sf_base_name: copies of an imported shape share its
+    # container Empty, so they all carry one block name, yet each '<shape>:LOD...' set is its own.
+    stem = obj.name.rsplit(':LOD', 1)[0]
     if obj.parent is not None:
         siblings = obj.parent.children
     else:
         siblings = [o for o in bpy.data.objects if o.parent is None]
     group = [(o, lod_slots(o.name)) for o in siblings
-             if o.type == 'MESH' and lod_slots(o.name) is not None and sf_base_name(o) == base]
+             if o.type == 'MESH' and lod_slots(o.name) is not None
+             and o.name.rsplit(':LOD', 1)[0] == stem]
     return sorted(group, key=lambda g: g[1][0])
 
 
