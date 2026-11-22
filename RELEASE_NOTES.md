@@ -1,36 +1,154 @@
+# PyNifly 30.3.0 Release Notes
+
+HKX animation support for features previous versions did not implement or got wrong:
+additive animations, partial (keyed-bones-only) export, lossless and interleaved
+compression formats, root motion, paired-animation sync offsets, and per-action control
+over compression and rotation precision. Plus structural fixes that make Skyrim LE exports
+loadable by Havok's own tools.
+
+## HKX animation settings per action
+
+Each action now has its own HKX settings in the Dope Sheet sidebar panel (PyNifly):
+
+- **Blend hint** (Normal / Additive): an additive animation layers deltas on top of whatever
+  is already playing — weapon recoil, turret sweep, pip-boy. FO4 additive animations now
+  import and export correctly; previous versions ignored the blend hint entirely for FO4.
+- **Tracks** (All / Keyed): a Keyed action exports only the bones that have F-curves, so a
+  tail or weapon animation doesn't stomp the whole skeleton. This also fixes the bug where an
+  unkeyed bone picked up a stray scene pose on export (#434).
+- **Compression** (Spline / Lossless / Uncompressed): FO4 1st-person weapon animations use
+  hkaLosslessCompressedAnimation, a format previous versions couldn't read at all (~980
+  vanilla files). Interleaved-uncompressed animations (#442) are also supported: Skyrim reads
+  and writes them natively; FO4 interleaved files are read and re-exported as lossless.
+- **Root motion** (Game default / Reference frame / Root bone): the per-frame
+  hkaDefaultAnimatedReferenceFrame that makes a character walk forward, turn, or climb stairs.
+  Previous versions exported this as all zeros — silently losing the motion data on ~3,800
+  vanilla FO4 animations. Now round-tripped faithfully. Skyrim reference frames (dragon
+  flight, root offsets) are also supported.
+- **Rotation bits** (40 / 48): the spline quaternion quantization width, recorded on import
+  and used on export. 48-bit reduces weapon jitter.
+
+## Paired animation sync offsets
+
+A paired animation's hkSimpleLocalFrame (SyncAnimOffset) imports as a cone-shaped Empty
+parented to the armature, and exports back. The offset is authoring metadata preserved for
+Creation Kit fidelity; the game positions paired actors from the behavior graph, not from
+this field.
+
+To see how the paired animations work together, select armature and SyncAnimOffset for one side and reposition so the two SyncAnimOffset empties match positions.
+
+## Skyrim LE structural fixes (#440)
+
+Two layout bugs in the Skyrim LE (32-bit) HKX writer made exported files crash hkxcmd and
+fail HavokBehaviorPostProcess, even though PyNifly and the game itself could load them. Pose
+markers / annotations on a custom animation appeared to be lost because hkxcmd couldn't
+convert the file to see them. Fixed: hkaSplineCompressedAnimation and
+hkMemoryResourceContainer both have correct 32-bit struct layouts now.
+
+## Bone name case matching (#446)
+
+Importing a NIF onto an existing armature (e.g. a body mesh onto an HKX skeleton) now matches
+bone names regardless of case. FO4's skeleton.hkx has `Spine1` while its body NIFs have
+`SPINE1`; these no longer create duplicate bones. Export uses the armature's spelling.
+
+## Quality of life
+
+- **Wrong game folder warning**: exporting a NIF or HKX directly to a game's Data folder
+  when the file's target game doesn't match gives a warning — catches an LE animation
+  dropped into SE's folder, for example.
+- **Scene frame range**: importing an HKX or NIF animation sets the scene's frame range to
+  the animation instead of leaving it at the default 1–250.
+
+## Starfield fixes
+
+- **Female parts import on the female skeleton.** A Starfield mesh is placed by matching
+  its skin binds against a reference skeleton, and with none given PyNifly always used the
+  male one. Female binds don't fit it (the female forearm alone sits 0.85 lower), so a
+  female part imported on its own came out about 1 unit high and slightly tilted, with its
+  arm bones lopsided: vanilla `hands_3rd_f.nif` had its left wrist 3.8 units from where the
+  game puts it. PyNifly now ships the female skeleton too, and each import uses whichever
+  one the file's binds fit. To use another skeleton, set Reference Skeleton.
+- **The game's own skeleton.nif works as Reference Skeleton.** Starfield's skeleton nifs
+  store bone positions in metres, while meshes and skin binds are in game units, so bones
+  built from it landed 70 times too close to the origin. It is now converted on load, as an
+  imported skeleton nif already was.
+- **Body types reach every LOD.** A shape with `_thin` and `_overweight` keys writes a nif
+  for each, but only LOD0 took the key: LOD1 and up were always the plain shape, so a
+  thin crowd head went average-shaped at a distance. Each LOD now uses its own key of the
+  same name, or its plain shape if it has none. Only LOD0 carries morphs, as in vanilla,
+  so a head still writes one `morph.dat`.
+- **Export warns when Weights per vertex drops weights.** Import records each shape's own
+  number of bone influences, and a vanilla eye has 1. A mesh joined into an eye (the eye
+  active) keeps that 1 and exported with every vertex on a single bone, which warps in
+  game. Export now names the object and how many vertices lose weights. Set the value to 0
+  (auto) to keep them all.
+- **Re-posing a cloth's bones in Blender now re-poses the cloth's rest pose too.** A cloth
+  carries its own copy of the bones it drives, and export used to keep that copy as
+  imported. A tail re-posed in Blender to hang down therefore exported with its particles
+  hanging but its cloth skeleton still straight. A cloth that isn't simulating holds its
+  bones at that rest pose, so in game those tails stuck straight out. Export now takes the
+  rest pose of every bone the cloth drives from the armature, relative to its parent, and
+  says which bones changed. Body bones keep the cloth's own pose, and an unedited cloth
+  exports unchanged.
+- **Each skinned shape exports against its own armature.** Export picked one armature for the
+  whole selection and bound every shape to its bones. A scene can hold shapes on two
+  armatures whose shared bones rest differently: the miner helmet's glow binds `C_Head` with
+  no rotation, the helmet and visor bind it turned 90 degrees, and an import can leave the
+  glow on an armature of its own. Exported together, the helmet and visor took the glow's
+  bind and lay on their side in game. Each shape now binds against the armature its own
+  Armature modifier names, falling back to the export's armature only when it has none.
+- **A material whose output isn't the shader node exports cleanly.** Export reads emission
+  and the diffuse texture from whatever node feeds the Material Output. With a Diffuse BSDF
+  wired in there to preview, it raised "key 'Emission Strength' not found" for every file in the
+  export, and warned about a missing "Diffuse" input. Missing inputs are now skipped, and a
+  Diffuse BSDF's Color input is followed to the diffuse texture. This affects every game.
+- **LOD sets under one parent stay separate.** Copies of an imported Starfield shape all sit
+  under its container empty, and export gathered LOD objects by that empty's block name. So
+  exporting `crowd_hyena_md2:LOD0/1-2/3` swept in a hidden `crowd_hyena_md1:LOD0` beside it,
+  tried to write the block from that, and failed with "Context missing active object". A LOD
+  set is now the objects whose names match before `:LOD`.
+- **Export writes a morph.dat even when no shape key moves a vertex.** When all of a shape's
+  chargen (or performance) keys were empty, export left that `morph.dat` out and reported an
+  error. You'd asked for the file, though, and a head part pointing at a morph.dat that isn't
+  there is harder to track down than a bad one. Export now writes it, with the keys and no
+  morph data, and warns that it won't work in game: the Creation Kit crashes on a morph.dat
+  with no morph data.
+- **Starfield export reports unweighted vertices.** A skinned shape with vertices no bone
+  weights now gets the same error and `*UNWEIGHTED*` vertex group as in other games; Starfield
+  used to skip the report entirely. And in every game, only groups named for one of the
+  armature's bones count as weight: a vertex in a region or morph group alone was taken as
+  weighted. A crowd head's eye with no bone weights, and a `_faceBones` companion skinned to a
+  face rig that left the hands with no weight, both exported silently. In game, those parts
+  don't show.
+
 # PyNifly 30.2.0 Release Notes
 
-**Fallout 4 animatronics animate, workshop connect points face the right way**
-
-Fallout 4 nifs that carry their own animated skeleton—the animatronics—now come through
-import and export with their animation, their clothes, and their visibility switches
-intact. Workshop connect points import facing out. Re-import any of these you have.
+Much cleanup and refactoring, and some bug fixes.
 
 ## Fallout 4 animation
 
 - **A nif's own skeleton isn't mistaken for a face rig.** The animatronics' skeletons
-  include face bones, and export took the whole armature for a facebones armature: the
-  armature's animation wasn't written, nor were the bones nothing is skinned to (weapon
-  and camera attachment points, animation objects). PyNifly now recognizes on import that
-  a nif carries its own skeleton and marks the armature as a regular one; you can change
-  that on the armature's panel. If a facebones armature is the only one being exported,
-  its animation is exported too.
+  include face bones, and export took the whole armature for a facebones armature. PyNifly
+  now recognizes on import that a nif carries its own skeleton and marks the armature as a
+  regular one.
 
 - **Fixed-value animation channels come in as keys.** Many bones in a nif animation have
   no keyframes, just one value they hold for the whole animation. These used to be
   dropped on import, so the bone fell out of the animation and export lost it. They now
   import as a constant key, and export writes them back.
 
-- **Clothes sit on the body and move with it.** A skinned shape hanging from an offset
-  node (the animatron outfits under `ClothesHider`) imported a little high and back from
-  the body. And an outfit whose skin binds are the body's shifted by one offset now shares
-  the body's armature, so the animation moves it too; before, it got an armature of its
-  own that nothing animated.
+- **Multiple objects import in correct relation to each other.** A skinned shape hanging
+  from an offset node (the animatron outfits under `ClothesHider`) imported a little high
+  and back from the body. Now an outfit whose skin binds are the body's shifted by one
+  offset shares the body's armature, so the animation moves it too; before, it got an
+  armature of its own that nothing animated.
 
 - **Visibility animation.** Objects switched on and off by keys (a `NiBoolData`, such as
   the animatron's `ClothesHider` in `clothesOff`) import as keyframes on the object's
   *Disable in Viewports* setting and export back. Note that in Blender that setting is
   "hidden", the opposite of the nif's "visible".
+  - Note that the object itself will show or hide, but the objects it parents will not -
+    so you won't see the clothes disappear.
   - An object whose own animation hides it is still exported; only objects hidden by hand
     are left out.
 
@@ -43,14 +161,13 @@ intact. Workshop connect points import facing out. Re-import any of these you ha
 - Export warns about a dropped bone only when the animation actually moves it. A bone
   that only holds still, and isn't exported, is noted in the log instead.
 
-- Exporting an inventory marker with no name crashed Blender. It's now named `INV`.
+- Exporting an inventory marker with no name crashed Blender. It now defaults to `INV`.
 
 ## Fallout 4 workshop
 
 - **Connect points face out.** With smart editor markers on, a connect point imports as
   its editor marker, and the marker came in turned a quarter turn: the flat side should
-  face out from the piece. Export turned it the other way, so connect points exported
-  rotated 90° from where they started. Both are fixed; connect points round-trip their
+  face out from the piece. This is fixed; connect points round-trip their
   rotation.
 
 ## Starfield

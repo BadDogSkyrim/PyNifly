@@ -392,7 +392,11 @@ class NifImporter(BD.Warns):
                                    for a in self.preexisting_armatures for b in a.data.bones}
         self.collection = collection
         self.settings = import_settings
-        self.reference_skel = reference_skel
+        # A reference skeleton the caller chose is used for every file; otherwise each file
+        # gets the bundled skeleton it fits best. Starfield's own skeleton nifs are in
+        # Havok metres and are converted, so the reference matches the binds.
+        self.reference_given = reference_skel is not None
+        self.reference_skel = P.reference_in_game_units(reference_skel)
         self.import_xf = base_transform # Transform applied to root for blender convenience.
         self.context = context
         self.chargen_ext = chargen_ext
@@ -559,8 +563,8 @@ class NifImporter(BD.Warns):
         Each shared bone answers "the skin sits at my rest position @ my skin-to-bone".
         Vanilla human meshes share one skin space, so for a mesh joining another's armature
         every shared bone gives the same answer, exactly. That's better than
-        _sf_skin_to_world's estimate from the reference skeleton, which vanilla's binds
-        disagree with, and which so gives each file a slightly different answer."""
+        _sf_skin_to_world's estimate from the reference skeleton, which fits vanilla's binds
+        only to ~0.02 (and not at all for a female part if the male one is the reference)."""
         mats = []
         for i, bn in enumerate(shape.bone_names):
             blend_name = self.blender_name(bn)
@@ -2682,8 +2686,15 @@ class NifImporter(BD.Warns):
                 self.nif = P.hkxSkeletonFile(this_file)
             else:
                 ValueError("Import file of unknown type.")
-            if not self.reference_skel:
-                self.reference_skel = self.nif.reference_skel
+            if not self.reference_given:
+                if isinstance(self.nif, P.hkxSkeletonFile):
+                    self.reference_skel = self.reference_skel or self.nif.reference_skel
+                else:
+                    self.reference_skel = P.best_reference_skeleton(self.nif)
+            if self.reference_skel and isinstance(self.nif, P.NifFile) \
+                    and not isinstance(self.nif, P.hkxSkeletonFile):
+                # The nif's own lookups fall back on its reference: make it the same one.
+                self.nif._ref_skel = self.reference_skel
 
             # Bone REST comes from the reference skeleton but bone POSE comes from this
             # file, so the two have to be in the same units. Starfield's skeleton nifs are

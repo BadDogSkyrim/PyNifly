@@ -126,14 +126,11 @@ class NifFile:
             return self._ref_skel
 
         # We don't actually know which skeleton to use. Assume the basic human skeleton.
-        g = "SKYRIM" if self._game == "SKYRIMSE" else self._game
-        if g:
-            skel_path = os.path.join(os.path.dirname(nifly_path), "Skeletons", g, "skeleton.nif")
-            if os.path.exists(skel_path):
-                self._ref_skel = NifFile(skel_path)
-                return self._ref_skel
-
-        return None
+        # (Starfield import picks among several: see best_reference_skeleton.)
+        skels = bundled_skeletons(self._game)
+        if skels:
+            self._ref_skel = skels[0]
+        return self._ref_skel
 
 
     def initialize(self, target_game, filepath, root_type="NiNode", root_name='Scene Root'):
@@ -706,10 +703,123 @@ class hkxSkeletonFile(NifFile):
         return self._nodes
 
 
+# --- Bundled reference skeletons --- #
+
+# The add-on's Skeletons/<game> files tried as references, the default first. Starfield's
+# female binds don't fit the male skeleton (the forearm alone sits 0.85 lower), so a female
+# part placed by it comes out high, tilted and lopsided; import picks whichever fits.
+_BUNDLED_SKELETONS = {'SF': ('skeleton.nif', 'skeleton_female.nif')}
+_bundled_cache = {}
+
+
+def bundled_skeletons(game) -> list:
+    """The add-on's own reference skeletons for `game`, the default first; [] if none.
+
+    The add-on ships them in its own Skeletons folder; the DLL can be loaded from elsewhere
+    (a dev Blender loads NiflyDLL\\staging, which has none), so look there first."""
+    g = "SKYRIM" if game == "SKYRIMSE" else game
+    if not g:
+        return []
+    if g not in _bundled_cache:
+        addon = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        found = []
+        for name in _BUNDLED_SKELETONS.get(g, ('skeleton.nif',)):
+            for folder in (addon, os.path.dirname(nifly_path)):
+                skel_path = os.path.join(folder, "Skeletons", g, name)
+                if os.path.exists(skel_path):
+                    found.append(skel_path)
+                    break
+        _bundled_cache[g] = found
+    return [NifFile(p) for p in _bundled_cache[g]]
+
+
+def scaled_skeleton(skel, k, filepath=''):
+    """A new nif holding just `skel`'s node hierarchy, every local translation times `k`.
+    Rotations and scales are unchanged. (Rewriting the nodes of `skel` itself through
+    setBlock loses the DLL's global-transform lookup, so this builds a fresh file.)"""
+    out = NifFile()
+    out.initialize(skel.game, filepath, skel.rootNode.blockname, skel.rootName)
+    made = {skel.rootName: out.rootNode}
+
+    def add(node):
+        if node.name not in made:
+            parent = add(node.parent)
+            xf = node.transform.copy()
+            xf.translation = tuple(v * k for v in xf.translation)
+            made[node.name] = out.add_node(node.name, xf, parent)
+        return made[node.name]
+
+    for node in skel.nodes.values():
+        add(node)
+    return out
+
+
+def reference_in_game_units(skel):
+    """A Starfield reference skeleton with its node transforms in game units: a converted
+    copy if it holds Havok metres -- as the game's own skeleton.nif files do, while the
+    .mesh geometry and skin binds they are matched against are in game units. Measured
+    against the bundled skeleton, as node_unit_scale does for an imported skeleton nif.
+    Any other skeleton is returned as it is."""
+    if skel is None or skel.game != 'SF':
+        return skel
+    bundled = bundled_skeletons('SF')
+    if not bundled:
+        return skel
+    k = node_unit_scale(skel, bundled[0])
+    if k == 1.0:
+        return skel
+    log.info(f"Reference skeleton {os.path.basename(skel.filepath or '')} is in Havok "
+             f"metres; converting it to game units")
+    return scaled_skeleton(skel, k, skel.filepath)
+
+
+def _skeleton_misfit(nif, skel):
+    """How badly `nif` fits `skel`, in game units; None when there is nothing to compare.
+
+    A skinned shape fits when every bone it binds to puts its skin in the same place
+    (skeleton bone @ skin-to-bone); the misfit is how far those answers scatter. A file of
+    bare bone nodes, such as a skeleton nif, is compared node by node, at its own units."""
+    misfits = []
+    for shape in nif.shapes:
+        names = getattr(shape, 'bone_names', None) or []
+        origins = []
+        for i, bn in enumerate(names):
+            if bn in skel.nodes:
+                s2b = shape.get_shape_skin_to_bone_by_index(i)
+                if s2b is not None:
+                    origins.append((skel.nodes[bn].global_transform * s2b).translation[:])
+        if len(origins) > 1:
+            mean = [sum(c) / len(origins) for c in zip(*origins)]
+            misfits += [sum((a - b) ** 2 for a, b in zip(o, mean)) ** 0.5 for o in origins]
+    if not misfits:
+        k = node_unit_scale(nif, skel)
+        for name, node in nif.nodes.items():
+            ref = skel.nodes.get(name)
+            if ref is not None and name != nif.rootName:
+                a = node.global_transform.translation[:]
+                b = ref.global_transform.translation[:]
+                misfits.append(sum((x * k - y) ** 2 for x, y in zip(a, b)) ** 0.5)
+    return sum(misfits) / len(misfits) if misfits else None
+
+
+def best_reference_skeleton(nif):
+    """The bundled reference skeleton `nif` fits best: the default unless another fits
+    better. Only Starfield ships more than one. None if the game has none."""
+    skels = bundled_skeletons(nif.game)
+    if len(skels) < 2:
+        return skels[0] if skels else None
+    best, best_misfit = skels[0], None
+    for skel in skels:
+        misfit = _skeleton_misfit(nif, skel)
+        if misfit is not None and (best_misfit is None or misfit < best_misfit - 1e-4):
+            best, best_misfit = skel, misfit
+    return best
+
+
 # Blocks of other families, used inside methods. Imported last: the families
 # refer to each other, and by now every class here is defined.
 from .base import (NiObject, check_msg, dll_string)  # noqa: E402
 from .collision import (bhkShape)  # noqa: E402
 from .nodes import (NiNode)  # noqa: E402
 from .anim import (NiControllerManager)  # noqa: E402
-from .shapes import (BSGeometry, NiShape)  # noqa: E402
+from .shapes import (BSGeometry, NiShape, node_unit_scale)  # noqa: E402

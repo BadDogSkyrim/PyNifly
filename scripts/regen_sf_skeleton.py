@@ -2,6 +2,12 @@
 
     python scripts/regen_sf_skeleton.py [--vanilla PATH] [--out PATH]
 
+The default is the male skeleton. The female one, which import picks for female parts:
+
+    python scripts/regen_sf_skeleton.py
+        --vanilla <assets>/meshes/actors/human/characterassets/female/skeleton.nif
+        --out io_scene_nifly/skeletons/SF/skeleton_female.nif
+
 Starfield is the one game that mixes unit systems. It ships `skeleton.nif` and
 `skeleton_facebones.nif` with their NiNode transforms in Havok metres -- a whole human
 spans 1.74 of them -- while the `.mesh` geometry those bones skin, the `BSSkinBoneData`
@@ -27,7 +33,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 'io_scene_nifly'))
 
-from pyn.pynifly import NifFile                      # noqa: E402
+from pyn.pynifly import NifFile, scaled_skeleton     # noqa: E402
 from pyn.nifconstants import HAVOC_SCALE_FACTOR      # noqa: E402
 
 DEFAULT_VANILLA = os.path.join(
@@ -37,42 +43,12 @@ DEFAULT_OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
                            'io_scene_nifly', 'skeletons', 'SF', 'skeleton.nif')
 
 
-def ordered_nodes(nif):
-    """Every node, parents before children, so add_node can resolve a parent by name."""
-    out, seen = [], set()
-
-    def emit(node):
-        if node.name in seen:
-            return
-        parent = getattr(node, 'parent', None)
-        if parent is not None and parent.name != node.name:
-            emit(parent)
-        seen.add(node.name)
-        out.append(node)
-
-    for n in nif.nodes.values():
-        emit(n)
-    return out
-
-
 def regenerate(vanilla_path, out_path, scale=HAVOC_SCALE_FACTOR):
+    # The same conversion import applies to a game skeleton.nif picked as the reference.
     src = NifFile(vanilla_path)
-    out = NifFile()
-    out.initialize('SF', out_path, 'NiNode', src.rootName)
-
-    written = 0
-    for node in ordered_nodes(src):
-        if node.name == src.rootName:
-            continue                     # the root comes from initialize()
-        xf = node.transform.copy()
-        # The LOCAL translation is scaled, so the whole hierarchy lands scaled. Rotation
-        # and the transform's own scale component are unitless -- leave them alone.
-        xf.translation = tuple(c * scale for c in node.transform.translation)
-        out.add_node(node.name, xf, node.parent.name if node.parent else src.rootName)
-        written += 1
-
+    out = scaled_skeleton(src, scale, out_path)
     out.save()
-    return src, written
+    return src, len(out.nodes) - 1      # the root comes from initialize()
 
 
 def verify(vanilla_path, out_path, scale=HAVOC_SCALE_FACTOR):
