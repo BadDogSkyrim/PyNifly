@@ -1,3 +1,64 @@
+# PyNifly 30.3.0 Release Notes
+
+HKX animation support for features previous versions did not implement or got wrong:
+additive animations, partial (keyed-bones-only) export, lossless and interleaved
+compression formats, root motion, paired-animation sync offsets, and per-action control
+over compression and rotation precision. Plus structural fixes that make Skyrim LE exports
+loadable by Havok's own tools.
+
+## HKX animation settings per action
+
+Each action now has its own HKX settings in the Dope Sheet sidebar panel (PyNifly):
+
+- **Blend hint** (Normal / Additive): an additive animation layers deltas on top of whatever
+  is already playing — weapon recoil, turret sweep, pip-boy. FO4 additive animations now
+  import and export correctly; previous versions ignored the blend hint entirely for FO4.
+- **Tracks** (All / Keyed): a Keyed action exports only the bones that have F-curves, so a
+  tail or weapon animation doesn't stomp the whole skeleton. This also fixes the bug where an
+  unkeyed bone picked up a stray scene pose on export (#434).
+- **Compression** (Spline / Lossless / Uncompressed): FO4 1st-person weapon animations use
+  hkaLosslessCompressedAnimation, a format previous versions couldn't read at all (~980
+  vanilla files). Interleaved-uncompressed animations (#442) are also supported: Skyrim reads
+  and writes them natively; FO4 interleaved files are read and re-exported as lossless.
+- **Root motion** (Game default / Reference frame / Root bone): the per-frame
+  hkaDefaultAnimatedReferenceFrame that makes a character walk forward, turn, or climb stairs.
+  Previous versions exported this as all zeros — silently losing the motion data on ~3,800
+  vanilla FO4 animations. Now round-tripped faithfully. Skyrim reference frames (dragon
+  flight, root offsets) are also supported.
+- **Rotation bits** (40 / 48): the spline quaternion quantization width, recorded on import
+  and used on export. 48-bit reduces weapon jitter.
+
+## Paired animation sync offsets
+
+A paired animation's hkSimpleLocalFrame (SyncAnimOffset) imports as a cone-shaped Empty
+parented to the armature, and exports back. The offset is authoring metadata preserved for
+Creation Kit fidelity; the game positions paired actors from the behavior graph, not from
+this field.
+
+To see how the paired animations work together, select armature and SyncAnimOffset for one side and reposition so the two SyncAnimOffset empties match positions.
+
+## Skyrim LE structural fixes (#440)
+
+Two layout bugs in the Skyrim LE (32-bit) HKX writer made exported files crash hkxcmd and
+fail HavokBehaviorPostProcess, even though PyNifly and the game itself could load them. Pose
+markers / annotations on a custom animation appeared to be lost because hkxcmd couldn't
+convert the file to see them. Fixed: hkaSplineCompressedAnimation and
+hkMemoryResourceContainer both have correct 32-bit struct layouts now.
+
+## Bone name case matching (#446)
+
+Importing a NIF onto an existing armature (e.g. a body mesh onto an HKX skeleton) now matches
+bone names regardless of case. FO4's skeleton.hkx has `Spine1` while its body NIFs have
+`SPINE1`; these no longer create duplicate bones. Export uses the armature's spelling.
+
+## Quality of life
+
+- **Wrong game folder warning**: exporting a NIF or HKX directly to a game's Data folder
+  when the file's target game doesn't match gives a warning — catches an LE animation
+  dropped into SE's folder, for example.
+- **Scene frame range**: importing an HKX or NIF animation sets the scene's frame range to
+  the animation instead of leaving it at the default 1–250.
+
 # PyNifly 30.2.0 Release Notes
 
 **Fallout 4 animatronics animate, workshop connect points face the right way**
