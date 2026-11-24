@@ -381,7 +381,10 @@ _MOTION_ID_STATIC = 0x7FFFFFFF
 #   +0x14: maxAngularVelocity (truncated float16 in upper 2 bytes)
 #   +0x18: linearDamping (truncated float16 in upper 2 bytes)
 #   +0x1C: angularDamping (truncated float16 in upper 2 bytes)
-#   +0x20-+0x24: solver deactivation params (computed, left as defaults)
+#   +0x20-+0x30: solver deactivation params
+#   +0x34-+0x3F: deactivation settings, the same 12 bytes in all 5,884 vanilla
+#                records.  Zeros here leave a body let go in mid-air frozen
+#                until something hits it.
 _DYN_MOTION = bytes([
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x00: zeros
     0x00,0x00,0x80,0x3F, 0x00,0x00,0x80,0x3F,  # +0x08: gravityFactor=1.0, 1.0
@@ -389,8 +392,8 @@ _DYN_MOTION = bytes([
     0x00,0x00,0xCD,0x3D, 0x00,0x00,0x4D,0x3D,  # +0x18: linDamp=0.100, angDamp=0.050
     0x7B,0x14,0x2E,0x3E, 0xD2,0x22,0xFB,0x3E,  # +0x20: solver params (0.170, 0.4905)
     0x0B,0xD7,0x23,0x3B, 0x0B,0xD7,0x23,0x3B,  # +0x28: 0.0025, 0.0025
-    0x00,0x00,0x80,0x3F, 0x00,0x00,0x00,0x00,  # +0x30: 1.0, pad
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x38: pad
+    0x00,0x00,0x80,0x3F, 0xFF,0x67,0x9B,0x99,  # +0x30: 1.0, deactivation settings
+    0x04,0x73,0x75,0x06, 0x73,0x00,0x00,0x00,  # +0x38:  (vanilla's constant)
 ])
 assert len(_DYN_MOTION) == 0x40
 
@@ -689,21 +692,59 @@ _SHAPE_MASS_PROPS = bytes([
 ])
 assert len(_SHAPE_MASS_PROPS) == 0x30
 
-# Fixed part of hknpConvexPolytopeShape header (+0x00 to +0x2F, 0x30 bytes).
+# hknpShape header fields every shape carries, written from the shape itself
+# (CollisionShape.shape_flags / user_data / convex_radius).  A shape that leaves
+# one as None gets its class's usual value, from the vanilla survey (2026-11-24):
+#   flags:  polytope 0x0143 in 98% -- 0x40 is SUPPORTS_COLLISIONS_WITH_INTERIOR_
+#           TRIANGLES, without which a piece sinks into triangle-mesh floors and
+#           jitters; compressed mesh 0x0204; sphere 0x0111.
+#   radius: 0.01 Havok units on 59% of polytopes.
+#   userData: the material (fo4_havok_materials).  A new polytope is Metal, the
+#           most common; a compressed mesh keeps the template's value, which works
+#           in game (its per-triangle materials live in hknpBSMaterialProperties).
+POLYTOPE_FLAGS = 0x0143
+CM_FLAGS = 0x0204
+SPHERE_FLAGS = 0x0111
+DEFAULT_CONVEX_RADIUS = 0.01
+CM_USER_DATA = 0x26067D15
+
+
+def _default_material_id() -> int:
+    from .fo4_havok_materials import material_id, DEFAULT_MATERIAL
+    return material_id(DEFAULT_MATERIAL)
+
+
+def shape_header_args(s) -> dict:
+    """The header values a CollisionShape gives its packer, as keyword arguments."""
+    return dict(shape_flags=getattr(s, 'shape_flags', None),
+                user_data=getattr(s, 'user_data', None))
+
+
+def _set_shape_header(buf: bytearray, off: int, flags: int, user_data: int,
+                      convex_radius: Optional[float] = None) -> None:
+    """Write hknpShape +0x10 flags, +0x14 convexRadius and +0x18 userData."""
+    struct.pack_into('<H', buf, off + 0x10, flags)
+    if convex_radius is not None:
+        struct.pack_into('<f', buf, off + 0x14, convex_radius)
+    struct.pack_into('<I', buf, off + 0x18, user_data)
+
+
+# hknpConvexPolytopeShape header (+0x00 to +0x2F, 0x30 bytes).
 # +0x00: vtable ptr (null, patched at runtime)
 # +0x08: parent class ptr (null)
-# +0x10: shape type/flags (03 01 00 01)
-# +0x14: convex_radius = 0.01 (0x3C23D70A)
-# +0x18: large_convex_radius (huge float from reference)
-# +0x1C-+0x2F: zeros
+# +0x10: flags u16, numShapeKeyBits u8 (0), dispatchType u8 (1 = convex)
+# +0x14: convexRadius f32
+# +0x18: userData u64 (the material)
+# +0x20: hkRefCountedProperties ptr (global fixup), +0x28 zeros
+# Flags, radius and userData are written per shape by _build_convex_polytope_shape.
 _CONVEX_HDR = bytes([
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # vtable ptr
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # parent class ptr
-    0x03,0x01,0x00,0x01,                        # type/quality flags
-    0x0A,0xD7,0x23,0x3C,                        # convex_radius = 0.01
-    0x05,0x6E,0xFA,0x7D,                        # large radius (reference value)
-    0x00,0x00,0x00,0x00,                        # pad
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # zeros
+    0x00,0x00,0x00,0x01,                        # flags (per shape), keybits, dispatch
+    0x00,0x00,0x00,0x00,                        # convexRadius (per shape)
+    0x00,0x00,0x00,0x00,                        # userData (per shape)
+    0x00,0x00,0x00,0x00,                        # userData, high half
+    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # properties ptr
     0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # zeros
 ])
 assert len(_CONVEX_HDR) == 0x30
@@ -851,11 +892,17 @@ def _face_plane(verts: List[Vert3], face: Face) -> Tuple[float, float, float, fl
 # ── Convex polytope shape builder ────────────────────────────────────────────
 
 def _build_convex_polytope_shape(verts: List[Vert3],
-                                  faces: List[Face]) -> bytes:
+                                  faces: List[Face],
+                                  convex_radius: Optional[float] = None,
+                                  shape_flags: Optional[int] = None,
+                                  user_data: Optional[int] = None) -> bytes:
     """Build raw bytes for hknpConvexPolytopeShape.
 
+    convex_radius, shape_flags and user_data are the shape's own; None gives the
+    usual polytope value (see POLYTOPE_FLAGS).
+
     Layout relative to object start:
-      +0x00: fixed 0x30-byte header (_CONVEX_HDR)
+      +0x00: 0x30-byte header (_CONVEX_HDR, with this shape's flags/radius/userData)
       +0x30: numVertices (u16), verticesOffset=0x20 (u16), 12 zeros
       +0x40: 6×u16 (numVerts2, planesOff, numPlanes, facesOff, numFVI, fviOff), 4 zeros
       +0x50: vertices   (numVerts × 16 bytes, vec4 with w = 0x3F000000 | idx)
@@ -952,7 +999,13 @@ def _build_convex_polytope_shape(verts: List[Vert3],
     payload = (vert_data + plane_data + gap_planes +
                face_data + gap_faces  + fvi_data)
 
-    shape = _CONVEX_HDR + block_30 + block_40 + payload
+    hdr = bytearray(_CONVEX_HDR)
+    _set_shape_header(
+        hdr, 0,
+        POLYTOPE_FLAGS if shape_flags is None else shape_flags,
+        _default_material_id() if user_data is None else user_data,
+        DEFAULT_CONVEX_RADIUS if convex_radius is None else convex_radius)
+    shape = bytes(hdr) + block_30 + block_40 + payload
     # Align to 8 bytes.
     r = len(shape) % 8
     if r:
@@ -1003,7 +1056,8 @@ class _FixupBuilder:
 def _build_data_section(verts: List[Vert3], faces: List[Face],
                          name_offs: Dict[str, int],
                          physics=None,
-                         transform=None) -> Tuple[bytes, '_FixupBuilder']:
+                         transform=None,
+                         header: Optional[dict] = None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section (object data only, without fixup tables).
 
     Returns (section_bytes, fixup_builder).
@@ -1029,7 +1083,7 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
 
     # ── hknpConvexPolytopeShape  (variable rel) ─────────────────────────────
     shape_rel = rel()
-    shape_bytes = _build_convex_polytope_shape(verts, faces)
+    shape_bytes = _build_convex_polytope_shape(verts, faces, **(header or {}))
     write(shape_bytes)
     # Align to 16 bytes.
     while rel() % 16:
@@ -1355,7 +1409,8 @@ def _quantize_section(verts: List[Vert3]):
 def _write_cm_shape(data: bytearray, fx: '_FixupBuilder',
                     name_offs: Dict[str, int],
                     verts: List[Vert3], tris: List[Face],
-                    body_cinfo_rel: int, shape_entry_rel: int) -> None:
+                    body_cinfo_rel: int, shape_entry_rel: int,
+                    header: Optional[dict] = None) -> None:
     """Append one hknpCompressedMeshShape body to a __data__ section.
 
     Writes the shape header, its hkRefCountedProperties/hknpBSMaterialProperties,
@@ -1377,6 +1432,11 @@ def _write_cm_shape(data: bytearray, fx: '_FixupBuilder',
     shape_rel = rel()
     write(_CM_SHAPE_HDR)
     assert rel() == shape_rel + 0xC0
+    hdr = header or {}
+    _set_shape_header(
+        data, shape_rel,
+        CM_FLAGS if hdr.get('shape_flags') is None else hdr['shape_flags'],
+        CM_USER_DATA if hdr.get('user_data') is None else hdr['user_data'])
 
     fx.add_virtual(shape_rel, 0, name_offs['hknpCompressedMeshShape'])
     fx.add_global(body_cinfo_rel + 0x00, 2, shape_rel)
@@ -1630,7 +1690,8 @@ def _write_cm_shape(data: bytearray, fx: '_FixupBuilder',
 def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
                             name_offs: Dict[str, int],
                             physics=None,
-                            transform=None) -> Tuple[bytes, '_FixupBuilder']:
+                            transform=None,
+                            header: Optional[dict] = None) -> Tuple[bytes, '_FixupBuilder']:
     """Build the full __data__ section for a one-body compressed mesh packfile."""
     fx = _FixupBuilder()
     data = bytearray()
@@ -1640,7 +1701,7 @@ def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
         body_transforms=[transform])
 
     _write_cm_shape(data, fx, name_offs, verts, tris,
-                    body_cinfo_rel, shape_entry_rel)
+                    body_cinfo_rel, shape_entry_rel, header=header)
 
     return bytes(data), fx
 
@@ -1659,7 +1720,8 @@ def _build_multi_cm_data_section(cm_shapes, name_offs: Dict[str, int],
     for i, s in enumerate(cm_shapes):
         _write_cm_shape(data, fx, name_offs, s.verts, s.faces,
                         body_cinfo_rel + i * 0x60,
-                        shape_entry_rel + i * _REF_OBJ_SIZE)
+                        shape_entry_rel + i * _REF_OBJ_SIZE,
+                        header=shape_header_args(s))
 
     return bytes(data), fx
 
@@ -1671,7 +1733,9 @@ def _build_mixed_data_section(
         poly_verts: List[Vert3], poly_faces: List[Face],
         name_offs: Dict[str, int],
         physics=None, cm_body: int = 0,
-        body_transforms=None) -> Tuple[bytes, '_FixupBuilder']:
+        body_transforms=None,
+        cm_header: Optional[dict] = None,
+        poly_header: Optional[dict] = None) -> Tuple[bytes, '_FixupBuilder']:
     """Build __data__ section for a two-body packfile: CM body + polytope body.
 
     cm_body picks which BODY SLOT the compressed mesh occupies.  A body's slot
@@ -1701,11 +1765,12 @@ def _build_mixed_data_section(
     # ── hknpCompressedMeshShape and its shape data ───────────────────────────
     _write_cm_shape(data, fx, name_offs, cm_verts, cm_tris,
                     body_cinfo_rel + cm_body * 0x60,
-                    shape_entry_rel + cm_body * _REF_OBJ_SIZE)
+                    shape_entry_rel + cm_body * _REF_OBJ_SIZE,
+                    header=cm_header)
 
     # ── hknpConvexPolytopeShape (variable) ───────────────────────────────────
     poly_shape_rel = rel()
-    write(_build_convex_polytope_shape(poly_verts, poly_faces))
+    write(_build_convex_polytope_shape(poly_verts, poly_faces, **(poly_header or {})))
     while rel() % 16:
         data.append(0)
 
@@ -1852,7 +1917,8 @@ def _file_header(cn_name_off: int) -> bytes:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def pack_compressed_mesh(verts: List[Vert3], tris: List[Face],
-                         physics=None, transform=None) -> bytes:
+                         physics=None, transform=None,
+                         header: Optional[dict] = None) -> bytes:
     """Build Havok packfile bytes from a triangle mesh using hknpCompressedMeshShape.
 
     Each triangle (a, b, c) is stored as a degenerate quad [a, b, c, c].  A
@@ -1874,7 +1940,7 @@ def pack_compressed_mesh(verts: List[Vert3], tris: List[Face],
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
     obj_data, fx = _build_cm_data_section(verts, tris, name_offs, physics=physics,
-                                          transform=transform)
+                                          transform=transform, header=header)
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -1992,7 +2058,10 @@ def pack_mixed(cm_shape, poly_shape, physics=None, cm_body: int = 0,
         cm_shape.verts, cm_shape.faces,
         poly_shape.verts, poly_shape.faces,
         name_offs, physics=physics, cm_body=cm_body,
-        body_transforms=body_transforms)
+        body_transforms=body_transforms,
+        cm_header=shape_header_args(cm_shape),
+        poly_header=dict(shape_header_args(poly_shape),
+                         convex_radius=poly_shape.convex_radius))
 
     local_tbl  = fx.build_local_table()
     global_tbl = fx.build_global_table()
@@ -2148,7 +2217,7 @@ def _build_compound_data_section(
     # ── Polytope child shapes (one per instance) ──
     for i, (verts, faces, _rot, _trans) in enumerate(children):
         shape_rel = rel()
-        write(_build_convex_polytope_shape(verts, faces))
+        write(_build_convex_polytope_shape(verts, faces, user_data=_SHAPE_USER_DATA))
         align16()
         fx.add_virtual(shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
         fx.add_global(inst_rels[i] + 0x50, 2, shape_rel)  # instance → its polytope
@@ -2216,7 +2285,7 @@ def pack_compound(children, physics=None) -> bytes:
 
 
 def _build_multi_poly_data_section(
-        poly_pairs: List[Tuple[List[Vert3], List[Face]]],
+        poly_pairs: List[Tuple[List[Vert3], List[Face], dict]],
         name_offs: Dict[str, int],
         physics=None,
         body_transforms=None) -> Tuple[bytes, '_FixupBuilder']:
@@ -2248,10 +2317,10 @@ def _build_multi_poly_data_section(
     shape_entry_rels = [shape_entry_rel + i * _REF_OBJ_SIZE for i in range(N)]
 
     # ── Per-body polytope chains ──────────────────────────────────────────────
-    for i, (verts, faces) in enumerate(poly_pairs):
+    for i, (verts, faces, header) in enumerate(poly_pairs):
         # hknpConvexPolytopeShape (variable size, aligned to 16)
         shape_rel = rel()
-        write(_build_convex_polytope_shape(verts, faces))
+        write(_build_convex_polytope_shape(verts, faces, **header))
         while rel() % 16:
             data.append(0)
 
@@ -2294,7 +2363,9 @@ def pack_multi_polytope(poly_shapes, physics=None) -> bytes:
     cn_data, name_offs = _build_classnames()
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
-    poly_pairs = [(s.verts, s.faces) for s in poly_shapes]
+    poly_pairs = [(s.verts, s.faces,
+                   dict(shape_header_args(s), convex_radius=s.convex_radius))
+                  for s in poly_shapes]
     obj_data, fx = _build_multi_poly_data_section(
         poly_pairs, name_offs, physics=physics,
         body_transforms=[s.transform for s in poly_shapes])
@@ -2365,15 +2436,19 @@ def pack_shapes(shapes) -> bytes:
         s = shapes[0]
         if s.shape_type == "compressed_mesh":
             return pack_compressed_mesh(s.verts, s.faces, physics=physics,
-                                        transform=s.transform)
+                                        transform=s.transform,
+                                        header=shape_header_args(s))
         if s.shape_type == "polytope":
             return pack_convex_polytope(s.verts, s.faces, physics=physics,
-                                        transform=s.transform)
+                                        transform=s.transform,
+                                        header=dict(shape_header_args(s),
+                                                    convex_radius=s.convex_radius))
         if s.shape_type == "sphere":
             xf = s.transform
             position = xf.position if xf is not None else (0, 0, 0)
             return pack_sphere(s.sphere_radius, position=position,
-                               physics=physics, transform=s.transform)
+                               physics=physics, transform=s.transform,
+                               header=shape_header_args(s))
 
     cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
     poly_list = [s for s in shapes if s.shape_type == "polytope"]
@@ -2405,7 +2480,7 @@ def pack_shapes(shapes) -> bytes:
 
 
 def pack_sphere(radius: float, position=(0, 0, 0), physics=None,
-                transform=None) -> bytes:
+                transform=None, header: Optional[dict] = None) -> bytes:
     """Build Havok packfile bytes for a single hknpSphereShape.
 
     The sphere packfile is simpler than polytope — it has no
@@ -2456,8 +2531,13 @@ def pack_sphere(radius: float, position=(0, 0, 0), physics=None,
     #   +0x40: 12 bytes zeros, float 0.5
     shape_rel = rel()
     sphere_data = bytearray(0x50)
-    struct.pack_into('<I', sphere_data, 0x10, 0x01000111)
+    struct.pack_into('<I', sphere_data, 0x10, 0x01000000 | SPHERE_FLAGS)
     struct.pack_into('<f', sphere_data, 0x14, radius)
+    hdr = header or {}
+    if hdr.get('shape_flags') is not None:
+        struct.pack_into('<H', sphere_data, 0x10, hdr['shape_flags'])
+    if hdr.get('user_data') is not None:
+        struct.pack_into('<I', sphere_data, 0x18, hdr['user_data'])
     struct.pack_into('<I', sphere_data, 0x30, 0x00100004)
     struct.pack_into('<f', sphere_data, 0x4C, 0.5)
     write(bytes(sphere_data))
@@ -2509,7 +2589,8 @@ def pack_sphere(radius: float, position=(0, 0, 0), physics=None,
 
 
 def pack_convex_polytope(verts: List[Vert3], faces: List[Face],
-                         physics=None, transform=None) -> bytes:
+                         physics=None, transform=None,
+                         header: Optional[dict] = None) -> bytes:
     """Build Havok packfile bytes from a convex polytope mesh.
 
     Args:
@@ -2530,7 +2611,7 @@ def pack_convex_polytope(verts: List[Vert3], faces: List[Face],
 
     # ── Data section (object bytes only) ──
     obj_data, fx = _build_data_section(verts, faces, name_offs, physics=physics,
-                                       transform=transform)
+                                       transform=transform, header=header)
 
     # ── Fixup tables ──
     local_tbl  = fx.build_local_table()

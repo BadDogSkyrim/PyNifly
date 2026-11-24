@@ -659,7 +659,10 @@ _register_handwired_group('PynFO4PhysicsProps', 'pyn_fo4phys',
      # NiIntegerExtraData keeps its value as a string: Blender's IntProperty is
      # signed 32-bit. Empty means "not recorded"; export then writes 1 (static),
      # which is what 590 of 817 vanilla bodies carry.
-     'filter_hex': bpy.props.StringProperty(name='filter_hex', default='')},
+     'filter_hex': bpy.props.StringProperty(name='filter_hex', default=''),
+     # hknpShape flags, hex. Empty gives the shape type's usual flags (polytope
+     # 0x143). The shape's material is pyn_collshape.bhkMaterial, by name.
+     'shape_flags': bpy.props.StringProperty(name='shape_flags', default='')},
     'FO4 Physics',
     legacy={'inertia': 'pynPhysInertia', 'material_hex': 'pynPhysMaterial',
             'gravity_factor': 'pynPhysGravityFactor', 'max_lin_vel': 'pynPhysMaxLinVel',

@@ -328,6 +328,15 @@ class CollisionShape:
     sphere_radius: float = 0.0             # Havok-space radius for sphere shapes
     physics: Optional[PhysicsProps] = None  # per-body physics data
     body_index: Optional[int] = None        # index into PSD body array
+    # The hknpShape header's own values.  None, when packing, means the class's usual one.
+    shape_flags: Optional[int] = None       # +0x10
+    user_data: Optional[int] = None         # +0x18: the material, see fo4_havok_materials
+
+
+def shape_header(data: bytes, shape_abs: int) -> dict:
+    """The hknpShape header fields CollisionShape carries, as keyword arguments."""
+    return dict(shape_flags=u16(data, shape_abs + 0x10),
+                user_data=u32(data, shape_abs + 0x18))
 
 
 def constraint_count(data: bytes) -> int:
@@ -968,6 +977,7 @@ def extract_compound_polytopes(
             convex_radius=0.0,
             children=[],
             body_index=body_order.get(comp_rel) if body_order else None,
+            **shape_header(data, comp_abs),
         )
 
         for i in range(inst_count):
@@ -1007,6 +1017,7 @@ def extract_compound_polytopes(
                 faces=local_tris,
                 convex_radius=convex_radius,
                 children=[],
+                **shape_header(data, shape_abs),
             ))
 
         merged = [(n, c) for n, c in enumerate(compound_shape.children)]
@@ -1049,6 +1060,7 @@ def extract_compound_polytopes(
             convex_radius=convex_radius,
             children=[],
             body_index=body_order.get(shape_rel) if body_order else None,
+            **shape_header(data, shape_abs),
         ))
 
     return result
@@ -1180,9 +1192,13 @@ def extract_bhk_physics_system(
     # so we can recognize the ShapeData objects this loop iterates over.
     inst_map = compound_instance_map(data, data_start, fixups, gfixups, objects)
     cm_owner: Dict[int, List[Tuple[int, int, BodyTransform]]] = {}
+    cm_header: Dict[int, dict] = {}     # ShapeData rel -> its shape's header fields
     for shape_rel, cls in objects:
         if not cls.endswith("hknpCompressedMeshShape"):
             continue
+        gf = gfixups.get(shape_rel + 0x60)
+        if gf is not None:
+            cm_header[gf[1]] = shape_header(data, data_start + shape_rel)
         owners = inst_map.get(shape_rel)
         if not owners:
             continue
@@ -1298,6 +1314,7 @@ def extract_bhk_physics_system(
                 convex_radius=0.0,
                 children=[],
                 body_index=body_order.get(obj_rel),
+                **cm_header.get(obj_rel, {}),
             )
             if not owners:
                 all_shapes.append(shape)
@@ -1316,6 +1333,7 @@ def extract_bhk_physics_system(
                     convex_radius=0.0,
                     children=[],
                     body_index=None,
+                    **cm_header.get(obj_rel, {}),
                 )
                 compound_kids.setdefault(comp_rel, []).append((inst_i, child))
 
@@ -1342,6 +1360,7 @@ def extract_bhk_physics_system(
             children=[],
             sphere_radius=radius,
             body_index=body_order.get(obj_rel),
+            **shape_header(data, obj_abs),
         ))
 
     if not all_shapes:

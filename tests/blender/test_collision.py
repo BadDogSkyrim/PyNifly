@@ -1629,6 +1629,95 @@ def TEST_COLLISION_FO4_PHYSICS_SYSTEM():
     assert TT.is_eq(out_tris, 16, "and they are all exported again")
 
 
+LUNCHBOX_DEST = os.path.join(TT.FO4_ASSETS, r"Meshes\SetDressing\LunchBoxKids\LunchBoxKids01Dest.nif")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("physics constraints",))
+def TEST_COLLISION_FO4_SHAPE_HEADERS():
+    """FO4 collision shapes keep their own material, flags and convex radius.
+
+    Export wrote one template header on every shape: Plastic, flags 0x0103 and radius
+    0.01.  LunchBoxKids01Dest's three pieces are MetalLight, flags 0x0143 (the 0x40 bit
+    keeps them from sinking into floors), and three different radii.  In game the
+    re-exported lunchbox sounded like plastic, sank and jittered.
+
+    Import shows each shape's material by name and its flags; export writes them back.
+    A material typed in Blender is exported as its CRC, and a shape with none set gets
+    Metal and vanilla's usual flags.
+
+    Also checks the motion properties' deactivation bytes, which were exported as zeros
+    (pieces froze in mid-air).
+    """
+    from io_scene_nifly.pyn.fo4_havok_materials import material_id
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_SHAPE_HEADERS.nif")
+    vanilla = pyn.NifFile(LUNCHBOX_DEST)
+    van_hdrs = _np_shape_headers(vanilla)
+    assert TT.is_eq(sorted(van_hdrs), ['Bone001', 'Bone003', 'Bone004'], "three bodies")
+    assert TT.is_eq(set(_np_motion_tails(vanilla)), {"ff 67 9b 99 04 73 75 06 73 00 00 00"},
+                    "vanilla deactivation bytes")
+
+    bpy.ops.import_scene.pynifly(filepath=LUNCHBOX_DEST)
+    shapes = {o.name: o for o in bpy.data.objects if o.get('pynRigidBody') == 'bhkPhysicsSystem'}
+    assert TT.is_eq(len(shapes), 3, "three collision shapes")
+    for o in shapes.values():
+        assert TT.is_eq(o.pyn_collshape.bhkMaterial, "MetalLight", f"{o.name} material by name")
+        assert TT.is_eq(o.pyn_fo4phys.shape_flags, "143", f"{o.name} flags")
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = pyn.NifFile(outfile)
+    assert TT.is_eq(_np_shape_headers(out), van_hdrs, "every shape's header round-trips")
+    assert TT.is_eq(set(_np_motion_tails(out)), {"ff 67 9b 99 04 73 75 06 73 00 00 00"},
+                    "deactivation bytes exported")
+
+    # Edited in Blender: one shape made Wood, one with nothing set.
+    bone_of = {c.target.name: pb.name
+               for arma in bpy.data.objects if arma.type == 'ARMATURE'
+               for pb in arma.pose.bones for c in pb.constraints if c.type == 'COPY_TRANSFORMS'}
+    by_bone = {bone_of[n]: o for n, o in shapes.items()}
+    by_bone['Bone001'].pyn_collshape.bhkMaterial = "Wood"
+    by_bone['Bone004'].pyn_collshape.bhkMaterial = ""
+    by_bone['Bone004'].pyn_fo4phys.shape_flags = ""
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    hdrs = _np_shape_headers(pyn.NifFile(outfile))
+    assert TT.is_eq(hdrs['Bone001'][:2], (0x0143, material_id("Wood")), "material set in Blender")
+    assert TT.is_eq(hdrs['Bone004'][:2], (0x0143, material_id("Metal")), "nothing set: Metal")
+    assert TT.is_eq(hdrs['Bone003'], van_hdrs['Bone003'], "untouched shape unchanged")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("physics constraints",))
+def TEST_COLLISION_FO4_UNWEIGHTED_BONE():
+    """A bone that owns a collision is exported even when nothing is weighted to it.
+
+    Export looked for the collision's bone among the nodes already written, and a bone
+    with no weights never was: KeyError 'Bone003' (Discord report D2).  Here the
+    lunchbox's Bone003 weights are moved to Bone001 and only the mesh is exported.
+    """
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_UNWEIGHTED_BONE.nif")
+    bpy.ops.import_scene.pynifly(filepath=LUNCHBOX_DEST)
+    mesh = [o for o in bpy.data.objects if o.type == 'MESH' and 'Bone003' in o.vertex_groups][0]
+    g3, g1 = mesh.vertex_groups['Bone003'], mesh.vertex_groups['Bone001']
+    for v in mesh.data.vertices:
+        for g in v.groups:
+            if g.group == g3.index:
+                g1.add([v.index], g.weight, 'ADD')
+    mesh.vertex_groups.remove(g3)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    out = pyn.NifFile(outfile)
+    assert TT.is_true('Bone003' in out.nodes, "Bone003 written")
+    assert TT.is_eq(sorted(_np_shape_headers(out)), ['Bone001', 'Bone003', 'Bone004'],
+                    "every bone keeps its collision")
+    assert TT.is_true('Bone003' not in out.shapes[0].bone_names, "Bone003 is not in the skin")
+
+
 @TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_SHOTGUN_BARREL():
     """FO4 bhkPhysicsSystem: shotgun barrel collision sits near the visual mesh.

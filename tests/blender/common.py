@@ -343,6 +343,24 @@ def _np_body_world_bounds(nif):
     return out
 
 
+def _np_shape_headers(nif):
+    """(flags, userData, convex radius) of every native-physics body's shape, by node name.
+
+    The radius is rounded to 1e-5 Havok units, well under a float's error on a re-pack.
+    """
+    return {name: (s.shape_flags, s.user_data, round(s.convex_radius, 5))
+            for name, s in _np_bodies(nif).items()}
+
+
+def _np_motion_tails(nif):
+    """The last 12 bytes of every motion-properties record in the nif, as hex."""
+    out = []
+    for body in _np_bodies(nif).values():
+        mp = body.physics.motion_props_raw if body.physics else b''
+        out += [mp[i + 0x34:i + 0x40].hex(' ') for i in range(0, len(mp), 0x40)]
+    return out
+
+
 def _np_body_filters(nif):
     """collisionFilterInfo of every native-physics body, keyed by node name."""
     return {name: body.physics.collision_filter_info

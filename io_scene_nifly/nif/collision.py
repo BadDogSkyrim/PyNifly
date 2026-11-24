@@ -300,6 +300,7 @@ class CollisionHandler(BD.Warns):
         self.import_xf = None
         self.nif = parent_handler.nif
         self.objs_written = None
+        self.write_bone = None
         self.logger = logging.getLogger("pynifly")
         # Shared cache so the same bhkPhysicsSystem block is only imported once
         if not hasattr(parent_handler, '_physics_system_cache'):
@@ -771,13 +772,23 @@ class CollisionHandler(BD.Warns):
                                     max_ang_vel=s.physics.max_angular_velocity,
                                     filter_hex=f"{s.physics.collision_filter_info:x}")
 
-            if s.convex_radius > 0.0:
+            # The shape's own header: its material by name, and its flags.
+            if s.user_data is not None:
+                from ..pyn.fo4_havok_materials import material_name
+                pyn_props.set_collshape(obj, material_name(s.user_data), None)
+            if s.shape_flags is not None:
+                pyn_props.set_group(obj, 'pyn_fo4phys', shape_flags=f"{s.shape_flags:x}")
+
+            # A polytope's radius is recorded even when it is 0, which vanilla has:
+            # export reads an unset margin as "new shape" and gives it the default.
+            if s.convex_radius > 0.0 or s.shape_type == 'polytope':
                 radius_bl = s.convex_radius * sf
                 obj.rigid_body.use_margin = True
                 obj.rigid_body.collision_margin = radius_bl
                 if s.shape_type == 'polytope':
                     pyn_props.set_group(obj, 'pyn_fo4phys', collision_radius=radius_bl)
-                    _add_collision_radius_modifiers(obj, radius_bl)
+                    if radius_bl > 0.0:
+                        _add_collision_radius_modifiers(obj, radius_bl)
 
             if shape_parent is not None:
                 obj.parent = shape_parent
@@ -1544,6 +1555,41 @@ class CollisionHandler(BD.Warns):
         bhkPhysicsSystem.New(self.nif, data=packed, parent=coll_node)
 
 
+    def _fo4_shape_header(self, obj):
+        """The hknpShape header values on a collision shape object, for CollisionShape.
+
+        None means "not set": the packer then gives the shape type's usual value.
+        """
+        from . import pyn_props
+        from ..pyn.fo4_havok_materials import material_id
+        hdr = {'shape_flags': None, 'user_data': None}
+        mat = pyn_props.get_group(obj, 'pyn_collshape').bhkMaterial.strip()
+        if mat:
+            try:
+                hdr['user_data'] = material_id(mat)
+            except ValueError:
+                self.warn(f"{obj.name}: collision material '{mat}' is neither a name "
+                          "nor a hex value; using the default")
+        flags = pyn_props.get_group(obj, 'pyn_fo4phys').shape_flags.strip()
+        if flags:
+            try:
+                hdr['shape_flags'] = int(flags, 16) & 0xFFFF
+            except ValueError:
+                self.warn(f"{obj.name}: shape flags '{flags}' are not hex; using the default")
+        return hdr
+
+
+    def _write_collision_bone(self, pb):
+        """Write the node for a bone that owns a collision, and return its nif name.
+
+        A bone is normally written because a shape is weighted to it. One that only
+        carries a collision may not be, and the collision still needs its node.
+        """
+        if self.write_bone is None:
+            return pb.name
+        return self.write_bone(None, pb.id_data, pb.name, [pb.name]) or pb.name
+
+
     def export_collision_object(self, targobj, coll):
         """
         Export the given collision object. 
@@ -1563,6 +1609,8 @@ class CollisionHandler(BD.Warns):
             targnode = targpair.nifnode
         elif hasattr(self, 'writtenbones') and targobj.name in self.writtenbones:
             targnode = self.nif.nodes[self.writtenbones[targobj.name]]
+        elif isinstance(targobj, bpy.types.PoseBone):
+            targnode = self.nif.nodes[self._write_collision_bone(targobj)]
         else:
             targnode = self.nif.nodes[targobj.name]
 
@@ -1683,16 +1731,20 @@ class CollisionHandler(BD.Warns):
                             children=[],
                             sphere_radius=sphere_r,
                             physics=physics,
+                            **self._fo4_shape_header(obj),
                         ))
                     else:
                         local_mat = node_inv @ self.export_xf @ obj.matrix_world
                         verts = [tuple(local_mat @ v.co / sf) for v in obj.data.vertices]
                         faces = [list(p.vertices) for p in obj.data.polygons]
-                        # convex_radius: prefer rigid body margin, fall back to custom prop.
+                        # convex_radius: the rigid body margin, else the custom prop,
+                        # else (a new shape) the packer's default.
                         if obj.rigid_body and obj.rigid_body.use_margin:
                             radius = obj.rigid_body.collision_margin / sf
                         else:
                             radius = pyn_props.get_group(obj, 'pyn_fo4phys').collision_radius / sf
+                            if radius <= 0.0:
+                                radius = None
                         shapes.append(CollisionShape(
                             shape_type=shape_type,
                             name=obj.name,
@@ -1702,6 +1754,7 @@ class CollisionHandler(BD.Warns):
                             convex_radius=radius,
                             children=[],
                             physics=physics,
+                            **self._fo4_shape_header(obj),
                         ))
                 # Compute density for dynamic bodies from geometry.
                 if is_dyn and physics.mass > 0:
@@ -1711,7 +1764,7 @@ class CollisionHandler(BD.Warns):
                     if s0 is not None:
                         physics.density = compute_density(
                             physics.mass, s0.verts, s0.faces,
-                            s0.convex_radius, s0.shape_type,
+                            s0.convex_radius or 0.0, s0.shape_type,
                             s0.sphere_radius)
 
                 # pack_shapes requires compressed_mesh before polytope.
@@ -1751,6 +1804,7 @@ class CollisionHandler(BD.Warns):
         exporter.game = parent_handler.game
         exporter.export_xf = parent_handler.export_xf
         exporter.writtenbones = parent_handler.writtenbones
+        exporter.write_bone = getattr(parent_handler, 'write_bone', None)
 
         targobj = obj
         if obj.type == 'ARMATURE':

@@ -8897,6 +8897,110 @@ def TEST_MOPP_SLGDARCHFIRE01_POINTS():
               f"{len(miss_points_blender)} misses")
 
 
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_HAVOK_MATERIAL_NAMES():
+    """FO4 collision materials: a shape's userData is the CRC of its material's name.
+
+    The name is the MATT record's MNAM (its Havok material name, "MetalLight"), lowercased,
+    through Bethesda's CRC32: reflected, init 0, no final XOR.  A value with no known name
+    is shown as hex and still round-trips.
+    """
+    from pyn.fo4_havok_materials import material_id, material_name, FO4_HAVOK_MATERIALS
+
+    # Vanilla values: LunchBoxKids01Dest's shapes, our old template, vanilla compounds.
+    assert TT.is_eq(material_id("MetalLight"), 0xE538F7DB, "MetalLight")
+    assert TT.is_eq(material_id("metallight"), 0xE538F7DB, "case doesn't matter")
+    assert TT.is_eq(material_id("Plastic"), 0x7DFA6E05, "Plastic")
+    assert TT.is_eq(material_id("Metal"), 0x064003D4, "Metal")
+    assert TT.is_eq(material_name(0xE538F7DB), "MetalLight", "known ID shows its name")
+    assert TT.is_eq(material_name(0xFCB37EA0), "0xFCB37EA0", "unknown ID shows as hex")
+    assert TT.is_eq(material_id("0xFCB37EA0"), 0xFCB37EA0, "and hex reads back")
+    assert TT.is_eq(len(FO4_HAVOK_MATERIALS), 156, "every MATT in the 7 masters")
+    assert TT.is_eq(len({material_id(n) for n in FO4_HAVOK_MATERIALS}), 156, "no two names collide")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_SHAPE_HEADER_PACK():
+    """Each collision shape's header carries its own flags, convex radius and material.
+
+    Export used to write one template header on every polytope: flags 0x0103 (vanilla's
+    0x0143 has SUPPORTS_COLLISIONS_WITH_INTERIOR_TRIANGLES, without which pieces sink and
+    jitter), radius 0.01 and the Plastic material.  Unpack reads all three off each shape
+    and pack writes them back; a shape that doesn't say gets vanilla's usual values.
+    """
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import parse_bytes, CollisionShape, PhysicsProps
+    from pyn.fo4_havok_materials import material_id
+
+    # The parser reads vanilla's values: LunchBoxKids01Dest, three MetalLight polytopes.
+    nif = NifFile(os.path.join(TT.FO4_ASSETS, r"Meshes\SetDressing\LunchBoxKids\LunchBoxKids01Dest.nif"))
+    ps = [n.collision_object.physics_system for n in nif.nodes.values()
+          if n.collision_object and n.collision_object.physics_system][0]
+    van = parse_bytes(ps.data)
+    assert TT.is_eq(sorted((s.shape_flags, s.user_data, round(s.convex_radius, 5)) for s in van),
+                    [(0x0143, 0xE538F7DB, 0.00445), (0x0143, 0xE538F7DB, 0.00838),
+                     (0x0143, 0xE538F7DB, 0.01)],
+                    "vanilla lunchbox shape headers")
+
+    box = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+           (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+    quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]]
+
+    def poly(**kw):
+        return CollisionShape(shape_type='polytope', name='p', transform=None, verts=box,
+                              faces=quads, children=[], physics=PhysicsProps(), **kw)
+
+    def cm(**kw):
+        return CollisionShape(shape_type='compressed_mesh', name='c', transform=None,
+                              verts=box, faces=[[0, 1, 2], [0, 2, 3]], convex_radius=0.0,
+                              children=[], physics=PhysicsProps(), **kw)
+
+    def hdrs(shapes):
+        return [(s.shape_type, s.shape_flags, s.user_data, round(s.convex_radius, 5))
+                for s in parse_bytes(pack_shapes(shapes))]
+
+    # Given values come back, on one body and on several.
+    wood = material_id("Wood")
+    given = poly(convex_radius=0.0042, shape_flags=0x0043, user_data=wood)
+    assert TT.is_eq(hdrs([given]), [('polytope', 0x0043, wood, 0.0042)], "one polytope")
+    assert TT.is_eq(hdrs([given, poly(convex_radius=0.003, shape_flags=0x0143,
+                                      user_data=material_id("Glass"))]),
+                    [('polytope', 0x0043, wood, 0.0042),
+                     ('polytope', 0x0143, material_id("Glass"), 0.003)], "two polytopes")
+    assert TT.is_eq(hdrs([cm(shape_flags=0x0204, user_data=0xFCB37EA0), given]),
+                    [('compressed_mesh', 0x0204, 0xFCB37EA0, 0.0),
+                     ('polytope', 0x0043, wood, 0.0042)], "mesh and polytope")
+
+    # A shape that doesn't say: vanilla's usual polytope (0x0143, Metal, 0.01), and the
+    # compressed mesh the template that works in game.
+    assert TT.is_eq(hdrs([poly(convex_radius=None)]),
+                    [('polytope', 0x0143, material_id("Metal"), 0.01)], "polytope defaults")
+    assert TT.is_eq(hdrs([cm()]), [('compressed_mesh', 0x0204, 0x26067D15, 0.0)],
+                    "compressed mesh defaults")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_MOTION_PROPERTIES_TAIL():
+    """A dynamic body's motion properties end with vanilla's deactivation bytes.
+
+    All 5,884 vanilla hknpMotionProperties records end in the same 12 bytes.  We wrote
+    zeros, and a piece let go in mid-air stayed frozen until something hit it.
+    """
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import parse_bytes, CollisionShape, PhysicsProps
+
+    box = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+           (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+    quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]]
+    s = CollisionShape(shape_type='polytope', name='p', transform=None, verts=box, faces=quads,
+                       convex_radius=0.01, children=[],
+                       physics=PhysicsProps(is_dynamic=True, mass=2.0, motion_id=0))
+    mp = parse_bytes(pack_shapes([s]))[0].physics.motion_props_raw
+    assert TT.is_eq(len(mp), 0x40, "one motion-properties record")
+    assert TT.is_eq(mp[0x34:].hex(' '), "ff 67 9b 99 04 73 75 06 73 00 00 00",
+                    "deactivation bytes")
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]
