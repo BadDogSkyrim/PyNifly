@@ -538,6 +538,24 @@ class CollisionHandler(BD.Warns):
             obj.data.update()
             return obj
 
+        if s.shape_type == 'capsule':
+            # A capsule mesh, as Skyrim's capsules import.  Its ends get the same
+            # placement a polytope's vertices would.
+            ends = s.capsule_ends
+            if apply_transform and s.transform is not None:
+                p, r = s.transform.position, s.transform.rotation
+                ends = [tuple(r[i][0]*v[0] + r[i][1]*v[1] + r[i][2]*v[2] + p[i]
+                              for i in range(3)) for v in ends]
+            obj = create_capsule(Vector(ends[0]) * sf, Vector(ends[1]) * sf,
+                                 s.convex_radius * sf)
+            obj.name = name
+            obj.data.name = name
+            obj.matrix_world = parentxf.copy()
+            for p in obj.data.polygons:
+                p.use_smooth = True
+            obj.data.update()
+            return obj
+
         if (apply_transform
                 and s.transform is not None
                 and s.shape_type != 'compressed_mesh'):
@@ -609,7 +627,7 @@ class CollisionHandler(BD.Warns):
 
         Returns the collision anchor object, or None if data is unavailable.
         """
-        from ..pyn.bhk_autounpack import parse_bytes, constraint_count
+        from ..pyn.bhk_autounpack import parse_bytes, constraint_count, unsupported_shapes
 
         ps = c.physics_system
         if ps is None:
@@ -620,10 +638,21 @@ class CollisionHandler(BD.Warns):
             raw = ps.data
             if not raw:
                 return None
+            # Shapes the reader doesn't handle are left out of what it returns.
+            # Say which, so the collision isn't lost without a word.
+            try:
+                missing = unsupported_shapes(raw)
+            except Exception:
+                missing = []
+            if missing:
+                self.warn(f"Collision uses shape type{'s' if len(missing) > 1 else ''} "
+                          f"PyNifly can't read yet: {', '.join(missing)}. Those bodies "
+                          "are not imported and will not be exported.")
             try:
                 parsed = parse_bytes(raw)
             except RuntimeError as e:
-                self.warn(f"bhkPhysicsSystem decode failed: {e}")
+                if not missing:
+                    self.warn(f"bhkPhysicsSystem decode failed: {e}")
                 return None
             self._physics_system_cache[ps.id] = parsed
             # A constraint joins two bodies by their index within one system.
@@ -639,7 +668,16 @@ class CollisionHandler(BD.Warns):
 
         all_shapes = self._physics_system_cache[ps.id]
         body_id = c.body_id
-        single_body = (body_id is not None and body_id < len(all_shapes))
+        # A shape knows its body's index.  Look it up by that: a body whose shape
+        # the reader skips leaves a gap, and every later list position is off by one.
+        by_index = {s.body_index: s for s in all_shapes if s.body_index is not None}
+        if body_id in by_index:
+            this_body = by_index[body_id]
+        elif not by_index and body_id is not None and body_id < len(all_shapes):
+            this_body = all_shapes[body_id]
+        else:
+            this_body = None
+        single_body = this_body is not None
 
         if not single_body:
             # bodyID is NODEID_NONE or out of range — bulk mode.
@@ -650,7 +688,7 @@ class CollisionHandler(BD.Warns):
                 return self._physics_system_cache[bulk_key]
             bodies_to_import = list(all_shapes)
         else:
-            bodies_to_import = [all_shapes[body_id]]
+            bodies_to_import = [this_body]
 
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
 
@@ -736,7 +774,7 @@ class CollisionHandler(BD.Warns):
 
         for i, (s, shape_xf, apply_xf, instance_xf) in enumerate(leaf_entries):
             _SUFFIXES = {'compressed_mesh': '_cm', 'sphere': '_sphere',
-                         'polytope': '_poly'}
+                         'polytope': '_poly', 'capsule': '_capsule'}
             if len(leaf_entries) == 1:
                 name = "bhkPhysicsSystem"
             else:
@@ -748,7 +786,7 @@ class CollisionHandler(BD.Warns):
 
             ObjectSelect([obj])
             bpy.ops.rigidbody.object_add(type='PASSIVE')
-            rb_shape = 'CONVEX_HULL' if s.shape_type == 'sphere' else 'MESH'
+            rb_shape = 'CONVEX_HULL' if s.shape_type in ('sphere', 'capsule') else 'MESH'
             obj.rigid_body.collision_shape = rb_shape
             obj.color = COLLISION_COLOR
             obj.display_type = 'WIRE'
@@ -781,7 +819,8 @@ class CollisionHandler(BD.Warns):
 
             # A polytope's radius is recorded even when it is 0, which vanilla has:
             # export reads an unset margin as "new shape" and gives it the default.
-            if s.convex_radius > 0.0 or s.shape_type == 'polytope':
+            # (A capsule's radius is its mesh's: export reads it off the mesh.)
+            if s.shape_type == 'polytope':
                 radius_bl = s.convex_radius * sf
                 obj.rigid_body.use_margin = True
                 obj.rigid_body.collision_margin = radius_bl
@@ -1616,6 +1655,7 @@ class CollisionHandler(BD.Warns):
 
         if coll.get('pynRigidBody') == 'bhkPhysicsSystem':
             from ..pyn.bhk_autounpack import CollisionShape, PhysicsProps, BodyTransform
+            from ..pyn.bhk_autopack import capsule_from_points, pack_shapes
             sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.game]
 
             # A compound body is a bhkCompound empty (child of the system, or the
@@ -1647,15 +1687,24 @@ class CollisionHandler(BD.Warns):
                 position=tuple(c / sf for c in node_mx.translation),
                 rotation=tuple(tuple(r) for r in node_mx.to_quaternion().to_matrix()))
 
-            _SHAPE_TYPES = ('compressed_mesh', 'polytope', 'sphere')
+            _SHAPE_TYPES = ('compressed_mesh', 'polytope', 'sphere', 'capsule')
             # Collect the main collision object and any children that carry
             # pynCollisionShapeType (set during import for multi-shape systems).
+            # A type export doesn't know is reported and left out.
             shape_objs = []
-            if coll.get('pynCollisionShapeType') in _SHAPE_TYPES:
-                shape_objs.append(coll)
-            for ch in coll.children:
-                if ch.get('pynCollisionShapeType') in _SHAPE_TYPES:
-                    shape_objs.append(ch)
+            unknown = []
+            for o in [coll] + list(coll.children):
+                t = o.get('pynCollisionShapeType')
+                if t in _SHAPE_TYPES:
+                    shape_objs.append(o)
+                elif t is not None:
+                    unknown.append(o)
+            for o in unknown:
+                self.warn(f"{o.name}: collision shape type '{o['pynCollisionShapeType']}' "
+                          "isn't supported for export; it is left out.")
+            if unknown and not shape_objs:
+                self.objs_written.add(ReprObject(coll, targnode))
+                return
 
             # bodyID indexes the physics system's body array, and defaults to a
             # sentinel that makes the engine index the array with 0xFFFFFFFF and
@@ -1664,10 +1713,11 @@ class CollisionHandler(BD.Warns):
             # We write one system per collision object, so its bodies start at 0
             # -- an id carried over from the source would be wrong here, because
             # a node that named body 3 of a shared system now owns a private one.
-            coll_node = targnode.add_collision(
-                None, flags=flags or 0,
-                collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
-                body_id=0)
+            def add_np_collision():
+                return targnode.add_collision(
+                    None, flags=flags or 0,
+                    collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
+                    body_id=0)
 
             if shape_objs:
                 # Build physics properties from the first shape object's
@@ -1733,6 +1783,24 @@ class CollisionHandler(BD.Warns):
                             physics=physics,
                             **self._fo4_shape_header(obj),
                         ))
+                    elif shape_type == 'capsule':
+                        # The capsule mesh is the authority: its ends and radius
+                        # are read off it, in node space like any shape's verts.
+                        local_mat = node_inv @ self.export_xf @ obj.matrix_world
+                        a, b, r = capsule_from_points(
+                            [tuple(local_mat @ v.co / sf) for v in obj.data.vertices])
+                        shapes.append(CollisionShape(
+                            shape_type='capsule',
+                            name=obj.name,
+                            transform=body_xf,
+                            verts=[],
+                            faces=[],
+                            convex_radius=r,
+                            children=[],
+                            physics=physics,
+                            capsule_ends=(a, b),
+                            **self._fo4_shape_header(obj),
+                        ))
                     else:
                         local_mat = node_inv @ self.export_xf @ obj.matrix_world
                         verts = [tuple(local_mat @ v.co / sf) for v in obj.data.vertices]
@@ -1765,18 +1833,27 @@ class CollisionHandler(BD.Warns):
                         physics.density = compute_density(
                             physics.mass, s0.verts, s0.faces,
                             s0.convex_radius or 0.0, s0.shape_type,
-                            s0.sphere_radius)
+                            s0.sphere_radius, s0.capsule_ends)
 
                 # pack_shapes requires compressed_mesh before polytope.
                 shapes.sort(key=lambda s: 0 if s.shape_type == 'compressed_mesh' else 1)
-                bhkPhysicsSystem.New(self.nif, shapes=shapes, parent=coll_node)
+                # Pack before adding the collision object, so a combination the
+                # packer can't build leaves no collision object without a system.
+                try:
+                    packed = pack_shapes(shapes)
+                except NotImplementedError as e:
+                    self.warn(f"{coll.name}: collision not exported: {e}")
+                    self.objs_written.add(ReprObject(coll, targnode))
+                    return
+                bhkPhysicsSystem.New(self.nif, data=packed, parent=add_np_collision())
             else:
                 # Legacy path: no pynCollisionShapeType tag — treat the whole
                 # mesh as a single convex polytope (pre-existing behaviour).
                 local_mat = node_inv @ self.export_xf @ coll.matrix_world
                 verts = [(*(local_mat @ v.co / sf),) for v in coll.data.vertices]
                 faces = [list(p.vertices) for p in coll.data.polygons]
-                bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces, parent=coll_node)
+                bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces,
+                                     parent=add_np_collision())
 
             self.objs_written.add(ReprObject(coll, targnode))
             return

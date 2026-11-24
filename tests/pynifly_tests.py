@@ -9001,6 +9001,89 @@ def TEST_FO4_MOTION_PROPERTIES_TAIL():
                     "deactivation bytes")
 
 
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_CAPSULE_SHAPE():
+    """hknpCapsuleShape reads as its two ends and radius, and is built back as vanilla's.
+
+    A capsule is a convex polytope -- a thin box around the a-b segment, 1% of the radius
+    across -- rounded by its convex radius, with the ends stored at +0x50/+0x60.  The box
+    follows a fixed rule (measured on all 1,006 vanilla capsules), so the writer makes it
+    from the ends and radius alone.  The floor light's collision is one capsule; the
+    stuffed animal's are oblique, which exercises the box's orientation.
+    """
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import parse_bytes, CollisionShape, PhysicsProps
+
+    def capsules(path):
+        nif = NifFile(os.path.join(TT.FO4_ASSETS, path))
+        out = []
+        for n in nif.nodes.values():
+            co = n.collision_object
+            ps = co.physics_system if co else None
+            if ps:
+                out += [s for s in parse_bytes(ps.data) if s.shape_type == 'capsule']
+        return out
+
+    light = capsules(r"Meshes\SetDressing\HighTech\HighTechLightFloor02.nif")
+    assert TT.is_eq(len(light), 1, "floor light: one capsule")
+    c = light[0]
+    assert TT.is_equiv(c.convex_radius, 0.22017, "radius", e=1e-5)
+    assert TT.is_equiv(c.capsule_ends[0][2], 1.77494, "end a", e=1e-5)
+    assert TT.is_equiv(c.capsule_ends[1][2], 0.22396, "end b", e=1e-5)
+    assert TT.is_eq(c.shape_flags, 0x01C3, "flags")
+    assert TT.is_eq(len(c.verts), 8, "its inner box")
+
+    oblique = capsules(r"Meshes\Props\StuffedAnimals\Jangles01.nif")
+    assert TT.is_gt(len(oblique), 1, "stuffed animal has capsules")
+    for i, v in enumerate(light + oblique):
+        s = CollisionShape(shape_type='capsule', name='c', transform=None, verts=[], faces=[],
+                           convex_radius=v.convex_radius, children=[], physics=PhysicsProps(),
+                           capsule_ends=v.capsule_ends, shape_flags=v.shape_flags,
+                           user_data=v.user_data)
+        out = parse_bytes(pack_shapes([s]))
+        assert TT.is_eq(len(out), 1, f"capsule {i} comes back")
+        o = out[0]
+        assert TT.is_eq((o.shape_type, o.shape_flags, o.user_data),
+                        ('capsule', v.shape_flags, v.user_data), f"capsule {i} header")
+        assert TT.is_equiv(o.convex_radius, v.convex_radius, f"capsule {i} radius", e=1e-6)
+        for k in range(2):
+            for j in range(3):
+                assert TT.is_equiv(o.capsule_ends[k][j], v.capsule_ends[k][j],
+                                   f"capsule {i} end {k}", e=1e-6)
+        worst = max(math.dist(a, b) for a, b in zip(o.verts, v.verts)) / v.convex_radius
+        assert TT.is_lt(worst, 1e-3, f"capsule {i}: inner box as vanilla's")
+
+    # Bodies of different kinds share a system: a polytope box and a capsule.
+    box = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+           (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+    quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]]
+    poly = CollisionShape(shape_type='polytope', name='p', transform=None, verts=box,
+                          faces=quads, convex_radius=0.01, children=[], physics=PhysicsProps())
+    cap = CollisionShape(shape_type='capsule', name='c', transform=None, verts=[], faces=[],
+                         convex_radius=0.1, children=[], physics=PhysicsProps(),
+                         capsule_ends=((0, 0, 0), (0, 0, 1)))
+    out = parse_bytes(pack_shapes([poly, cap]))
+    assert TT.is_eq([s.shape_type for s in out], ['polytope', 'capsule'], "two bodies, in order")
+    assert TT.is_eq(out[1].shape_flags, 0x01C3, "a new capsule gets vanilla's flags")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_UNSUPPORTED_SHAPES():
+    """A physics system's shapes PyNifly can't read are named, so import can warn."""
+    from pyn.bhk_autounpack import unsupported_shapes
+
+    nif = NifFile(os.path.join(TT.FO4_ASSETS,
+                               r"Meshes\Architecture\Buildings\DecoKit\DecoMainA1x1WinC01.nif"))
+    ps = [n.collision_object.physics_system for n in nif.nodes.values()
+          if n.collision_object and n.collision_object.physics_system][0]
+    assert TT.is_eq(unsupported_shapes(ps.data), ['hknpConvexShape'], "plain convex shape")
+
+    nif = NifFile(os.path.join(TT.FO4_ASSETS, r"Meshes\SetDressing\HighTech\HighTechLightFloor02.nif"))
+    ps = [n.collision_object.physics_system for n in nif.nodes.values()
+          if n.collision_object and n.collision_object.physics_system][0]
+    assert TT.is_eq(unsupported_shapes(ps.data), [], "capsules are supported")
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

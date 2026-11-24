@@ -331,6 +331,39 @@ class CollisionShape:
     # The hknpShape header's own values.  None, when packing, means the class's usual one.
     shape_flags: Optional[int] = None       # +0x10
     user_data: Optional[int] = None         # +0x18: the material, see fo4_havok_materials
+    # A capsule's two ends (Havok space).  Its radius is convex_radius; verts holds the
+    # thin box Havok keeps inside it, which the writer rebuilds from the ends.
+    capsule_ends: Optional[Tuple[Vert3, Vert3]] = None
+
+
+# The hknpShape classes the reader turns into CollisionShapes.  Any other shape class
+# in a physics system is left out of what parse_bytes returns.
+SUPPORTED_SHAPE_CLASSES = frozenset((
+    "hknpConvexPolytopeShape", "hknpCapsuleShape", "hknpSphereShape",
+    "hknpCompressedMeshShape", "hknpDynamicCompoundShape"))
+
+
+def unsupported_shapes(data: bytes) -> List[str]:
+    """The shape classes in a physics system's packfile that the reader leaves out."""
+    hdrs = parse_section_headers(data)
+    dh = hdrs["__data__"]
+    objects = parse_virtual_fixups(data, dh, hdrs["__classnames__"].abs_start)
+    return sorted({cls for _, cls in objects
+                   if cls.endswith("Shape") and cls not in SUPPORTED_SHAPE_CLASSES})
+
+
+def parse_capsule(data: bytes, shape_abs: int, **kw) -> Optional['CollisionShape']:
+    """An hknpCapsuleShape: a convex polytope (the thin inner box) with its two ends
+    at +0x50 and +0x60.  kw is the rest of the CollisionShape (name, transform...)."""
+    parsed = parse_convex_polytope(data, shape_abs)
+    if parsed is None:
+        return None
+    box, box_faces, radius = parsed
+    a = vec3(data, shape_abs + 0x50)
+    b = vec3(data, shape_abs + 0x60)
+    return CollisionShape(shape_type="capsule", verts=box, faces=box_faces,
+                          convex_radius=radius, children=[], capsule_ends=(a, b),
+                          **shape_header(data, shape_abs), **kw)
 
 
 def shape_header(data: bytes, shape_abs: int) -> dict:
@@ -1000,6 +1033,12 @@ def extract_compound_polytopes(
                 continue
             shape_rel = gf[1]
             shape_abs = data_start + shape_rel
+            if obj_map.get(shape_rel) == "hknpCapsuleShape":
+                cap = parse_capsule(data, shape_abs, name=f"Capsule_{i}",
+                                    transform=BodyTransform(position=trans, rotation=rot))
+                if cap is not None:
+                    compound_shape.children.append(cap)
+                continue
             if "ConvexPolytopeShape" not in obj_map.get(shape_rel, ""):
                 continue
 
@@ -1062,6 +1101,17 @@ def extract_compound_polytopes(
             body_index=body_order.get(shape_rel) if body_order else None,
             **shape_header(data, shape_abs),
         ))
+
+    for shape_rel, cls in objects:
+        if cls != "hknpCapsuleShape" or shape_rel in compound_shape_rels:
+            continue
+        cap = parse_capsule(
+            data, data_start + shape_rel,
+            name=f"Capsule_standalone_{shape_rel:#x}",
+            transform=body_transforms.get(shape_rel),
+            body_index=body_order.get(shape_rel) if body_order else None)
+        if cap is not None:
+            result.append(cap)
 
     return result
 

@@ -343,6 +343,23 @@ def _np_body_world_bounds(nif):
     return out
 
 
+class captured_warnings(logging.Handler):
+    """`with captured_warnings() as w:` collects the pynifly WARNING+ messages in w.messages."""
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.messages = []
+
+    def emit(self, record):
+        self.messages.append(record.getMessage())
+
+    def __enter__(self):
+        logging.getLogger("pynifly").addHandler(self)
+        return self
+
+    def __exit__(self, *exc):
+        logging.getLogger("pynifly").removeHandler(self)
+
+
 def _np_shape_headers(nif):
     """(flags, userData, convex radius) of every native-physics body's shape, by node name.
 

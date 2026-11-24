@@ -204,15 +204,21 @@ def _raw_hull_volume(verts: List[Vert3], faces: List[Face]) -> float:
 def compute_collision_volume(verts: List[Vert3], faces: List[Face],
                               convex_radius: float,
                               shape_type: str,
-                              sphere_radius: float = 0.0) -> float:
+                              sphere_radius: float = 0.0,
+                              capsule_ends=None) -> float:
     """Compute the collision volume for density calculation.
 
     For polytopes, this is the face-offset polytope volume.
-    For spheres, this is 4/3 π r³.
+    For spheres, this is 4/3 π r³; for capsules, a cylinder plus a sphere.
     For compressed meshes, uses expanded AABB.
     """
     if shape_type == 'sphere':
         return (4.0 / 3.0) * math.pi * sphere_radius ** 3
+    if shape_type == 'capsule':
+        a, b = capsule_ends
+        length = math.sqrt(sum((b[k] - a[k]) ** 2 for k in range(3)))
+        r = convex_radius
+        return math.pi * r * r * length + (4.0 / 3.0) * math.pi * r ** 3
 
     if shape_type == 'compressed_mesh':
         if not verts:
@@ -231,12 +237,12 @@ def compute_collision_volume(verts: List[Vert3], faces: List[Face],
 
 def compute_density(mass: float, verts: List[Vert3], faces: List[Face],
                     convex_radius: float, shape_type: str,
-                    sphere_radius: float = 0.0) -> float:
+                    sphere_radius: float = 0.0, capsule_ends=None) -> float:
     """Compute density = mass / collision_volume."""
     if mass <= 0:
         return 0.0
     vol = compute_collision_volume(verts, faces, convex_radius,
-                                    shape_type, sphere_radius)
+                                    shape_type, sphere_radius, capsule_ends)
     if vol < 1e-12:
         return 0.0
     return mass / vol
@@ -285,6 +291,9 @@ _SPHERE_CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0xB857718B, 'hknpPhysicsSystemData'),
     (0x741E9012, 'hknpSphereShape'),
 ]
+
+# The capsule's class entry; a packfile lists it only when it holds a capsule.
+_CAPSULE_CLASS = (0x60A75F4C, 'hknpCapsuleShape')
 
 # Class entries for compressed mesh packfiles (different shape classes).
 _CM_CLASS_ENTRIES: List[Tuple[int, str]] = [
@@ -1051,6 +1060,109 @@ class _FixupBuilder:
             out += _w_u32(obj) + _w_u32(sec) + _w_u32(noff)
         out += _w_u32(0xFFFFFFFF) + _w_u32(0xFFFFFFFF) + _w_u32(0xFFFFFFFF)
         return out
+
+
+# ── Capsule shape builder ────────────────────────────────────────────────────
+#
+# An hknpCapsuleShape is a convex polytope -- a thin box around the segment a-b --
+# rounded by its convex radius (the capsule's radius), with a and b stored at
+# +0x50/+0x60.  Every vanilla capsule (1,006, 2026-11-24 survey) has the same
+# layout; only the geometry varies:
+#   - 8 box vertices, 6 quad faces, planes padded to 8, minHalfAngle 4 per face;
+#   - the box is e = 1% of the radius from the segment on every side, and past
+#     each end;
+#   - its axes are the segment direction d, p perpendicular to d with one zero
+#     component -- (-dz, 0, dx) when |dz| > |dy|, else (-dy, dx, 0) -- and p x d;
+#   - even vertices sit past b, odd ones past a, +p for 0,1,4,5 and +q for 4-7.
+# That rule reproduces every vanilla box to 0.02% of the radius.
+CAPSULE_FLAGS = 0x01C3
+_CAPSULE_FACES = ((7, 6, 2, 3), (3, 2, 0, 1), (7, 5, 4, 6),
+                  (1, 0, 4, 5), (1, 5, 7, 3), (2, 6, 4, 0))
+_CAPSULE_SIZE = 0x1B0
+# A padding plane: (0, 0, 0, -FLT_MAX) as vanilla writes it.
+_CAPSULE_PAD_PLANE = struct.pack('<3fI', 0.0, 0.0, 0.0, 0xFF7FFFEE)
+
+
+def capsule_from_points(points: List[Vert3]) -> Tuple[Vert3, Vert3, float]:
+    """The (a, b, radius) of a capsule-shaped mesh, from its vertices.
+
+    The two tips are the farthest-apart pair of vertices.  Every vertex of the cap
+    at a tip T lies on the sphere of radius r centred r inside T along the axis u,
+    so with w = v - T, r = |w|^2 / (2 w.u) exactly -- however coarse the mesh, and
+    without needing an equator ring.  The cap's vertices are the ones in the half
+    nearer T; r is their median.
+    """
+    n = len(points)
+    assert n >= 2, "a capsule mesh needs vertices"
+    best = (-1.0, 0, 1)
+    for i in range(n):
+        pi = points[i]
+        for j in range(i + 1, n):
+            pj = points[j]
+            d2 = sum((pj[k] - pi[k]) ** 2 for k in range(3))
+            if d2 > best[0]:
+                best = (d2, i, j)
+    t1, t2 = points[best[1]], points[best[2]]
+    span = math.sqrt(best[0])
+    u = [(t2[k] - t1[k]) / span for k in range(3)] if span > 0 else [0.0, 0.0, 1.0]
+    rs = []
+    for v in points:
+        w = [v[k] - t1[k] for k in range(3)]
+        along = sum(w[k] * u[k] for k in range(3))
+        if 1e-9 * span < along < span / 2:
+            rs.append(sum(x * x for x in w) / (2 * along))
+    rs.sort()
+    r = min(rs[len(rs) // 2], span / 2) if rs else 0.0
+    a = tuple(t1[k] + r * u[k] for k in range(3))
+    b = tuple(t2[k] - r * u[k] for k in range(3))
+    return a, b, r
+
+
+def capsule_box(a: Vert3, b: Vert3, radius: float) -> List[Vert3]:
+    """The 8 vertices of the box Havok keeps inside a capsule (see above)."""
+    d = [b[k] - a[k] for k in range(3)]
+    length = math.sqrt(sum(x * x for x in d))
+    d = [x / length for x in d] if length > 1e-12 else [0.0, 0.0, 1.0]
+    p = [-d[2], 0.0, d[0]] if abs(d[2]) > abs(d[1]) + 1e-5 else [-d[1], d[0], 0.0]
+    pl = math.sqrt(sum(x * x for x in p))
+    p = [x / pl for x in p]
+    q = [p[1] * d[2] - p[2] * d[1], p[2] * d[0] - p[0] * d[2], p[0] * d[1] - p[1] * d[0]]
+    e = 0.01 * radius
+    out = []
+    for i in range(8):
+        end = ([b[k] + e * d[k] for k in range(3)] if i % 2 == 0
+               else [a[k] - e * d[k] for k in range(3)])
+        sp = -e if i & 2 else e
+        sq = e if i & 4 else -e
+        out.append(tuple(end[k] + sp * p[k] + sq * q[k] for k in range(3)))
+    return out
+
+
+def _build_capsule_shape(ends: Tuple[Vert3, Vert3], radius: float,
+                         shape_flags: Optional[int] = None,
+                         user_data: Optional[int] = None) -> bytes:
+    """Build raw bytes for an hknpCapsuleShape (0x1B0 bytes, as vanilla)."""
+    a, b = ends
+    verts = capsule_box(a, b, radius)
+    buf = bytearray(_CAPSULE_SIZE)
+    buf[0x13] = 1                                           # dispatchType: convex
+    _set_shape_header(buf, 0,
+                      CAPSULE_FLAGS if shape_flags is None else shape_flags,
+                      _default_material_id() if user_data is None else user_data,
+                      radius)
+    struct.pack_into('<HH', buf, 0x30, 8, 0x40)            # vertices at +0x70
+    # planes at +0xF0, faces at +0x170, indices at +0x190 (offsets from each field)
+    struct.pack_into('<6H', buf, 0x40, 8, 0xB0, 6, 0x12C, 24, 0x148)
+    struct.pack_into('<4f', buf, 0x50, *a, 1.0)
+    struct.pack_into('<4f', buf, 0x60, *b, 1.0)
+    for i, v in enumerate(verts):
+        struct.pack_into('<3fI', buf, 0x70 + i * 16, *v, 0x3F000000 | i)
+    for j, f in enumerate(_CAPSULE_FACES):
+        struct.pack_into('<4f', buf, 0xF0 + j * 16, *_face_plane(verts, f))
+        struct.pack_into('<HBB', buf, 0x170 + j * 4, 4 * j, 4, 4)
+        buf[0x190 + 4 * j:0x194 + 4 * j] = bytes(f)
+    buf[0x150:0x160] = buf[0x160:0x170] = _CAPSULE_PAD_PLANE
+    return bytes(buf)
 
 
 def _build_data_section(verts: List[Vert3], faces: List[Face],
@@ -1851,6 +1963,17 @@ def _build_classnames_compound() -> Tuple[bytes, Dict[str, int]]:
     return data, name_offs
 
 
+def _build_classnames_from(entries) -> Tuple[bytes, Dict[str, int]]:
+    """Build a __classnames__ section listing exactly these (hash, name) entries."""
+    data = b''
+    name_offs: Dict[str, int] = {}
+    for hash_val, name in entries:
+        name_offs[name] = len(data) + 5
+        data += struct.pack('<IB', hash_val, 0x09) + name.encode('ascii') + b'\x00'
+    data = _pad16(data, fill=0xFF)
+    return data, name_offs
+
+
 def _build_classnames_sphere() -> Tuple[bytes, Dict[str, int]]:
     """Build __classnames__ section for a sphere shape packfile."""
     data = b''
@@ -2289,9 +2412,11 @@ def _build_multi_poly_data_section(
         name_offs: Dict[str, int],
         physics=None,
         body_transforms=None) -> Tuple[bytes, '_FixupBuilder']:
-    """Build the full __data__ section for an N-body all-polytope packfile.
+    """Build the full __data__ section for an N-body packfile of convex bodies.
 
-    Each element of poly_pairs is a (verts, faces) tuple for one body.
+    Each element of poly_pairs is a (verts, faces, header) tuple for one body.  A
+    header carrying 'capsule_ends' makes that body a capsule (verts/faces unused);
+    a capsule has no mass-properties chain, as in vanilla.
     """
     N = len(poly_pairs)
     assert N >= 1
@@ -2318,6 +2443,15 @@ def _build_multi_poly_data_section(
 
     # ── Per-body polytope chains ──────────────────────────────────────────────
     for i, (verts, faces, header) in enumerate(poly_pairs):
+        if 'capsule_ends' in header:
+            shape_rel = write(_build_capsule_shape(
+                header['capsule_ends'], header['convex_radius'],
+                header.get('shape_flags'), header.get('user_data')))
+            fx.add_virtual(shape_rel, 0, name_offs['hknpCapsuleShape'])
+            fx.add_global(body_cinfo_rels[i] + 0x00, 2, shape_rel)
+            fx.add_global(shape_entry_rels[i] + 0x00, 2, shape_rel)
+            continue
+
         # hknpConvexPolytopeShape (variable size, aligned to 16)
         shape_rel = rel()
         write(_build_convex_polytope_shape(verts, faces, **header))
@@ -2349,23 +2483,33 @@ def _build_multi_poly_data_section(
 
 
 def pack_multi_polytope(poly_shapes, physics=None) -> bytes:
-    """Pack N convex polytopes into a single Havok packfile (N-body system).
+    """Pack N convex bodies -- polytopes and capsules -- into one Havok packfile.
 
-    Each body in the packfile carries one hknpConvexPolytopeShape.
-    Uses the same __classnames__ as a single-polytope packfile.
+    Each body carries one hknpConvexPolytopeShape or hknpCapsuleShape.  The
+    __classnames__ section lists the classes the bodies use, as vanilla does.
 
     Args:
-        poly_shapes: list of CollisionShape objects with shape_type='polytope'.
+        poly_shapes: list of CollisionShape objects, shape_type 'polytope' or 'capsule'.
         physics:     Optional PhysicsProps for material/dynamics.
     Returns:
         Raw Havok packfile bytes.
     """
-    cn_data, name_offs = _build_classnames()
+    kinds = {s.shape_type for s in poly_shapes}
+    entries = list(_CLASS_ENTRIES[:5])                     # hkClass.. + PSD
+    if 'polytope' in kinds:
+        entries[5:5] = _CLASS_ENTRIES[5:]
+    if 'capsule' in kinds:
+        entries.append(_CAPSULE_CLASS)
+    cn_data, name_offs = _build_classnames_from(entries)
     cn_name_off = name_offs['hknpPhysicsSystemData']
 
-    poly_pairs = [(s.verts, s.faces,
-                   dict(shape_header_args(s), convex_radius=s.convex_radius))
-                  for s in poly_shapes]
+    def _entry(s):
+        hdr = dict(shape_header_args(s), convex_radius=s.convex_radius)
+        if s.shape_type == 'capsule':
+            hdr['capsule_ends'] = s.capsule_ends
+        return (s.verts, s.faces, hdr)
+
+    poly_pairs = [_entry(s) for s in poly_shapes]
     obj_data, fx = _build_multi_poly_data_section(
         poly_pairs, name_offs, physics=physics,
         body_transforms=[s.transform for s in poly_shapes])
@@ -2417,6 +2561,7 @@ def pack_shapes(shapes) -> bytes:
       [compressed_mesh, ...]        → pack_multi_cm (N-body all-CM)
       [polytope]                    → pack_convex_polytope (single body)
       [polytope, ...]               → pack_multi_polytope (N-body all-polytope)
+      [capsule|polytope, ...]       → pack_multi_polytope (capsules among them)
       [compressed_mesh, polytope]   → pack_mixed (two-body)
       [sphere]                      → pack_sphere (single sphere body)
 
@@ -2452,13 +2597,14 @@ def pack_shapes(shapes) -> bytes:
 
     cm_list   = [s for s in shapes if s.shape_type == "compressed_mesh"]
     poly_list = [s for s in shapes if s.shape_type == "polytope"]
+    convex_list = [s for s in shapes if s.shape_type in ("polytope", "capsule")]
 
     # Each body keeps its OWN physics entry, and the bodies come out in the
     # order the packer writes them -- which is not always the input order, so
     # take the list from the same sequence that is handed to the packer.
-    if len(cm_list) == 0 and len(poly_list) == len(shapes):
-        return pack_multi_polytope(poly_list,
-                                   physics=[s.physics for s in poly_list])
+    if len(convex_list) == len(shapes):
+        return pack_multi_polytope(convex_list,
+                                   physics=[s.physics for s in convex_list])
 
     if len(cm_list) == len(shapes):
         return pack_multi_cm(cm_list, physics=[s.physics for s in cm_list])

@@ -1718,6 +1718,73 @@ def TEST_COLLISION_FO4_UNWEIGHTED_BONE():
     assert TT.is_true('Bone003' not in out.shapes[0].bone_names, "Bone003 is not in the skin")
 
 
+FLOORLIGHT = os.path.join(TT.FO4_ASSETS, r"Meshes\SetDressing\HighTech\HighTechLightFloor02.nif")
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_CAPSULE():
+    """FO4 capsule collision imports as a capsule mesh and exports as the same capsule.
+
+    HighTechLightFloor02's only collision is an hknpCapsuleShape, which neither import
+    nor export knew: the light came out with no collision at all (report C2).  The
+    capsule mesh is the authority on export: its ends and radius are read off it.
+    """
+    from io_scene_nifly.pyn.nifconstants import game_collision_sf
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_CAPSULE.nif")
+    van = _np_bodies(pyn.NifFile(FLOORLIGHT))
+    assert TT.is_eq([s.shape_type for s in van.values()], ['capsule'], "vanilla: one capsule")
+    vcap = list(van.values())[0]
+
+    bpy.ops.import_scene.pynifly(filepath=FLOORLIGHT)
+    caps = [o for o in bpy.data.objects if o.get('pynCollisionShapeType') == 'capsule']
+    assert TT.is_eq(len(caps), 1, "one capsule object")
+    sf = HAVOC_SCALE_FACTOR * game_collision_sf['FO4']
+    zs = [(caps[0].matrix_world @ v.co).z for v in caps[0].data.vertices]
+    top = max(vcap.capsule_ends[0][2], vcap.capsule_ends[1][2]) + vcap.convex_radius
+    assert TT.is_equiv(max(zs), top * sf, "capsule reaches its top", e=0.01)
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = _np_bodies(pyn.NifFile(outfile))
+    assert TT.is_eq(sorted(out), sorted(van), "the capsule's node keeps its collision")
+    ocap = list(out.values())[0]
+    assert TT.is_eq(ocap.shape_type, 'capsule', "exported as a capsule")
+    assert TT.is_equiv(ocap.convex_radius, vcap.convex_radius, "radius", e=1e-4)
+    # The mesh doesn't say which end is a; the capsule is the same either way.
+    for k, (o, v) in enumerate(zip(sorted(ocap.capsule_ends), sorted(vcap.capsule_ends))):
+        for j in range(3):
+            assert TT.is_equiv(o[j], v[j], f"end {k}", e=1e-4)
+    assert TT.is_eq((ocap.shape_flags, ocap.user_data), (vcap.shape_flags, vcap.user_data),
+                    "flags and material")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("hknpConvexShape", "isn't supported"))
+def TEST_COLLISION_FO4_UNSUPPORTED_SHAPE():
+    """A collision shape PyNifly can't handle is reported, not silently dropped.
+
+    DecoMainA1x1WinC01's collision is a plain hknpConvexShape, which import doesn't read:
+    it warns, naming the type.  On export, a shape object of a type export doesn't know
+    warns too, and the rest of the nif is still written.
+    """
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_UNSUPPORTED_SHAPE.nif")
+    with captured_warnings() as w:
+        bpy.ops.import_scene.pynifly(filepath=os.path.join(
+            TT.FO4_ASSETS, r"Meshes\Architecture\Buildings\DecoKit\DecoMainA1x1WinC01.nif"))
+    assert TT.is_true(any("hknpConvexShape" in m for m in w.messages),
+                      "import names the shape type it can't read")
+
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=FLOORLIGHT)
+    cap = [o for o in bpy.data.objects if o.get('pynCollisionShapeType') == 'capsule'][0]
+    cap['pynCollisionShapeType'] = 'cylinder'
+    bpy.ops.object.select_all(action='SELECT')
+    with captured_warnings() as w:
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    assert TT.is_true(any("cylinder" in m for m in w.messages), "export names it too")
+    assert TT.is_gt(len(pyn.NifFile(outfile).shapes), 0, "the rest of the nif is written")
+
+
 @TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_SHOTGUN_BARREL():
     """FO4 bhkPhysicsSystem: shotgun barrel collision sits near the visual mesh.
