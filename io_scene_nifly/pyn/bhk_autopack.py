@@ -37,9 +37,18 @@ import struct
 import math
 from typing import Dict, List, Optional, Tuple
 
+from .convex_hull import polytope_faces, face_planes, min_half_angles
+from .nifconstants import HAVOC_SCALE_FACTOR
+
 # ── Type aliases ──────────────────────────────────────────────────────────────
 Vert3 = Tuple[float, float, float]
 Face  = List[int]
+
+# Hull tolerances, in Havok units.  Points within 1e-4 game units of a plane count as
+# on it (merging coplanar faces); a mesh face may be up to 0.1 game units off flat and
+# still be kept as one face, as vanilla's are (2026-11-24 survey).
+_HULL_EPS = 1e-4 / HAVOC_SCALE_FACTOR
+_HULL_PLANAR_EPS = 0.1 / HAVOC_SCALE_FACTOR
 
 # ── Collision volume helpers (for density computation) ────────────────────────
 
@@ -900,126 +909,84 @@ def _face_plane(verts: List[Vert3], face: Face) -> Tuple[float, float, float, fl
 
 # ── Convex polytope shape builder ────────────────────────────────────────────
 
+# A padding plane: (0, 0, 0, -FLT_MAX), as Havok writes it in capsules.  No point is
+# ever outside it.  (Vanilla polytopes' padding is junk left in the buffer, mostly
+# (0,0,0,0), which every point is *on*; we don't copy that.)
+_PAD_PLANE = struct.pack('<3fI', 0.0, 0.0, 0.0, 0xFF7FFFEE)
+
+
 def _build_convex_polytope_shape(verts: List[Vert3],
                                   faces: List[Face],
                                   convex_radius: Optional[float] = None,
                                   shape_flags: Optional[int] = None,
                                   user_data: Optional[int] = None) -> bytes:
-    """Build raw bytes for hknpConvexPolytopeShape.
+    """Build raw bytes for hknpConvexPolytopeShape, laid out as vanilla's are.
+
+    verts/faces are a mesh; it needn't be a clean hull.  The hull is made from it by
+    convex_hull.polytope_faces: the mesh's own faces when they already form a convex
+    hull, else the hull of its vertices; either way coplanar faces merged (a box is 6
+    quads) and faces over 16 vertices split.
 
     convex_radius, shape_flags and user_data are the shape's own; None gives the
     usual polytope value (see POLYTOPE_FLAGS).
 
-    Layout relative to object start:
+    Layout, as in every vanilla polytope (2026-11-24 survey; offsets from the shape):
       +0x00: 0x30-byte header (_CONVEX_HDR, with this shape's flags/radius/userData)
-      +0x30: numVertices (u16), verticesOffset=0x20 (u16), 12 zeros
-      +0x40: 6×u16 (numVerts2, planesOff, numPlanes, facesOff, numFVI, fviOff), 4 zeros
-      +0x50: vertices   (numVerts × 16 bytes, vec4 with w = 0x3F000000 | idx)
-      +0x50+verts_size: planes  (numPlanes × 16 bytes, vec4)
-      after planes: 28 bytes zeros (gap between planes and faces, see notes)
-      after gap:    faces    (numPlanes × 4 bytes: firstFVI u16, numVtx u8, flags u8)
-      after faces:  4 bytes zeros (alignment gap)
-      after gap:    fvi      (numFVI × 1 byte, vertex indices per face)
-      padded to 8-byte boundary
+      +0x30: vertices  hkRelArray (count, offset from +0x30 = 0x20), 12 zeros
+      +0x40: planes    hkRelArray (count, offset from +0x40)
+      +0x44: faces     hkRelArray (count, offset from +0x44)
+      +0x48: indices   hkRelArray (count, offset from +0x48), 4 zeros
+      +0x50: vertices, vec4 with w = 0x3F000000 | index; the count padded to a
+             multiple of 4 with copies of the last vertex (its w too)
+      then:  planes (nx, ny, nz, d), one per face, the count padded to a multiple
+             of 4 with (0, 0, 0, -FLT_MAX) planes that no point is ever outside
+      then:  faces: firstIndex u16, numIndices u8, minHalfAngle u8
+      then:  face vertex indices (u8), starting on a 16-byte boundary
+      padded to 16 bytes.
     """
-    nv = len(verts)
-    nf = len(faces)
-    assert nv <= 255, "ConvexPolytopeShape: at most 255 vertices (u8 FVI)"
-    assert nf > 0
+    hverts, hfaces = polytope_faces(verts, faces, _HULL_EPS, _HULL_PLANAR_EPS)
+    planes = face_planes(hverts, hfaces)
+    angles = min_half_angles(hfaces, planes)
 
-    # Build FVI (face vertex index) flat array and face entries.
+    nv = len(hverts)
+    nf = len(hfaces)
+    nv_pad = (nv + 3) // 4 * 4
+    np_pad = (nf + 3) // 4 * 4
+
     fvi: List[int] = []
-    face_entries: List[Tuple[int, int]] = []   # (firstFVI, numVtx)
-    for face in faces:
-        first = len(fvi)
-        fvi.extend(face)
-        face_entries.append((first, len(face)))
-    n_fvi = len(fvi)
-
-    # Compute plane equations.
-    planes: List[Tuple[float, float, float, float]] = [_face_plane(verts, f) for f in faces]
-
-    # Sizes of each section (relative to the header40 base at +0x40).
-    # Vertices start 0x10 bytes after header40 base (= +0x50 from object start).
-    verts_size    = nv   * 16
-    planes_size   = nf   * 16
-    _GAP_PLANES   = 28          # observed fixed gap after planes, before faces
-    faces_size    = nf   * 4
-    _GAP_FACES    = 4           # observed alignment gap after faces, before FVI
-    fvi_size      = n_fvi * 1
-
-    # Offsets relative to header40 base (+0x40).
-    #   vertices: at +0x10 from header40 base (= +0x50 from object start, i.e. +0x20 from +0x30)
-    planes_off    = 0x10 + verts_size
-    faces_off     = planes_off + planes_size + _GAP_PLANES
-    fvi_off       = faces_off  + faces_size  + _GAP_FACES
-
-    # The decoder reads faces_off and fvi_off relative to their own field positions:
-    #   faces_off → field at +0x44, so decoder computes shape_abs + 0x44 + faces_off_stored
-    #   fvi_off   → field at +0x48, so decoder computes shape_abs + 0x48 + fvi_off_stored
-    # We store offsets so that the decoder lands at the right position:
-    #   faces_off_stored = faces_off - 4   (0x44 - 0x40 = 4)
-    #   fvi_off_stored   = fvi_off   - 8   (0x48 - 0x40 = 8)
-    faces_off_stored = faces_off - 4
-    fvi_off_stored   = fvi_off   - 8
-
-    # +0x30 block: numVertices, verticesOffset=0x20, 12 zeros.
-    block_30 = _w_u16(nv) + _w_u16(0x20) + bytes(12)
-
-    # +0x40 block: header40[6], 4 zeros.
-    block_40 = (
-        _w_u16(nv)               +   # numVerts2
-        _w_u16(planes_off)       +   # planesOff (from header40 base +0x40)
-        _w_u16(nf)               +   # numPlanes
-        _w_u16(faces_off_stored) +   # facesOff (relative to +0x44 field position)
-        _w_u16(n_fvi)            +   # numFaceVtxIndices
-        _w_u16(fvi_off_stored)   +   # fviOff (relative to +0x48 field position)
-        bytes(4)                     # padding
-    )
-    assert len(block_30) == 0x10
-    assert len(block_40) == 0x10
-
-    # Vertex data: vec4 (x, y, z, w) where w encodes packed index.
-    vert_data = b''
-    for i, (x, y, z) in enumerate(verts):
-        w_bits = 0x3F000000 | i
-        vert_data += _w_f32(x) + _w_f32(y) + _w_f32(z)
-        vert_data += struct.pack('<I', w_bits)
-
-    # Plane data: vec4 (nx, ny, nz, d).
-    plane_data = b''
-    for nx, ny, nz, d in planes:
-        plane_data += _w_vec4(nx, ny, nz, d)
-
-    # Gap between planes and faces (28 zeros).
-    gap_planes = bytes(_GAP_PLANES)
-
-    # Face entries: firstFVI (u16), numVtx (u8), flags (u8).
     face_data = b''
-    for first, count in face_entries:
-        face_data += struct.pack('<HBB', first, count, 0)
+    for face, angle in zip(hfaces, angles):
+        face_data += struct.pack('<HBB', len(fvi), len(face), angle)
+        fvi.extend(face)
 
-    # Gap between faces and FVI (4 zeros).
-    gap_faces = bytes(_GAP_FACES)
+    verts_off = 0x50
+    planes_off = verts_off + 16 * nv_pad
+    faces_off = planes_off + 16 * np_pad
+    fvi_off = _align16(faces_off + 4 * nf)
 
-    # FVI array.
-    fvi_data = bytes(fvi)
-
-    payload = (vert_data + plane_data + gap_planes +
-               face_data + gap_faces  + fvi_data)
-
-    hdr = bytearray(_CONVEX_HDR)
+    buf = bytearray(_align16(fvi_off + len(fvi)))
+    buf[0:0x30] = _CONVEX_HDR
     _set_shape_header(
-        hdr, 0,
+        buf, 0,
         POLYTOPE_FLAGS if shape_flags is None else shape_flags,
         _default_material_id() if user_data is None else user_data,
         DEFAULT_CONVEX_RADIUS if convex_radius is None else convex_radius)
-    shape = bytes(hdr) + block_30 + block_40 + payload
-    # Align to 8 bytes.
-    r = len(shape) % 8
-    if r:
-        shape += bytes(8 - r)
-    return shape
+    struct.pack_into('<HH', buf, 0x30, nv_pad, verts_off - 0x30)
+    struct.pack_into('<6H', buf, 0x40,
+                     np_pad, planes_off - 0x40,
+                     nf, faces_off - 0x44,
+                     len(fvi), fvi_off - 0x48)
+    for i in range(nv_pad):
+        k = min(i, nv - 1)
+        struct.pack_into('<3fI', buf, verts_off + 16 * i, *hverts[k], 0x3F000000 | k)
+    for i in range(np_pad):
+        if i < nf:
+            struct.pack_into('<4f', buf, planes_off + 16 * i, *planes[i])
+        else:
+            buf[planes_off + 16 * i:planes_off + 16 * i + 16] = _PAD_PLANE
+    buf[faces_off:faces_off + len(face_data)] = face_data
+    buf[fvi_off:fvi_off + len(fvi)] = bytes(fvi)
+    return bytes(buf)
 
 
 # ── Data section builder ─────────────────────────────────────────────────────
@@ -1079,8 +1046,7 @@ CAPSULE_FLAGS = 0x01C3
 _CAPSULE_FACES = ((7, 6, 2, 3), (3, 2, 0, 1), (7, 5, 4, 6),
                   (1, 0, 4, 5), (1, 5, 7, 3), (2, 6, 4, 0))
 _CAPSULE_SIZE = 0x1B0
-# A padding plane: (0, 0, 0, -FLT_MAX) as vanilla writes it.
-_CAPSULE_PAD_PLANE = struct.pack('<3fI', 0.0, 0.0, 0.0, 0xFF7FFFEE)
+_CAPSULE_PAD_PLANE = _PAD_PLANE
 
 
 def capsule_from_points(points: List[Vert3]) -> Tuple[Vert3, Vert3, float]:

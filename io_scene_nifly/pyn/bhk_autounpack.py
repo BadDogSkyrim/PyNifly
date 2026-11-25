@@ -882,27 +882,15 @@ def parse_convex_polytope(data: bytes, shape_abs: int) -> Optional[Tuple[List[Ve
     # Read convexRadius — stored per-shape at +0x14
     convex_radius = f32(data, shape_abs + 0x14) if shape_abs + 0x18 <= len(data) else 0.0
 
-    # Emit the raw inner polytope faces (no Minkowski expansion).
-    # convex_radius is returned to the caller for application at a higher level.
-    verts = list(inner_verts)
-    tris: List[Face] = []
-    tri_set: set = set()
-
-    def add_tri(a: int, b: int, c: int) -> None:
-        if a == b or b == c or a == c:
-            return
-        key = tuple(sorted((a, b, c)))
-        if key not in tri_set:
-            tri_set.add(key)
-            tris.append((a, b, c))
-
-    for poly in face_polys:
-        for k in range(1, len(poly) - 1):
-            add_tri(poly[0], poly[k], poly[k + 1])
-
-    if not tris:
+    # The faces are returned as the polygons they are -- a box is 6 quads, as the
+    # file has it -- and the vertices without the padding that rounds their count
+    # up to a multiple of 4 (copies of the last vertex, used by no face).
+    # No Minkowski expansion: convex_radius is applied at a higher level.
+    faces = [tuple(poly) for poly in face_polys if poly]
+    if not faces:
         return None
-    return (verts, tris, convex_radius)
+    verts = list(inner_verts[:max(i for f in faces for i in f) + 1])
+    return (verts, faces, convex_radius)
 
 
 

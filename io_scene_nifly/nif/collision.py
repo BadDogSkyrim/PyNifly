@@ -1586,7 +1586,11 @@ class CollisionHandler(BD.Warns):
                   "packfile; the exported physics has no bounding-volume tree and "
                   "will crash the game. Regenerating compound collision is not yet "
                   "supported.")
-        packed = pack_compound(children, physics)
+        try:
+            packed = pack_compound(children, physics)
+        except ValueError as e:
+            self.warn(f"{coll.name}: collision not exported: {e}")
+            return
         coll_node = targnode.add_collision(
             None, flags=flags or 0,
             collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
@@ -1841,7 +1845,9 @@ class CollisionHandler(BD.Warns):
                 # packer can't build leaves no collision object without a system.
                 try:
                     packed = pack_shapes(shapes)
-                except NotImplementedError as e:
+                except (NotImplementedError, ValueError) as e:
+                    # NotImplementedError: a mix of shapes the packer can't build;
+                    # ValueError: a mesh no hull can be made from (flat, or too big).
                     self.warn(f"{coll.name}: collision not exported: {e}")
                     self.objs_written.add(ReprObject(coll, targnode))
                     return
@@ -1852,8 +1858,14 @@ class CollisionHandler(BD.Warns):
                 local_mat = node_inv @ self.export_xf @ coll.matrix_world
                 verts = [(*(local_mat @ v.co / sf),) for v in coll.data.vertices]
                 faces = [list(p.vertices) for p in coll.data.polygons]
-                bhkPhysicsSystem.New(self.nif, verts=verts, faces=faces,
-                                     parent=add_np_collision())
+                from ..pyn.bhk_autopack import pack_convex_polytope
+                try:
+                    packed = pack_convex_polytope(verts, faces)
+                except ValueError as e:
+                    self.warn(f"{coll.name}: collision not exported: {e}")
+                    self.objs_written.add(ReprObject(coll, targnode))
+                    return
+                bhkPhysicsSystem.New(self.nif, data=packed, parent=add_np_collision())
 
             self.objs_written.add(ReprObject(coll, targnode))
             return

@@ -7649,10 +7649,9 @@ def TEST_FO4_PHYSICS_PACK_BOX():
     assert TT.is_gt(len(shapes), 0, "parse_bytes returns at least one shape")
     dec_shape = shapes[0]
     assert TT.is_eq(len(dec_shape.verts), len(box_verts), "Box round-trip: vertex count")
-    # Decoder triangulates polygon faces; each n-gon becomes (n-2) triangles.
-    # 6 quads (4-gons) → 6*(4-2)=12 triangles.
-    expected_tris = sum(len(f) - 2 for f in box_faces)
-    assert TT.is_eq(len(dec_shape.faces), expected_tris, "Box round-trip: face count")
+    # The decoder returns the faces as the polygons they are: 6 quads.
+    assert TT.is_eq(sorted(map(_canon_face, map(list, dec_shape.faces))),
+                    sorted(map(_canon_face, box_faces)), "Box round-trip: faces")
 
     max_err = max(max(abs(v[i] - d[i]) for i in range(3))
                   for v, d in zip(box_verts, dec_shape.verts))
@@ -9082,6 +9081,185 @@ def TEST_FO4_UNSUPPORTED_SHAPES():
     ps = [n.collision_object.physics_system for n in nif.nodes.values()
           if n.collision_object and n.collision_object.physics_system][0]
     assert TT.is_eq(unsupported_shapes(ps.data), [], "capsules are supported")
+
+
+def _raw_polytopes(packed):
+    """Every hknpConvexPolytopeShape in a packfile, as written: arrays with their
+    counts as stored (padding included), faces with their minHalfAngle bytes."""
+    import struct
+    from pyn.bhk_autounpack import parse_section_headers, parse_virtual_fixups
+
+    def rel(base):
+        n, off = struct.unpack_from('<HH', packed, base)
+        return n, base + off
+
+    hdrs = parse_section_headers(packed)
+    dh = hdrs["__data__"]
+    out = []
+    for r, cls in parse_virtual_fixups(packed, dh, hdrs["__classnames__"].abs_start):
+        if cls != "hknpConvexPolytopeShape":
+            continue
+        sa = dh.abs_start + r
+        nv, vs = rel(sa + 0x30)
+        npl, ps = rel(sa + 0x40)
+        nf, fs = rel(sa + 0x44)
+        ni, is_ = rel(sa + 0x48)
+        faces, mha = [], []
+        for i in range(nf):
+            first, cnt, m = struct.unpack_from('<HBB', packed, fs + 4 * i)
+            faces.append(list(packed[is_ + first:is_ + first + cnt]))
+            mha.append(m)
+        out.append(dict(
+            verts=[struct.unpack_from('<3f', packed, vs + 16 * i) for i in range(nv)],
+            w=[struct.unpack_from('<I', packed, vs + 16 * i + 12)[0] for i in range(nv)],
+            planes=[struct.unpack_from('<4f', packed, ps + 16 * i) for i in range(npl)],
+            faces=faces, mha=mha, num_indices=ni, sa=sa,
+            planes_start=ps, faces_start=fs, indices_start=is_))
+    return out
+
+
+def _canon_face(f):
+    """A face loop rotated to start at its smallest index (winding kept)."""
+    k = f.index(min(f))
+    return tuple(f[k:] + f[:k])
+
+
+def _check_polytope_layout(p, label):
+    """What every vanilla polytope has: vertex and plane arrays padded to multiples of
+    4, padding vertices copying the last one, contiguous arrays, the index array on a
+    16-byte boundary, every vertex inside every plane, faces of at most 16 vertices."""
+    nf = len(p['faces'])
+    nreal = max(i for f in p['faces'] for i in f) + 1
+    assert TT.is_eq(len(p['verts']) % 4, 0, f"{label}: vertex count padded to 4")
+    assert TT.is_eq(len(p['verts']) - nreal < 4, True, f"{label}: no more padding than needed")
+    for i in range(nreal, len(p['verts'])):
+        assert TT.is_eq((p['verts'][i], p['w'][i]), (p['verts'][nreal - 1], p['w'][nreal - 1]),
+                        f"{label}: padding vertex {i} copies the last")
+    assert TT.is_eq(p['w'][:nreal], [0x3F000000 | i for i in range(nreal)], f"{label}: vertex w")
+    assert TT.is_eq(len(p['planes']), (nf + 3) // 4 * 4, f"{label}: plane count padded to 4")
+    assert TT.is_eq(p['planes_start'], p['sa'] + 0x50 + 16 * len(p['verts']),
+                    f"{label}: planes follow vertices")
+    assert TT.is_eq(p['faces_start'], p['planes_start'] + 16 * len(p['planes']),
+                    f"{label}: faces follow planes")
+    assert TT.is_eq((p['indices_start'] - p['sa']) % 16, 0, f"{label}: indices 16-aligned")
+    assert TT.is_eq(p['indices_start'] - (p['faces_start'] + 4 * nf) < 16, True,
+                    f"{label}: indices follow faces")
+    assert TT.is_eq(p['num_indices'], sum(len(f) for f in p['faces']), f"{label}: index count")
+    assert TT.is_eq(max(len(f) for f in p['faces']) <= 16, True, f"{label}: faces <= 16 vertices")
+    worst = max(pl[0] * v[0] + pl[1] * v[1] + pl[2] * v[2] + pl[3]
+                for pl in p['planes'][:nf] for v in p['verts'])
+    assert TT.is_lt(worst, 1e-5, f"{label}: every vertex inside every plane")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_HULL_TRIANGULATED_BOX():
+    """A box drawn as 12 triangles is written as vanilla writes a box: 6 quads, 6 planes
+    padded to 8, right-angle minHalfAngles (127 or 128), not 12 triangles with
+    minHalfAngle 0 (Discord report D7)."""
+    from pyn.bhk_autopack import pack_convex_polytope
+
+    box = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+           (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+    quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]]
+    tris = [t for q in quads for t in ([q[0], q[1], q[2]], [q[0], q[2], q[3]])]
+    p = _raw_polytopes(pack_convex_polytope(box, tris))[0]
+    _check_polytope_layout(p, "box")
+    assert TT.is_eq(len(p['faces']), 6, "6 faces")
+    assert TT.is_eq(sorted(len(f) for f in p['faces']), [4] * 6, "all quads")
+    assert TT.is_eq(sorted(map(_canon_face, p['faces'])), sorted(map(_canon_face, quads)),
+                    "the box's own quads, wound outward")
+    assert TT.is_eq(set(p['mha']) <= {127, 128}, True, "right-angle minHalfAngle")
+    assert TT.is_eq(len(p['planes']), 8, "planes padded to 8")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_HULL_FROM_POINTS():
+    """A mesh that isn't a clean hull is written as the hull of its vertices.
+
+    - A box with a dent, an inside point and a point on an edge: the 8 corners,
+      6 quads, every vertex (dented one too) inside every plane.
+    - A 24-sided prism: each 24-gon cap is split as vanilla splits faces over 16
+      vertices, and nothing is lost.
+    """
+    from pyn.bhk_autopack import pack_convex_polytope
+
+    box = [(-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
+           (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1)]
+    messy = box + [(0, 0, 0.9), (0.2, -0.1, 0.3), (1, 0, 1)]
+    fan = [[8, i, (i + 1) % 8] for i in range(8)]            # nonsense faces: not a hull
+    p = _raw_polytopes(pack_convex_polytope(messy, fan))[0]
+    _check_polytope_layout(p, "messy box")
+    assert TT.is_eq(sorted(len(f) for f in p['faces']), [4] * 6, "6 quads")
+    assert TT.is_eq(sorted(set(p['verts'])), sorted(box), "just the corners")
+    for v in messy:
+        worst = max(pl[0] * v[0] + pl[1] * v[1] + pl[2] * v[2] + pl[3] for pl in p['planes'][:6])
+        assert TT.is_lt(worst, 1e-5, f"{v} inside the hull")
+
+    n = 24
+    ring = [(math.cos(2 * math.pi * i / n), math.sin(2 * math.pi * i / n)) for i in range(n)]
+    prism = [(x, y, 0.0) for x, y in ring] + [(x, y, 1.0) for x, y in ring]
+    sides = [[i, (i + 1) % n, n + (i + 1) % n, n + i] for i in range(n)]
+    caps = [list(range(n - 1, -1, -1)), list(range(n, 2 * n))]
+    p = _raw_polytopes(pack_convex_polytope(prism, sides + caps))[0]
+    _check_polytope_layout(p, "prism")
+    assert TT.is_eq(len(p['verts']), 2 * n, "every vertex kept")
+    big = [f for f in p['faces'] if len(f) > 4]
+    assert TT.is_eq(max(len(f) for f in big), 16, "a cap face holds 16 vertices")
+    for z in (0.0, 1.0):
+        cap = [f for f in p['faces'] if all(p['verts'][i][2] == z for i in f)]
+        assert TT.is_eq(len({i for f in cap for i in f}), n, f"cap at z={z} covers its ring")
+        area = sum(0.5 * abs(sum(p['verts'][f[k]][0] * p['verts'][f[(k + 1) % len(f)]][1]
+                                 - p['verts'][f[(k + 1) % len(f)]][0] * p['verts'][f[k]][1]
+                                 for k in range(len(f)))) for f in cap)
+        assert TT.is_equiv(area, n / 2 * math.sin(2 * math.pi / n), f"cap at z={z} area",
+                           e=1e-5)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_HULL_VANILLA_ROUNDTRIP():
+    """Vanilla polytopes come back as they were: same vertices in the same order, the
+    same faces (as sets of loops), planes within float noise, and the layout vanilla
+    uses.
+
+    minHalfAngle is computed from the faces' neighbours.  It lands within 1 of vanilla's
+    for most faces; where it doesn't, vanilla's is lower, never higher -- Havok takes the
+    angle on its hull before merging near-coplanar faces, which the file doesn't keep.
+
+    The deathclaw head has 5- to 16-gons; the turret's ash pile has a polygon split at
+    16 vertices; the bloatfly pelvis is plain boxes.
+    """
+    from pyn.bhk_autopack import pack_convex_polytope
+
+    files = [r"Meshes\Actors\Deathclaw\DeathclawHeadReplace.nif",
+             r"Meshes\Actors\Turret\CharacterAssets\TurretTripodAshpileMounted.nif",
+             r"Meshes\Actors\Bloatfly\CharacterAssets\BloatflyExplodePelvis.nif"]
+    close = total = 0
+    for fn in files:
+        nif = NifFile(os.path.join(TT.FO4_ASSETS, fn))
+        systems = {n.collision_object.physics_system.id: n.collision_object.physics_system
+                   for n in nif.nodes.values()
+                   if n.collision_object and n.collision_object.physics_system}
+        polys = [p for ps in systems.values() for p in _raw_polytopes(ps.data)]
+        assert TT.is_gt(len(polys), 0, f"{fn}: has polytopes")
+        for k, v in enumerate(polys):
+            label = f"{os.path.basename(fn)} #{k}"
+            nreal = max(i for f in v['faces'] for i in f) + 1
+            o = _raw_polytopes(pack_convex_polytope(v['verts'][:nreal], v['faces']))[0]
+            _check_polytope_layout(o, label)
+            assert TT.is_eq(o['verts'][:nreal], v['verts'][:nreal], f"{label}: vertices")
+            assert TT.is_eq(sorted(map(_canon_face, o['faces'])),
+                            sorted(map(_canon_face, v['faces'])), f"{label}: faces")
+            vplane = {_canon_face(f): pl for f, pl in zip(v['faces'], v['planes'])}
+            vmha = {_canon_face(f): m for f, m in zip(v['faces'], v['mha'])}
+            for f, pl, m in zip(o['faces'], o['planes'], o['mha']):
+                want = vplane[_canon_face(f)]
+                assert TT.is_lt(max(abs(a - b) for a, b in zip(pl, want)), 2e-3,
+                                f"{label}: plane of face {f}")
+                total += 1
+                close += abs(m - vmha[_canon_face(f)]) <= 1
+                assert TT.is_eq(vmha[_canon_face(f)] <= m + 1, True,
+                                f"{label}: vanilla minHalfAngle no higher than ours")
+    assert TT.is_gt(close / total, 0.7, f"minHalfAngle within 1 of vanilla ({close}/{total})")
 
 
 ###################### Test execution framework #########################

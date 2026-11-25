@@ -1785,6 +1785,97 @@ def TEST_COLLISION_FO4_UNSUPPORTED_SHAPE():
     assert TT.is_gt(len(pyn.NifFile(outfile).shapes), 0, "the rest of the nif is written")
 
 
+def _canon_loop(f):
+    """A face loop rotated to start at its smallest index (winding kept)."""
+    f = list(f)
+    k = f.index(min(f))
+    return tuple(f[k:] + f[:k])
+
+
+def _hull_ok(s):
+    """Every vertex of a polytope lies on or inside every face's plane."""
+    for f in s.faces:
+        p = [s.verts[i] for i in f]
+        n = Vector((0, 0, 0))
+        for k in range(len(p)):
+            a, b = Vector(p[k]), Vector(p[(k + 1) % len(p)])
+            n += Vector(((a.y - b.y) * (a.z + b.z), (a.z - b.z) * (a.x + b.x),
+                         (a.x - b.x) * (a.y + b.y)))
+        n.normalize()
+        top = max(n.dot(Vector(v)) for v in p)
+        if any(n.dot(Vector(v)) > top + 1e-5 for v in s.verts):
+            return False
+    return True
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("physics constraints",))
+def TEST_COLLISION_FO4_HULL():
+    """FO4 polytopes are written as hulls, the way vanilla writes them.
+
+    LunchBoxKids01Dest's three pieces are boxes: 6 quads each.  Import used to fan
+    every face into triangles, and export wrote whatever the mesh held -- a box came
+    back as 12 triangles, each with its own plane and a minHalfAngle of 0, and the
+    pieces jittered and sank (Discord report D7).
+
+    - Import keeps the quads, and no padding vertices.
+    - Export of the untouched boxes gives back vanilla's faces.
+    - A box triangulated in Blender is written as 6 quads again.
+    - A box with a corner pushed in is written as the hull of its vertices: the dented
+      corner left out, every vertex inside every plane.
+    """
+    import bmesh
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_HULL.nif")
+    van = _np_bodies(pyn.NifFile(LUNCHBOX_DEST))
+    van_faces = {k: sorted(map(_canon_loop, s.faces)) for k, s in van.items()}
+
+    bpy.ops.import_scene.pynifly(filepath=LUNCHBOX_DEST)
+    shapes = {o.name: o for o in bpy.data.objects if o.get('pynRigidBody') == 'bhkPhysicsSystem'}
+    assert TT.is_eq(len(shapes), 3, "three collision shapes")
+    for o in shapes.values():
+        assert TT.is_eq(sorted(len(p.vertices) for p in o.data.polygons), [4] * 6,
+                        f"{o.name}: imported as 6 quads")
+        assert TT.is_eq(len(o.data.vertices), 8, f"{o.name}: 8 vertices, no padding")
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = _np_bodies(pyn.NifFile(outfile))
+    for k, s in out.items():
+        assert TT.is_eq(sorted(map(_canon_loop, s.faces)), van_faces[k], f"{k}: vanilla's faces")
+        assert TT.is_lt(max(math.dist(a, b) for a, b in zip(s.verts, van[k].verts)), 1e-4,
+                        f"{k}: vanilla's vertices")
+
+    bone_of = {c.target.name: pb.name
+               for arma in bpy.data.objects if arma.type == 'ARMATURE'
+               for pb in arma.pose.bones for c in pb.constraints if c.type == 'COPY_TRANSFORMS'}
+    by_bone = {bone_of[n]: o for n, o in shapes.items()}
+
+    bm = bmesh.new()
+    bm.from_mesh(by_bone['Bone001'].data)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    bm.to_mesh(by_bone['Bone001'].data)
+    bm.free()
+    assert TT.is_eq(len(by_bone['Bone001'].data.polygons), 12, "Bone001 triangulated")
+
+    dented = by_bone['Bone003'].data
+    centre = sum((v.co for v in dented.vertices), Vector()) / len(dented.vertices)
+    # Past 2/3 of the way in, the corner is inside the plane through its neighbours.
+    dented.vertices[0].co = dented.vertices[0].co.lerp(centre, 0.8)
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = _np_bodies(pyn.NifFile(outfile))
+    assert TT.is_eq(sorted(map(_canon_loop, out['Bone001'].faces)), van_faces['Bone001'],
+                    "triangulated box: 6 quads again")
+    d = out['Bone003']
+    assert TT.is_eq(len(d.verts), 7, "dented box: the dented corner is left out")
+    assert TT.is_eq(sorted(len(f) for f in d.faces), [3, 3, 3, 3, 4, 4, 4],
+                    "dented box: 3 whole sides, 3 cut, and the cut corner")
+    assert TT.is_true(_hull_ok(d), "dented box: every vertex inside every plane")
+    assert TT.is_eq(sorted(map(_canon_loop, out['Bone004'].faces)), van_faces['Bone004'],
+                    "untouched box unchanged")
+
+
 @TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_SHOTGUN_BARREL():
     """FO4 bhkPhysicsSystem: shotgun barrel collision sits near the visual mesh.
