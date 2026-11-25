@@ -606,6 +606,31 @@ def havok_mass_data(packed):
     return out
 
 
+def havok_body_flags(packed):
+    """Each body's flags in an FO4 Havok packfile, in body order, as written:
+    (hknpBodyCinfo +0x18 flags, its hknpMaterial's +0x0C flags, +0x10 triggerType)."""
+    import struct
+    from pyn.bhk_autounpack import (parse_section_headers, parse_virtual_fixups,
+                                    parse_local_fixups)
+    hdrs = parse_section_headers(packed)
+    dh = hdrs["__data__"]
+    start = dh.abs_start
+    lf = parse_local_fixups(packed, dh)
+    out = []
+    for psd, cls in parse_virtual_fixups(packed, dh, hdrs["__classnames__"].abs_start):
+        if cls != "hknpPhysicsSystemData":
+            continue
+        n = struct.unpack_from('<I', packed, start + psd + 0x48)[0]
+        bodies = start + lf[psd + 0x40]
+        mats = start + lf[psd + 0x10]
+        for i in range(n):
+            b = bodies + i * 0x60
+            m = mats + struct.unpack_from('<H', packed, b + 0x12)[0] * 0x50
+            out.append((struct.unpack_from('<I', packed, b + 0x18)[0],
+                        struct.unpack_from('<I', packed, m + 0x0C)[0], packed[m + 0x10]))
+    return out
+
+
 def mass_tensor(moments, quat):
     """The inertia tensor R diag(moments) R^T, R the rotation of quat (x, y, z, w)."""
     from pyn import mass_props as MP

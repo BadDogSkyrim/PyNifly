@@ -9692,6 +9692,68 @@ def TEST_FO4_SPHERE_OFF_CENTRE():
                        TT.havok_mass_data(van)[0]['motion']['com'], "centre of mass", e=1e-4)
 
 
+def _robot_systems():
+    """The Mr Handy skeleton fixture's two physics systems: {node name: packfile bytes}."""
+    nif = NifFile(r"tests\FO4\RobotSkeleton.nif")
+    return {n: nif.nodes[n].collision_object.physics_system.data
+            for n in ('COM', 'CharacterBumper')}
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_BODY_FLAGS_READ():
+    """A body's trigger and its 0x10000 flag read back.
+
+    Vanilla (25,209 systems, 11-25): a trigger -- every creature skeleton's
+    CharacterBumper -- is a static body with flags 0x10 whose material has flags
+    0x200000 and triggerType 2, 138 of 138.  Every body moved by physics has 0x80;
+    about a quarter of them 0x10000 as well, for no reason we can see (not
+    constraints, not quality), so that bit is carried as is.
+    """
+    from pyn.bhk_autounpack import parse_bytes
+    sys_ = _robot_systems()
+    com = parse_bytes(sys_['COM'])[0].physics
+    bump = parse_bytes(sys_['CharacterBumper'])[0].physics
+    assert TT.is_eq((com.trigger, com.body_flag_10000), (False, True), "COM: 0x10080")
+    assert TT.is_eq((bump.trigger, bump.body_flag_10000), (True, False), "bumper: trigger")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_BODY_FLAGS_PACK():
+    """Body and material flags are written as vanilla has them: 0x80 for a body moved by
+    physics (worked out), 0x10 plus the trigger material for a trigger, 0x10000 when
+    the body says so; static and keyframed bodies 0.  Re-packing the Mr Handy skeleton
+    gives vanilla's flags.  (We wrote 0 everywhere, so the bumper became a solid
+    capsule inside the robot.)"""
+    from pyn import mass_props as MP
+    from pyn.bhk_autopack import pack_system
+    from pyn.bhk_autounpack import BodyTransform, CollisionShape, PhysicsProps, parse_bytes
+
+    def body(x, **phys):
+        xf = BodyTransform(position=(x, 0.0, 0.0), rotation=MP.IDENTITY3,
+                           quaternion=(0.0, 0.0, 0.0, 1.0))
+        return CollisionShape(shape_type='sphere', name='s', transform=xf, verts=[],
+                              faces=[], convex_radius=0.0, sphere_radius=0.5, children=[],
+                              physics=PhysicsProps(**phys))
+    shapes = [body(0),
+              body(2, is_dynamic=True, keyframed=True),
+              body(4, is_dynamic=True, mass=1.0),
+              body(6, is_dynamic=True, mass=1.0, body_flag_10000=True),
+              body(8, trigger=True)]
+    data = pack_system(shapes)
+    assert TT.is_eq(TT.havok_body_flags(data),
+                    [(0, 0, 0), (0, 0, 0), (0x80, 0, 0), (0x10080, 0, 0), (0x10, 0x200000, 2)],
+                    "static, keyframed, moving, moving + 0x10000, trigger")
+    back = [s.physics for s in parse_bytes(data)]
+    assert TT.is_eq([(p.trigger, p.body_flag_10000) for p in back],
+                    [(False, False), (False, False), (False, False), (False, True),
+                     (True, False)], "read back")
+
+    for name, van in _robot_systems().items():
+        ours = pack_system(parse_bytes(van))
+        assert TT.is_eq(TT.havok_body_flags(ours), TT.havok_body_flags(van),
+                        f"robot {name}: vanilla's flags")
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

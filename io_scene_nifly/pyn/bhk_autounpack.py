@@ -261,6 +261,14 @@ class BodyTransform:
 # system's motionCinfos array.
 MOTION_ID_STATIC = 0x7FFFFFFF
 
+# hknpBodyCinfo +0x18 flags vanilla uses, and the material a trigger has (see
+# PhysicsProps.trigger).
+BODY_FLAG_TRIGGER = 0x10
+BODY_FLAG_MOVING = 0x80
+BODY_FLAG_10000 = 0x10000
+TRIGGER_MATERIAL_FLAGS = 0x200000
+TRIGGER_TYPE = 2
+
 # Array strides inside hknpPhysicsSystemData (hk2014 SDK byte sizes).
 HKNP_MATERIAL_SIZE = 0x50
 HKNP_MOTION_PROPERTIES_SIZE = 0x40
@@ -292,6 +300,14 @@ class PhysicsProps:
     quality_id: int = 0xFF                  # BodyCInfo +0x10
     mass: float = 0.0                       # motionCinfo +0x04 (stored as 1/mass)
     keyframed: bool = False                 # dynamic, inverse mass 0
+    # A trigger volume: reports what enters it, blocks nothing.  Material +0x0C flags
+    # 0x200000 and +0x10 triggerType 2, body flags 0x10 -- together in all 138 vanilla
+    # triggers (every creature skeleton's CharacterBumper).
+    trigger: bool = False
+    # BodyCInfo +0x18 bit 0x10000: on about a quarter of vanilla's moving bodies, with
+    # no pattern found (not constraints, not quality).  Carried as is.  (0x80, on every
+    # moving body, is worked out on export.)
+    body_flag_10000: bool = False
     body_props_raw: bytes = b""             # 16 bytes of this body's material +0x10
     material_raw: bytes = b""               # this body's whole hknpMaterial (0x50)
     friction: float = 0.5                   # material +0x12 (hkHalf16)
@@ -648,6 +664,7 @@ def parse_physics_props(
         material_raw = b""
         body_props_raw = b"\x00" * 16
         friction, restitution = 0.5, 0.4
+        trigger = False
         if mats_abs is not None and material_id < n_mats:
             m = mats_abs + material_id * HKNP_MATERIAL_SIZE
             if m + HKNP_MATERIAL_SIZE <= len(data):
@@ -655,6 +672,7 @@ def parse_physics_props(
                 body_props_raw = bytes(data[m + 0x10:m + 0x20])
                 friction = trunc_f16_decode(data, m + 0x12)     # dynamicFriction
                 restitution = trunc_f16_decode(data, m + 0x16)  # restitution
+                trigger = data[m + 0x10] != 0                   # triggerType
 
         # A body is dynamic exactly when it points at a motionCinfo.
         is_dynamic = motion_id != MOTION_ID_STATIC and motion_id < n_mc
@@ -678,6 +696,8 @@ def parse_physics_props(
             quality_id=data[b + 0x10],
             mass=mass,
             keyframed=keyframed,
+            trigger=trigger,
+            body_flag_10000=bool(u32(data, b + 0x18) & BODY_FLAG_10000),
             body_props_raw=body_props_raw,
             material_raw=material_raw,
             friction=friction,

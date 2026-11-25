@@ -662,7 +662,17 @@ _register_handwired_group('PynFO4PhysicsProps', 'pyn_fo4phys',
      'filter_hex': bpy.props.StringProperty(name='filter_hex', default=''),
      # hknpShape flags, hex. Empty gives the shape type's usual flags (polytope
      # 0x143). The shape's material is pyn_collshape.bhkMaterial, by name.
-     'shape_flags': bpy.props.StringProperty(name='shape_flags', default='')},
+     'shape_flags': bpy.props.StringProperty(name='shape_flags', default=''),
+     # A trigger volume reports what enters it and blocks nothing: every creature
+     # skeleton's CharacterBumper.  Export writes the trigger material and body flag.
+     'trigger': bpy.props.BoolProperty(
+         name='trigger', default=False,
+         description='A trigger volume: reports what enters it, blocks nothing'),
+     # hknpBodyCinfo flag 0x10000: on about a quarter of vanilla's moving bodies, for
+     # no reason found yet, so it's kept as is.
+     'body_flag_10000': bpy.props.BoolProperty(
+         name='body flag 0x10000', default=False,
+         description="Havok body flag 0x10000, as the source had it (meaning unknown)")},
     'FO4 Physics',
     legacy={'material_hex': 'pynPhysMaterial',
             'gravity_factor': 'pynPhysGravityFactor', 'max_lin_vel': 'pynPhysMaxLinVel',

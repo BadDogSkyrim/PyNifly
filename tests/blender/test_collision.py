@@ -2099,6 +2099,50 @@ def TEST_COLLISION_FO4_SPHERE_CENTRE():
 
 
 @TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_BODY_FLAGS():
+    """A trigger and a body's 0x10000 flag import as checkboxes and export as vanilla's.
+
+    The Mr Handy skeleton's CharacterBumper is a trigger (material flags 0x200000,
+    triggerType 2, body flags 0x10) and its COM body has flags 0x10080.  Export wrote
+    0 for all of them, making the bumper a solid capsule inside the robot.
+
+    - Import: the bumper's FO4 Physics "trigger" is on, the COM's "0x10000" is on.
+    - Export: every body's flags and material flags are vanilla's.
+    - Clearing COM's 0x10000 leaves 0x80, which export works out from it being moved
+      by physics.
+    """
+    robot_skel = TTB.test_file(r"tests\FO4\RobotSkeleton.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_BODY_FLAGS.nif")
+    van_nif = pyn.NifFile(robot_skel)
+    van = {n: TT.havok_body_flags(van_nif.nodes[n].collision_object.physics_system.data)[0]
+           for n in ('COM', 'CharacterBumper')}
+
+    bpy.ops.import_scene.pynifly(filepath=robot_skel, reference_skel=robot_skel)
+    by_bone = {b: bpy.data.objects[o] for o, b in _bone_of_collision().items()}
+    com, bump = by_bone['COM'], by_bone['CharacterBumper']
+    assert TT.is_eq((com.pyn_fo4phys.trigger, com.pyn_fo4phys.body_flag_10000),
+                    (False, True), "COM: 0x10000, not a trigger")
+    assert TT.is_eq((bump.pyn_fo4phys.trigger, bump.pyn_fo4phys.body_flag_10000),
+                    (True, False), "bumper: a trigger")
+
+    def exported():
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+        nif = pyn.NifFile(outfile)
+        systems = _np_systems(nif)
+        [sid] = {s for s, _ in systems.values()}
+        data = [n for n in nif.nodes.values() if n.collision_object
+                and n.collision_object.blockname == 'bhkNPCollisionObject'][0] \
+            .collision_object.physics_system.data
+        flags = TT.havok_body_flags(data)
+        return {name: flags[b] for name, (_, b) in systems.items()}
+
+    assert TT.is_eq(exported(), van, "vanilla's flags")
+    com.pyn_fo4phys.body_flag_10000 = False
+    assert TT.is_eq(exported()['COM'], (0x80, 0, 0), "moved by physics: 0x80")
+
+
+@TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_HINGE():
     """FO4 hinges come in as Blender hinges and go back out, in one physics system.
 

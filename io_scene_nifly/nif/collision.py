@@ -824,7 +824,9 @@ class CollisionHandler(BD.Warns):
                                     gravity_factor=s.physics.gravity_factor,
                                     max_lin_vel=s.physics.max_linear_velocity,
                                     max_ang_vel=s.physics.max_angular_velocity,
-                                    filter_hex=f"{s.physics.collision_filter_info:x}")
+                                    filter_hex=f"{s.physics.collision_filter_info:x}",
+                                    trigger=s.physics.trigger,
+                                    body_flag_10000=s.physics.body_flag_10000)
 
             # The shape's own header: its material by name, and its flags.
             if s.user_data is not None:
@@ -1633,6 +1635,8 @@ class CollisionHandler(BD.Warns):
             max_linear_velocity=gp.max_lin_vel,
             max_angular_velocity=gp.max_ang_vel,
             collision_filter_info=_filter_info(gp),
+            trigger=gp.trigger,
+            body_flag_10000=gp.body_flag_10000,
         )
         if is_dyn:
             physics = PhysicsProps(is_dynamic=True, mass=rb.mass,
@@ -1814,6 +1818,8 @@ class CollisionHandler(BD.Warns):
                     max_linear_velocity=gp.max_lin_vel,
                     max_angular_velocity=gp.max_ang_vel,
                     collision_filter_info=_filter_info(gp),
+                    trigger=gp.trigger,
+                    body_flag_10000=gp.body_flag_10000,
                 )
                 if is_dyn:
                     # Centre of mass and inertia are worked out from the shape

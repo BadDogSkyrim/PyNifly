@@ -193,7 +193,7 @@ def _build_body_props(physics) -> bytes:
     of float32) within the body_props material region at +0x10.
     Other physics fields (damping, gravity, velocity) are in BodyCInfo.
     """
-    from .bhk_autounpack import trunc_f16_encode
+    from .bhk_autounpack import trunc_f16_encode, TRIGGER_MATERIAL_FLAGS, TRIGGER_TYPE
     buf = bytearray(_BODY_PROPS)
     if physics is not None:
         fric_u16 = trunc_f16_encode(physics.friction)
@@ -201,7 +201,26 @@ def _build_body_props(physics) -> bytes:
         struct.pack_into('<H', buf, 0x12, fric_u16)
         struct.pack_into('<H', buf, 0x14, fric_u16)  # duplicate
         struct.pack_into('<H', buf, 0x16, rest_u16)
+        if getattr(physics, 'trigger', False):
+            struct.pack_into('<I', buf, 0x0C, TRIGGER_MATERIAL_FLAGS)
+            buf[0x10] = TRIGGER_TYPE
     return bytes(buf)
+
+
+def _body_flags(physics) -> int:
+    """hknpBodyCinfo +0x18, as vanilla sets it: 0x10 on a trigger, 0x80 on a body
+    moved by physics, plus 0x10000 where the body carries it; 0 otherwise."""
+    from .bhk_autounpack import BODY_FLAG_TRIGGER, BODY_FLAG_MOVING, BODY_FLAG_10000
+    if physics is None:
+        return 0
+    flags = 0
+    if getattr(physics, 'trigger', False):
+        flags |= BODY_FLAG_TRIGGER
+    if physics.is_dynamic and not _is_keyframed(physics):
+        flags |= BODY_FLAG_MOVING
+    if getattr(physics, 'body_flag_10000', False):
+        flags |= BODY_FLAG_10000
+    return flags
 
 
 def _build_dyn_motion(physics) -> bytes:
@@ -402,6 +421,7 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
         struct.pack_into('<H', cinfo, 0x12, i)            # materialId == index
         struct.pack_into('<I', cinfo, 0x14,
                          p.collision_filter_info if p is not None else 1)
+        struct.pack_into('<I', cinfo, 0x18, _body_flags(p))
         # position (+0x30) / orientation (+0x40) PLACE the body.  Several bodies
         # commonly share one local mesh sitting at the origin and are spread out
         # by this alone -- DiamondRichBase01 is five such bodies -- so leaving it
