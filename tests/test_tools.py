@@ -543,3 +543,80 @@ def assert_property(nif, property_path, expected_value):
         assert_equiv(v, expected_value, "/".join(property_path))
     else:
         assert_eq(v, expected_value, "/".join(property_path))
+
+
+def havok_mass_data(packed):
+    """Each body's mass data in an FO4 Havok packfile, in body order, as written.
+
+    A list of dicts: cls (the shape's class), pos and quat (the body's pose), msp (its
+    shape's hknpShapeMassProperties, decoded, or None) and motion (its hknpMotionCinfo,
+    decoded, with the motionProperties record it points at, or None for a static body).
+    """
+    import struct
+    from pyn.bhk_autounpack import (parse_section_headers, parse_virtual_fixups,
+                                    parse_local_fixups, parse_global_fixups)
+    from pyn import mass_props as MP
+
+    hdrs = parse_section_headers(packed)
+    dh = hdrs["__data__"]
+    start = dh.abs_start
+    objs = parse_virtual_fixups(packed, dh, hdrs["__classnames__"].abs_start)
+    cls_at = dict(objs)
+    lf = parse_local_fixups(packed, dh)
+    gf = parse_global_fixups(packed, dh)
+    out = []
+    for psd, cls in objs:
+        if cls != "hknpPhysicsSystemData":
+            continue
+
+        def arr(off, stride, psd=psd):
+            n = struct.unpack_from('<I', packed, start + psd + off + 8)[0] & 0x3FFFFFFF
+            d = lf.get(psd + off)
+            return [start + d + i * stride for i in range(n)] if d is not None else []
+        mprops, cinfos, bodies = arr(0x20, 0x40), arr(0x30, 0x70), arr(0x40, 0x60)
+        for b in bodies:
+            shape = gf[b - start][1]
+            body = dict(cls=cls_at.get(shape), pos=struct.unpack_from('<3f', packed, b + 0x30),
+                        quat=struct.unpack_from('<4f', packed, b + 0x40), msp=None, motion=None)
+            ref = gf.get(shape + 0x20)
+            e = gf.get(ref[1] + 0x10) if ref else None
+            if e and cls_at.get(e[1]) == 'hknpShapeMassProperties':
+                a = start + e[1]
+                mass, volume = struct.unpack_from('<2f', packed, a + 0x28)
+                body['msp'] = dict(com=MP.unpack_vector3(packed, a + 0x10),
+                                   moments=MP.unpack_vector3(packed, a + 0x18),
+                                   axes=MP.unpack_unit_quat(packed, a + 0x20),
+                                   mass=mass, volume=volume, head=packed[a:a + 0x10])
+            mid = struct.unpack_from('<I', packed, b + 0x0C)[0]
+            if mid < len(cinfos):
+                c = cinfos[mid]
+                pid = struct.unpack_from('<H', packed, c)[0]
+                body['motion'] = dict(
+                    props_id=pid, flags=packed[c + 2:c + 4],
+                    inv_mass=struct.unpack_from('<f', packed, c + 4)[0],
+                    mass_factor=struct.unpack_from('<f', packed, c + 8)[0],
+                    fill=packed[c + 0x0C:c + 0x20],
+                    inv_inertia=struct.unpack_from('<4f', packed, c + 0x20),
+                    com=struct.unpack_from('<3f', packed, c + 0x30),
+                    orientation=struct.unpack_from('<4f', packed, c + 0x40),
+                    velocities=packed[c + 0x50:c + 0x70],
+                    props=(packed[mprops[pid]:mprops[pid] + 0x40]
+                           if pid < len(mprops) else None))
+            out.append(body)
+    return out
+
+
+def mass_tensor(moments, quat):
+    """The inertia tensor R diag(moments) R^T, R the rotation of quat (x, y, z, w)."""
+    from pyn import mass_props as MP
+    R = MP.quat_to_matrix(MP.normalize_quat(quat))
+    return [[sum(R[i][k] * moments[k] * R[j][k] for k in range(3)) for j in range(3)]
+            for i in range(3)]
+
+
+def rel_err(a, b):
+    """Frobenius distance between two 3x3s, relative to the second."""
+    import math
+    d = math.sqrt(sum((a[i][j] - b[i][j]) ** 2 for i in range(3) for j in range(3)))
+    n = math.sqrt(sum(b[i][j] ** 2 for i in range(3) for j in range(3)))
+    return d / n

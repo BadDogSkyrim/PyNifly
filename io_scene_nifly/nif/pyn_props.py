@@ -644,12 +644,12 @@ _register_handwired_group('PynCollisionObjProps', 'pyn_collisionobj',
     legacy={'flags': 'pynCollisionFlags'})
 
 # --- FO4 native physics (bhkPhysicsSystem) — parsed havok packfile ------------
-# Mass/friction/damping/restitution live on Blender's native rigid_body. These are the
-# extra body params. material_hex = raw body_props bytes (hex). pynRigidBody /
-# pynCollisionShapeType stay structural selectors.
+# Mass/friction/damping/restitution live on Blender's native rigid_body, and a keyframed
+# body is an Animated one (rigid_body.kinematic). Centre of mass and inertia are worked
+# out from the shape on export. These are the extra body params. material_hex = raw
+# body_props bytes (hex). pynRigidBody / pynCollisionShapeType stay structural selectors.
 _register_handwired_group('PynFO4PhysicsProps', 'pyn_fo4phys',
-    {'inertia': bpy.props.FloatVectorProperty(name='inertia', size=3, default=(0.0, 0.0, 0.0)),
-     'material_hex': bpy.props.StringProperty(name='material_hex', default=''),
+    {'material_hex': bpy.props.StringProperty(name='material_hex', default=''),
      'gravity_factor': bpy.props.FloatProperty(name='gravity_factor', default=1.0),
      'max_lin_vel': bpy.props.FloatProperty(name='max_lin_vel', default=104.4),
      'max_ang_vel': bpy.props.FloatProperty(name='max_ang_vel', default=31.57),
@@ -664,7 +664,7 @@ _register_handwired_group('PynFO4PhysicsProps', 'pyn_fo4phys',
      # 0x143). The shape's material is pyn_collshape.bhkMaterial, by name.
      'shape_flags': bpy.props.StringProperty(name='shape_flags', default='')},
     'FO4 Physics',
-    legacy={'inertia': 'pynPhysInertia', 'material_hex': 'pynPhysMaterial',
+    legacy={'material_hex': 'pynPhysMaterial',
             'gravity_factor': 'pynPhysGravityFactor', 'max_lin_vel': 'pynPhysMaxLinVel',
             'max_ang_vel': 'pynPhysMaxAngVel', 'collision_radius': 'pynCollisionRadius'})
 

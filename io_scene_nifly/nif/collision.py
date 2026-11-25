@@ -797,8 +797,12 @@ class CollisionHandler(BD.Warns):
             if s.physics is not None:
                 if s.physics.is_dynamic:
                     obj.rigid_body.type = 'ACTIVE'
-                    obj.rigid_body.mass = s.physics.mass
-                    pyn_props.set_group(obj, 'pyn_fo4phys', inertia=tuple(s.physics.inertia))
+                    if s.physics.keyframed:
+                        # Moved by animation, not by physics: no mass in the file.
+                        # Blender's Animated checkbox says the same thing.
+                        obj.rigid_body.kinematic = True
+                    else:
+                        obj.rigid_body.mass = s.physics.mass
                 obj.rigid_body.friction = s.physics.friction
                 obj.rigid_body.restitution = s.physics.restitution
                 obj.rigid_body.linear_damping = s.physics.linear_damping
@@ -1562,7 +1566,7 @@ class CollisionHandler(BD.Warns):
         )
         if is_dyn:
             physics = PhysicsProps(is_dynamic=True, mass=rb.mass,
-                                   inertia=tuple(gp.inertia), **common)
+                                   keyframed=rb.kinematic, **common)
         else:
             physics = PhysicsProps(is_dynamic=False, **common)
 
@@ -1742,10 +1746,12 @@ class CollisionHandler(BD.Warns):
                     collision_filter_info=_filter_info(gp),
                 )
                 if is_dyn:
+                    # Centre of mass and inertia are worked out from the shape
+                    # by the packer; an Animated body is keyframed.
                     physics = PhysicsProps(
                         is_dynamic=True,
                         mass=rb.mass,
-                        inertia=tuple(gp.inertia),
+                        keyframed=rb.kinematic,
                         **common_props,
                     )
                 else:
@@ -1828,17 +1834,6 @@ class CollisionHandler(BD.Warns):
                             physics=physics,
                             **self._fo4_shape_header(obj),
                         ))
-                # Compute density for dynamic bodies from geometry.
-                if is_dyn and physics.mass > 0:
-                    from ..pyn.bhk_autopack import compute_density
-                    # Use the first shape's geometry to compute density.
-                    s0 = shapes[0] if shapes else None
-                    if s0 is not None:
-                        physics.density = compute_density(
-                            physics.mass, s0.verts, s0.faces,
-                            s0.convex_radius or 0.0, s0.shape_type,
-                            s0.sphere_radius, s0.capsule_ends)
-
                 # pack_shapes requires compressed_mesh before polytope.
                 shapes.sort(key=lambda s: 0 if s.shape_type == 'compressed_mesh' else 1)
                 # Pack before adding the collision object, so a combination the

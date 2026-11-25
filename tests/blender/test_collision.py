@@ -1876,6 +1876,136 @@ def TEST_COLLISION_FO4_HULL():
                     "untouched box unchanged")
 
 
+def _np_mass(nif):
+    """Each native-physics body's mass data (TT.havok_mass_data), keyed by node name."""
+    out = {}
+    for name, node in nif.nodes.items():
+        co = node.collision_object
+        if co is None or co.blockname != 'bhkNPCollisionObject' or co.physics_system is None:
+            continue
+        out[name] = TT.havok_mass_data(co.physics_system.data)[co.body_id]
+    return out
+
+
+def _check_motion_follows_shape(m, label):
+    """The motion record agrees with the shape's mass record and the body's pose."""
+    from pyn import mass_props as MP
+    mo, ms = m['motion'], m['msp']
+    want = tuple(p + x for p, x in zip(m['pos'], MP.mat_vec(MP.quat_to_matrix(m['quat']),
+                                                             ms['com'])))
+    assert TT.is_equiv(mo['com'], want, f"{label}: centre of mass in the world", e=1e-4)
+    mass = 1 / mo['inv_mass']
+    assert TT.is_equiv(mo['mass_factor'], mass / ms['volume'], f"{label}: mass factor",
+                       e=1e-4 * mo['mass_factor'])
+
+
+PIPBOY = os.path.join(TT.FO4_ASSETS, r"Meshes\AnimObjects\PipBoy.nif")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("physics constraints",))
+def TEST_COLLISION_FO4_MASS():
+    """FO4 mass data is worked out from the collision shape on export.
+
+    Vanilla's centre of mass and inertia are pure geometry -- the hull pushed out by
+    its convex radius, inertia 1.5 times the solid's -- so export computes them rather
+    than writing a stock record (Discord report D3: pieces pivoted about the model's
+    origin and rocked after landing) or carrying the import's numbers along.
+
+    - The lunchbox's pieces import as Active rigid bodies of mass 5.
+    - Untouched, they export with vanilla's mass data.
+    - Moving a piece's collision moves its centre of mass with it, inertia unchanged.
+    - Making a piece bigger gives it more volume and inertia.
+    - A keyframed body (the PipBoy) imports as Animated and exports keyframed.
+    """
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_MASS.nif")
+    van = _np_mass(pyn.NifFile(LUNCHBOX_DEST))
+    van_geo = _np_bodies(pyn.NifFile(LUNCHBOX_DEST))
+
+    bpy.ops.import_scene.pynifly(filepath=LUNCHBOX_DEST)
+    shapes = {o.name: o for o in bpy.data.objects if o.get('pynRigidBody') == 'bhkPhysicsSystem'}
+    for o in shapes.values():
+        assert TT.is_eq(o.rigid_body.type, 'ACTIVE', f"{o.name}: dynamic")
+        assert TT.is_eq(o.rigid_body.kinematic, False, f"{o.name}: not keyframed")
+        assert TT.is_equiv(o.rigid_body.mass, 5.0, f"{o.name}: mass", e=1e-4)
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = _np_mass(pyn.NifFile(outfile))
+    assert TT.is_eq(set(out), set(van), "the same bodies")
+    for k, m in out.items():
+        v = van[k]
+        assert TT.is_equiv(m['msp']['volume'], v['msp']['volume'], f"{k}: volume",
+                           e=1e-3 * v['msp']['volume'])
+        assert TT.is_equiv(m['msp']['com'], v['msp']['com'], f"{k}: centre of mass", e=1e-4)
+        assert TT.is_lt(TT.rel_err(TT.mass_tensor(m['msp']['moments'], m['msp']['axes']),
+                                   TT.mass_tensor(v['msp']['moments'], v['msp']['axes'])),
+                        1e-3, f"{k}: inertia")
+        assert TT.is_equiv(m['motion']['inv_mass'], 0.2, f"{k}: inverse mass", e=1e-6)
+        _check_motion_follows_shape(m, k)
+
+    bone_of = {c.target.name: pb.name
+               for arma in bpy.data.objects if arma.type == 'ARMATURE'
+               for pb in arma.pose.bones for c in pb.constraints if c.type == 'COPY_TRANSFORMS'}
+    by_bone = {bone_of[n]: o for n, o in shapes.items()}
+
+    # Move Bone003's collision 0.1 Havok units along its own x; double Bone004's.
+    moved = by_bone['Bone003'].data
+    step = Vector((0.1 * HAVOC_SCALE_FACTOR, 0, 0))
+    for vx in moved.vertices:
+        vx.co += step
+    grown = by_bone['Bone004'].data
+    centre = sum((vx.co for vx in grown.vertices), Vector()) / len(grown.vertices)
+    for vx in grown.vertices:
+        vx.co = centre + (vx.co - centre) * 2
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = _np_mass(pyn.NifFile(outfile))
+    geo = _np_bodies(pyn.NifFile(outfile))
+    for k, m in out.items():
+        _check_motion_follows_shape(m, k)
+
+    shift = [a - b for a, b in zip(geo['Bone003'].verts[0], van_geo['Bone003'].verts[0])]
+    assert TT.is_gt(max(map(abs, shift)), 0.05, "Bone003's shape moved")
+    m, v = out['Bone003']['msp'], van['Bone003']['msp']
+    assert TT.is_equiv(m['com'], [a + d for a, d in zip(v['com'], shift)],
+                       "moved: centre of mass moved with it", e=1e-4)
+    assert TT.is_equiv(m['volume'], v['volume'], "moved: same volume", e=1e-3 * v['volume'])
+    assert TT.is_lt(TT.rel_err(TT.mass_tensor(m['moments'], m['axes']),
+                               TT.mass_tensor(v['moments'], v['axes'])), 1e-3,
+                    "moved: same inertia")
+
+    m, v = out['Bone004']['msp'], van['Bone004']['msp']
+    assert TT.is_gt(m['volume'], 4 * v['volume'], "doubled: more than 4x the volume")
+    assert TT.is_gt(max(m['moments']), 16 * max(v['moments']),
+                    "doubled: more than 16x the inertia")
+
+    m, v = out['Bone001']['msp'], van['Bone001']['msp']
+    assert TT.is_equiv(m['volume'], v['volume'], "untouched piece unchanged",
+                       e=1e-3 * v['volume'])
+
+    # Keyframed.
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete()
+    van = _np_mass(pyn.NifFile(PIPBOY))
+    assert TT.is_eq([m['motion']['inv_mass'] for m in van.values()], [0.0],
+                    "vanilla PipBoy: one keyframed body")
+    bpy.ops.import_scene.pynifly(filepath=PIPBOY)
+    shapes = [o for o in bpy.data.objects if o.get('pynRigidBody') == 'bhkPhysicsSystem']
+    assert TT.is_eq(len(shapes), 1, "PipBoy: one collision shape")
+    assert TT.is_eq(shapes[0].rigid_body.type, 'ACTIVE', "PipBoy: Active")
+    assert TT.is_eq(shapes[0].rigid_body.kinematic, True, "PipBoy: Animated")
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_MASS_pipboy.nif")
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = list(_np_mass(pyn.NifFile(outfile)).values())
+    assert TT.is_eq(len(out), 1, "PipBoy: one body")
+    mo = out[0]['motion']
+    assert TT.is_eq((mo['inv_mass'], mo['mass_factor'], mo['inv_inertia'], mo['props_id']),
+                    (0.0, 1.0, (0.0, 0.0, 0.0, 0.0), 0xFFFF), "PipBoy: keyframed")
+
+
 @TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_SHOTGUN_BARREL():
     """FO4 bhkPhysicsSystem: shotgun barrel collision sits near the visual mesh.

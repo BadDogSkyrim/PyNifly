@@ -279,7 +279,11 @@ class PhysicsProps:
 
     is_dynamic is derived from motion_id: a body is dynamic exactly when it
     references a motionCinfo.  Writing is_dynamic without also writing the
-    motionCinfo produces a body the engine cannot instantiate.
+    motionCinfo produces a body the engine cannot instantiate.  A keyframed body
+    (moved by animation) is dynamic with no mass: inverse mass 0.
+
+    Mass is the one mass value read; the rest of the motion record (centre of mass,
+    inertia, massFactor) follows from the shape and is worked out on export.
     """
     is_dynamic: bool = False
     motion_id: int = MOTION_ID_STATIC       # BodyCInfo +0x0C, index into motionCinfos
@@ -287,12 +291,9 @@ class PhysicsProps:
     collision_filter_info: int = 1          # BodyCInfo +0x14, what this body collides with
     quality_id: int = 0xFF                  # BodyCInfo +0x10
     mass: float = 0.0                       # motionCinfo +0x04 (stored as 1/mass)
-    density: float = 0.0                    # motionCinfo +0x08 (massFactor)
-    inertia: Tuple[float, float, float] = (0.0, 0.0, 0.0)  # inverseInertiaLocal +0x20
+    keyframed: bool = False                 # dynamic, inverse mass 0
     body_props_raw: bytes = b""             # 16 bytes of this body's material +0x10
     material_raw: bytes = b""               # this body's whole hknpMaterial (0x50)
-    motion_cinfo_raw: bytes = b""           # this body's hknpMotionCinfo (0x70)
-    motion_props_raw: bytes = b""           # the system's motionProperties array
     friction: float = 0.5                   # material +0x12 (hkHalf16)
     restitution: float = 0.4                # material +0x16 (hkHalf16)
     gravity_factor: float = 1.0             # motionProperties +0x08
@@ -546,22 +547,14 @@ def parse_physics_props(
     if bodies_abs is None:
         return []
 
-    # motionProperties is a system-level list each motionCinfo indexes with its
-    # motionPropertiesId (+0x00); 0xFFFF means "none, use engine defaults", which
-    # is what every vanilla cinfo holds when the array is absent.  Keep the array
-    # whole so a re-pack hands back exactly what it was given -- the ids are
-    # positions in it.  The decoded fields below come from entry 0, which is what
-    # a Blender-authored body gets.
-    motion_props_raw = (bytes(data[mp_abs:mp_abs + HKNP_MOTION_PROPERTIES_SIZE * n_mp])
-                        if mp_abs is not None else b"")
-    gravity_factor, max_lin, max_ang = 1.0, 104.4, 31.57
-    lin_damp, ang_damp = 0.1, 0.05
-    if mp_abs is not None and mp_abs + HKNP_MOTION_PROPERTIES_SIZE <= len(data):
-        gravity_factor = f32(data, mp_abs + 0x08)
-        max_lin = f32(data, mp_abs + 0x10)
-        max_ang = f32(data, mp_abs + 0x14)
-        lin_damp = f32(data, mp_abs + 0x18)
-        ang_damp = f32(data, mp_abs + 0x1C)
+    def motion_props(pid):
+        """The motionProperties record a motionCinfo names, decoded; vanilla's
+        defaults when it names none (0xFFFF, as keyframed bodies do)."""
+        if mp_abs is None or pid >= n_mp:
+            return 1.0, 104.375, 31.57, 0.1, 0.05
+        m = mp_abs + pid * HKNP_MOTION_PROPERTIES_SIZE
+        return (f32(data, m + 0x08), f32(data, m + 0x10), f32(data, m + 0x14),
+                f32(data, m + 0x18), f32(data, m + 0x1C))
 
     out: List[PhysicsProps] = []
     for i in range(n_bodies):
@@ -582,18 +575,17 @@ def parse_physics_props(
 
         # A body is dynamic exactly when it points at a motionCinfo.
         is_dynamic = motion_id != MOTION_ID_STATIC and motion_id < n_mc
-        motion_cinfo_raw = b""
-        mass = density = 0.0
-        inertia = (0.0, 0.0, 0.0)
+        mass = 0.0
+        keyframed = False
+        pid = 0xFFFF
         if is_dynamic:
             mc = mc_abs + motion_id * HKNP_MOTION_CINFO_SIZE
             if mc + HKNP_MOTION_CINFO_SIZE <= len(data):
-                motion_cinfo_raw = bytes(data[mc:mc + HKNP_MOTION_CINFO_SIZE])
+                pid = u16(data, mc)
                 inv_mass = f32(data, mc + 0x04)
                 mass = 1.0 / inv_mass if inv_mass != 0 else 0.0
-                density = f32(data, mc + 0x08)
-                inertia = (f32(data, mc + 0x20), f32(data, mc + 0x24),
-                           f32(data, mc + 0x28))
+                keyframed = inv_mass == 0
+        gravity_factor, max_lin, max_ang, lin_damp, ang_damp = motion_props(pid)
 
         out.append(PhysicsProps(
             is_dynamic=is_dynamic,
@@ -602,12 +594,9 @@ def parse_physics_props(
             collision_filter_info=u32(data, b + 0x14),
             quality_id=data[b + 0x10],
             mass=mass,
-            density=density,
-            inertia=inertia,
+            keyframed=keyframed,
             body_props_raw=body_props_raw,
             material_raw=material_raw,
-            motion_cinfo_raw=motion_cinfo_raw,
-            motion_props_raw=motion_props_raw,
             friction=friction,
             restitution=restitution,
             gravity_factor=gravity_factor,

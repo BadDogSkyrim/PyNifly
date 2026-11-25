@@ -372,9 +372,13 @@ def _np_shape_headers(nif):
 def _np_motion_tails(nif):
     """The last 12 bytes of every motion-properties record in the nif, as hex."""
     out = []
-    for body in _np_bodies(nif).values():
-        mp = body.physics.motion_props_raw if body.physics else b''
-        out += [mp[i + 0x34:i + 0x40].hex(' ') for i in range(0, len(mp), 0x40)]
+    for node in nif.nodes.values():
+        co = node.collision_object
+        if co is None or co.blockname != 'bhkNPCollisionObject' or co.physics_system is None:
+            continue
+        m = TT.havok_mass_data(co.physics_system.data)[co.body_id]['motion']
+        if m and m['props']:
+            out.append(m['props'][0x34:0x40].hex(' '))
     return out
 
 

@@ -38,6 +38,7 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 from .convex_hull import polytope_faces, face_planes, min_half_angles
+from . import mass_props as MP
 from .nifconstants import HAVOC_SCALE_FACTOR
 
 # ── Type aliases ──────────────────────────────────────────────────────────────
@@ -49,213 +50,6 @@ Face  = List[int]
 # still be kept as one face, as vanilla's are (2026-11-24 survey).
 _HULL_EPS = 1e-4 / HAVOC_SCALE_FACTOR
 _HULL_PLANAR_EPS = 0.1 / HAVOC_SCALE_FACTOR
-
-# ── Collision volume helpers (for density computation) ────────────────────────
-
-def _cross(a, b):
-    return (a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0])
-
-def _dot(a, b):
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-
-def _sub(a, b):
-    return (a[0]-b[0], a[1]-b[1], a[2]-b[2])
-
-def _face_normal(verts, face):
-    """Compute outward unit normal for a convex face (CCW winding from outside)."""
-    v0, v1, v2 = verts[face[0]], verts[face[1]], verts[face[2]]
-    n = _cross(_sub(v1, v0), _sub(v2, v0))
-    length = math.sqrt(_dot(n, n))
-    if length < 1e-12:
-        return (0, 0, 1)
-    return (n[0]/length, n[1]/length, n[2]/length)
-
-def _solve3x3(A, b):
-    """Solve 3×3 linear system Ax=b via Cramer's rule. Returns None if singular."""
-    a0, a1, a2 = A
-    det = (a0[0]*(a1[1]*a2[2]-a1[2]*a2[1])
-         - a0[1]*(a1[0]*a2[2]-a1[2]*a2[0])
-         + a0[2]*(a1[0]*a2[1]-a1[1]*a2[0]))
-    if abs(det) < 1e-15:
-        return None
-    inv = 1.0 / det
-    x = ((b[0]*(a1[1]*a2[2]-a1[2]*a2[1])
-        - a0[1]*(b[1]*a2[2]-a1[2]*b[2])
-        + a0[2]*(b[1]*a2[1]-a1[1]*b[2])) * inv)
-    y = ((a0[0]*(b[1]*a2[2]-a1[2]*b[2])
-        - b[0]*(a1[0]*a2[2]-a1[2]*a2[0])
-        + a0[2]*(a1[0]*b[2]-b[1]*a2[0])) * inv)
-    z = ((a0[0]*(a1[1]*b[2]-b[1]*a2[1])
-        - a0[1]*(a1[0]*b[2]-b[1]*a2[0])
-        + b[0]*(a1[0]*a2[1]-a1[1]*a2[0])) * inv)
-    return (x, y, z)
-
-def _polytope_face_offset_volume(verts: List[Vert3], faces: List[Face],
-                                  convex_radius: float) -> float:
-    """Compute volume of the face-offset polytope.
-
-    Each face plane is moved outward by convex_radius. The new polytope vertices
-    are found by intersecting triples of offset planes. Only vertices inside all
-    planes are kept. Volume is computed via the divergence theorem.
-    """
-    if not verts or not faces or convex_radius <= 0:
-        # Without convex_radius, use raw hull volume
-        return _raw_hull_volume(verts, faces)
-
-    # Build unique face planes from the input faces.
-    # Group coplanar faces by normal direction (dot > 0.999).
-    planes = []  # list of (nx, ny, nz, d) where nx*x+ny*y+nz*z <= d
-    for face in faces:
-        n = _face_normal(verts, face)
-        d = _dot(n, verts[face[0]]) + convex_radius  # offset outward
-        # Check if this plane is already in the list (coplanar face)
-        dup = False
-        for pn, pd in [(p[:3], p[3]) for p in planes]:
-            if abs(_dot(n, pn) - 1.0) < 0.001 and abs(d - pd) < 1e-6:
-                dup = True
-                break
-        if not dup:
-            planes.append((n[0], n[1], n[2], d))
-
-    if len(planes) < 4:
-        return _raw_hull_volume(verts, faces)
-
-    # Find vertices by intersecting all triples of planes
-    offset_verts = []
-    np = len(planes)
-    for i in range(np):
-        for j in range(i+1, np):
-            for k in range(j+1, np):
-                A = (planes[i][:3], planes[j][:3], planes[k][:3])
-                b = (planes[i][3], planes[j][3], planes[k][3])
-                pt = _solve3x3(A, b)
-                if pt is None:
-                    continue
-                # Check that this vertex satisfies all plane inequalities
-                inside = True
-                for p in planes:
-                    if _dot(p[:3], pt) > p[3] + 1e-6:
-                        inside = False
-                        break
-                if inside:
-                    offset_verts.append(pt)
-
-    if len(offset_verts) < 4:
-        return _raw_hull_volume(verts, faces)
-
-    # Compute volume using signed tetrahedra from origin
-    # For a convex hull, use each offset plane's face as a fan.
-    # Simpler: compute centroid, then sum signed tet volumes.
-    cx = sum(v[0] for v in offset_verts) / len(offset_verts)
-    cy = sum(v[1] for v in offset_verts) / len(offset_verts)
-    cz = sum(v[2] for v in offset_verts) / len(offset_verts)
-
-    # Build convex hull faces from offset vertices by projecting each plane's
-    # vertices into 2D and sorting by angle.
-    vol = 0.0
-    for p in planes:
-        n = p[:3]
-        d = p[3]
-        # Collect vertices on this plane
-        face_verts = []
-        for vi, v in enumerate(offset_verts):
-            if abs(_dot(n, v) - d) < 1e-5:
-                face_verts.append(v)
-        if len(face_verts) < 3:
-            continue
-        # Sort by angle in the plane
-        fc = (sum(v[0] for v in face_verts)/len(face_verts),
-              sum(v[1] for v in face_verts)/len(face_verts),
-              sum(v[2] for v in face_verts)/len(face_verts))
-        # Build local 2D frame on the plane
-        u = _sub(face_verts[0], fc)
-        ulen = math.sqrt(_dot(u, u))
-        if ulen < 1e-12:
-            continue
-        u = (u[0]/ulen, u[1]/ulen, u[2]/ulen)
-        w = _cross(n, u)
-        angles = []
-        for v in face_verts:
-            dv = _sub(v, fc)
-            angles.append(math.atan2(_dot(dv, w), _dot(dv, u)))
-        sorted_verts = [v for _, v in sorted(zip(angles, face_verts))]
-        # Fan triangulation from sorted_verts[0]
-        for ti in range(1, len(sorted_verts)-1):
-            a = sorted_verts[0]
-            b = sorted_verts[ti]
-            c = sorted_verts[ti+1]
-            # Signed volume of tetrahedron (centroid, a, b, c)
-            ab = _sub(b, a)
-            ac = _sub(c, a)
-            ad = _sub((cx, cy, cz), a)
-            vol += _dot(_cross(ab, ac), ad) / 6.0
-
-    return abs(vol)
-
-
-def _raw_hull_volume(verts: List[Vert3], faces: List[Face]) -> float:
-    """Compute volume of a convex hull from its vertices and face indices.
-
-    Uses the signed tetrahedron method from the origin.
-    """
-    vol = 0.0
-    for face in faces:
-        if len(face) < 3:
-            continue
-        v0 = verts[face[0]]
-        for i in range(1, len(face) - 1):
-            v1 = verts[face[i]]
-            v2 = verts[face[i+1]]
-            vol += _dot(v0, _cross(v1, v2)) / 6.0
-    return abs(vol)
-
-
-def compute_collision_volume(verts: List[Vert3], faces: List[Face],
-                              convex_radius: float,
-                              shape_type: str,
-                              sphere_radius: float = 0.0,
-                              capsule_ends=None) -> float:
-    """Compute the collision volume for density calculation.
-
-    For polytopes, this is the face-offset polytope volume.
-    For spheres, this is 4/3 π r³; for capsules, a cylinder plus a sphere.
-    For compressed meshes, uses expanded AABB.
-    """
-    if shape_type == 'sphere':
-        return (4.0 / 3.0) * math.pi * sphere_radius ** 3
-    if shape_type == 'capsule':
-        a, b = capsule_ends
-        length = math.sqrt(sum((b[k] - a[k]) ** 2 for k in range(3)))
-        r = convex_radius
-        return math.pi * r * r * length + (4.0 / 3.0) * math.pi * r ** 3
-
-    if shape_type == 'compressed_mesh':
-        if not verts:
-            return 1.0
-        xs = [v[0] for v in verts]
-        ys = [v[1] for v in verts]
-        zs = [v[2] for v in verts]
-        dx = max(xs) - min(xs) + 2 * convex_radius
-        dy = max(ys) - min(ys) + 2 * convex_radius
-        dz = max(zs) - min(zs) + 2 * convex_radius
-        return dx * dy * dz
-
-    # Polytope
-    return _polytope_face_offset_volume(verts, faces, convex_radius)
-
-
-def compute_density(mass: float, verts: List[Vert3], faces: List[Face],
-                    convex_radius: float, shape_type: str,
-                    sphere_radius: float = 0.0, capsule_ends=None) -> float:
-    """Compute density = mass / collision_volume."""
-    if mass <= 0:
-        return 0.0
-    vol = compute_collision_volume(verts, faces, convex_radius,
-                                    shape_type, sphere_radius, capsule_ends)
-    if vol < 1e-12:
-        return 0.0
-    return mass / vol
-
 
 # ── File header constants ─────────────────────────────────────────────────────
 _MAGIC           = b'\x57\xE0\xE0\x57\x10\xC0\xC0\x10'
@@ -415,38 +209,6 @@ _DYN_MOTION = bytes([
 ])
 assert len(_DYN_MOTION) == 0x40
 
-# hknpMotionCinfo template — one per DYNAMIC body, 0x70 bytes.  The struct is
-# 112 bytes, not 64: past the fields below sit orientation (+0x40),
-# linearVelocity (+0x50) and angularVelocity (+0x60).  We used to write only
-# 0x40, so the engine read the next body's record as this one's velocities.
-# A re-pack hands back the source bytes instead (see _build_motion_cinfo);
-# this template is only for collision authored from scratch.
-_DYN_INERTIA_TEMPLATE = bytes([
-    0x00,0x00,0x01,0x00,                        # +0x00: flags (0x0000, 0x0100)
-    0x00,0x00,0x80,0x3F,                        # +0x04: inv_mass (1.0 = placeholder)
-    0x00,0x00,0x80,0x3F,                        # +0x08: density (1.0 = placeholder)
-    0xF0,0xFF,0x7F,0x5F,                        # +0x0C: sentinel
-    0xF0,0xFF,0x7F,0x5F,                        # +0x10: sentinel
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x14: zeros
-    0x00,0x00,0x00,0x00,                        # +0x1C: zeros
-    0x00,0x00,0x80,0x3F,                        # +0x20: Ixx (1.0 = placeholder)
-    0x00,0x00,0x80,0x3F,                        # +0x24: Iyy (1.0 = placeholder)
-    0x00,0x00,0x80,0x3F,                        # +0x28: Izz (1.0 = placeholder)
-    0x00,0x00,0x80,0x3F,                        # +0x2C: 1.0 (scale)
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x30: centerOfMassWorld
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,  # +0x38:  (w, pad)
-    # +0x40: orientation — identity quaternion (0,0,0,1)
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x80,0x3F,
-    # +0x50: linearVelocity, +0x60: angularVelocity — at rest
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-])
-assert len(_DYN_INERTIA_TEMPLATE) == _MOTION_CINFO_SIZE
-
-
 def _build_body_props(physics) -> bytes:
     """Build 0x50 bytes of body_props, encoding friction and restitution.
 
@@ -477,19 +239,6 @@ def _build_dyn_motion(physics) -> bytes:
     return bytes(buf)
 
 
-def _build_dyn_inertia(physics) -> bytes:
-    """Build 0x40 bytes of dyn_inertia from PhysicsProps."""
-    buf = bytearray(_DYN_INERTIA_TEMPLATE)
-    if physics is not None and physics.mass != 0:
-        inv_mass = 1.0 / physics.mass
-        struct.pack_into('<f', buf, 0x04, inv_mass)
-        struct.pack_into('<f', buf, 0x08, physics.density)
-        struct.pack_into('<f', buf, 0x20, physics.inertia[0])
-        struct.pack_into('<f', buf, 0x24, physics.inertia[1])
-        struct.pack_into('<f', buf, 0x28, physics.inertia[2])
-    return bytes(buf)
-
-
 def _body_physics_list(physics, num_bodies: int) -> List:
     """Normalize the `physics` argument into one entry per body.
 
@@ -508,42 +257,63 @@ def _body_physics_list(physics, num_bodies: int) -> List:
     return out[:num_bodies]
 
 
-def _build_motion_cinfo(physics) -> bytes:
-    """One hknpMotionCinfo (0x70 bytes) for a dynamic body.
+_matrix_to_quat = MP.matrix_to_quat
 
-    Prefer the bytes we read off the source: this record carries orientation,
-    centre of mass and both velocities, and inventing them changes how the body
-    behaves.  Only fall back to the template when authoring from scratch.
+
+def _body_pose(xf) -> Tuple[Vert3, Tuple[float, float, float, float]]:
+    """A body transform's position and quaternion; None is the identity."""
+    if xf is None:
+        return (0.0, 0.0, 0.0), (0.0, 0.0, 0.0, 1.0)
+    quat = getattr(xf, 'quaternion', None) or _matrix_to_quat(xf.rotation)
+    return tuple(xf.position), tuple(quat)
+
+
+def _is_keyframed(p) -> bool:
+    """A body moved by animation, not by physics: vanilla gives it no mass."""
+    return bool(getattr(p, 'keyframed', False)) or p.mass <= 0.0
+
+
+# hknpMotionCinfo +0x0C/+0x10 (maxLinearAccelerationDistancePerStep,
+# maxRotationToPreventTunneling): 0x5F7FFFF0 in every vanilla record, dynamic or not.
+_MOTION_UNLIMITED = 0x5F7FFFF0
+
+
+def _build_motion_cinfo(physics, mp: Optional['MP.MassProps'], xf,
+                        props_id: int) -> bytes:
+    """One hknpMotionCinfo (0x70 bytes), worked out from the body's mass, its
+    shape's mass properties (in the shape's space) and the body's pose.  See
+    mass_props for what vanilla stores.
+
+      +0x00 motionPropertiesId (u16; 0xFFFF for none), +0x02 enableDeactivation 1
+      +0x04 inverseMass, +0x08 massFactor, +0x0C/+0x10 0x5F7FFFF0, then zeros
+      +0x20 inverseInertiaLocal, +0x30 centerOfMassWorld, +0x40 orientation
+      +0x50/+0x60 linear and angular velocity: at rest
     """
-    raw = getattr(physics, 'motion_cinfo_raw', b'') if physics is not None else b''
-    if len(raw) == _MOTION_CINFO_SIZE:
-        return raw
-    return _build_dyn_inertia(physics)
+    keyframed = _is_keyframed(physics)
+    if mp is None and not keyframed:
+        raise ValueError("a dynamic body needs its shape's mass properties")
+    pos, quat = _body_pose(xf)
+    mv = MP.motion_values(0.0 if keyframed else physics.mass, mp, pos, quat)
+    buf = bytearray(_MOTION_CINFO_SIZE)
+    struct.pack_into('<HBB', buf, 0x00, props_id, 1, 0)
+    struct.pack_into('<2f', buf, 0x04, mv.inverse_mass, mv.mass_factor)
+    struct.pack_into('<2I', buf, 0x0C, _MOTION_UNLIMITED, _MOTION_UNLIMITED)
+    struct.pack_into('<4f', buf, 0x20, *mv.inverse_inertia)
+    struct.pack_into('<3f', buf, 0x30, *mv.com_world)
+    struct.pack_into('<4f', buf, 0x40, *mv.orientation)
+    return bytes(buf)
 
 
-def _matrix_to_quat(m) -> Tuple[float, float, float, float]:
-    """3x3 rotation matrix → (x, y, z, w), the inverse of quat_to_matrix.
+def _shape_radius(header: Optional[dict]) -> float:
+    r = (header or {}).get('convex_radius')
+    return DEFAULT_CONVEX_RADIUS if r is None else r
 
-    Uses the largest diagonal term as the pivot so the division is never by a
-    near-zero, which is what makes the naive trace formula lose precision on
-    180-degree rotations.
-    """
-    t = m[0][0] + m[1][1] + m[2][2]
-    if t > 0.0:
-        s = math.sqrt(t + 1.0) * 2.0
-        return ((m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s,
-                (m[1][0] - m[0][1]) / s, 0.25 * s)
-    if m[0][0] > m[1][1] and m[0][0] > m[2][2]:
-        s = math.sqrt(1.0 + m[0][0] - m[1][1] - m[2][2]) * 2.0
-        return (0.25 * s, (m[0][1] + m[1][0]) / s, (m[0][2] + m[2][0]) / s,
-                (m[2][1] - m[1][2]) / s)
-    if m[1][1] > m[2][2]:
-        s = math.sqrt(1.0 + m[1][1] - m[0][0] - m[2][2]) * 2.0
-        return ((m[0][1] + m[1][0]) / s, 0.25 * s, (m[1][2] + m[2][1]) / s,
-                (m[0][2] - m[2][0]) / s)
-    s = math.sqrt(1.0 + m[2][2] - m[0][0] - m[1][1]) * 2.0
-    return ((m[0][2] + m[2][0]) / s, (m[1][2] + m[2][1]) / s, 0.25 * s,
-            (m[1][0] - m[0][1]) / s)
+
+def _polytope_mass(verts: List[Vert3], faces: List[Face],
+                   header: Optional[dict] = None) -> 'MP.MassProps':
+    """The mass properties of the polytope _build_convex_polytope_shape writes."""
+    return MP.polytope_mass(verts, faces, _shape_radius(header), _HULL_EPS,
+                            _HULL_PLANAR_EPS)
 
 
 def _body_transform_list(transforms, num_bodies: int) -> List:
@@ -558,9 +328,13 @@ def _body_transform_list(transforms, num_bodies: int) -> List:
 
 
 def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
-                      physics=None, num_bodies: int = 1, body_transforms=None):
+                      physics=None, num_bodies: int = 1, body_transforms=None,
+                      shape_mass=None):
     """Write PSD + materials + [motionProperties + motionCinfos] + bodyCinfos
     + referencedObjects.
+
+    shape_mass is each body's shape's MassProps (mass_props), in the shape's own
+    space; a dynamic body's motion record is worked out from it.
 
     Returns (body_cinfo_rel, shape_entry_rel) so the caller can add global fixups.
 
@@ -574,31 +348,20 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
       materials == numBodies, and body i uses material i
       motionCinfos == the number of dynamic bodies
       dynamic bodies' motionIds are 0..n-1 in body order
+      each body moved by physics has its own motionProperties record, its
+        motionPropertiesId its place among them; a keyframed body has none
+        (0xFFFF) -- 1,533 and 336 motionCinfos (2026-11-25)
     """
     bodies = _body_physics_list(physics, num_bodies)
     xforms = _body_transform_list(body_transforms, num_bodies)
+    masses = list(shape_mass) if shape_mass is not None else []
+    masses += [None] * (num_bodies - len(masses))
     dyn_idx = [i for i, p in enumerate(bodies) if p is not None and p.is_dynamic]
     n_dyn = len(dyn_idx)
-    # motionProperties is a system-level list that each motionCinfo indexes with
-    # its motionPropertiesId (+0x00).  Vanilla often carries NONE even with
-    # dynamic bodies, and those cinfos hold 0xFFFF -- "no motion properties",
-    # measured 131/131 -- leaving the engine to apply its own defaults.  So hand
-    # back whatever the source had and only synthesize when we are also
-    # synthesizing the motionCinfo, i.e. authoring a dynamic body from scratch;
-    # inventing an array here would leave every cinfo's 0xFFFF pointing nowhere
-    # while claiming the system has properties to use.
-    mp_raw = b''
-    for p in bodies:
-        raw = getattr(p, 'motion_props_raw', b'') if p is not None else b''
-        if raw:
-            mp_raw = raw
-            break
-    have_source_cinfo = any(
-        len(getattr(bodies[i], 'motion_cinfo_raw', b'') or b'') == _MOTION_CINFO_SIZE
-        for i in dyn_idx)
-    if n_dyn and not mp_raw and not have_source_cinfo:
-        mp_raw = _build_dyn_motion(bodies[dyn_idx[0]])
-    n_mp = len(mp_raw) // _MOTION_PROPS_SIZE
+    moving = [i for i in dyn_idx if not _is_keyframed(bodies[i])]
+    props_id = {i: k for k, i in enumerate(moving)}
+    mp_raw = b''.join(_build_dyn_motion(bodies[i]) for i in moving)
+    n_mp = len(moving)
 
     def rel():
         return len(data)
@@ -636,7 +399,8 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
     if n_dyn:
         motion_cinfo_rel = rel()
         for i in dyn_idx:
-            entry = _build_motion_cinfo(bodies[i])
+            entry = _build_motion_cinfo(bodies[i], masses[i], xforms[i],
+                                        props_id.get(i, 0xFFFF))
             assert len(entry) == _MOTION_CINFO_SIZE, \
                 f"motionCinfo must be {_MOTION_CINFO_SIZE} bytes, got {len(entry)}"
             write(entry)
@@ -663,8 +427,8 @@ def _build_psd_prefix(data: bytearray, fx: '_FixupBuilder', psd_name_off: int,
         # are already in world space carry no transform and stay at the origin.
         xf = xforms[i]
         if xf is not None:
-            struct.pack_into('<3f', cinfo, 0x30, *xf.position)
-            quat = getattr(xf, 'quaternion', None) or _matrix_to_quat(xf.rotation)
+            pos, quat = _body_pose(xf)
+            struct.pack_into('<3f', cinfo, 0x30, *pos)
             struct.pack_into('<4f', cinfo, 0x40, *quat)
         write(bytes(cinfo))
     fx.add_local(arr40_off, body_cinfo_rel)
@@ -699,16 +463,25 @@ _REF_COUNTED_PROPS = bytes([
 ])
 assert len(_REF_COUNTED_PROPS) == 0x20
 
-# hknpShapeMassProperties (rel varies, 0x30 bytes) — default mass data.
-_SHAPE_MASS_PROPS = bytes([
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00, 0x0B,0x75,0x00,0x2D,
-    0x98,0x28,0x98,0x28, 0x2F,0x51,0x80,0x30,
-    0x00,0x80,0x00,0x80, 0x00,0x80,0x30,0xF5,
-    0xC8,0x2F,0xC3,0x3E, 0xC8,0x2F,0xC3,0x3E,
-])
-assert len(_SHAPE_MASS_PROPS) == 0x30
+
+
+def _write_mass_chain(data: bytearray, fx: '_FixupBuilder', name_offs: Dict[str, int],
+                      shape_rel: int, mp: 'MP.MassProps') -> None:
+    """A polytope's hkRefCountedProperties (at shape +0x20) and the
+    hknpShapeMassProperties it holds, worked out from the shape; each 16-aligned."""
+    refprop_rel = len(data)
+    data.extend(_REF_COUNTED_PROPS)
+    fx.add_virtual(refprop_rel, 0, name_offs['hkRefCountedProperties'])
+    fx.add_local(refprop_rel + 0x00, refprop_rel + 0x10)    # its array -> its entry
+    fx.add_global(shape_rel + 0x20, 2, refprop_rel)
+    while len(data) % 16:
+        data.append(0)
+    massprop_rel = len(data)
+    data.extend(MP.shape_mass_properties_bytes(mp))
+    fx.add_global(refprop_rel + 0x10, 2, massprop_rel)      # entry -> mass record
+    fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
+    while len(data) % 16:
+        data.append(0)
 
 # hknpShape header fields every shape carries, written from the shape itself
 # (CollisionShape.shape_flags / user_data / convex_radius).  A shape that leaves
@@ -1154,10 +927,11 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
         data.extend(b)
         return off
 
-    # ── PSD prefix: PSD + body_props + [dyn_motion + dyn_inertia] + BodyCInfo + ShapeEntry
+    mp = _polytope_mass(verts, faces, header)
+    # ── PSD prefix: PSD + materials + [motion arrays] + BodyCInfo + ShapeEntry
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'], physics=physics,
-        body_transforms=[transform])
+        body_transforms=[transform], shape_mass=[mp])
 
     # ── hknpConvexPolytopeShape  (variable rel) ─────────────────────────────
     shape_rel = rel()
@@ -1172,30 +946,7 @@ def _build_data_section(verts: List[Vert3], faces: List[Face],
     fx.add_global(body_cinfo_rel + 0x00, 2, shape_rel)
     # ShapeEntry+0x00 (shape ptr) → global fixup → shape
     fx.add_global(shape_entry_rel + 0x00, 2, shape_rel)
-    # shape+0x20 (hkRefCountedProperties ptr) → recorded after refprop_rel is known
-    shape_refprop_ptr_rel = shape_rel + 0x20
-
-    # ── hkRefCountedProperties  (variable rel) ────────────────────────────────
-    refprop_rel = rel()
-    write(_REF_COUNTED_PROPS)
-    fx.add_virtual(refprop_rel, 0, name_offs['hkRefCountedProperties'])
-    # hkRefCountedProperties+0x00 (hkArray ptr) → local fixup → entry at +0x10
-    fx.add_local(refprop_rel + 0x00, refprop_rel + 0x10)
-    # shape+0x20 → hkRefCountedProperties (global fixup, now that refprop_rel is known)
-    fx.add_global(shape_refprop_ptr_rel, 2, refprop_rel)
-    # Align to 16 bytes.
-    while rel() % 16:
-        data.append(0)
-
-    # ── hknpShapeMassProperties  (variable rel) ───────────────────────────────
-    massprop_rel = rel()
-    write(_SHAPE_MASS_PROPS)
-    # hkRefCountedProperties entry ptr (+0x10) → global fixup → hknpShapeMassProperties
-    fx.add_global(refprop_rel + 0x10, 2, massprop_rel)
-    fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
-    # Align to 16 bytes.
-    while rel() % 16:
-        data.append(0)
+    _write_mass_chain(data, fx, name_offs, shape_rel, mp)
 
     return bytes(data), fx
 
@@ -1776,7 +1527,7 @@ def _build_cm_data_section(verts: List[Vert3], tris: List[Face],
 
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'], physics=physics,
-        body_transforms=[transform])
+        body_transforms=[transform], shape_mass=[MP.mesh_mass(verts, tris)])
 
     _write_cm_shape(data, fx, name_offs, verts, tris,
                     body_cinfo_rel, shape_entry_rel, header=header)
@@ -1793,7 +1544,8 @@ def _build_multi_cm_data_section(cm_shapes, name_offs: Dict[str, int],
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'],
         physics=physics, num_bodies=len(cm_shapes),
-        body_transforms=[s.transform for s in cm_shapes])
+        body_transforms=[s.transform for s in cm_shapes],
+        shape_mass=[MP.mesh_mass(s.verts, s.faces) for s in cm_shapes])
 
     for i, s in enumerate(cm_shapes):
         _write_cm_shape(data, fx, name_offs, s.verts, s.faces,
@@ -1833,12 +1585,17 @@ def _build_mixed_data_section(
         data.extend(b)
         return off
 
-    # ── PSD prefix: PSD + body_props×2 + [dyn arrays] + BodyCInfo×2 + ShapeEntry×2
+    poly_body = 1 - cm_body
+    poly_mp = _polytope_mass(poly_verts, poly_faces, poly_header)
+    masses = [None, None]
+    masses[cm_body] = MP.mesh_mass(cm_verts, cm_tris)
+    masses[poly_body] = poly_mp
+
+    # ── PSD prefix: PSD + materials×2 + [motion arrays] + BodyCInfo×2 + ShapeEntry×2
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'],
-        physics=physics, num_bodies=2, body_transforms=body_transforms)
-
-    poly_body = 1 - cm_body
+        physics=physics, num_bodies=2, body_transforms=body_transforms,
+        shape_mass=masses)
 
     # ── hknpCompressedMeshShape and its shape data ───────────────────────────
     _write_cm_shape(data, fx, name_offs, cm_verts, cm_tris,
@@ -1855,24 +1612,7 @@ def _build_mixed_data_section(
     fx.add_virtual(poly_shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
     fx.add_global(body_cinfo_rel + poly_body * 0x60, 2, poly_shape_rel)
     fx.add_global(shape_entry_rel + poly_body * _REF_OBJ_SIZE, 2, poly_shape_rel)
-    poly_refprop_ptr_rel = poly_shape_rel + 0x20
-
-    # ── hkRefCountedProperties for polytope (0x20 bytes) ─────────────────────
-    poly_refprop_rel = rel()
-    write(_REF_COUNTED_PROPS)
-    fx.add_virtual(poly_refprop_rel, 0, name_offs['hkRefCountedProperties'])
-    fx.add_local(poly_refprop_rel + 0x00, poly_refprop_rel + 0x10)
-    fx.add_global(poly_refprop_ptr_rel, 2, poly_refprop_rel)
-    while rel() % 16:
-        data.append(0)
-
-    # ── hknpShapeMassProperties (0x30 bytes) ─────────────────────────────────
-    massprop_rel = rel()
-    write(_SHAPE_MASS_PROPS)
-    fx.add_global(poly_refprop_rel + 0x10, 2, massprop_rel)
-    fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
-    while rel() % 16:
-        data.append(0)
+    _write_mass_chain(data, fx, name_offs, poly_shape_rel, poly_mp)
 
     return bytes(data), fx
 
@@ -2277,9 +2017,15 @@ def _build_compound_data_section(
         while len(data) % 16:
             data.append(0)
 
+    # Each child's mass, and the body's: the children as placed, together.
+    child_mass = [_polytope_mass(verts, faces) for (verts, faces, _r, _t) in children]
+    body_mass = MP.combined([MP.transformed(mp, rot or _IDENT3, trans)
+                             for mp, (_v, _f, rot, trans) in zip(child_mass, children)])
+
     # ── PSD prefix: one body (body_props/BodyCInfo/ShapeEntry all size 1) ──
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
-        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics, num_bodies=1)
+        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics, num_bodies=1,
+        shape_mass=[body_mass])
 
     # ── hknpDynamicCompoundShape (the single body's shape) ──
     comp_rel = write(_COMPOUND_HEADER)
@@ -2310,19 +2056,7 @@ def _build_compound_data_section(
         align16()
         fx.add_virtual(shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
         fx.add_global(inst_rels[i] + 0x50, 2, shape_rel)  # instance → its polytope
-
-        refprop_rel = rel()
-        write(_REF_COUNTED_PROPS)
-        fx.add_virtual(refprop_rel, 0, name_offs['hkRefCountedProperties'])
-        fx.add_local(refprop_rel + 0x00, refprop_rel + 0x10)
-        fx.add_global(shape_rel + 0x20, 2, refprop_rel)
-        align16()
-
-        massprop_rel = rel()
-        write(_SHAPE_MASS_PROPS)
-        fx.add_global(refprop_rel + 0x10, 2, massprop_rel)
-        fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
-        align16()
+        _write_mass_chain(data, fx, name_offs, shape_rel, child_mass[i])
 
     return bytes(data), fx
 
@@ -2398,10 +2132,15 @@ def _build_multi_poly_data_section(
         data.extend(b)
         return off
 
-    # ── PSD prefix: PSD + body_props×N + [dyn arrays] + BodyCInfo×N + ShapeEntry×N
+    masses = [MP.capsule_mass(*header['capsule_ends'], header['convex_radius'])
+              if 'capsule_ends' in header else _polytope_mass(verts, faces, header)
+              for verts, faces, header in poly_pairs]
+
+    # ── PSD prefix: PSD + materials×N + [motion arrays] + BodyCInfo×N + ShapeEntry×N
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'],
-        physics=physics, num_bodies=N, body_transforms=body_transforms)
+        physics=physics, num_bodies=N, body_transforms=body_transforms,
+        shape_mass=masses)
 
     # Compute per-body offsets from the base returned by _build_psd_prefix
     body_cinfo_rels = [body_cinfo_rel + i * 0x60 for i in range(N)]
@@ -2427,23 +2166,7 @@ def _build_multi_poly_data_section(
         fx.add_virtual(shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
         fx.add_global(body_cinfo_rels[i] + 0x00, 2, shape_rel)
         fx.add_global(shape_entry_rels[i] + 0x00, 2, shape_rel)
-
-        # hkRefCountedProperties (0x20)
-        refprop_rel = rel()
-        write(_REF_COUNTED_PROPS)
-        fx.add_virtual(refprop_rel, 0, name_offs['hkRefCountedProperties'])
-        fx.add_local(refprop_rel + 0x00, refprop_rel + 0x10)
-        fx.add_global(shape_rel + 0x20, 2, refprop_rel)
-        while rel() % 16:
-            data.append(0)
-
-        # hknpShapeMassProperties (0x30)
-        massprop_rel = rel()
-        write(_SHAPE_MASS_PROPS)
-        fx.add_global(refprop_rel + 0x10, 2, massprop_rel)
-        fx.add_virtual(massprop_rel, 0, name_offs['hknpShapeMassProperties'])
-        while rel() % 16:
-            data.append(0)
+        _write_mass_chain(data, fx, name_offs, shape_rel, masses[i])
 
     return bytes(data), fx
 
@@ -2622,17 +2345,17 @@ def pack_sphere(radius: float, position=(0, 0, 0), physics=None,
         data.extend(b)
         return off
 
-    # ── PSD prefix: PSD + body_props + [dyn arrays] + BodyCInfo + ShapeEntry
+    # A sphere carries its centre in the body position rather than in vertex
+    # data; a caller may pass only a centre.
+    if transform is None and tuple(position) != (0, 0, 0):
+        from .bhk_autounpack import BodyTransform
+        transform = BodyTransform(position=tuple(position), rotation=MP.IDENTITY3,
+                                  quaternion=(0.0, 0.0, 0.0, 1.0))
+
+    # ── PSD prefix: PSD + materials + [motion arrays] + BodyCInfo + ShapeEntry
     body_cinfo_rel, shape_entry_rel = _build_psd_prefix(
         data, fx, name_offs['hknpPhysicsSystemData'], physics=physics,
-        body_transforms=[transform])
-
-    # A sphere carries its centre in the body position rather than in vertex
-    # data.  _build_psd_prefix already wrote the body transform when there is
-    # one; this covers callers that pass only a centre.
-    if transform is None and position != (0, 0, 0):
-        struct.pack_into('<fff', data, body_cinfo_rel + 0x30,
-                         position[0], position[1], position[2])
+        body_transforms=[transform], shape_mass=[MP.sphere_mass(radius)])
 
     # ── hknpSphereShape (0x50 bytes) ──
     # Layout from reference (Poolball_Cue.nif):

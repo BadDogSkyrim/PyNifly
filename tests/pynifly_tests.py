@@ -8994,7 +8994,7 @@ def TEST_FO4_MOTION_PROPERTIES_TAIL():
     s = CollisionShape(shape_type='polytope', name='p', transform=None, verts=box, faces=quads,
                        convex_radius=0.01, children=[],
                        physics=PhysicsProps(is_dynamic=True, mass=2.0, motion_id=0))
-    mp = parse_bytes(pack_shapes([s]))[0].physics.motion_props_raw
+    mp = TT.havok_mass_data(pack_shapes([s]))[0]['motion']['props']
     assert TT.is_eq(len(mp), 0x40, "one motion-properties record")
     assert TT.is_eq(mp[0x34:].hex(' '), "ff 67 9b 99 04 73 75 06 73 00 00 00",
                     "deactivation bytes")
@@ -9260,6 +9260,235 @@ def TEST_FO4_HULL_VANILLA_ROUNDTRIP():
                 assert TT.is_eq(vmha[_canon_face(f)] <= m + 1, True,
                                 f"{label}: vanilla minHalfAngle no higher than ours")
     assert TT.is_gt(close / total, 0.7, f"minHalfAngle within 1 of vanilla ({close}/{total})")
+
+
+def _box(half, center=(0.0, 0.0, 0.0), rotation=None):
+    """A box's 8 corners and 6 outward quads; rotation (3x3) turns it about its centre."""
+    from pyn import mass_props as MP
+    hx, hy, hz = half
+    corners = [(-hx, -hy, -hz), (hx, -hy, -hz), (hx, hy, -hz), (-hx, hy, -hz),
+               (-hx, -hy, hz), (hx, -hy, hz), (hx, hy, hz), (-hx, hy, hz)]
+    R = rotation or MP.IDENTITY3
+    verts = [tuple(a + b for a, b in zip(MP.mat_vec(R, c), center)) for c in corners]
+    quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [2, 3, 7, 6], [0, 4, 7, 3], [1, 2, 6, 5]]
+    return verts, quads
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_MASS_ENCODING():
+    """Havok's packed mass encodings read back what was packed, and match vanilla's bytes.
+
+    hkPackedVector3 is three int16s and a shared exponent; hkPackedUnitVector<4> is each
+    component times 30000, offset by 0x8000.  The bytes are the lunchbox's bottom
+    piece: its centre of mass and its (identity) principal axes.
+    """
+    import math
+    import random
+    from pyn import mass_props as MP
+
+    assert TT.is_eq(MP.pack_vector3((0.0884361, 0.0, 0.0)).hex(), "8f5a00000000802e",
+                    "lunchbox centre of mass")
+    assert TT.is_eq(MP.pack_unit_quat((0.0, 0.0, 0.0, 1.0)).hex(), "008000800080 30f5"
+                    .replace(' ', ''), "identity axes")
+    rng = random.Random(4)
+    for v in [(0.0, 0.0, 0.0), (1e-7, -3e-8, 0.0), (-12.5, 3.0, 0.25)] + \
+             [tuple(rng.uniform(-1, 1) * 10 ** rng.uniform(-6, 2) for _ in range(3))
+              for _ in range(50)]:
+        back = MP.unpack_vector3(MP.pack_vector3(v))
+        tol = max(map(abs, v)) * 2 ** -14
+        assert TT.is_true(all(abs(a - b) <= tol for a, b in zip(back, v)), f"vector {v}: {back}")
+    for _ in range(20):
+        q = [rng.uniform(-1, 1) for _ in range(4)]
+        n = math.sqrt(sum(x * x for x in q))
+        q = [x / n for x in q]
+        back = MP.unpack_unit_quat(MP.pack_unit_quat(q))
+        assert TT.is_true(all(abs(a - b) <= 1 / 30000 for a, b in zip(back, q)), f"quat {q}")
+    # Principal axes take a tensor apart and put it back together.
+    for _ in range(20):
+        q = [rng.uniform(-1, 1) for _ in range(4)]
+        n = math.sqrt(sum(x * x for x in q))
+        R = MP.quat_to_matrix([x / n for x in q])
+        d = [rng.uniform(0.1, 5) for _ in range(3)]
+        m = [[sum(R[i][k] * d[k] * R[j][k] for k in range(3)) for j in range(3)] for i in range(3)]
+        moments, axes = MP.principal_axes(m)
+        back = [[sum(axes[i][k] * moments[k] * axes[j][k] for k in range(3)) for j in range(3)]
+                for i in range(3)]
+        assert TT.is_lt(TT.rel_err(back, m), 1e-9, "tensor rebuilt from its principal axes")
+        det = MP._dot(axes[0], MP._cross(axes[1], axes[2]))
+        assert TT.is_equiv(det, 1.0, "principal axes are a rotation", e=1e-9)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_MASS_BOX():
+    """A box's mass data, worked out by hand, is what export writes.
+
+    The solid is the box with its faces pushed out by the convex radius; its inertia
+    is 1.5 times a solid box's; the motion record follows from the body's mass and
+    pose.  Moving, scaling or turning the box moves its centre of mass and changes its
+    inertia to match (Discord report D3: every body got the same stock record, so
+    pieces pivoted about the model's origin and rocked after landing).
+    """
+    import math
+    from pyn import mass_props as MP
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import BodyTransform, CollisionShape, PhysicsProps
+
+    r = 0.1
+    mass = 10.0
+    q_body = (0.0, 0.0, math.sin(math.pi / 4), math.cos(math.pi / 4))   # 90 deg about z
+    xf = BodyTransform(position=(0.0, 0.0, 1.0), rotation=MP.quat_to_matrix(q_body),
+                       quaternion=q_body)
+    c30, s30 = math.cos(math.pi / 6), math.sin(math.pi / 6)
+    turned = ((1, 0, 0), (0, c30, -s30), (0, s30, c30))           # 30 deg about x
+    cases = [("box", (1.0, 2.0, 3.0), (5.0, 0.0, 0.0), None),
+             ("moved and scaled", (2.0, 4.0, 6.0), (-1.0, 2.0, 0.5), None),
+             ("turned", (1.0, 2.0, 3.0), (0.0, 0.0, 0.0), turned)]
+    for label, half, center, rot in cases:
+        verts, quads = _box(half, center, rot)
+        s = CollisionShape(shape_type='polytope', name='p', transform=xf, verts=verts,
+                           faces=quads, convex_radius=r, children=[],
+                           physics=PhysicsProps(is_dynamic=True, mass=mass, motion_id=0))
+        body = TT.havok_mass_data(pack_shapes([s]))[0]
+        a, b, c = (2 * h + 2 * r for h in half)
+        vol = a * b * c
+        box_I = [vol * (b * b + c * c) / 12, vol * (a * a + c * c) / 12, vol * (a * a + b * b) / 12]
+        R = rot or MP.IDENTITY3
+        want_I = [[1.5 * sum(R[i][k] * box_I[k] * R[j][k] for k in range(3)) for j in range(3)]
+                  for i in range(3)]
+        m = body['msp']
+        assert TT.is_eq(m['head'], bytes(16), f"{label}: object header")
+        assert TT.is_equiv(m['volume'], vol, f"{label}: volume", e=1e-5 * vol)
+        assert TT.is_equiv(m['mass'], vol, f"{label}: mass at density 1", e=1e-5 * vol)
+        assert TT.is_equiv(m['com'], center, f"{label}: centre of mass", e=1e-3)
+        assert TT.is_lt(TT.rel_err(TT.mass_tensor(m['moments'], m['axes']), want_I), 1e-3,
+                        f"{label}: inertia")
+        mo = body['motion']
+        assert TT.is_equiv(mo['inv_mass'], 1 / mass, f"{label}: inverse mass", e=1e-7)
+        assert TT.is_equiv(mo['mass_factor'], mass / vol, f"{label}: mass factor",
+                           e=1e-5 * mass / vol)
+        assert TT.is_eq(mo['inv_inertia'][3], 1.0, f"{label}: inverse inertia w")
+        Rb = MP.quat_to_matrix(q_body)
+        world_I = [[mass / vol * sum(Rb[i][k] * want_I[k][l] * Rb[j][l]
+                                     for k in range(3) for l in range(3))
+                    for j in range(3)] for i in range(3)]
+        got_I = TT.mass_tensor([1 / x for x in mo['inv_inertia'][:3]], mo['orientation'])
+        assert TT.is_lt(TT.rel_err(got_I, world_I), 1e-3, f"{label}: inertia in the world")
+        want_com = tuple(p + x for p, x in zip(xf.position, MP.mat_vec(Rb, center)))
+        assert TT.is_equiv(mo['com'], want_com, f"{label}: centre of mass in the world", e=1e-3)
+        assert TT.is_eq(mo['fill'].hex(), "f0ff7f5ff0ff7f5f" + "00" * 12, f"{label}: fill")
+        assert TT.is_eq(mo['velocities'], bytes(32), f"{label}: at rest")
+        assert TT.is_eq(mo['flags'].hex(), "0100", f"{label}: flags")
+        assert TT.is_eq(mo['props_id'], 0, f"{label}: its own motion properties")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_MASS_KEYFRAMED():
+    """A keyframed body (moved by animation, not by physics) is written as vanilla's are.
+
+    No inverse mass or inertia, massFactor 1, centre of mass at the body, oriented as
+    the body, and no motion properties (0xFFFF) -- all 336 vanilla keyframed bodies.
+    """
+    import math
+    from pyn import mass_props as MP
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import BodyTransform, CollisionShape, PhysicsProps
+
+    q = (0.0, 0.0, math.sin(0.3), math.cos(0.3))
+    xf = BodyTransform(position=(1.0, 2.0, 3.0), rotation=MP.quat_to_matrix(q), quaternion=q)
+    verts, quads = _box((1.0, 2.0, 3.0), (5.0, 0.0, 0.0))
+    s = CollisionShape(shape_type='polytope', name='p', transform=xf, verts=verts, faces=quads,
+                       convex_radius=0.1, children=[],
+                       physics=PhysicsProps(is_dynamic=True, keyframed=True, motion_id=0))
+    packed = pack_shapes([s])
+    mo = TT.havok_mass_data(packed)[0]['motion']
+    assert TT.is_eq(mo['inv_mass'], 0.0, "no inverse mass")
+    assert TT.is_eq(mo['mass_factor'], 1.0, "mass factor 1")
+    assert TT.is_eq(mo['inv_inertia'], (0.0, 0.0, 0.0, 0.0), "no inverse inertia")
+    assert TT.is_equiv(mo['com'], xf.position, "centre of mass at the body")
+    assert TT.is_equiv(mo['orientation'], q, "oriented as the body")
+    assert TT.is_eq(mo['props_id'], 0xFFFF, "no motion properties")
+    assert TT.is_eq(mo['props'], None, "no motion-properties record")
+    from pyn.bhk_autounpack import parse_bytes
+    p = parse_bytes(packed)[0].physics
+    assert TT.is_true(p.is_dynamic and p.keyframed, "reads back keyframed")
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_MASS_VANILLA():
+    """Re-packing vanilla physics computes the mass data vanilla has.
+
+    Nothing is copied: the shape's mass record and each body's motion record are
+    worked out from the shape, the body's mass and its pose, and they come back as
+    vanilla's -- volume, centre of mass, inertia as a tensor (the principal axes may be
+    ordered differently), mass factor -- within float noise.  Each dynamic body gets
+    its own motion-properties record, byte for byte vanilla's.
+
+    - lunchbox: boxes;
+    - deathclaw head: 6 bodies, all with turned principal axes;
+    - roach: 23 capsules;
+    - basketball: a sphere;
+    - PipBoy: a keyframed body.
+
+    About 3% of vanilla polytopes (21 of 658 sampled) don't match: almost all are thin
+    hulls with a large convex radius, which Havok shrank before storing, and computed
+    the mass from the hull it was given; that hull isn't in the file.
+    """
+    from pyn.bhk_autopack import pack_shapes
+    from pyn.bhk_autounpack import parse_bytes
+
+    files = [r"Meshes\SetDressing\LunchBoxKids\LunchBoxKids01Dest.nif",
+             r"Meshes\Actors\Deathclaw\DeathclawHeadReplace.nif",
+             r"Meshes\Critters\Roach\RoachFakeActorDead.nif",
+             r"Meshes\DLC04\Props\DLC04_Basketball01.nif",
+             r"Meshes\AnimObjects\PipBoy.nif"]
+    seen = set()
+    for fn in files:
+        nif = NifFile(os.path.join(TT.FO4_ASSETS, fn))
+        systems = {n.collision_object.physics_system.id: n.collision_object.physics_system
+                   for n in nif.nodes.values()
+                   if n.collision_object and n.collision_object.physics_system}
+        for ps in systems.values():
+            van = TT.havok_mass_data(ps.data)
+            ours = TT.havok_mass_data(pack_shapes(parse_bytes(ps.data)))
+            assert TT.is_eq(len(ours), len(van), f"{fn}: bodies")
+            for k, (v, o) in enumerate(zip(van, ours)):
+                label = f"{os.path.basename(fn)} body {k}"
+                seen.add(v['cls'])
+                assert TT.is_eq(o['cls'], v['cls'], f"{label}: shape class")
+                assert TT.is_eq(o['msp'] is None, v['msp'] is None, f"{label}: mass record")
+                if v['msp']:
+                    vm, om = v['msp'], o['msp']
+                    assert TT.is_equiv(om['volume'], vm['volume'], f"{label}: volume",
+                                       e=1e-3 * vm['volume'])
+                    assert TT.is_eq(om['mass'], om['volume'], f"{label}: density 1")
+                    assert TT.is_equiv(om['com'], vm['com'], f"{label}: centre of mass", e=1e-4)
+                    assert TT.is_lt(TT.rel_err(TT.mass_tensor(om['moments'], om['axes']),
+                                               TT.mass_tensor(vm['moments'], vm['axes'])),
+                                    1e-3, f"{label}: inertia")
+                assert TT.is_eq(o['motion'] is None, v['motion'] is None, f"{label}: motion")
+                if v['motion'] is None:
+                    continue
+                vm, om = v['motion'], o['motion']
+                for f in ('flags', 'fill', 'velocities', 'props_id', 'props'):
+                    assert TT.is_eq(om[f], vm[f], f"{label}: {f}")
+                assert TT.is_equiv(om['inv_mass'], vm['inv_mass'], f"{label}: inverse mass",
+                                   e=1e-6 * vm['inv_mass'] + 1e-12)
+                assert TT.is_equiv(om['mass_factor'], vm['mass_factor'], f"{label}: mass factor",
+                                   e=1e-3 * vm['mass_factor'])
+                assert TT.is_equiv(om['com'], vm['com'], f"{label}: centre of mass", e=1e-4)
+                if vm['inv_mass'] == 0:
+                    assert TT.is_eq(om['inv_inertia'], vm['inv_inertia'], f"{label}: keyframed")
+                    assert TT.is_equiv(om['orientation'], vm['orientation'],
+                                       f"{label}: keyframed orientation")
+                    continue
+                assert TT.is_eq(om['inv_inertia'][3], vm['inv_inertia'][3],
+                                f"{label}: inverse inertia w")
+
+                def world(m):
+                    return TT.mass_tensor([1 / x for x in m['inv_inertia'][:3]], m['orientation'])
+                assert TT.is_lt(TT.rel_err(world(om), world(vm)), 1e-3, f"{label}: inertia")
+    assert TT.is_eq(seen, {'hknpConvexPolytopeShape', 'hknpCapsuleShape', 'hknpSphereShape'},
+                    "shape classes covered")
 
 
 ###################### Test execution framework #########################
