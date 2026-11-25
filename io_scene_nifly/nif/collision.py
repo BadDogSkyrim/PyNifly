@@ -523,15 +523,18 @@ class CollisionHandler(BD.Warns):
             obj = bpy.context.object
             obj.name = name
             obj.data.name = name
-            # Offset vertices by the body center rather than the object transform
+            # Offset vertices by the sphere's centre rather than the object transform
             # — a COPY_TRANSFORMS constraint links the parent node to this object,
             # so matrix_world must stay at parentxf to avoid displacing the parent.
+            # The centre is in its body's space: turn it by the body's rotation,
+            # then add the body's position.
+            c = Vector(s.sphere_center)
             if s.transform is not None:
-                p = s.transform.position
-                offset = Vector((p[0]*sf, p[1]*sf, p[2]*sf))
-                if offset.length > 0.001:
-                    for v in obj.data.vertices:
-                        v.co += offset
+                c = Matrix(s.transform.rotation) @ c + Vector(s.transform.position)
+            offset = c * sf
+            if offset.length > 0.001:
+                for v in obj.data.vertices:
+                    v.co += offset
             obj.matrix_world = parentxf.copy()
             for p in obj.data.polygons:
                 p.use_smooth = True
@@ -627,7 +630,7 @@ class CollisionHandler(BD.Warns):
 
         Returns the collision anchor object, or None if data is unavailable.
         """
-        from ..pyn.bhk_autounpack import parse_bytes, constraint_count, unsupported_shapes
+        from ..pyn.bhk_autounpack import parse_bytes, parse_constraints, unsupported_shapes
 
         ps = c.physics_system
         if ps is None:
@@ -655,16 +658,20 @@ class CollisionHandler(BD.Warns):
                     self.warn(f"bhkPhysicsSystem decode failed: {e}")
                 return None
             self._physics_system_cache[ps.id] = parsed
-            # A constraint joins two bodies by their index within one system.
-            # Export gives each collision object a system of its own, so there
-            # is nowhere to put one even if we read it -- say so rather than
-            # quietly turning a hinged gib into loose parts.
-            nc = constraint_count(raw)
-            if nc:
-                self.warn(f"Collision has {nc} physics constraint"
-                          f"{'s' if nc > 1 else ''} (joints between bodies); "
-                          "PyNifly does not preserve them and they will be lost "
-                          "on export.")
+            # A constraint joins two bodies by their index within one system.  The
+            # limited hinges become Blender hinges once every body is in (see
+            # import_constraints); other kinds aren't read yet -- say so rather than
+            # quietly turning a ragdoll into loose parts.
+            try:
+                hinges, others = parse_constraints(raw)
+            except Exception:
+                hinges, others = [], {}
+            self._physics_system_cache[(ps.id, 'hinges')] = hinges
+            if others:
+                n = sum(others.values())
+                self.warn(f"Collision has {n} physics constraint{'s' if n > 1 else ''} "
+                          f"PyNifly can't read yet ({', '.join(sorted(others))}); "
+                          f"{'they' if n > 1 else 'it'} will be lost on export.")
 
         all_shapes = self._physics_system_cache[ps.id]
         body_id = c.body_id
@@ -772,6 +779,7 @@ class CollisionHandler(BD.Warns):
             anchor = None
             shape_parent = None
 
+        body_objs = self._physics_system_cache.setdefault((ps.id, 'objs'), {})
         for i, (s, shape_xf, apply_xf, instance_xf) in enumerate(leaf_entries):
             _SUFFIXES = {'compressed_mesh': '_cm', 'sphere': '_sphere',
                          'polytope': '_poly', 'capsule': '_capsule'}
@@ -792,6 +800,10 @@ class CollisionHandler(BD.Warns):
             obj.display_type = 'WIRE'
             obj['pynRigidBody'] = 'bhkPhysicsSystem'
             obj['pynCollisionShapeType'] = s.shape_type
+            if not compound_mode and s.body_index is not None:
+                # The body's place in the system: export keeps vanilla's order.
+                obj['pynCollisionBodyID'] = s.body_index
+                body_objs[s.body_index] = obj
 
             from . import pyn_props
             if s.physics is not None:
@@ -855,6 +867,64 @@ class CollisionHandler(BD.Warns):
             self._physics_system_cache[bulk_key] = anchor
 
         return anchor
+
+
+    @classmethod
+    def import_constraints(cls, parent_handler):
+        """Make each FO4 limited hinge read with the nif's physics systems into a
+        Blender hinge, now that every body is in and placed.
+
+        An empty with a Rigid Body Constraint of type Hinge, between body A's and
+        body B's collision objects, parented to A's:
+        - at the pivot, its Z along the hinge axis and its X the zero-angle direction;
+        - Z angular limits: Havok counts the angle as B turning about A's axis,
+          Blender the other way, so the limits are negated and swapped.  They're
+          measured from where the bodies are, so if vanilla's two frames disagree a
+          little, the difference goes into the limits;
+        - friction on pyn_constraint.
+        """
+        from . import pyn_props
+        cache = getattr(parent_handler, '_physics_system_cache', {})
+        todo = [(k[0], v) for k, v in cache.items()
+                if isinstance(k, tuple) and k[1] == 'hinges' and v]
+        if not todo:
+            return
+        h = CollisionHandler(parent_handler)
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[parent_handler.nif.game]
+        bpy.context.view_layer.update()
+        for psid, hinges in todo:
+            objs = cache.get((psid, 'objs'), {})
+            for c in hinges:
+                a, b = objs.get(c.body_a), objs.get(c.body_b)
+                if a is None or b is None:
+                    h.warn(f"A hinge joins bodies {c.body_a} and {c.body_b}, which weren't "
+                           "both imported; it is left out.")
+                    continue
+                ra, rb = Matrix(c.rot_a), Matrix(c.rot_b)
+                local = Matrix.Identity(4)
+                for i in range(3):
+                    local[i][0], local[i][1], local[i][2] = ra[i][1], ra[i][2], ra[i][0]
+                    local[i][3] = c.pivot_a[i] * sf
+                world = a.matrix_world @ local
+                a3, b3 = a.matrix_world.to_3x3(), b.matrix_world.to_3x3()
+                axis = (a3 @ ra.col[0]).normalized()
+                pa, pb = (a3 @ ra.col[1]).normalized(), (b3 @ rb.col[1]).normalized()
+                rest = math.atan2(pa.cross(pb).dot(axis), pa.dot(pb))
+
+                e = bpy.data.objects.new("bhkHinge", None)
+                e.empty_display_type = 'ARROWS'
+                e.empty_display_size = 5.0
+                (parent_handler.collection or bpy.context.scene.collection).objects.link(e)
+                e.parent = a
+                e.matrix_world = world
+                ObjectSelect([e], active=True)
+                bpy.ops.rigidbody.constraint_add(type='HINGE')
+                rc = e.rigid_body_constraint
+                rc.object1, rc.object2 = a, b
+                rc.use_limit_ang_z = True
+                rc.limit_ang_z_lower = -(c.max_angle - rest)
+                rc.limit_ang_z_upper = -(c.min_angle - rest)
+                pyn_props.set_group(e, 'pyn_constraint', friction=c.friction)
 
 
     def import_bhkMoppBvTreeShape(self, cs:bhkShape, parentxf:Matrix):
@@ -1714,18 +1784,18 @@ class CollisionHandler(BD.Warns):
                 self.objs_written.add(ReprObject(coll, targnode))
                 return
 
-            # bodyID indexes the physics system's body array, and defaults to a
-            # sentinel that makes the engine index the array with 0xFFFFFFFF and
-            # write through whatever it lands on, inside
-            # bhkNPCollisionObject::CreateInstance while loading the cell.
-            # We write one system per collision object, so its bodies start at 0
-            # -- an id carried over from the source would be wrong here, because
-            # a node that named body 3 of a shared system now owns a private one.
-            def add_np_collision():
-                return targnode.add_collision(
+            # The nif's bodies all go into one physics system, packed when the
+            # export is done (finish_physics), which then gives each collision
+            # object its system and body index.  Until then its bodyID is 0: never
+            # left at the sentinel, which makes the engine index the body array
+            # with 0xFFFFFFFF in bhkNPCollisionObject::CreateInstance.
+            def queue_bodies(body_objs, shapes):
+                co = targnode.add_collision(
                     None, flags=flags or 0,
                     collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
                     body_id=0)
+                self._np_pending.append(dict(co=co, objs=body_objs, shapes=shapes,
+                                             node_inv=node_inv))
 
             if shape_objs:
                 # Build physics properties from the first shape object's
@@ -1834,33 +1904,32 @@ class CollisionHandler(BD.Warns):
                             physics=physics,
                             **self._fo4_shape_header(obj),
                         ))
-                # pack_shapes requires compressed_mesh before polytope.
-                shapes.sort(key=lambda s: 0 if s.shape_type == 'compressed_mesh' else 1)
-                # Pack before adding the collision object, so a combination the
-                # packer can't build leaves no collision object without a system.
+                # Pack these bodies on their own first, so one the packer can't
+                # build is left out here and never gets a collision object.
                 try:
-                    packed = pack_shapes(shapes)
+                    pack_shapes(shapes)
                 except (NotImplementedError, ValueError) as e:
-                    # NotImplementedError: a mix of shapes the packer can't build;
                     # ValueError: a mesh no hull can be made from (flat, or too big).
                     self.warn(f"{coll.name}: collision not exported: {e}")
                     self.objs_written.add(ReprObject(coll, targnode))
                     return
-                bhkPhysicsSystem.New(self.nif, data=packed, parent=add_np_collision())
+                queue_bodies(list(shape_objs), shapes)
             else:
                 # Legacy path: no pynCollisionShapeType tag — treat the whole
                 # mesh as a single convex polytope (pre-existing behaviour).
                 local_mat = node_inv @ self.export_xf @ coll.matrix_world
                 verts = [(*(local_mat @ v.co / sf),) for v in coll.data.vertices]
                 faces = [list(p.vertices) for p in coll.data.polygons]
-                from ..pyn.bhk_autopack import pack_convex_polytope
+                legacy = CollisionShape(shape_type='polytope', name=coll.name,
+                                        transform=None, verts=verts, faces=faces,
+                                        convex_radius=None, children=[], physics=None)
                 try:
-                    packed = pack_convex_polytope(verts, faces)
+                    pack_shapes([legacy])
                 except ValueError as e:
                     self.warn(f"{coll.name}: collision not exported: {e}")
                     self.objs_written.add(ReprObject(coll, targnode))
                     return
-                bhkPhysicsSystem.New(self.nif, data=packed, parent=add_np_collision())
+                queue_bodies([coll], [legacy])
 
             self.objs_written.add(ReprObject(coll, targnode))
             return
@@ -1877,6 +1946,85 @@ class CollisionHandler(BD.Warns):
 
 
     @classmethod
+    def finish_physics(cls, parent_handler):
+        """Pack the nif's FO4 bodies, and the hinges between them, into one physics
+        system, as vanilla has, and point each collision object at its body.
+
+        Body order: by pynCollisionBodyID (vanilla's, recorded on import), then
+        bodies without one -- built in Blender -- in the order they were exported.
+        A hinge is an object with a Rigid Body Constraint of type Hinge whose two
+        objects are bodies here; its frames in each body's space are worked out
+        from where it is (see import_constraints for the conventions).
+        """
+        from ..pyn.bhk_autopack import pack_system
+        from ..pyn.bhk_autounpack import Constraint
+        from . import pyn_props
+        pending = getattr(parent_handler, '_np_pending', None)
+        if not pending:
+            return
+        h = CollisionHandler(parent_handler)
+        sf = HAVOC_SCALE_FACTOR * game_collision_sf[parent_handler.game]
+        export_xf = parent_handler.export_xf
+
+        bodies = []
+        for seq, item in enumerate(pending):
+            for sub, (o, s) in enumerate(zip(item['objs'], item['shapes'])):
+                bid = o.get('pynCollisionBodyID')
+                key = (0, int(bid)) if isinstance(bid, int) else (1, 0)
+                bodies.append((key, seq, sub, o, s, item))
+        bodies.sort(key=lambda b: b[:3])
+        index_of = {b[3].name: i for i, b in enumerate(bodies)}
+
+        def frame(e, i):
+            m = bodies[i][5]['node_inv'] @ export_xf @ e.matrix_world
+            r = m.to_3x3().normalized()
+            rot = tuple((r[k][2], r[k][0], r[k][1]) for k in range(3))
+            return rot, tuple(m.translation / sf)
+
+        constraints = []
+        for e in bpy.context.scene.objects:
+            rc = e.rigid_body_constraint
+            if rc is None or rc.object1 is None or rc.object2 is None:
+                continue
+            ia, ib = index_of.get(rc.object1.name), index_of.get(rc.object2.name)
+            if ia is None and ib is None:
+                continue
+            if ia is None or ib is None:
+                h.warn(f"{e.name}: joins {rc.object1.name} and {rc.object2.name}, which "
+                       "aren't both collision bodies in this export; left out.")
+                continue
+            if rc.type != 'HINGE':
+                h.warn(f"{e.name}: only hinges are exported for FO4; this "
+                       f"{rc.type.lower()} constraint is left out.")
+                continue
+            rot_a, pivot_a = frame(e, ia)
+            rot_b, pivot_b = frame(e, ib)
+            lo, hi = ((rc.limit_ang_z_lower, rc.limit_ang_z_upper) if rc.use_limit_ang_z
+                      else (-math.pi, math.pi))
+            constraints.append(Constraint(
+                kind='limited_hinge', body_a=ia, body_b=ib, rot_a=rot_a, pivot_a=pivot_a,
+                rot_b=rot_b, pivot_b=pivot_b, min_angle=-hi, max_angle=-lo,
+                friction=pyn_props.get_group(e, 'pyn_constraint').friction))
+
+        shapes = [b[4] for b in bodies]
+        try:
+            packed = pack_system(shapes, constraints)
+        except (NotImplementedError, ValueError) as ex:
+            h.warn(f"Physics hinges not exported: {ex}")
+            packed = pack_system(shapes)
+        first_body = {}
+        for i, b in enumerate(bodies):
+            first_body.setdefault(id(b[5]), i)
+        ps = bhkPhysicsSystem.New(parent_handler.nif, data=packed, parent=pending[0]['co'])
+        for item in pending:
+            co = item['co']
+            co.properties.dataID = ps.id
+            co.properties.bodyID = first_body[id(item)]
+            co.write_properties()
+        pending.clear()
+
+
+    @classmethod
     def export_collisions(cls, parent_handler, obj):
         """
         Export the object's collision. 
@@ -1889,6 +2037,9 @@ class CollisionHandler(BD.Warns):
         exporter.export_xf = parent_handler.export_xf
         exporter.writtenbones = parent_handler.writtenbones
         exporter.write_bone = getattr(parent_handler, 'write_bone', None)
+        if not hasattr(parent_handler, '_np_pending'):
+            parent_handler._np_pending = []
+        exporter._np_pending = parent_handler._np_pending
 
         targobj = obj
         if obj.type == 'ARMATURE':

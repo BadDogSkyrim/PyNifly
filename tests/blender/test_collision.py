@@ -1633,7 +1633,6 @@ LUNCHBOX_DEST = os.path.join(TT.FO4_ASSETS, r"Meshes\SetDressing\LunchBoxKids\Lu
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors(("physics constraints",))
 def TEST_COLLISION_FO4_SHAPE_HEADERS():
     """FO4 collision shapes keep their own material, flags and convex radius.
 
@@ -1688,7 +1687,6 @@ def TEST_COLLISION_FO4_SHAPE_HEADERS():
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors(("physics constraints",))
 def TEST_COLLISION_FO4_UNWEIGHTED_BONE():
     """A bone that owns a collision is exported even when nothing is weighted to it.
 
@@ -1809,7 +1807,6 @@ def _hull_ok(s):
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors(("physics constraints",))
 def TEST_COLLISION_FO4_HULL():
     """FO4 polytopes are written as hulls, the way vanilla writes them.
 
@@ -1903,7 +1900,6 @@ PIPBOY = os.path.join(TT.FO4_ASSETS, r"Meshes\AnimObjects\PipBoy.nif")
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors(("physics constraints",))
 def TEST_COLLISION_FO4_MASS():
     """FO4 mass data is worked out from the collision shape on export.
 
@@ -2004,6 +2000,243 @@ def TEST_COLLISION_FO4_MASS():
     mo = out[0]['motion']
     assert TT.is_eq((mo['inv_mass'], mo['mass_factor'], mo['inv_inertia'], mo['props_id']),
                     (0.0, 1.0, (0.0, 0.0, 0.0, 0.0), 0xFFFF), "PipBoy: keyframed")
+
+
+def _np_systems(nif):
+    """{node name: (system block id, body id)} for every native-physics node."""
+    return {name: (n.collision_object.physics_system.id, n.collision_object.body_id)
+            for name, n in nif.nodes.items()
+            if n.collision_object and n.collision_object.blockname == 'bhkNPCollisionObject'
+            and n.collision_object.physics_system}
+
+
+def _np_hinges(nif):
+    """The hinges of a nif's one physics system, as world frames keyed by the node
+    names of their bodies: {(node A, node B): (pivot, axis, limits, friction)}, in
+    Havok units.  The frames are A's, placed by A's node."""
+    from io_scene_nifly.pyn.bhk_autounpack import parse_constraints
+    sysids = {s for s, _ in _np_systems(nif).values()}
+    assert TT.is_eq(len(sysids), 1, "one physics system")
+    node_of = {b: name for name, (_, b) in _np_systems(nif).items()}
+    ps = next(n.collision_object.physics_system for n in nif.nodes.values()
+              if n.collision_object and n.collision_object.blockname == 'bhkNPCollisionObject')
+    hinges, others = parse_constraints(ps.data)
+    out = {}
+    for c in hinges:
+        g = nif.nodes[node_of[c.body_a]].global_transform
+        R = Matrix([g.rotation[0][:], g.rotation[1][:], g.rotation[2][:]])
+        t = Vector(g.translation[:]) / HAVOC_SCALE_FACTOR
+        pivot = R @ Vector(c.pivot_a) + t
+        axis = R @ Vector([c.rot_a[i][0] for i in range(3)])
+        out[(node_of[c.body_a], node_of[c.body_b])] = (pivot, axis.normalized(),
+                                                       (c.min_angle, c.max_angle), c.friction)
+    return out, others
+
+
+def _check_hinges(got, want, label, limit_tol=0.02):
+    assert TT.is_eq(set(got), set(want), f"{label}: hinged bodies")
+    for k in want:
+        gp, ga, gl, gf = got[k]
+        wp, wa, wl, wf = want[k]
+        assert TT.is_lt((gp - wp).length, 1e-4, f"{label} {k}: pivot")
+        assert TT.is_gt(abs(ga.dot(wa)), 1 - 1e-5, f"{label} {k}: axis")
+        assert TT.is_equiv(gl, wl, f"{label} {k}: limits", e=limit_tol)
+        assert TT.is_equiv(gf, wf, f"{label} {k}: friction", e=1e-6)
+
+
+def _bone_of_collision():
+    """{collision object name: bone it drives}."""
+    return {c.target.name: pb.name
+            for arma in bpy.data.objects if arma.type == 'ARMATURE'
+            for pb in arma.pose.bones for c in pb.constraints if c.type == 'COPY_TRANSFORMS'}
+
+
+ROBOT_SKEL = os.path.join(TT.FO4_ASSETS, r"Meshes\Actors\Robot\CharacterAssets\skeleton.nif")
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_SPHERE_CENTRE():
+    """A sphere whose centre is off its body's origin imports and exports in place.
+
+    The Mr Handy skeleton's COM sphere is centred 0.0633 along its shape's x, and its
+    body is turned -90 degrees about y, so the centre is 0.0633 above the body's
+    position.  Import placed it at the body's position, and export (until 11-25)
+    wrote a broken sphere -- the robot ignored bullets and hung the game on death.
+
+    - Import: the sphere mesh is centred at the body's position plus the turned centre.
+    - Export: the centre of mass is vanilla's.
+    """
+    from io_scene_nifly.pyn import mass_props as MP
+    from io_scene_nifly.pyn.bhk_autounpack import parse_bytes
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_SPHERE_CENTRE.nif")
+    van_nif = pyn.NifFile(ROBOT_SKEL)
+    van = parse_bytes(van_nif.nodes['COM'].collision_object.physics_system.data)[0]
+    expect = [p + c for p, c in zip(van.transform.position,
+                                    MP.mat_vec(MP.quat_to_matrix(van.transform.quaternion),
+                                               van.sphere_center))]
+    assert TT.is_equiv(expect, (0.0, 0.0, 1.1112), "vanilla's centre, worked out", e=1e-4)
+
+    bpy.ops.import_scene.pynifly(filepath=ROBOT_SKEL)
+    [sph] = [o for o in bpy.data.objects if o.get('pynCollisionShapeType') == 'sphere']
+    sf = max(sph.dimensions) / 2 / van.sphere_radius
+    centre = sum((v.co for v in sph.data.vertices), Vector()) / len(sph.data.vertices) / sf
+    assert TT.is_equiv(centre, expect, "sphere imported at its centre", e=1e-4)
+
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = _np_mass(pyn.NifFile(outfile))
+    van_mass = _np_mass(van_nif)
+    assert TT.is_equiv(out['COM']['motion']['com'], van_mass['COM']['motion']['com'],
+                       "centre of mass as vanilla's", e=1e-4)
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_HINGE():
+    """FO4 hinges come in as Blender hinges and go back out, in one physics system.
+
+    The lunchbox is one system of 3 bodies: the box, a side panel and a top flap, the
+    two hinged to the box by limited hinges.  Export used to split it into 3 systems
+    and drop the hinges, so in game the pieces fell apart (Discord report D1).
+
+    - Import: two hinge Rigid Body Constraints, between the right objects, at the
+      pivots, with vanilla's limits (Blender counts the angle the other way, so
+      they're negated and swapped) and friction.
+    - Export: one system, every node naming the body vanilla's names, and vanilla's
+      hinges.
+    """
+    van_nif = pyn.NifFile(LUNCHBOX_DEST)
+    van_hinges, _ = _np_hinges(van_nif)
+    van_sys = _np_systems(van_nif)
+
+    bpy.ops.import_scene.pynifly(filepath=LUNCHBOX_DEST)
+    bone_of = _bone_of_collision()
+    empties = [o for o in bpy.data.objects if o.rigid_body_constraint]
+    assert TT.is_eq(len(empties), 2, "two hinges")
+    for e in empties:
+        c = e.rigid_body_constraint
+        key = (bone_of[c.object1.name], bone_of[c.object2.name])
+        assert TT.is_contains(key, van_hinges, f"{e.name}: hinged bodies")
+        pivot, axis, (lo, hi), friction = van_hinges[key]
+        assert TT.is_eq(c.type, 'HINGE', f"{e.name}: a hinge")
+        assert TT.is_eq(e.parent, c.object1, f"{e.name}: parented to body A")
+        assert TT.is_true(c.use_limit_ang_z, f"{e.name}: limited")
+        assert TT.is_equiv((c.limit_ang_z_lower, c.limit_ang_z_upper), (-hi, -lo),
+                           f"{e.name}: limits, Blender's way round", e=0.02)
+        assert TT.is_equiv(e.pyn_constraint.friction, friction, f"{e.name}: friction", e=1e-6)
+        mw = e.matrix_world
+        assert TT.is_lt((mw.translation / HAVOC_SCALE_FACTOR - pivot).length, 1e-4,
+                        f"{e.name}: at the pivot")
+        assert TT.is_gt(abs(mw.col[2].xyz.normalized().dot(axis)), 1 - 1e-5,
+                        f"{e.name}: Z along the hinge axis")
+
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_HINGE.nif")
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = pyn.NifFile(outfile)
+    sys_out = _np_systems(out)
+    assert TT.is_eq(len({s for s, _ in sys_out.values()}), 1, "one physics system")
+    assert TT.is_eq({k: b for k, (_, b) in sys_out.items()},
+                    {k: b for k, (_, b) in van_sys.items()}, "each node names vanilla's body")
+    van_geo, out_geo = _np_bodies(van_nif), _np_bodies(out)
+    for k in van_geo:
+        assert TT.is_lt(max(math.dist(a, b) for a, b in zip(out_geo[k].verts, van_geo[k].verts)),
+                        1e-4, f"{k}: its own shape")
+    got, others = _np_hinges(out)
+    assert TT.is_eq(others, {}, "nothing else")
+    _check_hinges(got, van_hinges, "exported")
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_HINGE_NEW():
+    """A hinge added in Blender exports, between bodies built in Blender.
+
+    The lunchbox's hinges are deleted and its bodies' indices cleared, as if built
+    by hand; one new hinge joins the flap to the box.  Bodies without an index don't
+    stop the export: they're numbered in export order.  Limits set in Blender come
+    out negated and swapped, Havok's way round.
+    """
+    bpy.ops.import_scene.pynifly(filepath=LUNCHBOX_DEST)
+    bone_of = _bone_of_collision()
+    for e in [o for o in bpy.data.objects if o.rigid_body_constraint]:
+        bpy.data.objects.remove(e)
+    shapes = {bone_of[o.name]: o for o in bpy.data.objects
+              if o.get('pynRigidBody') == 'bhkPhysicsSystem'}
+    for o in shapes.values():
+        if 'pynCollisionBodyID' in o:
+            del o['pynCollisionBodyID']
+
+    flap, box = shapes['Bone003'], shapes['Bone001']
+    e = bpy.data.objects.new("myhinge", None)
+    bpy.context.scene.collection.objects.link(e)
+    e.matrix_world = Matrix.Translation(flap.matrix_world.translation) @ \
+        Matrix.Rotation(math.pi / 2, 4, 'X')
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = e
+    e.select_set(True)
+    bpy.ops.rigidbody.constraint_add(type='HINGE')
+    c = e.rigid_body_constraint
+    c.object1, c.object2 = flap, box
+    c.use_limit_ang_z = True
+    c.limit_ang_z_lower, c.limit_ang_z_upper = -1.0, 0.1
+    want_pivot = e.matrix_world.translation / HAVOC_SCALE_FACTOR
+    want_axis = e.matrix_world.col[2].xyz.normalized()
+
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_HINGE_NEW.nif")
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    out = pyn.NifFile(outfile)
+    sys_out = _np_systems(out)
+    assert TT.is_eq(len({s for s, _ in sys_out.values()}), 1, "one physics system")
+    assert TT.is_eq(sorted(b for _, b in sys_out.values()), [0, 1, 2], "bodies numbered")
+    got, _ = _np_hinges(out)
+    _check_hinges(got, {('Bone003', 'Bone001'): (want_pivot, want_axis, (-0.1, 1.0), 0.01)},
+                  "new hinge", limit_tol=1e-5)
+
+
+@TT.category('PHYSICS')
+def TEST_BLENDER_HINGE_SIGN():
+    """Blender's hinge counts its angle as object 2 turning NEGATIVELY about the
+    constraint's Z: an arm hinged to a fixed block falls the way the lower limit
+    allows.  Havok counts the other way, so import and export negate and swap the
+    limits; if Blender changes this, they must change too.
+    """
+    sc = bpy.context.scene
+    if sc.rigidbody_world is None:
+        bpy.ops.rigidbody.world_add()
+    sc.rigidbody_world.point_cache.frame_end = 120
+    bpy.ops.mesh.primitive_cube_add(size=0.2, location=(0, 0, 0))
+    base = bpy.context.object
+    bpy.ops.rigidbody.object_add(type='PASSIVE')
+    bpy.ops.mesh.primitive_cube_add(size=0.2, location=(0, 0, 0))
+    arm = bpy.context.object
+    arm.scale = (5, 1, 1)
+    bpy.ops.object.transform_apply(scale=True)
+    arm.location = (0.6, 0, 0)
+    bpy.ops.rigidbody.object_add(type='ACTIVE')
+    arm.rigid_body.collision_shape = 'BOX'
+    arm.rigid_body.collision_collections[0] = False
+    arm.rigid_body.collision_collections[1] = True
+    e = bpy.data.objects.new("hinge", None)
+    sc.collection.objects.link(e)
+    e.matrix_world = Matrix.Rotation(-math.pi / 2, 4, 'X')    # Z along world +Y
+    bpy.ops.object.select_all(action='DESELECT')
+    bpy.context.view_layer.objects.active = e
+    e.select_set(True)
+    bpy.ops.rigidbody.constraint_add(type='HINGE')
+    c = e.rigid_body_constraint
+    c.object1, c.object2 = base, arm
+    c.use_limit_ang_z = True
+    c.limit_ang_z_lower, c.limit_ang_z_upper = -1.0, 0.1
+    try:
+        for f in range(1, 121):
+            sc.frame_set(f)
+        m = arm.matrix_world.copy()
+    finally:
+        # Leave no simulation behind: a later test's rigid bodies would fall.
+        sc.frame_set(1)
+        bpy.ops.rigidbody.world_remove()
+    turned = math.atan2(-m.col[0].z, m.col[0].x)     # about +Y; falling is positive
+    assert TT.is_equiv(turned, 1.0, "the arm falls to minus the lower limit", e=0.05)
 
 
 @TT.category('FO4', 'PHYSICS')

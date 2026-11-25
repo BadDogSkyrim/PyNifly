@@ -335,6 +335,9 @@ class CollisionShape:
     # A capsule's two ends (Havok space).  Its radius is convex_radius; verts holds the
     # thin box Havok keeps inside it, which the writer rebuilds from the ends.
     capsule_ends: Optional[Tuple[Vert3, Vert3]] = None
+    # A sphere's centre in its body's space (Havok units).  Vanilla stores it as the
+    # shape's vertex; 32 of 175 aren't at the origin (creature skeletons' COM spheres).
+    sphere_center: Vert3 = (0.0, 0.0, 0.0)
 
 
 # The hknpShape classes the reader turns into CollisionShapes.  Any other shape class
@@ -373,15 +376,95 @@ def shape_header(data: bytes, shape_abs: int) -> dict:
                 user_data=u32(data, shape_abs + 0x18))
 
 
+@dataclass
+class Constraint:
+    """A joint between two bodies of one physics system.
+
+    Only hkpLimitedHingeConstraintData is decoded (kind 'limited_hinge').  Its
+    frames are in each body's own space (Havok units): rot_a/rot_b are 3x3,
+    row-major, whose COLUMNS are the hinge axis and two perpendiculars (the second
+    the zero-angle direction); pivot_a/pivot_b the pivot.  The angle is body B's
+    rotation relative to A about A's axis, limited to [min_angle, max_angle]
+    radians; friction is the angular friction's maximum torque.
+    """
+    kind: str
+    body_a: int
+    body_b: int
+    rot_a: Mat3 = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    pivot_a: Vert3 = (0.0, 0.0, 0.0)
+    rot_b: Mat3 = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+    pivot_b: Vert3 = (0.0, 0.0, 0.0)
+    min_angle: float = 0.0
+    max_angle: float = 0.0
+    friction: float = 0.01
+
+
+# hkpLimitedHingeConstraintData offsets (hk_2014, 0x130 bytes): a chain of atoms.
+#   +0x20 setLocalTransforms (type 2): transformA +0x30 (3 columns, then the pivot
+#         at +0x60), transformB +0x70 (pivot +0xA0)
+#   +0xB0 setupStabilization, +0xC0 angMotor (off), +0xE8 angFriction (max torque
+#         +0xF0), +0xF8 angLimit (min +0xFC, max +0x100, tau +0x104), +0x108 2dAng,
+#   +0x118 ballSocket.
+HINGE_FRAME_A = 0x30
+HINGE_FRAME_B = 0x70
+HINGE_FRICTION = 0xF0
+HINGE_MIN = 0xFC
+HINGE_MAX = 0x100
+LIMITED_HINGE_SIZE = 0x130
+# constraintCinfos entry: data pointer, bodyA, bodyB, 8 zero bytes.
+CONSTRAINT_ENTRY_SIZE = 0x18
+
+
+def _read_frame(data: bytes, off: int) -> Tuple[Mat3, Vert3]:
+    cols = [vec3(data, off + 16 * k) for k in range(3)]
+    rot = tuple(tuple(cols[j][i] for j in range(3)) for i in range(3))
+    return rot, vec3(data, off + 0x30)
+
+
+def parse_constraints(data: bytes) -> Tuple[List[Constraint], Dict[str, int]]:
+    """A physics system's constraints: the limited hinges, decoded, in order, and a
+    count of the constraints of every other class, by class name (not read)."""
+    hk = data if data.startswith(HAVOK_MAGIC) else data[4:]
+    headers = parse_section_headers(hk)
+    dh = headers["__data__"]
+    st = dh.abs_start
+    objects = parse_virtual_fixups(hk, dh, headers["__classnames__"].abs_start)
+    cls_at = dict(objects)
+    lf = parse_local_fixups(hk, dh)
+    gf = parse_global_fixups(hk, dh)
+    hinges: List[Constraint] = []
+    others: Dict[str, int] = {}
+    for rel, cls in objects:
+        if cls != "hknpPhysicsSystemData":
+            continue
+        n = u32(hk, st + rel + 0x58) & 0x3FFFFFFF
+        arr = lf.get(rel + 0x50)
+        if arr is None:
+            continue
+        for i in range(n):
+            e = arr + i * CONSTRAINT_ENTRY_SIZE
+            target = gf.get(e)
+            name = cls_at.get(target[1], "?") if target else "?"
+            if name != "hkpLimitedHingeConstraintData":
+                others[name] = others.get(name, 0) + 1
+                continue
+            a = st + target[1]
+            rot_a, pivot_a = _read_frame(hk, a + HINGE_FRAME_A)
+            rot_b, pivot_b = _read_frame(hk, a + HINGE_FRAME_B)
+            hinges.append(Constraint(
+                kind='limited_hinge', body_a=u32(hk, st + e + 8), body_b=u32(hk, st + e + 12),
+                rot_a=rot_a, pivot_a=pivot_a, rot_b=rot_b, pivot_b=pivot_b,
+                min_angle=f32(hk, a + HINGE_MIN), max_angle=f32(hk, a + HINGE_MAX),
+                friction=f32(hk, a + HINGE_FRICTION)))
+    return hinges, others
+
+
 def constraint_count(data: bytes) -> int:
     """How many constraints a physics system's packfile declares.
 
-    hknpPhysicsSystemData +0x50 is `constraintCinfos`, an hkArray of 16-byte
+    hknpPhysicsSystemData +0x50 is `constraintCinfos`, an hkArray of 0x18-byte
     entries: a constraintData pointer then bodyA and bodyB, each an index into
-    THIS system's body array (0x7FFFFFFF = the world).  PyNifly reads none of
-    it, and export gives every collision object its own system, so a joint
-    between two bodies has nowhere to live.  Callers use this to say so instead
-    of dropping a hinge without a word.
+    THIS system's body array (0x7FFFFFFF = the world).  See parse_constraints.
 
     Returns 0 for anything that isn't a readable packfile.
     """
@@ -1386,6 +1469,8 @@ def extract_bhk_physics_system(
             convex_radius=0.0,
             children=[],
             sphere_radius=radius,
+            # +0x30: vertex count and the offset to them; every vertex is the centre
+            sphere_center=vec3(data, obj_abs + 0x30 + u16(data, obj_abs + 0x32)),
             body_index=body_order.get(obj_rel),
             **shape_header(data, obj_abs),
         ))

@@ -668,6 +668,14 @@ _register_handwired_group('PynFO4PhysicsProps', 'pyn_fo4phys',
             'gravity_factor': 'pynPhysGravityFactor', 'max_lin_vel': 'pynPhysMaxLinVel',
             'max_ang_vel': 'pynPhysMaxAngVel', 'collision_radius': 'pynCollisionRadius'})
 
+# --- FO4 physics constraints ---------------------------------------------------
+# A hinge is an empty with Blender's own Rigid Body Constraint (type Hinge); this is
+# what Blender's constraint has no field for. friction = the hinge's maximum friction
+# torque (hkpAngFrictionConstraintAtom), 0.01 on 137 of 146 vanilla hinges.
+_register_handwired_group('PynConstraintProps', 'pyn_constraint',
+    {'friction': bpy.props.FloatProperty(name='friction', default=0.01, min=0.0)},
+    'FO4 Constraint')
+
 # --- Connect points (BSConnectPointChildren) ---------------------------------
 # child_names holds the variable-count connected-part names (legacy PYN_CONNECT_CHILD_{i}),
 # newline-joined — no static legacy map for those; export falls back to the numbered keys

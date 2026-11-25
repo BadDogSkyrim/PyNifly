@@ -2592,6 +2592,10 @@ class NifImporter(BD.Warns):
         for o in orphan_shapes:
             o.parent = self.root_object
 
+        # FO4 hinges join bodies by index, so they go in once every body is in.
+        if self.settings.import_collisions:
+            collision.CollisionHandler.import_constraints(self)
+
 
     def import_tris(self):
         """Import any tri/osd files associated with the nif."""

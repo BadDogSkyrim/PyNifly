@@ -9491,6 +9491,208 @@ def TEST_FO4_MASS_VANILLA():
                     "shape classes covered")
 
 
+def _system_of(fn):
+    """The one physics system in a vanilla FO4 nif (its packfile bytes)."""
+    nif = NifFile(os.path.join(TT.FO4_ASSETS, fn))
+    systems = {n.collision_object.physics_system.id: n.collision_object.physics_system
+               for n in nif.nodes.values()
+               if n.collision_object and n.collision_object.physics_system}
+    assert TT.is_eq(len(systems), 1, f"{fn}: one physics system")
+    return list(systems.values())[0].data
+
+
+def _hinge_fields(c):
+    return (c.kind, c.body_a, c.body_b, c.min_angle, c.max_angle, c.friction)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_HINGE_READ():
+    """The lunchbox's two limited hinges read as vanilla has them.
+
+    Both join a piece to the box (body 0): the side panel (body 2) and the top flap
+    (body 1).  Each has a frame in each body's space -- hinge axis, two
+    perpendiculars, pivot -- angle limits and a friction torque.
+    """
+    import math
+    from pyn.bhk_autounpack import parse_constraints
+
+    hinges, others = parse_constraints(_system_of(
+        r"Meshes\SetDressing\LunchBoxKids\LunchBoxKids01Dest.nif"))
+    assert TT.is_eq(others, {}, "no other constraint types")
+    assert TT.is_eq([(c.body_a, c.body_b) for c in hinges], [(2, 0), (1, 0)], "bodies")
+    c = hinges[0]
+    assert TT.is_eq(c.kind, 'limited_hinge', "kind")
+    assert TT.is_equiv((c.min_angle, c.max_angle), (-0.6858, 2.4347), "limits", e=1e-3)
+    assert TT.is_equiv(c.friction, 0.01, "friction", e=1e-6)
+    assert TT.is_equiv([r[0] for r in c.rot_a], (0.0, 1.0, 0.0), "axis in A", e=1e-5)
+    assert TT.is_equiv(c.pivot_b, (0.003878, -0.03655, 0.001512), "pivot in B", e=1e-5)
+    for r in (c.rot_a, c.rot_b):
+        cols = [[r[i][j] for i in range(3)] for j in range(3)]
+        for j in range(3):
+            assert TT.is_equiv(math.sqrt(sum(x * x for x in cols[j])), 1.0, "unit axes", e=1e-5)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_HINGE_PACK():
+    """The lunchbox re-packed with its hinges: one system, the same 3 bodies and 2 hinges.
+
+    Everything is built from the parsed values, and comes back as vanilla's: bodies,
+    frames, limits, friction, and the constant atoms byte for byte (Discord report D1:
+    export split the system in 3 and dropped the hinges, so the pieces fell apart).
+    """
+    from pyn.bhk_autopack import pack_system
+    from pyn.bhk_autounpack import parse_bytes, parse_constraints
+
+    van = _system_of(r"Meshes\SetDressing\LunchBoxKids\LunchBoxKids01Dest.nif")
+    hinges, _ = parse_constraints(van)
+    out = pack_system(parse_bytes(van), hinges)
+    back, others = parse_constraints(out)
+    assert TT.is_eq(others, {}, "nothing else")
+    assert TT.is_eq(len(parse_bytes(out)), 3, "3 bodies")
+    assert TT.is_eq(len(back), 2, "2 hinges")
+    for a, b in zip(back, hinges):
+        assert TT.is_eq(_hinge_fields(a), _hinge_fields(b), "hinge fields")
+        for f in ('rot_a', 'rot_b'):
+            assert TT.is_equiv([x for r in getattr(a, f) for x in r],
+                               [x for r in getattr(b, f) for x in r], f, e=1e-7)
+        for f in ('pivot_a', 'pivot_b'):
+            assert TT.is_equiv(getattr(a, f), getattr(b, f), f, e=1e-7)
+    ours, theirs = _constraint_blobs(out), _constraint_blobs(van)
+    for o, t in zip(ours, theirs):
+        assert TT.is_eq(len(o), 0x130, "hinge object size")
+        assert TT.is_eq(o[:0x30], t[:0x30], "header and transforms atom type")
+        assert TT.is_eq(o[0xB0:0xF0], t[0xB0:0xF0], "stabilisation, motor, friction atoms")
+        assert TT.is_eq(o[0xF4:0xFC], t[0xF4:0xFC], "limit atom header")
+        assert TT.is_eq(o[0x104:], t[0x104:], "tau, 2d angular, ball-and-socket atoms")
+
+
+def _constraint_blobs(packed):
+    """The bytes of each constraint data object, in constraint order."""
+    import struct
+    from pyn.bhk_autounpack import (parse_section_headers, parse_virtual_fixups,
+                                    parse_local_fixups, parse_global_fixups)
+    hdrs = parse_section_headers(packed)
+    dh = hdrs["__data__"]
+    st = dh.abs_start
+    objs = parse_virtual_fixups(packed, dh, hdrs["__classnames__"].abs_start)
+    lf = parse_local_fixups(packed, dh)
+    gf = parse_global_fixups(packed, dh)
+    psd = next(r for r, c in objs if c == 'hknpPhysicsSystemData')
+    n = struct.unpack_from('<I', packed, st + psd + 0x58)[0] & 0x3FFFFFFF
+    d = lf.get(psd + 0x50)
+    return [packed[st + gf[d + 0x18 * i][1]:st + gf[d + 0x18 * i][1] + 0x130] for i in range(n)]
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_PACK_SYSTEM_MIXED():
+    """pack_system takes bodies of any kind together: polytope, capsule, sphere,
+    compressed mesh.  Each comes back as given, in order, with its own physics.
+
+    Vanilla has one system per nif, holding every body in it; the old packer only
+    took all-convex, all-mesh, or one mesh with one polytope.
+    """
+    import math
+    from pyn import mass_props as MP
+    from pyn.bhk_autopack import pack_system
+    from pyn.bhk_autounpack import BodyTransform, CollisionShape, PhysicsProps, parse_bytes
+
+    def xf(x):
+        return BodyTransform(position=(x, 0.0, 0.0), rotation=MP.IDENTITY3,
+                             quaternion=(0.0, 0.0, 0.0, 1.0))
+    box, quads = _box((0.5, 0.5, 0.5))
+    tris = [t for q in quads for t in ([q[0], q[1], q[2]], [q[0], q[2], q[3]])]
+    shapes = [
+        CollisionShape(shape_type='compressed_mesh', name='m', transform=xf(0.0), verts=box,
+                       faces=tris, convex_radius=0.0, children=[], physics=PhysicsProps()),
+        CollisionShape(shape_type='polytope', name='p', transform=xf(2.0), verts=box,
+                       faces=quads, convex_radius=0.01, children=[],
+                       physics=PhysicsProps(is_dynamic=True, mass=3.0, motion_id=0)),
+        CollisionShape(shape_type='capsule', name='c', transform=xf(4.0), verts=[], faces=[],
+                       convex_radius=0.2, children=[], capsule_ends=((0, 0, -1), (0, 0, 1)),
+                       physics=PhysicsProps(is_dynamic=True, mass=2.0, motion_id=0)),
+        CollisionShape(shape_type='sphere', name='s', transform=xf(6.0), verts=[], faces=[],
+                       convex_radius=0.0, sphere_radius=0.5, children=[],
+                       physics=PhysicsProps(is_dynamic=True, mass=1.0, motion_id=0)),
+    ]
+    back = parse_bytes(pack_system(shapes))
+    assert TT.is_eq([s.shape_type for s in back],
+                    ['compressed_mesh', 'polytope', 'capsule', 'sphere'], "body kinds, in order")
+    assert TT.is_eq([s.body_index for s in back], [0, 1, 2, 3], "body indices")
+    assert TT.is_eq([s.physics.is_dynamic for s in back], [False, True, True, True], "dynamic")
+    assert TT.is_equiv([s.physics.mass for s in back], [0.0, 3.0, 2.0, 1.0], "masses", e=1e-5)
+    assert TT.is_equiv([s.transform.position[0] for s in back], [0, 2, 4, 6], "placed")
+    assert TT.is_equiv(back[2].capsule_ends, ((0, 0, -1), (0, 0, 1)), "capsule ends")
+    assert TT.is_equiv(back[3].sphere_radius, 0.5, "sphere radius")
+    assert TT.is_true(math.isclose(back[1].convex_radius, 0.01, abs_tol=1e-6), "radius")
+    mass = TT.havok_mass_data(pack_system(shapes))
+    assert TT.is_eq([m['motion']['props_id'] if m['motion'] else None for m in mass],
+                    [None, 0, 1, 2], "each moving body its own motion properties")
+
+
+def _objects_of(data, cls):
+    """Each `cls` object in a packfile: (absolute offset, its bytes up to the next object)."""
+    from pyn.bhk_autounpack import parse_section_headers, parse_virtual_fixups
+    h = parse_section_headers(data)
+    d = h['__data__']
+    objs = sorted(parse_virtual_fixups(data, d, h['__classnames__'].abs_start))
+    ends = [r for r, _ in objs[1:]] + [d.local_fix - d.abs_start]
+    return [(d.abs_start + r, data[d.abs_start + r:d.abs_start + e])
+            for (r, c), e in zip(objs, ends) if c == cls]
+
+
+def _sphere_verts(obj):
+    import struct
+    n, off = struct.unpack_from('<HH', obj, 0x30)
+    return [struct.unpack_from('<4f', obj, 0x30 + off + 16 * k) for k in range(n)]
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_SPHERE_LAYOUT():
+    """A sphere shape is 0x80 bytes and lists its centre four times, as all 175 vanilla
+    spheres do.  We wrote 0x50 bytes still claiming four vertices, so Havok read three
+    vertices from whatever came next: a Mr Handy skeleton built that way ignored bullets
+    and hung the game when it died (in game, 11-25)."""
+    from pyn import mass_props as MP
+    from pyn.bhk_autopack import pack_system
+    from pyn.bhk_autounpack import BodyTransform, CollisionShape, PhysicsProps, parse_bytes
+
+    xf = BodyTransform(position=(1.0, 2.0, 3.0), rotation=MP.IDENTITY3,
+                       quaternion=(0.0, 0.0, 0.0, 1.0))
+    s = CollisionShape(shape_type='sphere', name='s', transform=xf, verts=[], faces=[],
+                       convex_radius=0.0, sphere_radius=0.25, children=[],
+                       sphere_center=(0.1, -0.2, 0.05),
+                       physics=PhysicsProps(is_dynamic=True, mass=2.0, motion_id=0))
+    data = pack_system([s])
+    [(abs_off, obj)] = _objects_of(data, 'hknpSphereShape')
+    assert TT.is_eq(len(obj), 0x80, "sphere object size")
+    assert TT.is_eq(abs_off % 16, 0, "sphere 16-byte aligned")
+    assert TT.is_equiv(_sphere_verts(obj), [(0.1, -0.2, 0.05, 0.5)] * 4,
+                       "four vertices, each the centre", e=1e-6)
+    back = parse_bytes(data)[0]
+    assert TT.is_equiv(back.sphere_center, (0.1, -0.2, 0.05), "centre reads back", e=1e-6)
+    com = TT.havok_mass_data(data)[0]['motion']['com']
+    assert TT.is_equiv(com, (1.1, 1.8, 3.05), "centre of mass at the centre", e=1e-5)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_SPHERE_OFF_CENTRE():
+    """The Mr Handy skeleton's COM sphere sits 0.0633 off its body's origin.  Re-packing
+    it gives back vanilla's sphere object byte for byte, and its centre of mass."""
+    from pyn.bhk_autopack import pack_system
+    from pyn.bhk_autounpack import parse_bytes
+
+    nif = NifFile(os.path.join(TT.FO4_ASSETS,
+                               r"Meshes\Actors\Robot\CharacterAssets\skeleton.nif"))
+    van = nif.nodes['COM'].collision_object.physics_system.data
+    sphere = parse_bytes(van)[0]
+    assert TT.is_equiv(sphere.sphere_center, (0.0633, 0.0, 0.0), "vanilla centre", e=1e-4)
+    ours = pack_system([sphere])
+    assert TT.is_eq(_objects_of(ours, 'hknpSphereShape')[0][1],
+                    _objects_of(van, 'hknpSphereShape')[0][1], "sphere object as vanilla's")
+    assert TT.is_equiv(TT.havok_mass_data(ours)[0]['motion']['com'],
+                       TT.havok_mass_data(van)[0]['motion']['com'], "centre of mass", e=1e-4)
+
+
 ###################### Test execution framework #########################
 
 alltests = [t for k, t in sys.modules[__name__].__dict__.items() if k.startswith('TEST_')]

@@ -2619,6 +2619,8 @@ class NifExporter:
         self._reorder_switch_children()
         if self.root_object:
             collision.CollisionHandler.export_collisions(self, self.root_object)
+        # FO4: every body exported above goes into the nif's one physics system.
+        collision.CollisionHandler.finish_physics(self)
         self.export_extra_data()
         self.connect_points.export_all(self.nif, BD.asset_path)
         if self.settings.export_animations:

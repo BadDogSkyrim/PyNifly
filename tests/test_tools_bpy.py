@@ -106,6 +106,11 @@ def clear_all():
     #         obj.select_set(False)
     # bpy.ops.object.delete()
 
+    # Rigid body constraints go first: freeing a body while a constraint still holds it
+    # crashes Blender (btRigidBody::removeConstraintRef, Blender 5.2).
+    for obj in [o for o in bpy.data.objects if o.rigid_body_constraint]:
+        bpy.data.objects.remove(obj)
+
     curlen = len(bpy.data.objects)
     while curlen > 0:
         for obj in bpy.data.objects:
