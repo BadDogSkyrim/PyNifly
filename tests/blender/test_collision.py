@@ -2051,9 +2051,6 @@ def _bone_of_collision():
             for pb in arma.pose.bones for c in pb.constraints if c.type == 'COPY_TRANSFORMS'}
 
 
-ROBOT_SKEL = os.path.join(TT.FO4_ASSETS, r"Meshes\Actors\Robot\CharacterAssets\skeleton.nif")
-
-
 @TT.category('FO4', 'PHYSICS')
 def TEST_COLLISION_FO4_SPHERE_CENTRE():
     """A sphere whose centre is off its body's origin imports and exports in place.
@@ -2063,20 +2060,25 @@ def TEST_COLLISION_FO4_SPHERE_CENTRE():
     position.  Import placed it at the body's position, and export (until 11-25)
     wrote a broken sphere -- the robot ignored bullets and hung the game on death.
 
+    A non-human skeleton is its own reference skeleton: given as one, every node
+    exports where vanilla has it.  (Left to the default human reference, bones the two
+    share take the human's rest, and CharacterBumper moves.)
+
     - Import: the sphere mesh is centred at the body's position plus the turned centre.
-    - Export: the centre of mass is vanilla's.
+    - Export: the centre of mass is vanilla's, and every node is where vanilla has it.
     """
     from io_scene_nifly.pyn import mass_props as MP
     from io_scene_nifly.pyn.bhk_autounpack import parse_bytes
+    robot_skel = TTB.test_file(r"tests\FO4\RobotSkeleton.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_SPHERE_CENTRE.nif")
-    van_nif = pyn.NifFile(ROBOT_SKEL)
+    van_nif = pyn.NifFile(robot_skel)
     van = parse_bytes(van_nif.nodes['COM'].collision_object.physics_system.data)[0]
     expect = [p + c for p, c in zip(van.transform.position,
                                     MP.mat_vec(MP.quat_to_matrix(van.transform.quaternion),
                                                van.sphere_center))]
     assert TT.is_equiv(expect, (0.0, 0.0, 1.1112), "vanilla's centre, worked out", e=1e-4)
 
-    bpy.ops.import_scene.pynifly(filepath=ROBOT_SKEL)
+    bpy.ops.import_scene.pynifly(filepath=robot_skel, reference_skel=robot_skel)
     [sph] = [o for o in bpy.data.objects if o.get('pynCollisionShapeType') == 'sphere']
     sf = max(sph.dimensions) / 2 / van.sphere_radius
     centre = sum((v.co for v in sph.data.vertices), Vector()) / len(sph.data.vertices) / sf
@@ -2088,6 +2090,12 @@ def TEST_COLLISION_FO4_SPHERE_CENTRE():
     van_mass = _np_mass(van_nif)
     assert TT.is_equiv(out['COM']['motion']['com'], van_mass['COM']['motion']['com'],
                        "centre of mass as vanilla's", e=1e-4)
+    out_nif = pyn.NifFile(outfile)
+    for name, node in van_nif.nodes.items():
+        if name == van_nif.rootName:
+            continue
+        assert TT.is_equiv(out_nif.nodes[name].global_transform.translation[:],
+                           node.global_transform.translation[:], f"{name} in place", e=1e-4)
 
 
 @TT.category('FO4', 'PHYSICS')

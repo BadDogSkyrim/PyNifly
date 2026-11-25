@@ -9681,8 +9681,7 @@ def TEST_FO4_SPHERE_OFF_CENTRE():
     from pyn.bhk_autopack import pack_system
     from pyn.bhk_autounpack import parse_bytes
 
-    nif = NifFile(os.path.join(TT.FO4_ASSETS,
-                               r"Meshes\Actors\Robot\CharacterAssets\skeleton.nif"))
+    nif = NifFile(r"tests\FO4\RobotSkeleton.nif")
     van = nif.nodes['COM'].collision_object.physics_system.data
     sphere = parse_bytes(van)[0]
     assert TT.is_equiv(sphere.sphere_center, (0.0633, 0.0, 0.0), "vanilla centre", e=1e-4)
