@@ -2987,14 +2987,17 @@ def TEST_SF_CLOTH_SKELETON_FROM_ARMATURE():
     chain = [b for b in arma.data.bones if 'PonyTail' in b.name and nif_name(b.name) in names]
     assert TT.is_true(len(chain) >= 3, f"the ponytail's cloth bones: {[b.name for b in chain]}")
     bent = chain[1]
-    moved = {nif_name(b.name) for b in bent.children_recursive} | {nif_name(bent.name)}
+    # By name: edit mode rebuilds the bones, and a Bone held across it reads freed memory
+    # (its name came back '' in the full suite, 2026-11-26).
+    bent_name = bent.name
+    moved = {nif_name(b.name) for b in bent.children_recursive} | {nif_name(bent_name)}
     BD.ObjectSelect([arma], active=True)
     bpy.ops.object.mode_set(mode='EDIT')
     eb = arma.data.edit_bones
-    head = eb[bent.name].head.copy()
+    head = eb[bent_name].head.copy()
     turn = (mathutils.Matrix.Translation(head) @ mathutils.Matrix.Rotation(math.radians(30), 4, 'X')
             @ mathutils.Matrix.Translation(-head))
-    for b in [eb[bent.name]] + list(eb[bent.name].children_recursive):
+    for b in [eb[bent_name]] + list(eb[bent_name].children_recursive):
         b.transform(turn)
     bpy.ops.object.mode_set(mode='OBJECT')
 
@@ -3008,10 +3011,10 @@ def TEST_SF_CLOTH_SKELETON_FROM_ARMATURE():
             assert TT.is_equiv(a, 30.0, f"{n} turned with the bend", e=0.1)
         else:
             assert TT.is_true(a < 0.01, f"{n} not bent: turned {a} degrees")
-    shift = (b0[nif_name(bent.name)].to_translation()
-             - b2[nif_name(bent.name)].to_translation())
+    shift = (b0[nif_name(bent_name)].to_translation()
+             - b2[nif_name(bent_name)].to_translation())
     assert TT.is_true(shift.length < 1e-3,
-                      f"{nif_name(bent.name)} head moved {tuple(shift)} m: "
+                      f"{nif_name(bent_name)} head moved {tuple(shift)} m: "
                       "the bent bone turned about its own head (it takes the armature's "
                       "position, a few hundredths of a mm from the block's; a turn about the "
                       "wrong point would be centimetres off)")

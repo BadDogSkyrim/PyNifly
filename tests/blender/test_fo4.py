@@ -1678,7 +1678,11 @@ def TEST_COTH_DATA():
     nif1 = pyn.NifFile(outfile)
     assert len(nif1.shapes) == 1, "Expected hair nif"
     assert len(nif1.cloth_data) == 1, "Expected cloth data"
-    assert len(nif1.cloth_data[0][1]) == 46257, f"Expected 46257 bytes of cloth data, found {len(nif1.cloth_data[0][1])}"
+    # The cloth is rebuilt from its pictures under the empty: the same cloth.
+    from io_scene_nifly.pyn import fo4_cloth
+    assert TT.is_eq(fo4_cloth.model_differences(
+        fo4_cloth.read_model(pyn.NifFile(testfile).cloth_data[0][1]),
+        fo4_cloth.read_model(nif1.cloth_data[0][1])), [], "the same cloth")
 
 
 @TT.category('FO4')
@@ -1788,3 +1792,292 @@ def TEST_GROUPING_NODE_PARENTS():
              if vanilla.get(n) is not None and out[n] != vanilla[n]}
     assert TT.is_eq(vanilla.get('AddOnNode06'), 'AddOnNode05', "vanilla nests the value nodes")
     assert TT.is_eq(moved, {}, "every node keeps its parent (exported, vanilla)")
+
+
+# --- FO4 cloth: drawn, edited and rebuilt as Starfield's is (phase 7) ---------------------------
+
+def _fo4_cloth_export(outfile):
+    """Export everything visible to `outfile`; the cloth model its first cloth block holds."""
+    from io_scene_nifly.pyn import fo4_cloth
+    os.makedirs(os.path.dirname(outfile), exist_ok=True)
+    BD.ObjectSelect([o for o in bpy.data.objects if o.visible_get()], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4', intuit_defaults=False)
+    return fo4_cloth.read_model(pyn.NifFile(outfile).cloth_data[0][1])
+
+
+def _cloth_bbox(obj):
+    dg = bpy.context.evaluated_depsgraph_get()
+    ev = obj.evaluated_get(dg)
+    me = ev.to_mesh()
+    pts = [ev.matrix_world @ v.co for v in me.vertices]
+    ev.to_mesh_clear()
+    return (Vector([min(p[i] for p in pts) for i in range(3)]),
+            Vector([max(p[i] for p in pts) for i in range(3)]))
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.requires_assets('FO4')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
+def TEST_FO4_CLOTH_VIZ():
+    """Import draws FO4 cloth as it does Starfield's: under the BSClothExtraData empty, a mesh
+    per piece (vertex = particle, face = sim triangle, edges carry the links, the cloth's
+    normals as the mesh's) and a mesh per collision capsule, on the character. Export never
+    writes them as shapes, and builds the cloth from them: unedited, the same cloth."""
+    from io_scene_nifly.pyn import fo4_cloth
+    testfile = os.path.join(TT.FO4_ASSETS, r"Meshes\Clothes\PrewarDress\PrewarDress.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_CLOTH_VIZ\PrewarDress.nif", output=True)
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    cloth = next(o for o in bpy.data.objects if 'BSClothExtraData_Name' in o)
+    viz = [o for o in bpy.data.objects if o.get('pynClothViz')]
+    assert TT.is_true(all(o.parent == cloth for o in viz), "the pictures hang off the cloth empty")
+    sim = next(o for o in viz if 'cloth_sim' in o)
+    assert TT.is_eq(len(sim.data.vertices), 335, "a vertex per particle")
+    pinned = sim.vertex_groups['cloth_pinned']
+    assert TT.is_eq(sum(1 for v in sim.data.vertices
+                        if any(g.group == pinned.index for g in v.groups)), 37, "pinned group")
+    links = [a.value for a in sim.data.attributes['cloth_link'].data]
+    assert TT.is_true(any(v & 1 for v in links) and any(v & 2 for v in links),
+                      "edges carry standard (1) and stretch (2) links")
+    assert TT.is_true(sim.data.has_custom_normals, "the cloth's normals are the mesh's")
+    assert TT.is_true('cloth_flip' in sim.data.attributes, "triangle flips per face")
+    assert TT.is_equiv(sim['cloth_gravity'][2], -686.7, "settings are properties", e=1e-3)
+    assert TT.is_eq(sim['cloth_solve_order'], 'standard,bend,stretch', "the run order")
+    caps = [o for o in viz if o.get('cloth_shape')]
+    assert TT.is_eq(sorted(o['cloth_shape'] for o in caps),
+                    ['capsule'] + ['tapered_capsule'] * 4, "the leg capsules")
+
+    dress = max((o for o in bpy.data.objects if o.type == 'MESH' and not o.get('pynClothViz')),
+                key=lambda o: len(o.data.vertices))
+    dmin, dmax = _cloth_bbox(dress)
+    smin, smax = _cloth_bbox(sim)
+    centre = (smin + smax) / 2
+    assert TT.is_true(all(dmin[i] <= centre[i] <= dmax[i] for i in range(3)),
+                      f"sim mesh centre {centre} inside {dress.name} {dmin}..{dmax}")
+
+    before = fo4_cloth.read_model(pyn.NifFile(testfile).cloth_data[0][1])
+    after = _fo4_cloth_export(outfile)
+    nifin, nifout = pyn.NifFile(testfile), pyn.NifFile(outfile)
+    assert TT.is_eq(sorted(s.name for s in nifout.shapes), sorted(s.name for s in nifin.shapes),
+                    "no cloth pictures exported as shapes")
+    assert TT.is_eq(fo4_cloth.model_differences(before, after), [],
+                    "rebuilt unedited: the same cloth")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.requires_assets('FO4')
+# The warnings are the vanilla meshes', not the cloth's.
+@TT.expect_errors(('Some faces have been assigned to more than one partition',
+                   'dismemberment segments but no cut offsets',
+                   'duplicate triangle'))
+def TEST_FO4_CLOTH_ROUNDTRIP_KINDS():
+    """Unedited FO4 cloth of every kind comes back the same through Blender: hair, ghoul pants
+    (volume and local range), the 4-piece western duster (copy and gather, shared capsules),
+    the DC guard's bend links, the lab coat's compressible links over two skinned meshes, and
+    the 6Suit's bone planes, and Valentine's coat (a capsule whose refit from its mesh drifts
+    1e-4 off, more than float noise: it's still unchanged)."""
+    from io_scene_nifly.pyn import fo4_cloth
+    for rel in (r"Meshes\Actors\Character\CharacterAssets\Hair\Female\FemaleHair04.nif",
+                r"Meshes\Actors\FeralGhoul\CharacterAssets\Pants.nif",
+                r"Meshes\DLC04\Clothes\Western\WesternDuster_m.nif",
+                r"Meshes\Armor\DCGuard\FOutfit.nif",
+                r"Meshes\Clothes\InstituteUniform\FLabCoat.nif",
+                r"Meshes\Clothes\Residents\6SuitF.nif",
+                r"Meshes\Clothes\Valentine\FCoat.nif"):
+        TTB.clear_all()
+        testfile = os.path.join(TT.FO4_ASSETS, rel)
+        name = os.path.basename(rel)
+        outfile = TTB.test_file(rf"tests\Out\TEST_FO4_CLOTH_ROUNDTRIP_KINDS\{name}", output=True)
+        bpy.ops.import_scene.pynifly(filepath=testfile)
+        before = fo4_cloth.read_model(pyn.NifFile(testfile).cloth_data[0][1])
+        after = _fo4_cloth_export(outfile)
+        assert TT.is_eq(fo4_cloth.model_differences(before, after), [], f"{name}: the same cloth")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.requires_assets('FO4')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',))
+def TEST_FO4_CLOTH_EDIT_EXPORT():
+    """FO4 cloth edited in Blender goes out on export, built from what the pictures show:
+    a setting, a particle's mass, radius and friction, a particle moved, one pinned, a link
+    taken away, a capsule scaled. A particle deleted takes its links with it; the rest keep
+    theirs, renumbered."""
+    import bmesh
+    from io_scene_nifly.pyn import fo4_cloth
+    testfile = os.path.join(TT.FO4_ASSETS, r"Meshes\Clothes\PrewarDress\PrewarDress.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_FO4_CLOTH_EDIT_EXPORT\PrewarDress.nif", output=True)
+    before = fo4_cloth.read_model(pyn.NifFile(testfile).cloth_data[0][1])
+    b0 = before.sims[0]
+    free = [i for i in range(len(b0.particles)) if i not in b0.pinned]
+    f_mass, f_move, f_pin = free[0], free[1], free[2]
+    gone = next((a, b) for a, b, k in b0.links if k == 'standard' and f_pin not in (a, b))
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+
+    sim = next(o for o in bpy.data.objects if 'cloth_sim' in o)
+    cap = next(o for o in bpy.data.objects if o.get('cloth_shape') == 'capsule')
+    sim['cloth_damping'] = 0.7
+    sim['cloth_sub_steps'] = 4
+    sim.data.attributes['cloth_mass'].data[f_mass].value = 2.0
+    sim.data.attributes['cloth_radius'].data[f_mass].value = 3.0
+    sim.data.attributes['cloth_friction'].data[f_mass].value = 0.9
+    sim.data.vertices[f_move].co.z -= 5.0
+    sim.vertex_groups['cloth_pinned'].add([f_pin], 1.0, 'REPLACE')
+    edge = next(e for e in sim.data.edges if set(e.vertices) == set(gone))
+    sim.data.attributes['cloth_link'].data[edge.index].value &= ~1
+    cap.scale = cap.scale * 1.5
+
+    after = _fo4_cloth_export(outfile)
+    s = after.sims[0]
+    assert TT.is_equiv(s.settings['damping'], 0.7, "damping from the sim mesh's property")
+    assert TT.is_eq(s.settings['sub_steps'], 4, "substeps")
+    assert TT.is_equiv(s.particles[f_mass]['mass'], 2.0, "mass from the vertex attribute")
+    assert TT.is_equiv(s.particles[f_mass]['radius'], 3.0, "radius")
+    assert TT.is_equiv(s.particles[f_mass]['friction'], 0.9, "friction")
+    dz = s.positions[f_move][2] - b0.positions[f_move][2]
+    assert TT.is_equiv(dz, -5.0, "the moved particle moved (game units)", e=1e-3)
+    assert TT.is_true(f_pin in s.pinned and s.particles[f_pin]['mass'] == 0, "newly pinned")
+    have = {(frozenset((a, b)), k) for a, b, k in s.links}
+    assert TT.is_true((frozenset(gone), 'standard') not in have, "the link taken away is gone")
+    c0 = next(c for c in before.collidables if c.shape == 'capsule').params
+    c1 = next(c for c in after.collidables if c.shape == 'capsule').params
+    assert TT.is_equiv(c1['radius'], c0['radius'] * 1.5, "radius follows the object's scale",
+                       e=1e-3)
+
+    # A particle deleted.
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    sim = next(o for o in bpy.data.objects if 'cloth_sim' in o)
+    bm = bmesh.new()
+    bm.from_mesh(sim.data)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.delete(bm, geom=[bm.verts[f_move]], context='VERTS')
+    bm.to_mesh(sim.data)
+    bm.free()
+    after = _fo4_cloth_export(outfile)
+    s = after.sims[0]
+    assert TT.is_eq(len(s.positions), len(b0.positions) - 1, "one particle fewer")
+
+    def renum(i):
+        return i - (i > f_move)
+    want = {(frozenset((renum(a), renum(b))), k) for a, b, k in b0.links
+            if f_move not in (a, b)}
+    assert TT.is_eq({(frozenset((a, b)), k) for a, b, k in s.links}, want,
+                    "the deleted particle's links go; the rest keep theirs, renumbered")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.requires_assets('FO4')
+@TT.expect_errors(('Some faces have been assigned to more than one partition',
+                   'Unknown block type: NiBinaryExtraData'))
+def TEST_FO4_CLOTH_NEW():
+    """FO4 cloth made from scratch: an empty named BSClothExtraData under the nif root, a strip
+    modelled under it down the hair's centre cloth bones, its top pair pinned, skinned to the
+    head, and a capsule mesh with cloth_shape and cloth_bone. Export builds the whole cloth: the
+    skeleton from the armature (the bones the cloth uses and their ancestors, Root from the
+    reference skeleton), driven bones = the armature's bones the reference skeleton doesn't
+    have, vanilla's usual settings, a hinge at every inner edge, normals and flips worked out.
+    It comes back in as a cloth like any other. The same on the hair's _faceBones nif, whose
+    one armature is the facebones armature."""
+    for name in ('FemaleHair04.nif', 'FemaleHair04_faceBones.nif'):
+        TTB.clear_all()
+        _fo4_new_cloth(name)
+
+
+def _fo4_new_cloth(name):
+    import mathutils
+    from io_scene_nifly.pyn import fo4_cloth, sf_cloth
+    testfile = os.path.join(TT.FO4_ASSETS,
+                            r"Meshes\Actors\Character\CharacterAssets\Hair\Female", name)
+    outfile = TTB.test_file(rf"tests\Out\TEST_FO4_CLOTH_NEW\{name}", output=True)
+
+    bpy.ops.import_scene.pynifly(filepath=testfile)
+    old = next(o for o in bpy.data.objects if 'BSClothExtraData_Name' in o)
+    root = old.parent
+    for o in list(old.children) + [old]:
+        bpy.data.objects.remove(o)
+    hair = next(o for o in bpy.data.objects if o.type == 'MESH')
+    arma = next(m.object for m in hair.modifiers if m.type == 'ARMATURE')
+    nif_name = pyn.NifFile(testfile).nif_name
+    bl_chain = sorted(b.name for b in arma.data.bones if 'Cloth' in b.name and '_C_' in nif_name(b.name))
+    assert TT.is_eq(len(bl_chain), 3, f"the hair's centre cloth bones: {arma.data.bones.keys()}")
+    bl_head = next(b.name for b in arma.data.bones if nif_name(b.name) == 'HEAD')
+    cloth_bones = sorted(nif_name(b.name) for b in arma.data.bones if 'Cloth' in b.name)
+
+    bpy.ops.object.add(type='EMPTY')
+    cloth = bpy.context.object
+    cloth.name = 'BSClothExtraData'
+    cloth.parent = root
+    cloth.location = (30, 0, 0)
+    bpy.context.view_layer.update()
+    to_root = root.matrix_world.inverted() @ arma.matrix_world
+    heads = [to_root @ arma.data.bones[bl_head].head_local] + \
+        [to_root @ arma.data.bones[b].head_local for b in bl_chain] + \
+        [to_root @ arma.data.bones[bl_chain[-1]].tail_local]
+    verts = [h + mathutils.Vector((dx, 0, 0)) for h in heads for dx in (-1.0, 1.0)]
+    faces = []
+    for k in range(len(heads) - 1):
+        a, b, c, d = 2 * k, 2 * k + 1, 2 * k + 3, 2 * k + 2
+        faces += [(a, b, c), (a, c, d)]
+    me = bpy.data.meshes.new('Cloth:Strip')
+    me.from_pydata([tuple(v) for v in verts], [], faces)
+    sim = bpy.data.objects.new(me.name, me)
+    bpy.context.scene.collection.objects.link(sim)
+    sim.parent = cloth
+    sim.matrix_world = root.matrix_world
+    sim.vertex_groups.new(name='cloth_pinned').add([0, 1], 1.0, 'REPLACE')
+    sim.vertex_groups.new(name=bl_head).add(list(range(len(verts))), 1.0, 'REPLACE')
+    n = len(verts)
+
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=4.0, location=root.matrix_world @ heads[0])
+    cap = bpy.context.object
+    cap.name = 'Collidable_Head'
+    cap.scale = (1.0, 1.0, 2.0)
+    bpy.context.view_layer.update()
+    mw = cap.matrix_world.copy()
+    cap.parent = cloth
+    cap.matrix_world = mw
+    cap['cloth_shape'] = 'capsule'
+    cap['cloth_bone'] = bl_head
+
+    out = _fo4_cloth_export(outfile)
+    nif = pyn.NifFile(outfile)
+    assert TT.is_eq(nif.cloth_data[0][0], 'Binary Data', "vanilla's block name")
+    assert TT.is_eq(len(nif.shapes), 1, f"the sim mesh and capsule aren't shapes: "
+                                        f"{[s.name for s in nif.shapes]}")
+    s0 = out.sims[0]
+    assert TT.is_eq(len(s0.positions), n, "a particle per vertex")
+    assert TT.is_eq(s0.pinned, [0, 1], "the pinned pair")
+    assert TT.is_equiv([p['mass'] for p in s0.particles[2:]],
+                       [fo4_cloth.NEW_PARTICLE['mass']] * (n - 2), "vanilla's usual mass")
+    assert TT.is_equiv(list(s0.positions[2]), list(verts[2]),
+                       "positions in the root's space, game units", e=1e-3)
+    assert TT.is_eq(sorted(b for b, _t in s0.driven), cloth_bones,
+                    "it drives the bones the reference skeleton doesn't have")
+    assert TT.is_equiv(list(s0.settings['gravity']), [0, 0, -686.7], "vanilla's gravity", e=1e-3)
+    inner = 2 * (len(heads) - 1) - 1
+    assert TT.is_eq(len(s0.bend), inner, "a hinge at every edge two triangles share")
+    assert TT.is_eq(len(s0.normals), n, "a normal per particle, worked out")
+    assert TT.is_eq(len(out.collidables), 1, "the capsule")
+    assert TT.is_eq(out.collidables[0].bone, 'HEAD', "on the head")
+    assert TT.is_equiv(out.collidables[0].params['radius'], 4.0, "its radius from the mesh",
+                       e=0.05)
+
+    names = [b[0] for b in out.skeleton]
+    assert TT.is_eq(names[0], 'Root', "rooted at Root")
+    assert TT.is_true({'HEAD', *cloth_bones} <= set(names), f"the skeleton: {names}")
+    W = sf_cloth.bind_matrices(out.skeleton)
+    for bl in [bl_head] + bl_chain:
+        b = nif_name(bl)
+        want = to_root @ arma.data.bones[bl].head_local
+        got = [W[names.index(b)][i][3] for i in range(3)]
+        assert TT.is_equiv(got, list(want), f"{b} where the armature has it", e=1e-2)
+
+    # It comes back in as a cloth like any other, and goes out again the same.
+    TTB.clear_all()
+    bpy.ops.import_scene.pynifly(filepath=outfile)
+    sims = [o for o in bpy.data.objects if 'cloth_sim' in o]
+    assert TT.is_eq(len(sims), 1, "the new cloth imports")
+    assert TT.is_eq(len(sims[0].data.vertices), n, "with its particles")
+    again = _fo4_cloth_export(TTB.test_file(rf"tests\Out\TEST_FO4_CLOTH_NEW\again_{name}",
+                                            output=True))
+    assert TT.is_eq(fo4_cloth.model_differences(out, again), [], "and out again the same")

@@ -1,4 +1,7 @@
-"""Draw a Starfield cloth blob (BSClothExtraData) in Blender, and write edits to it back.
+"""Draw a cloth blob (BSClothExtraData) in Blender, and write edits to it back: Starfield's
+(Havok 2019 tagfile, pyn/sf_cloth.py) and Fallout 4's (hk_2014 packfile, pyn/fo4_cloth.py), which
+read into the same model and are drawn and edited the same way. Units are the file's: metres for
+Starfield, game units for FO4.
 
 Under the cloth's empty, import adds
 - a mesh per simulated cloth: vertex = particle at its rest position, face = sim triangle, and an
@@ -36,21 +39,56 @@ from .. import blender_defs as BD
 log = logging.getLogger("pynifly")
 
 VIZ_PROP = 'pynClothViz'
-LINK_BITS = {'standard': 1, 'stretch': 2}
+# Edge attribute cloth_link: which links an edge carries. FO4 adds compressible and bend links.
+LINK_BITS = {'standard': 1, 'stretch': 2, 'compressible': 4, 'bend_link': 8}
 PLANE_GROUP = 'plane:'          # sim-mesh vertex group: the particles a bone plane holds
+PINCH_GROUP = 'cloth_pinch'     # FO4: particles with pinch detection
+NOT_BONES = ('cloth_pinned', PINCH_GROUP)
 
 
-def build(cloth_obj, blob, scale, collection):
+class _Game:
+    """What differs between Starfield and FO4 cloth: the reader and builder, the file's unit
+    (`unit` game units each), defaults for new cloth, and how close counts as unchanged."""
+    def __init__(self, game):
+        self.fo4 = game == 'FO4'
+        self.name = 'FO4' if self.fo4 else 'SF'
+        if self.fo4:
+            from ..pyn import fo4_cloth, fo4_cloth_build
+            self.read, self.build = fo4_cloth.read_model, fo4_cloth_build.build_cloth
+            self.build_error = fo4_cloth_build.ClothBuildError
+            self.unit = 1.0
+            self.new_settings, self.new_particle = fo4_cloth.NEW_SETTINGS, fo4_cloth.NEW_PARTICLE
+            self.new_bend = fo4_cloth.NEW_BEND
+            self.tol, self.move_tol = 1e-4, 0.35
+        else:
+            from ..pyn import sf_cloth_build
+            self.read, self.build = sf_cloth.read_model, sf_cloth_build.build_cloth
+            self.build_error = sf_cloth_build.ClothBuildError
+            self.unit = HAVOC_SCALE_FACTOR
+            self.new_settings, self.new_particle = sf_cloth.NEW_SETTINGS, sf_cloth.NEW_PARTICLE
+            self.new_bend = sf_cloth.NEW_BEND
+            self.tol, self.move_tol = 1e-5, 0.005
+
+
+def build(cloth_obj, blob, scale, collection, game='SF'):
     """Draw `blob` under `cloth_obj`. `scale` is the import's scale factor. Returns the objects
     made; a blob that won't decode is logged and drawn as nothing."""
+    g = _Game(game)
     try:
-        cloth = sf_cloth.read_model(blob)
+        cloth = g.read(blob)
     except Exception as e:
         log.warning(f"Could not read the cloth data for display: {e}")
         return []
-    s = HAVOC_SCALE_FACTOR * scale
-    sims = [_sim_mesh(sim, s) for sim in cloth.sims]
+    s = g.unit * scale
+    sims = [_sim_mesh(sim, s, g) for sim in cloth.sims]
     cols = [_collidable(col, s) for col in cloth.collidables]
+    if g.fo4:
+        for sim in cloth.sims:
+            for ci, pinch in zip(sim.collidable_ids, sim.collidable_pinch):
+                if pinch and 'cloth_pinch' not in cols[ci]:
+                    cols[ci]['cloth_pinch'] = [pinch['pinchDetectionEnabled'],
+                                               pinch['pinchDetectionPriority'],
+                                               pinch['pinchDetectionRadius']]
     for i, o in enumerate(sims):
         o['cloth_index'] = i
     for i, o in enumerate(cols):
@@ -80,10 +118,13 @@ def build(cloth_obj, blob, scale, collection):
     return objs
 
 
-def _sim_mesh(sim, s):
+def _sim_mesh(sim, s, g):
     bm = bmesh.new()
     # Layers first: adding one reallocates the elements and orphans any held references.
     link = bm.edges.layers.int.new('cloth_link')
+    flip = bm.faces.layers.int.new('cloth_flip') if g.fo4 else None
+    volumes = [(vol, bm.verts.layers.float.new(f'cloth_volume{k}'))
+               for k, vol in enumerate(getattr(sim, 'volumes', []), 1)]
     bend = bm.edges.layers.float.new('cloth_bend')
     layers = {key: bm.verts.layers.float.new('cloth_' + key)
               for key in ('mass', 'radius', 'friction')}
@@ -97,12 +138,15 @@ def _sim_mesh(sim, s):
         ranges.append((lr, {f: bm.verts.layers.float.new(f'cloth_range{k}_{f}') for f in fields}))
     verts = [bm.verts.new(Vector(p) * s) for p in sim.positions]
     bm.verts.ensure_lookup_table()
-    for tri in sim.triangles:
+    flips = getattr(sim, 'flips', None) or [0] * len(sim.triangles)
+    for tri, fl in zip(sim.triangles, flips):
         if len(set(tri)) == 3:
             try:
-                bm.faces.new([verts[i] for i in tri])
+                f = bm.faces.new([verts[i] for i in tri])
             except ValueError:
-                pass                                # the same triangle twice
+                continue                            # the same triangle twice
+            if flip is not None:
+                f[flip] = fl
     for a, b, kind in sim.links:
         if a == b:
             continue
@@ -122,14 +166,27 @@ def _sim_mesh(sim, s):
             r = lr['particles'].get(i)
             for f, layer in fl.items():
                 v[layer] = -1.0 if r is None else (r[f] if r[f] is not None else -1.0)
+    # FO4 volume sets: a member's stiffness, 0 for a pinned one (it only weighs), -1 not in it.
+    for vol, layer in volumes:
+        for i, v in enumerate(verts):
+            k = vol['particles'].get(i, -1.0)
+            v[layer] = 0.0 if k is None else k
 
     me = bpy.data.meshes.new(f"Cloth:{sim.cloth_data or sim.name}")
     bm.to_mesh(me)
     bm.free()
+    normals = getattr(sim, 'normals', None)
+    if normals and len(me.polygons):
+        # The normals the cloth was built with (FO4 keeps one per particle): the mesh's own, so
+        # what Blender shows is what's written. Custom normals only hold on smooth faces.
+        me.polygons.foreach_set('use_smooth', [True] * len(me.polygons))
+        me.normals_split_custom_set_from_vertices([Vector(n).normalized() for n in normals])
     obj = bpy.data.objects.new(me.name, me)
     pinned = obj.vertex_groups.new(name='cloth_pinned')
     if sim.pinned:
         pinned.add(sim.pinned, 1.0, 'REPLACE')
+    if getattr(sim, 'pinch', None):
+        obj.vertex_groups.new(name=PINCH_GROUP).add(sim.pinch, 1.0, 'REPLACE')
     for i, infl in enumerate(sim.skin):
         for bone, w in infl:
             vg = obj.vertex_groups.get(bone) or obj.vertex_groups.new(name=bone)
@@ -144,7 +201,16 @@ def _sim_mesh(sim, s):
         obj['cloth_link_stiffness'] = sim.link_stiffness['standard']
     if 'stretch' in sim.link_stiffness:
         obj['cloth_stretch_stiffness'] = sim.link_stiffness['stretch']
+    for kind in ('compressible', 'bend_link'):
+        if kind in sim.link_stiffness:
+            obj[f'cloth_{kind}_stiffness'] = sim.link_stiffness[kind]
     obj['cloth_stretch_slack'] = sim.stretch_slack
+    if g.fo4:
+        obj['cloth_solve_order'] = ','.join(sim.solve_order)
+        obj['cloth_extra_reads'] = ','.join(sim.extra_reads)
+        obj['cloth_buffer_name'] = sim.buffer_name or ''
+        for k, vol in enumerate(sim.volumes, 1):
+            obj[f'cloth_volume{k}_name'] = vol['name'] or ''
     for k, lr in enumerate(sim.local_ranges, 1):
         obj[f'cloth_range{k}_name'] = lr['name'] or ''
         obj[f'cloth_range{k}_stiffness'] = lr['stiffness']
@@ -306,7 +372,7 @@ def _remap_carried(cs, old_to_new):
 _GONE = object()
 
 
-def _sim_from_mesh(obj, sim, s):
+def _sim_from_mesh(obj, sim, s, g):
     """Rewrite `sim` (as read from the blob) to be what the sim mesh `obj` says. Vertices keep
     their particle's number in `cloth_particle`, so the constraint sets carried over find their
     particles after vertices are added, deleted or reordered."""
@@ -328,6 +394,7 @@ def _sim_from_mesh(obj, sim, s):
     # In the nif root's space, so a mesh modelled anywhere under the cloth empty is where it shows.
     m = _root_space(obj, obj.parent) if obj.parent is not None else obj.matrix_world
     positions = [tuple(x / s for x in m @ Vector(co[3 * i:3 * i + 3])) for i in range(n)]
+    to_root = m
 
     vg = obj.vertex_groups.get('cloth_pinned')
     pinned = set()
@@ -338,7 +405,7 @@ def _sim_from_mesh(obj, sim, s):
     mass = _attr(me, 'cloth_mass', n)
     radius = _attr(me, 'cloth_radius', n)
     friction = _attr(me, 'cloth_friction', n)
-    free_mass = _median([p['mass'] for p in old], sf_cloth.NEW_PARTICLE['mass'])
+    free_mass = _median([p['mass'] for p in old], g.new_particle['mass'])
     particles = []
     for i in range(n):
         o = old[ids[i]] if 0 <= ids[i] < len(old) else {}
@@ -353,9 +420,9 @@ def _sim_from_mesh(obj, sim, s):
         particles.append({
             'mass': m,
             'radius': radius[i] if radius else o.get('radius', _median(
-                [p['radius'] for p in old], sf_cloth.NEW_PARTICLE['radius'])),
+                [p['radius'] for p in old], g.new_particle['radius'])),
             'friction': friction[i] if friction else o.get('friction', _median(
-                [p['friction'] for p in old], sf_cloth.NEW_PARTICLE['friction']))})
+                [p['friction'] for p in old], g.new_particle['friction']))})
     # A mesh made by hand gets the values it went out with, to see and edit.
     for key, vals in (('mass', mass), ('radius', radius), ('friction', friction)):
         if vals is None:
@@ -363,10 +430,13 @@ def _sim_from_mesh(obj, sim, s):
             me.attributes['cloth_' + key].data.foreach_set('value',
                                                            [p[key] for p in particles])
 
-    tris = []
+    tris, flips = [], []
+    flip = _attr_faces(me, 'cloth_flip')
     for poly in me.polygons:
         vs = list(poly.vertices)
         tris += [(vs[0], vs[k], vs[k + 1]) for k in range(1, len(vs) - 1)]
+        if flip is not None:
+            flips += [flip[poly.index]] * (len(vs) - 2)
 
     edges = [tuple(e.vertices) for e in me.edges]
     if 'cloth_link' not in me.attributes:
@@ -384,7 +454,7 @@ def _sim_from_mesh(obj, sim, s):
                 shared[ek] = shared.get(ek, 0) + 1
         me.attributes.new('cloth_bend', 'FLOAT', 'EDGE')
         me.attributes['cloth_bend'].data.foreach_set(
-            'value', [sf_cloth.NEW_BEND if shared.get(e.key, 0) == 2 else 0.0
+            'value', [g.new_bend if shared.get(e.key, 0) == 2 else 0.0
                       for e in me.edges])
     bend = _attr(me, 'cloth_bend', len(edges), default=0.0)
     hinges = {frozenset(e): k for e, k in zip(edges, bend) if k}
@@ -407,10 +477,10 @@ def _sim_from_mesh(obj, sim, s):
         k += 1
 
     # Every other group is a bone, but the user's own '*' helpers (as with shape keys).
-    bone_names = {g.index: g.name for g in obj.vertex_groups
-                  if g.name != 'cloth_pinned' and not g.name.startswith(('*', PLANE_GROUP))}
-    skin = [[(bone_names[g.group], g.weight) for g in v.groups
-             if g.group in bone_names and g.weight > 0] for v in me.vertices]
+    bone_names = {vg.index: vg.name for vg in obj.vertex_groups
+                  if vg.name not in NOT_BONES and not vg.name.startswith(('*', PLANE_GROUP))}
+    skin = [[(bone_names[vg.group], vg.weight) for vg in v.groups
+             if vg.group in bone_names and vg.weight > 0] for v in me.vertices]
 
     old_to_new = {ids[i]: i for i in range(n) if ids[i] >= 0}
     carried = []
@@ -434,7 +504,11 @@ def _sim_from_mesh(obj, sim, s):
     if obj.get('cloth_transfer_bone'):
         sim.transfer_bone = obj['cloth_transfer_bone']
     for prop, kind in (('cloth_link_stiffness', 'standard'),
-                       ('cloth_stretch_stiffness', 'stretch')):
+                       ('cloth_stretch_stiffness', 'stretch'),
+                       ('cloth_compressible_stiffness', 'compressible'),
+                       ('cloth_bend_link_stiffness', 'bend_link')):
+        if kind in ('compressible', 'bend_link') and not any(k == kind for *_x, k in links):
+            continue
         if prop in obj:
             sim.link_stiffness[kind] = obj[prop]
         elif getattr(sim, 'is_new', False):
@@ -443,6 +517,8 @@ def _sim_from_mesh(obj, sim, s):
         sim.stretch_slack = obj['cloth_stretch_slack']
     elif getattr(sim, 'is_new', False):
         obj['cloth_stretch_slack'] = sim.stretch_slack
+    if g.fo4:
+        _fo4_from_mesh(obj, sim, to_root, flips if flip is not None else None, pinned)
     for key in list(sim.settings):
         if key in sf_cloth.DERIVED_SETTINGS:
             continue
@@ -453,6 +529,64 @@ def _sim_from_mesh(obj, sim, s):
             continue
         v = obj['cloth_' + key]
         sim.settings[key] = tuple(v) if hasattr(v, '__len__') else v
+
+
+def _attr_faces(me, name):
+    """A per-face int attribute's values, or None."""
+    if name not in me.attributes:
+        return None
+    vals = [0] * len(me.polygons)
+    me.attributes[name].data.foreach_get('value', vals)
+    return vals
+
+
+def _vertex_normals(me):
+    """Each vertex's normal as the mesh shows it: its custom normals averaged over its corners
+    when it has them, else Blender's own vertex normals."""
+    n = len(me.vertices)
+    if not me.has_custom_normals:
+        co = [0.0] * (3 * n)
+        me.vertex_normals.foreach_get('vector', co)
+        return [Vector(co[3 * i:3 * i + 3]) for i in range(n)]
+    acc = [Vector() for _ in range(n)]
+    loops = [0] * len(me.loops)
+    me.loops.foreach_get('vertex_index', loops)
+    cn = [0.0] * (3 * len(me.loops))
+    me.corner_normals.foreach_get('vector', cn)
+    for k, v in enumerate(loops):
+        acc[v] += Vector(cn[3 * k:3 * k + 3])
+    return acc
+
+
+def _fo4_from_mesh(obj, sim, m, flips, pinned):
+    """The FO4-only parts of a sim mesh: normals, triangle flips, volume sets, pinch, run order
+    and the bones its states read."""
+    me = obj.data
+    n = len(me.vertices)
+    rot = m.to_3x3()
+    sim.normals = [tuple((rot @ v).normalized()) if v.length else (0.0, 0.0, 1.0)
+                   for v in _vertex_normals(me)]
+    # A hand-made mesh has no flips: the builder works them out from the normals.
+    sim.flips = flips
+    sim.volumes = []
+    k = 1
+    while f'cloth_volume{k}' in me.attributes:
+        vals = _attr(me, f'cloth_volume{k}', n)
+        sim.volumes.append({'name': obj.get(f'cloth_volume{k}_name', ''),
+                            'particles': {i: (None if i in pinned else v)
+                                          for i, v in enumerate(vals) if v >= 0}})
+        k += 1
+    vg = obj.vertex_groups.get(PINCH_GROUP)
+    sim.pinch = sorted(v.index for v in me.vertices
+                       if vg is not None and any(x.group == vg.index and x.weight > 0
+                                                 for x in v.groups))
+    if 'cloth_solve_order' in obj:
+        sim.solve_order = [x.strip() for x in obj['cloth_solve_order'].split(',') if x.strip()]
+    if 'cloth_extra_reads' in obj:
+        sim.extra_reads = [x.strip() for x in obj['cloth_extra_reads'].split(',') if x.strip()]
+    if obj.get('cloth_buffer_name'):
+        sim.buffer_name = obj['cloth_buffer_name']
+    sim.collidable_pinch = None             # from the collidables' cloth_pinch
 
 
 def _shape_axis(obj, pts):
@@ -542,15 +676,19 @@ def _model_ends(col):
             'rb': p['big_radius']}
 
 
-def _shape_to(col, fit):
-    """Put a fitted model-space shape into `col`, in its own frame -- unless it's where it was,
-    when the exact values it had stay (the mesh is only accurate to float precision)."""
+def _shape_to(col, fit, tol=1e-5):
+    """Put a fitted model-space shape into `col`, in its own frame -- unless it's where it was
+    (within `tol` file units per unit of radius), when the exact values it had stay. The mesh
+    is only accurate to float precision, and a fit from it drifts with the shape's size: an
+    unedited FO4 capsule of radius 8.8 refits 1.2e-4 game units off (Valentine's coat)."""
     T = Matrix(col.transform)
     Ti = T.inverted()
     was = _model_ends(col) if col.params else None
+    if was:
+        tol *= max(1.0, was['radius'] if col.shape == 'sphere' else max(was['ra'], was['rb']))
     if col.shape == 'sphere':
-        if was and (fit['center'] - was['center']).length < 1e-5 and \
-                abs(fit['radius'] - was['radius']) < 1e-5:
+        if was and (fit['center'] - was['center']).length < tol and \
+                abs(fit['radius'] - was['radius']) < tol:
             return
         col.params = {'center': tuple(Ti @ fit['center']), 'radius': fit['radius']}
         return
@@ -560,8 +698,8 @@ def _shape_to(col, fit):
     if was:
         if col.shape == 'capsule' and (a - was['a']).length > (b - was['a']).length:
             a, b = b, a                                  # keep the ends the way round they were
-        if (a - was['a']).length < 1e-5 and (b - was['b']).length < 1e-5 and \
-                abs(ra - was['ra']) < 1e-5 and abs(rb - was['rb']) < 1e-5:
+        if (a - was['a']).length < tol and (b - was['b']).length < tol and \
+                abs(ra - was['ra']) < tol and abs(rb - was['rb']) < tol:
             return
     if col.shape == 'capsule':
         col.params = {'start': tuple(Ti @ a), 'end': tuple(Ti @ b), 'radius': ra}
@@ -570,7 +708,7 @@ def _shape_to(col, fit):
                       'big_radius': rb}
 
 
-def _new_collidable(obj, cloth_obj, s):
+def _new_collidable(obj, cloth_obj, s, tol=1e-5):
     """A collidable for a mesh the user added, with `cloth_shape` and `cloth_bone`: its shape
     read from the mesh, in model space."""
     shape = obj.get('cloth_shape')
@@ -581,7 +719,7 @@ def _new_collidable(obj, cloth_obj, s):
     if not bone:
         raise sf_cloth.ClothEditError(f"{obj.name}: a new collision shape needs a cloth_bone")
     col = sf_cloth.Collidable(obj.name, shape, bone, [list(r) for r in Matrix.Identity(4)], {})
-    _shape_to(col, _fit_shape(obj, cloth_obj, shape, s))
+    _shape_to(col, _fit_shape(obj, cloth_obj, shape, s), tol)
     return col
 
 
@@ -638,29 +776,29 @@ def _skin_bones(sim):
     return {b for infl in sim.skin for b, w in infl if w > 0}
 
 
-def _armature_bones(arma, cloth_obj, s, nif_name):
-    """{bone: (parent or None, model-space matrix in metres)} for the armature's bones, in the
-    nif root's space, as the sim mesh is."""
+def _armature_bones(arma, cloth_obj, s, nif_name, game='SF'):
+    """{bone: (parent or None, model-space matrix in file units)} for the armature's bones, in
+    the nif root's space, as the sim mesh is."""
     root = cloth_obj.parent
     to_root = (root.matrix_world.inverted() if root else Matrix.Identity(4)) @ arma.matrix_world
     out = {}
     for b in arma.data.bones:
-        loc, rot, _sc = (to_root @ BD.get_bone_global_xf(arma, b.name, 'SF', False)).decompose()
+        loc, rot, _sc = (to_root @ BD.get_bone_global_xf(arma, b.name, game, False)).decompose()
         m = Matrix.LocRotScale(loc / s, rot, None)
         out[nif_name(b.name)] = (nif_name(b.parent.name) if b.parent else None,
                                  [list(r) for r in m])
     return out
 
 
-def _reference_bones(ref_skel):
-    """{bone: (parent or None, model-space matrix in metres)} from the reference skeleton nif,
-    which is in game units."""
+def _reference_bones(ref_skel, unit=HAVOC_SCALE_FACTOR):
+    """{bone: (parent or None, model-space matrix in file units)} from the reference skeleton
+    nif, which is in game units (`unit` game units to the file's)."""
     out = {}
     if ref_skel is None:
         return out
     for name, nd in ref_skel.nodes.items():
         g = nd.global_transform
-        t = [x / HAVOC_SCALE_FACTOR for x in g.translation]
+        t = [x / unit for x in g.translation]
         r = [list(row) for row in g.rotation]
         out[name] = (nd.parent.name if nd.parent else None,
                      [r[i] + [t[i]] for i in range(3)] + [[0.0, 0.0, 0.0, 1.0]])
@@ -670,14 +808,15 @@ def _reference_bones(ref_skel):
 def _new_sim_defaults(o, sim, arma, ref_names, nif_name):
     """Fill in a new piece's driven bones and transfer bone, if the user hasn't, and show them
     on its mesh. Driven bones are the cloth's own: the armature's bones that aren't in the
-    reference skeleton (no vanilla cloth drives one that is) and aren't face bones."""
+    reference skeleton (no vanilla cloth drives one that is) and aren't face bones (Starfield's
+    faceBone_*, FO4's skin_bone_*)."""
     if 'cloth_driven_bones' not in o:
         if arma is None:
             raise sf_cloth.ClothEditError(f"{o.name}: a new cloth needs cloth_driven_bones, or "
                                           f"an armature to find them in")
         own = [nif_name(b.name) for b in arma.data.bones]
         sim.driven = [(b, None) for b in own
-                      if b not in ref_names and not b.startswith('faceBone')]
+                      if b not in ref_names and not b.startswith(('faceBone', 'skin_bone'))]
         o['cloth_driven_bones'] = ','.join(b for b, _t in sim.driven)
     if not o.get('cloth_transfer_bone'):
         weight = {}
@@ -689,16 +828,18 @@ def _new_sim_defaults(o, sim, arma, ref_names, nif_name):
         o['cloth_transfer_bone'] = sim.transfer_bone or ''
 
 
-def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_name=str):
+def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_name=str,
+                        game='SF'):
     """The cloth model `blob` holds, as edited in Blender: each sim mesh and collision shape
     under `cloth_obj` says what its piece of cloth or collidable is now. With no blob, or for a
     mesh the user added, the piece is made from scratch: settings from vanilla's usual values,
     and (with no blob) the skeleton from `arma`, falling back on `ref_skel` for bones it lacks.
     `nif_name` turns a Blender bone name into the nif's (Head.C -> C_Head)."""
-    cloth = sf_cloth.read_model(blob) if blob is not None else sf_cloth.Cloth()
-    s = HAVOC_SCALE_FACTOR * scale
+    g = _Game(game)
+    cloth = g.read(blob) if blob is not None else sf_cloth.Cloth()
+    s = g.unit * scale
     planes = [o for o in cloth_obj.children if o.get('cloth_plane_bone') and o.type == 'MESH']
-    ref = _reference_bones(ref_skel)
+    ref = _reference_bones(ref_skel, g.unit)
     pieces, used = [], set()
     for o in _sim_objects(cloth_obj):
         i = o.get('cloth_index')
@@ -710,9 +851,11 @@ def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_na
             sim = sf_cloth.SimCloth('Simulation Cloth')
             sim.is_new = True
             sim.cloth_data = o.name.split('.')[0].removeprefix('Cloth:')
-            sim.settings = dict(sf_cloth.NEW_SETTINGS)
+            sim.settings = dict(g.new_settings)
+            if g.fo4:
+                sim.solve_order, sim.extra_reads, sim.buffer_name = [], [], None
             cloth.sims.append(sim)
-        _sim_from_mesh(o, sim, s)
+        _sim_from_mesh(o, sim, s, g)
         sim.skin = [[(nif_name(b), w) for b, w in infl] for infl in sim.skin]
         sim.driven = [(nif_name(b), t) for b, t in sim.driven]
         if sim.transfer_bone:
@@ -731,16 +874,22 @@ def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_na
         i = o.get('cloth_index')
         if i is not None and i < len(old) and i not in claimed and 'cloth_params' in o:
             claimed.add(i)
-            _shape_to(old[i], _fit_shape(o, cloth_obj, old[i].shape, s))
+            _shape_to(old[i], _fit_shape(o, cloth_obj, old[i].shape, s), g.tol)
             old[i].name, old[i].bone = o.name.split('.')[0], o.get('cloth_bone', old[i].bone)
             kept[i] = old[i]
+            c = old[i]
         elif i is not None and i < len(old) and 'cloth_params' in o:
             c = sf_cloth.Collidable(o.name, old[i].shape, o.get('cloth_bone', old[i].bone),
                                     old[i].transform, {})
-            _shape_to(c, _fit_shape(o, cloth_obj, c.shape, s))
+            _shape_to(c, _fit_shape(o, cloth_obj, c.shape, s), g.tol)
             added.append(c)
         else:
-            added.append(_new_collidable(o, cloth_obj, s))
+            c = _new_collidable(o, cloth_obj, s, g.tol)
+            added.append(c)
+        if 'cloth_pinch' in o:
+            e, pr, r = o['cloth_pinch']
+            c.pinch = {'pinchDetectionEnabled': int(e), 'pinchDetectionPriority': int(pr),
+                       'pinchDetectionRadius': float(r)}
     new_list = [old[i] for i in sorted(kept)] + added
     new_index = {i: k for k, i in enumerate(sorted(kept))}
     for sim in cloth.sims:
@@ -772,7 +921,7 @@ def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_na
         # Made from scratch: the bones the cloth uses, and their ancestors up to Root.
         bones = dict(ref)
         if arma is not None:
-            bones.update(_armature_bones(arma, cloth_obj, s, nif_name))
+            bones.update(_armature_bones(arma, cloth_obj, s, nif_name, g.name))
         needed = set()
         for sim in cloth.sims:
             needed |= _skin_bones(sim) | {b for b, _t in sim.driven}
@@ -789,7 +938,8 @@ def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_na
         # what the cloth was authored against.
         driven = {b for sim in cloth.sims for b, _t in sim.driven}
         cloth.skeleton, moved = sf_cloth.repose_skeleton(
-            cloth.skeleton, _armature_bones(arma, cloth_obj, s, nif_name), driven)
+            cloth.skeleton, _armature_bones(arma, cloth_obj, s, nif_name, g.name), driven,
+            move_tol=g.move_tol)
         if moved:
             log.info(f"{cloth_obj.name}: cloth rest pose taken from the armature for "
                      f"{', '.join(moved)}")
@@ -798,19 +948,19 @@ def model_from_pictures(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_na
     return cloth
 
 
-def apply_edits(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_name=str):
+def apply_edits(cloth_obj, blob, scale, arma=None, ref_skel=None, nif_name=str, game='SF'):
     """`blob` rebuilt from `cloth_obj`'s pictures: every export of a cloth with pictures goes
     through the builder, so what they show is what's written. With no blob, the cloth is made
     from scratch from its sim meshes. An edit that can't be built is logged and the blob
     returned as it was (None for a new cloth: it isn't written)."""
-    from ..pyn import sf_cloth_build
+    g = _Game(game)
     if blob is not None and not any(o.get(VIZ_PROP) for o in cloth_obj.children) \
             and not _sim_objects(cloth_obj):
         return blob
     try:
-        return sf_cloth_build.build_cloth(
-            model_from_pictures(cloth_obj, blob, scale, arma, ref_skel, nif_name))
-    except (sf_cloth.ClothEditError, sf_cloth_build.ClothBuildError) as e:
+        return g.build(
+            model_from_pictures(cloth_obj, blob, scale, arma, ref_skel, nif_name, game))
+    except (sf_cloth.ClothEditError, g.build_error) as e:
         if blob is None:
             log.error(f"Cloth {cloth_obj.name} not written: {e}")
         else:

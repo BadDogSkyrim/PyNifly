@@ -2439,8 +2439,13 @@ def TEST_BLENDER_HINGE_SIGN():
             sc.frame_set(f)
         m = arm.matrix_world.copy()
     finally:
-        # Leave no simulation behind: a later test's rigid bodies would fall.
+        # Leave no simulation behind: a later test's rigid bodies would fall. The hinge and
+        # bodies go while the world still holds them: removed after the world, the hinge
+        # points at freed Bullet bodies, and deleting it crashed Blender in the next test's
+        # cleanup (btRigidBody::removeConstraintRef, full suite 2026-11-26).
         sc.frame_set(1)
+        for o in (e, arm, base):
+            bpy.data.objects.remove(o)
         bpy.ops.rigidbody.world_remove()
     turned = math.atan2(-m.col[0].z, m.col[0].x)     # about +Y; falling is positive
     assert TT.is_equiv(turned, 1.0, "the arm falls to minus the lower limit", e=0.05)

@@ -5168,6 +5168,191 @@ def TEST_FO4_CLOTH_UNPACK():
     TT.assert_eq(pose_count, 113, "rest pose entry count matches particles")
 
 
+# Vanilla FO4 cloth covering every class and shape of graph seen in the 146 vanilla nifs:
+# hair, a dress, a coat, a 4-piece duster (copy and gather), ghoul pants (volume), DC guard
+# (bend links), a lab coat (compressible links, gather-some) and a 6Suit (bone planes).
+FO4_CLOTH_FIXTURES = [
+    r"Meshes\Actors\Character\CharacterAssets\Hair\Female\FemaleHair04.nif",
+    r"Meshes\Clothes\PrewarDress\PrewarDress.nif",
+    r"Meshes\Clothes\Valentine\MCoat.nif",
+    r"Meshes\DLC04\Clothes\Western\WesternDuster_m.nif",
+    r"Meshes\Actors\FeralGhoul\CharacterAssets\Pants.nif",
+    r"Meshes\Armor\DCGuard\FOutfit.nif",
+    r"Meshes\Clothes\InstituteUniform\FLabCoat.nif",
+    r"Meshes\Clothes\Residents\6SuitF.nif",
+]
+
+
+def TEST_FO4_CLOTH_GRAPH_ROUNDTRIP():
+    """FO4 cloth reads into a graph of named values and writes back byte for byte.
+
+    hk2014_graph lays out the hk_2014 packfile from the class layouts in fo4_cloth_types,
+    which name every byte of every vanilla blob (the reader fails on any byte no field
+    covers). Writing the graph back reproduces the blob exactly, so the layouts and the
+    writer's ordering are Havok's.
+    """
+    from pyn import hk2014_graph as HG
+
+    for rel in FO4_CLOTH_FIXTURES:
+        nif = NifFile(os.path.join(TT.FO4_ASSETS, rel))
+        for _name, blob in nif.cloth_data:
+            root = HG.read_graph(blob)
+            TT.assert_eq(root.type_name, 'hkRootLevelContainer', f"{rel} root")
+            TT.assert_eq(HG.write_graph(root) == blob, True, f"{rel} written byte for byte")
+
+
+def TEST_FO4_CLOTH_MODEL():
+    """FO4 cloth reads into the cloth model Starfield's uses.
+
+    The Pre-War Dress against the numbers the received FO4 cloth notes give for it (worked
+    out with their own reader): 335 particles, 37 pinned, 91 driven bones, stretch slack
+    1/0.95, gravity -686.7, damping 0.9999, 3 substeps; runs standard, bend, stretch.
+    """
+    from pyn import fo4_cloth
+
+    nif = NifFile(os.path.join(TT.FO4_ASSETS, r"Meshes\Clothes\PrewarDress\PrewarDress.nif"))
+    cloth = fo4_cloth.read_model(nif.cloth_data[0][1])
+    TT.assert_eq(len(cloth.sims), 1, "one piece")
+    sim = cloth.sims[0]
+    TT.assert_eq(len(sim.positions), 335, "particles")
+    TT.assert_eq(len(sim.pinned), 37, "pinned")
+    TT.assert_eq(all(sim.particles[p]['mass'] == 0 for p in sim.pinned), True, "pinned weigh 0")
+    TT.assert_eq(len(sim.driven), 91, "driven bones")
+    TT.assert_equiv(sim.stretch_slack, 1 / 0.95, "stretch slack", e=1e-4)
+    TT.assert_equiv(sim.settings['gravity'], (0, 0, -686.7), "gravity", e=1e-3)
+    TT.assert_equiv(sim.settings['damping'], 0.9999, "damping", e=1e-6)
+    TT.assert_eq(sim.settings['sub_steps'], 3, "substeps")
+    TT.assert_eq(sim.solve_order, ['standard', 'bend', 'stretch'], "run order")
+    TT.assert_equiv(sim.link_stiffness['standard'], 1.0, "standard link stiffness", e=1e-5)
+    for p, infl in enumerate(sim.skin):
+        TT.assert_equiv(sum(w for _b, w in infl), 1.0, f"particle {p} skin sums to 1", e=0.01)
+    TT.assert_eq(sorted(c.shape for c in cloth.collidables),
+                 ['capsule'] + ['tapered_capsule'] * 4, "collidables")
+    TT.assert_eq(len(sim.normals), 335, "a normal per particle")
+
+
+def TEST_FO4_CLOTH_REBUILD():
+    """FO4 cloth rebuilt from its model is the same cloth, and the builder's formulas give
+    vanilla's numbers.
+
+    For each fixture, read the model, build a new blob from it -- every object made from the
+    model, nothing copied -- and read that back: the model is the same. Then the values the
+    builder works out are checked against the ones vanilla stores: link rest lengths and
+    stiffnesses, compressible and bend links, bend hinges (curvature up to the sign the
+    particle order gives it), bone-deform transforms, collidable offsets and capsule fields,
+    and the transform trackers (rebuild.py in the phase 7 notes runs this on all 146 vanilla
+    files: 143 match, the rest by vanilla's own inconsistencies). Last, every scalar field of
+    every object against vanilla's: a field neither the reader nor the builder knows compares
+    equal in the model, and the transfer-motion block went missing that way (scalars.py).
+    """
+    from pyn import fo4_cloth, fo4_cloth_build
+    from pyn import hk2014_graph as HG
+
+    def close(a, b, tol=1e-3):
+        if isinstance(a, (list, tuple)):
+            return len(a) == len(b) and all(close(x, y, tol) for x, y in zip(a, b))
+        if isinstance(a, float) or isinstance(b, float):
+            return abs(a - b) <= tol * max(1.0, abs(a), abs(b))
+        return a == b
+
+    def bits(bf):
+        return {i for i in range(bf['numBits']) if bf['words'][i // 32] >> (i % 32) & 1}
+
+    def no_w(ms):
+        return [[x for i, x in enumerate(m) if i % 4 != 3] for m in ms]
+
+    LINK_SETS = {'hclStandardLinkConstraintSet', 'hclStretchLinkConstraintSet',
+                 'hclCompressibleLinkConstraintSet', 'hclBendLinkConstraintSet'}
+    from pyn.fo4_cloth_types import CLASSES
+    # What the builder makes differently on purpose -- the plain graph: a scratch buffer per
+    # particle, filled by one skin operator, copied to the sim buffer.
+    NOT_COMPARED = {('hclScratchBufferDefinition', 'numVertices'),
+                    ('hclScratchBufferDefinition', 'subType'),
+                    ('hclObjectSpaceSkinPNOperator', 'endVertexIndex'),
+                    ('hclObjectSpaceSkinPNOperator', 'outputBufferIndex'),
+                    ('hclSimpleMeshBoneDeformOperator', 'inputBufferIdx'),
+                    ('hclLocalRangeConstraintSet', 'referenceMeshBufferIdx')}
+    NOT_COMPARED_CLASSES = {'hclGatherAllVerticesOperator', 'hclGatherSomeVerticesOperator',
+                            'hclCopyVerticesOperator', 'hkRootLevelContainer'}
+
+    def scalars(o):
+        out = {}
+        for _off, f, t in CLASSES[o.type_name][1]:
+            if f == 'name' or (o.type_name, f) in NOT_COMPARED:
+                continue
+            if o.type_name == 'hclSimClothData' and f.endswith('PinchedParticleIndex') \
+                    and not any(o['perParticlePinchDetectionEnabledFlags']):
+                continue                    # junk in vanilla when nothing pinches
+            if isinstance(t, str) and t not in ('ptr', 'mat4', 'str'):
+                out[f] = o[f]
+            elif isinstance(t, tuple) and t[0] == 'fixed' and not isinstance(t[1], tuple):
+                out[f] = list(o[f])
+        return out
+    for rel in FO4_CLOTH_FIXTURES:
+        blob = NifFile(os.path.join(TT.FO4_ASSETS, rel)).cloth_data[0][1]
+        model = fo4_cloth.read_model(blob)
+        built = fo4_cloth_build.build_cloth(model)
+        TT.assert_eq(fo4_cloth.model_differences(model, fo4_cloth.read_model(built)), [],
+                     f"{rel}: rebuilt model differs")
+
+        pieces = zip([o for o in HG.walk(HG.read_graph(blob)) if o.type_name == 'hclClothData'],
+                     [o for o in HG.walk(HG.read_graph(built)) if o.type_name == 'hclClothData'])
+        for a, b in pieces:
+            sa, sb = a['simClothDatas'][0], b['simClothDatas'][0]
+            for f in ('totalMass', 'maxParticleRadius', 'maxCollisionPairs'):
+                TT.assert_eq(close(sa[f], sb[f]), True, f"{rel} {f}")
+            TT.assert_eq(close(no_w(sa['offsets']), no_w(sb['offsets'])), True,
+                         f"{rel} collidable offsets")
+            for t in LINK_SETS:
+                la = {(r['particleA'], r['particleB']): r for s in sa['staticConstraintSets']
+                      if s.type_name == t for r in s['links']}
+                lb = {(r['particleA'], r['particleB']): r for s in sb['staticConstraintSets']
+                      if s.type_name == t for r in s['links']}
+                TT.assert_eq(la.keys(), lb.keys(), f"{rel} {t} links")
+                TT.assert_eq(all(close(la[k][f], lb[k][f]) for k in la for f in la[k]), True,
+                             f"{rel} {t} values")
+            ha = {(frozenset((r['particleA'], r['particleB'])),
+                   frozenset((r['particleC'], r['particleD']))): r
+                  for s in sa['staticConstraintSets']
+                  if s.type_name == 'hclBendStiffnessConstraintSet' for r in s['links']}
+            hb = {(frozenset((r['particleA'], r['particleB'])),
+                   frozenset((r['particleC'], r['particleD']))): r
+                  for s in sb['staticConstraintSets']
+                  if s.type_name == 'hclBendStiffnessConstraintSet' for r in s['links']}
+            TT.assert_eq(ha.keys(), hb.keys(), f"{rel} bend hinges")
+            TT.assert_eq(all(close(abs(ha[k]['restCurvature']), abs(hb[k]['restCurvature']))
+                             and close(ha[k]['bendStiffness'], hb[k]['bendStiffness'])
+                             for k in ha), True, f"{rel} bend values")
+            da, db = ({p['boneOffset']: m for p, m in zip(op['triangleBonePairs'],
+                                                          op['localBoneTransforms'])}
+                      for op in (next(o for o in x['operators']
+                                      if o.type_name == 'hclSimpleMeshBoneDeformOperator')
+                                 for x in (a, b)))
+            TT.assert_eq(all(close(no_w([da[k]]), no_w([db[k]])) for k in da), True,
+                         f"{rel} bone-deform transforms")
+            for cls in ('hclCapsuleShape', 'hclTaperedCapsuleShape'):
+                for p, q in zip([o for o in HG.walk(a) if o.type_name == cls],
+                                [o for o in HG.walk(b) if o.type_name == cls]):
+                    TT.assert_eq(all(close(v, q[f]) for f, v in p.value.items()), True,
+                                 f"{rel} {cls} fields")
+            by_a, by_b = {}, {}
+            for x, by in ((a, by_a), (b, by_b)):
+                for o in HG.walk(x):
+                    if o.type_name not in NOT_COMPARED_CLASSES:
+                        by.setdefault(o.type_name, []).append(o)
+            for cls, objs in by_a.items():
+                for p, q in zip(objs, by_b.get(cls, [])):
+                    sp, sq = scalars(p), scalars(q)
+                    TT.assert_eq([f for f in sp if not close(sp[f], sq[f])], [],
+                                 f"{rel} {cls}: fields not as vanilla's")
+            for st in ('Simulate', 'Animate'):
+                ta, tb = (next(s for s in x['clothStateDatas'] if s['name'] == st)
+                          ['usedTransformSets'][0]['perComponentTransformTrackers'][0]
+                          for x in (a, b))
+                for f in ('read', 'readBeforeWrite', 'written'):
+                    TT.assert_eq(bits(ta[f]), bits(tb[f]), f"{rel} {st} {f}")
+
+
 def TEST_PARTITION_SM():
     """Regression--test that supermutant armor can be read and written"""
 

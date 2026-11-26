@@ -1166,14 +1166,18 @@ class NifExporter:
         for cd in self.cloth_data:
             value = cd.get('BSClothExtraData_Value')
             blob = codecs.decode(value, "base64") if value else None
-            if self.game == 'SF':
+            if self.game in ('SF', 'FO4'):
                 # The cloth is built from its pictures; with no blob, from scratch.
-                blob = cloth_viz.apply_edits(cd, blob, self.scale, self.armature,
-                                             self.nif.reference_skel, self.nif_name)
+                # A _faceBones nif's one armature is the facebones armature: its bones are
+                # the cloth's as much as a plain nif's are.
+                blob = cloth_viz.apply_edits(cd, blob, self.scale,
+                                             self.armature or self.facebones,
+                                             self.nif.reference_skel, self.nif_name,
+                                             game=self.game)
             if blob is None:
-                if self.game != 'SF':
-                    log.warning(f"{cd.name} has no cloth data; only Starfield cloth can be "
-                                f"made from scratch")
+                if self.game not in ('SF', 'FO4'):
+                    log.warning(f"{cd.name} has no cloth data; only Starfield and FO4 cloth "
+                                f"can be made from scratch")
                 continue
             cdlist.append((cd.get('BSClothExtraData_Name', sf_cloth.NEW_CLOTH_NAME), blob))
             self.objs_written.add(ReprObject(cd, self.nif.rootNode)) # [cd.name] = self.nif
