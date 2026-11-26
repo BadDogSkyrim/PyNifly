@@ -938,6 +938,9 @@ class NifExporter:
             elif obj.get('pynRigidBody') == 'bhkPhysicsSystem':
                 pass  # Multi-shape collision container: exported via COPY_TRANSFORMS on target
 
+            elif obj.get('pynCollisionCompound'):
+                pass  # A compound body's grouping empty: written with its collision
+
             elif obj.name.startswith("BSBehaviorGraphExtraData"):
                 self.bg_data.add(obj)
 
@@ -2597,8 +2600,15 @@ class NifExporter:
             # export_armature already writes every bone on the skeleton-only path.
             self.write_all_bones(self.armature)
 
-        # Make sure any grouping nodes get exported, even if they're empty.
-        for obj in self.grouping_nodes:
+        # Make sure any grouping nodes get exported, even if they're empty.  Parents
+        # first: a node written before its parent got none (the root, or a crash for
+        # a BSValueNode).  The set's own order changes from run to run.
+        def depth(o):
+            d = 0
+            while o.parent:
+                d, o = d + 1, o.parent
+            return d
+        for obj in sorted(self.grouping_nodes, key=lambda o: (depth(o), o.name)):
             if 'pynRoot' not in obj and not self.objs_written.find_blend(obj):
                 par = None
                 if obj.parent:

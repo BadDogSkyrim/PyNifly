@@ -1759,3 +1759,32 @@ def TEST_IMPORT_DUPLICATE_TRIS_PARTITIONS():
     assert TT.is_eq(wrong, 0,
                     f"every face is in its source partition ({wrong} of "
                     f"{len(mesh.polygons)} misassigned)")
+
+
+@TT.category('FO4', 'XFORM')
+@TT.expect_errors(("Could not find texture", "Unknown block type",
+                   "physics constraints PyNifly can't read", "weren't both imported"))
+def TEST_GROUPING_NODE_PARENTS():
+    """Empty grouping nodes keep their parents on export.
+
+    They were written in set order, so a node could come before its parent; it then
+    got no parent: a NiNode went under the root, and a BSValueNode crashed the DLL.
+    Workshop_WindmillGenerator01's AddOnNode06 hit it under 7 hash seeds in 12
+    (11-25).  The order is per process, so a single run may pass either way.
+    """
+    src = os.path.join(TT.FO4_ASSETS, r"Meshes\SetDressing\Workshop\Workshop_WindmillGenerator01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_GROUPING_NODE_PARENTS.nif")
+    bpy.ops.import_scene.pynifly(filepath=src, import_animations=False)
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.context.view_layer.objects.active = next(o for o in bpy.data.objects if 'pynRoot' in o)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+
+    def parents(path):
+        return {n.name: (n.parent.name if n.parent else None)
+                for n in pyn.NifFile(path).nodes.values()}
+    vanilla, out = parents(src), parents(outfile)
+    # Vanilla's None: a parent our reader doesn't follow; nothing to compare with.
+    moved = {n: (out[n], vanilla[n]) for n in out
+             if vanilla.get(n) is not None and out[n] != vanilla[n]}
+    assert TT.is_eq(vanilla.get('AddOnNode06'), 'AddOnNode05', "vanilla nests the value nodes")
+    assert TT.is_eq(moved, {}, "every node keeps its parent (exported, vanilla)")

@@ -6540,6 +6540,28 @@ def TEST_NISWITCHNODE():
     assert sw.active_index == 2, f"round-tripped active_index: {sw.active_index}"
 
 
+def TEST_BSVALUENODE_NO_PARENT():
+    """A BSValueNode added with no parent goes under the root, as a NiNode does.
+
+    It dereferenced the missing parent instead (access violation in addBlock).  Export
+    hit it on Workshop_WindmillGenerator01's AddOnNode06 whenever set order wrote it
+    before its parent -- 7 hash seeds in 12 (11-25).
+    """
+    outfile = _test_file(r"tests/Out/TEST_BSVALUENODE_NO_PARENT.nif")
+    nifout = NifFile()
+    nifout.initialize('FO4', outfile, "NiNode", "Scene Root")
+    buf = BSValueNodeBuf()
+    buf.value = 6
+    nifout.add_block(name="ValueNode", buf=buf, parent=None)
+    nifout.save()
+
+    check = NifFile(outfile)
+    vn = check.nodes["ValueNode"]
+    assert vn.blockname == "BSValueNode", f"block type: {vn.blockname}"
+    assert vn.parent is not None and vn.parent.name == "Scene Root", \
+        f"parent: {vn.parent.name if vn.parent else None}"
+
+
 @test_category('SKYRIM', 'TREE')
 def TEST_BSMULTIBOUND():
     """BSMultiBoundNode -> BSMultiBound -> BSMultiBoundOBB read and round-trip."""

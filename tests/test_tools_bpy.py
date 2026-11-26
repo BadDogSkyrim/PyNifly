@@ -107,7 +107,12 @@ def clear_all():
     # bpy.ops.object.delete()
 
     # Rigid body constraints go first: freeing a body while a constraint still holds it
-    # crashes Blender (btRigidBody::removeConstraintRef, Blender 5.2).
+    # crashes Blender (btRigidBody::removeConstraintRef, Blender 5.2).  The scene's
+    # rigid body world goes before that: it outlives the objects, and Bullet state left
+    # in it by one test can crash a later test's cleanup the same way.
+    if bpy.context.scene.rigidbody_world is not None:
+        with suppress(RuntimeError):
+            bpy.ops.rigidbody.world_remove()
     for obj in [o for o in bpy.data.objects if o.rigid_body_constraint]:
         bpy.data.objects.remove(obj)
 

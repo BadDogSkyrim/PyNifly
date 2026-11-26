@@ -714,7 +714,9 @@ int addBSValueNode(void* f, const char* name, void* properties, uint32_t parent)
 	theNode->value = buf->value;
 	theNode->valueFlags = static_cast<BSValueNodeFlags>(buf->valueNodeFlags);
     uint32_t newNodeId = hdr->AddBlock(std::move(theNode));
-    parentNode->childRefs.AddBlockRef(newNodeId);
+    // No parent: under the root, as AddNode does for a NiNode.
+    if (!parentNode) parentNode = nif->GetRootNode();
+    if (parentNode) parentNode->childRefs.AddBlockRef(newNodeId);
 
 	return newNodeId;
 }
