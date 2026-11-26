@@ -1226,22 +1226,69 @@ def TEST_COLLISION_FO4_GEARDOOR():
         f"No collision covers VltGearKeySupport mesh z={min(kzs):.0f}..{max(kzs):.0f}"
 
 
+def _system_differences(want, got):
+    """How the physics system `got` differs from `want`, read as models: each body's kind
+    and the box of its points in its own space; a compound's children -- kind, instance
+    placement and
+    scale, and the box each fills -- and the rules every compound keeps. [] for the same.
+    Tolerance 1e-3 Havok units (0.07 game units): compressed meshes are requantized."""
+    from io_scene_nifly.pyn.bhk_autounpack import parse_bytes, compound_problems
+    from dataclasses import replace
+    from io_scene_nifly.pyn.bhk_autopack import _child_box
+
+    def body_box(s):
+        # In the body's own space: its node places it in game, not the position the
+        # file stores (reference_fo4_body_placement), which export takes from the node.
+        if s.shape_type == 'compound':
+            boxes = [_child_box(c) for c in s.children]
+            return (tuple(min(b[0][i] for b in boxes) for i in range(3)),
+                    tuple(max(b[1][i] for b in boxes) for i in range(3)))
+        return _child_box(replace(s, transform=None))
+
+    def close(a, b, tol=1e-3):
+        return all(abs(x - y) <= tol for x, y in zip(a, b))
+    out = list(compound_problems(got))
+    a, b = parse_bytes(want), parse_bytes(got)
+    if [s.shape_type for s in a] != [s.shape_type for s in b]:
+        return out + [f"bodies {[s.shape_type for s in a]} vs {[s.shape_type for s in b]}"]
+    for i, (x, y) in enumerate(zip(a, b)):
+        bx, by = body_box(x), body_box(y)
+        if not (close(bx[0], by[0]) and close(bx[1], by[1])):
+            out.append(f"body {i} ({x.shape_type}): box {bx} vs {by}")
+        px, py = x.physics, y.physics
+        if px and py and ((px.is_dynamic, px.keyframed) != (py.is_dynamic, py.keyframed)
+                          or abs(px.mass - py.mass) > 1e-3 * max(1.0, px.mass)
+                          or abs(px.friction - py.friction) > 1e-3):
+            out.append(f"body {i} ({x.shape_type}): physics dynamic/keyframed/mass/friction "
+                       f"{(px.is_dynamic, px.keyframed, px.mass, px.friction)} vs "
+                       f"{(py.is_dynamic, py.keyframed, py.mass, py.friction)}")
+        if x.shape_type != 'compound':
+            continue
+        if [c.shape_type for c in x.children] != [c.shape_type for c in y.children]:
+            out.append(f"body {i}: children differ")
+            continue
+        for k, (p, q) in enumerate(zip(x.children, y.children)):
+            if not close(p.transform.position, q.transform.position) or \
+                    not close(sum(p.transform.rotation, ()), sum(q.transform.rotation, ()),
+                              1e-4) or abs(p.transform.scale - q.transform.scale) > 1e-5:
+                out.append(f"body {i} child {k}: placed differently")
+            cp, cq = _child_box(p), _child_box(q)
+            if not (close(cp[0], cq[0]) and close(cp[1], cq[1])):
+                out.append(f"body {i} child {k}: a different shape")
+    return out
+
+
 @TT.category('FO4', 'PHYSICS')
 def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
-    """A single-body compound collision round-trips and stays loadable in game.
+    """A single-body compound collision round-trips, rebuilt, and stays loadable in game.
 
     The vanilla armor workbench's collision is one rigid body whose shape is an
-    hknpDynamicCompoundShape of 36 convex polytopes (referenced by body_id 0),
-    plus a hknpDynamicCompoundShapeData bounding-volume BVH tree. PyNifly used to
-    flatten it to 36 sibling meshes and re-export it as 36 separate bodies with an
-    unset body_id (0xFFFFFFFF) -> crash in bhkNPCollisionObject::CreateInstance.
-
-    Import now groups the polytopes under a two-level bhkPhysicsSystem ->
-    bhkCompound hierarchy (each child carrying its instance transform) for viewing,
-    and stashes the original packfile. Export writes that packfile back verbatim
-    and sets body_id -- so the collision (including the BVH tree the engine's
-    updateAabb walks) is byte-identical to vanilla. Regenerating the tree from
-    Blender geometry is future work (see TODO.md).
+    hknpDynamicCompoundShape of 36 convex polytopes (referenced by body_id 0), with the
+    bounding-volume tree the engine's updateAabb walks.  PyNifly used to flatten it to 36
+    sibling meshes and re-export 36 bodies with an unset body_id -> crash in
+    bhkNPCollisionObject::CreateInstance; then it wrote the imported bytes back.  Now
+    export builds the compound from the Blender objects, tree and all (phase 8): the
+    same collision, the tree valid by every rule vanilla's keep.
     """
     testfile = TTB.test_file(r"tests\FO4\WorkstationArmorB01.nif")
     outfile = TTB.test_file(r"tests\Out\TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP.nif")
@@ -1252,6 +1299,7 @@ def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
     compound = bpy.data.objects['bhkCompound']
     assert TT.is_eq(compound.parent, system, "bhkCompound is under the physics system")
     assert compound.get('pynCollisionCompound'), "bhkCompound tagged as a compound body"
+    assert TT.is_eq(compound.get('pynPhysicsData'), None, "no imported bytes kept")
     kids = [o for o in bpy.data.objects if o.parent == compound]
     assert TT.is_eq(len(kids), 36, "compound groups 36 polytope children")
 
@@ -1265,24 +1313,15 @@ def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
     dst = pyn.NifFile(outfile)
     vco = src.nodes['WorkstationArmor'].collision_object
     eco = dst.nodes['WorkstationArmor'].collision_object
-
     assert TT.is_eq(eco.body_id, 0, "exported collision object body_id is 0 (not the crash sentinel)")
-
-    # Preserved verbatim, so the physics packfile -- including the BVH tree the
-    # engine walks in updateAabb -- is byte-identical to vanilla.
-    assert TT.is_eq(eco.physics_system.data, vco.physics_system.data,
-                    "exported physics packfile is byte-identical to vanilla")
-    assert b'DynamicCompoundShapeData' in eco.physics_system.data, \
-        "exported packfile keeps the compound bounding-volume tree"
+    assert TT.is_eq(_system_differences(bytes(vco.physics_system.data),
+                                        bytes(eco.physics_system.data)), [],
+                    "the same compound, rebuilt with a valid tree")
     # The import's grouping empty is not a node (#450 8.3).
     assert TT.is_eq(set(dst.nodes) - set(src.nodes), set(), "no nodes added on export")
 
     # ---- a compound of COMPRESSED MESHES, not polytopes ----
     # DExtStands1x1Top01 is one body whose compound holds two compressed meshes.
-    # The decoder only recognised polytope children, so this came through as two
-    # loose meshes: nothing was tagged as a compound, the packfile was never
-    # stashed, and export wrote two bodies where vanilla has one -- silently,
-    # because every individual step looked reasonable.
     TTB.clear_all()
     cmfile = TTB.test_file(
         r"tests\FO4\Meshes\Architecture\DiamondCity\DExt\DExtStands1x1Top01.nif")
@@ -1304,13 +1343,12 @@ def TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP():
     cm_dst = pyn.NifFile(cmout)
     src_ps = cm_src.nodes['DExtStands1x1Top01'].collision_object.physics_system
     dst_ps = cm_dst.nodes['DExtStands1x1Top01'].collision_object.physics_system
-    assert TT.is_eq(dst_ps.data, src_ps.data,
-                    "compound-of-mesh packfile is preserved byte for byte")
+    assert TT.is_eq(_system_differences(bytes(src_ps.data), bytes(dst_ps.data)), [],
+                    "the compound of compressed meshes, rebuilt")
     assert TT.is_eq(set(cm_dst.nodes) - set(cm_src.nodes), set(), "no nodes added on export")
 
 
 ELEVATOR = os.path.join(TT.FO4_ASSETS, r"Meshes\Interiors\Vault\Rooms\VltOutsideEntrance01.nif")
-SAVED_SYSTEM_WARNING = "written as imported"
 
 
 def _collision_nodes(path):
@@ -1319,7 +1357,7 @@ def _collision_nodes(path):
     out = {}
     for n in nif.nodes.values():
         co = n.collision_object
-        if co is not None and co.blockname == 'bhkNPCollisionObject':
+        if co is not None and co.blockname == 'bhkNPCollisionObject'                 and co.physics_system is not None:
             out[n.name] = (co.body_id, co.physics_system.id, bytes(co.physics_system.data))
     return out
 
@@ -1328,26 +1366,25 @@ def _export_all(outfile):
     bpy.ops.object.select_all(action='SELECT')
     bpy.context.view_layer.objects.active = next(
         o for o in bpy.data.objects if 'pynRoot' in o)
-    with captured_warnings() as w:
-        bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
-    return [m for m in w.messages if SAVED_SYSTEM_WARNING in m]
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors(("Could not find texture", "Unknown block type", SAVED_SYSTEM_WARNING))
-def TEST_COLLISION_FO4_SAVED_SYSTEM():
-    """A physics system holding a compound body is written once, for all its bodies,
-    and an edit to any of them is reported, not dropped without a word (#444).
+@TT.expect_errors(("Could not find texture", "Unknown block type"))
+def TEST_COLLISION_FO4_COMPOUND_EDITS():
+    """A system holding a compound is rebuilt from Blender, edits and all (#444, phase 8).
 
-    The Vault 111 elevator room keeps one system with three bodies: a compound of two
-    compressed meshes on the root, and loose bodies on rampdummy and Point01.  A
-    compound can't be rebuilt yet (its bounding-volume tree), so the system is written
-    from the bytes saved at import.  Export used to write the root that whole system
-    and the other two bodies again in a second, rebuilt one -- bodies doubled -- and
-    an edit to the compound was dropped silently.  304 vanilla systems mix a compound
-    with other bodies this way (11-25).
+    The Vault 111 elevator room keeps one system of three bodies: a compound of two
+    compressed meshes on the root, and loose bodies on rampdummy and Point01.  The
+    compound used to be written from the bytes saved at import, so edits to any of the
+    three bodies were reported but not exported (phase 6).  Now the tree is built, and
+    every edit goes out: a loose body reshaped, a compound child moved or scaled, a body
+    deleted, the compound deleted.
     """
-    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_SAVED_SYSTEM.nif")
+    from io_scene_nifly.pyn.bhk_autounpack import parse_bytes
+    from io_scene_nifly.pyn.bhk_autopack import _child_box
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_COMPOUND_EDITS.nif")
+    sf = HAVOC_SCALE_FACTOR
     vanilla = _collision_nodes(ELEVATOR)
     van_bytes = next(iter(vanilla.values()))[2]
     expect_ids = {n: v[0] for n, v in vanilla.items()}
@@ -1359,104 +1396,195 @@ def TEST_COLLISION_FO4_SAVED_SYSTEM():
         bpy.ops.import_scene.pynifly(filepath=ELEVATOR, import_animations=False)
         compound = next(o for o in bpy.data.objects if o.get('pynCollisionCompound'))
         loose = {o.get('pynCollisionBodyID'): o for o in bpy.data.objects
-                 if o.get('pynSavedSystem') and o.get('pynCollisionShapeType')
-                 and o.parent is not compound}
-        return compound, loose
+                 if o.get('pynCollisionShapeType') and o.parent is not compound
+                 and o.get('pynCollisionBodyID') is not None}
+        kids = sorted((o for o in bpy.data.objects if o.parent is compound),
+                      key=lambda o: o.name)
+        return compound, loose, kids
 
-    # ---- Unedited: one system, vanilla's bytes, every node at its own body ----
-    compound, loose = load()
-    key = compound.get('pynSavedSystem')
-    assert TT.is_true(key, "the compound's system is marked as saved")
+    def system(path):
+        out = _collision_nodes(path)
+        assert TT.is_eq(len({v[1] for v in out.values()}), 1, "one physics system")
+        return out, parse_bytes(next(iter(out.values()))[2])
+
+    # ---- Unedited: one system, the same bodies, every node at its own body ----
+    compound, loose, kids = load()
     assert TT.is_eq(sorted(loose), [1, 2], "the two loose bodies are found by body ID")
-    assert TT.is_eq({o.get('pynSavedSystem') for o in loose.values()}, {key},
-                    "the loose bodies carry the same system")
-    warnings = _export_all(outfile)
-    assert TT.is_eq(warnings, [], "no edit warning for an unedited system")
-    out = _collision_nodes(outfile)
-    assert TT.is_eq({n: v[0] for n, v in out.items()}, expect_ids,
-                    "each node names its own body")
-    assert TT.is_eq(len({v[1] for v in out.values()}), 1, "one physics system for all three")
-    assert TT.is_true(next(iter(out.values()))[2] == van_bytes, "the system is vanilla's")
+    _export_all(outfile)
+    out, _bodies = system(outfile)
+    assert TT.is_eq({n: v[0] for n, v in out.items()}, expect_ids, "each node names its own body")
+    assert TT.is_eq(_system_differences(van_bytes, next(iter(out.values()))[2]), [],
+                    "the same system, rebuilt")
 
-    # ---- An edited loose body is reported; the system stays as imported ----
-    compound, loose = load()
-    loose[2].data.vertices[0].co.z += 10.0
-    warnings = _export_all(outfile)
-    assert TT.is_eq(len(warnings), 1, "one warning for the edited loose body")
-    assert TT.is_true(loose[2].name in warnings[0], "it names the edited object")
-    out = _collision_nodes(outfile)
-    assert TT.is_eq(len({v[1] for v in out.values()}), 1, "still one system")
-    assert TT.is_true(next(iter(out.values()))[2] == van_bytes, "still vanilla's")
+    # ---- An edited loose body goes out ----
+    compound, loose, kids = load()
+    top = max(loose[2].data.vertices, key=lambda v: v.co.z)
+    z0 = top.co.z
+    top.co.z += 10.0
+    _export_all(outfile)
+    _out, bodies = system(outfile)
+    _van, van_bodies = system(ELEVATOR)
+    rise = _child_box(bodies[2])[1][2] - _child_box(van_bodies[2])[1][2]
+    assert TT.is_true(rise > 9.0 / sf, f"the edited body is taller ({rise * sf:.2f} of 10 "
+                                       f"units; its top was {z0:.1f})")
 
-    # ---- An edited compound mesh is reported ----
-    compound, loose = load()
-    kid = sorted((o for o in bpy.data.objects if o.parent is compound),
-                 key=lambda o: o.name)[0]
-    kid.location.z += 50.0
-    warnings = _export_all(outfile)
-    assert TT.is_eq(len(warnings), 1, "one warning for the moved compound mesh")
-    assert TT.is_true(kid.name in warnings[0], "it names the moved object")
+    # ---- A compound child moved, and one scaled, go out ----
+    compound, loose, kids = load()
+    kids[0].location.z += 50.0
+    kids[1].scale = (2.0, 2.0, 2.0)
+    _export_all(outfile)
+    _out, bodies = system(outfile)
+    comp = bodies[0]
+    vcomp = van_bodies[0]
+    dz = comp.children[0].transform.position[2] - vcomp.children[0].transform.position[2]
+    assert TT.is_equiv(dz, 50.0 / sf, "the moved child's instance moved", e=1e-3)
+    assert TT.is_equiv(comp.children[1].transform.scale, 2.0, "the scaled child's instance")
 
-    # ---- A deleted loose body is reported: the saved system still has it ----
-    compound, loose = load()
+    # ---- A deleted loose body is gone; the others keep theirs ----
+    compound, loose, kids = load()
     bpy.data.objects.remove(loose[1])
-    warnings = _export_all(outfile)
-    assert TT.is_eq(len(warnings), 1, "one warning for the deleted body")
-    assert TT.is_true("body 1" in warnings[0], "it names the missing body")
+    _export_all(outfile)
+    out, bodies = system(outfile)
+    assert TT.is_eq(sorted(out), ['Point01', 'VltOutsideEntrance01'], "rampdummy has none")
+    assert TT.is_eq([s.shape_type for s in bodies], ['compound', 'compressed_mesh'],
+                    "the compound and Point01's mesh")
 
-    # ---- With the compound deleted, the rest is rebuilt from Blender ----
-    compound, loose = load()
-    for o in [o for o in bpy.data.objects if o.parent is compound] + [compound]:
+    # ---- With the compound deleted, the rest is still written ----
+    compound, loose, kids = load()
+    for o in kids + [compound]:
         bpy.data.objects.remove(o)
-    warnings = _export_all(outfile)
-    assert TT.is_eq(warnings, [], "nothing saved is left to warn about")
-    out = _collision_nodes(outfile)
+    _export_all(outfile)
+    out, bodies = system(outfile)
     assert TT.is_eq(sorted(out), ['Point01', 'rampdummy'], "the loose bodies are written")
-    assert TT.is_eq(len({v[1] for v in out.values()}), 1, "in one system")
-    assert TT.is_true(b'hknpDynamicCompoundShape' not in out['Point01'][2],
-                      "a rebuilt one, without the compound")
+    assert TT.is_true('compound' not in [s.shape_type for s in bodies], "without the compound")
 
 
 @TT.category('FO4', 'PHYSICS')
-@TT.expect_errors(("Could not find texture", "Unknown block type", SAVED_SYSTEM_WARNING,
+@TT.expect_errors(("Could not find texture", "Unknown block type",
                    "physics constraints PyNifly can't read", "weren't both imported"))
-def TEST_COLLISION_FO4_SAVED_SYSTEM_VARIETY():
-    """Saved systems of other shapes than the elevator's round-trip unedited, with no
-    edit warning: vanilla's bytes, one system, each node at its own body.
+def TEST_COLLISION_FO4_COMPOUND_SYSTEMS():
+    """Systems holding compounds come back the same, rebuilt from Blender: one system,
+    each node at its own body, the bodies and compound children as they were, and the
+    tree valid by every rule vanilla's keep.
 
-    Each one tripped the 11-25 check over the 304 vanilla systems that mix a compound
-    with other bodies:
-    - HitLgRmMidCorOut02DST: a compound with ONE child.  Import made no compound empty
-      for it, so nothing was saved: the system was rebuilt, bodies renumbered, and
-      the child's instance transform dropped.
+    Each one tripped an earlier check over the vanilla systems that mix a compound with
+    other bodies:
+    - HitLgRmMidCorOut02DST: a compound with ONE child.
     - Gurney01: sphere bodies (the centre is in the vertices, not on the object).
-    - Jangles01: two compounds in one system, and a sphere no body owns.
-    - ConstitutionLaunch01: compound meshes 3,000 units out, where matrix_local is
-      1e-3 off (worked back from world matrices) -- the object's own transform isn't.
-    - Workshop_WindmillGenerator01: a compound child whose float32 transform puts its
-      points 4e-4 off at 250 units: transforms are compared, not placed points.
-    - UtilityPole01: a body no node names, so import makes nothing for it.  That isn't
-      a deletion.
+    - Jangles01: two compounds in one system.
+    - ConstitutionLaunch01: compound meshes 3,000 units out.
+    - Workshop_WindmillGenerator01: float32 transforms far out.
+    - UtilityPole01: a body no node names, so import makes nothing for it; it is left
+      out, and the nodes keep their bodies' order.
+    - BldgBrick3Story6x2ResCustomEntA: a compressed mesh among a compound's polytopes;
+      the children used to come out of order.
+    - 308Ammo, Res01ModernDoor01: a dynamic compound, and a keyframed one (the screen
+      door).  Rebuilt, they came out static (their physics weren't on the children export
+      reads them from): the box couldn't be kicked, the screen door didn't open.
     """
     for rel in (r"Meshes\Interiors\HighTech\LgRooms\HitLgRmMidCorOut02DST.nif",
                 r"Meshes\SetDressing\Hospital\Gurney01.nif",
                 r"Meshes\Props\StuffedAnimals\Jangles01.nif",
                 r"Meshes\Effects\Quest\MS11\ConstitutionLaunch01.nif",
                 r"Meshes\SetDressing\Workshop\Workshop_WindmillGenerator01.nif",
-                r"Meshes\SetDressing\UtilityPoles\UtilityPole01.nif"):
+                r"Meshes\Architecture\Buildings\BldgBrick3Story6x2ResCustomEntA.nif",
+                r"Meshes\Ammo\308\308Ammo.nif",
+                r"Meshes\Architecture\Buildings\Residential\Res01ModernDoor01.nif"):
         src = os.path.join(TT.FO4_ASSETS, rel)
-        outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_SAVED_SYSTEM_VARIETY.nif")
+        outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_COMPOUND_SYSTEMS.nif")
         name = os.path.basename(rel)
         TTB.clear_all()
         bpy.ops.import_scene.pynifly(filepath=src, import_animations=False)
-        warnings = _export_all(outfile)
-        assert TT.is_eq(warnings, [], f"{name}: no edit warning")
+        _export_all(outfile)
         vanilla, out = _collision_nodes(src), _collision_nodes(outfile)
         assert TT.is_eq({n: v[0] for n, v in out.items()},
                         {n: v[0] for n, v in vanilla.items()}, f"{name}: body IDs")
         assert TT.is_eq(len({v[1] for v in out.values()}), 1, f"{name}: one system")
-        assert TT.is_true(next(iter(out.values()))[2] == next(iter(vanilla.values()))[2],
-                          f"{name}: vanilla's system")
+        assert TT.is_eq(_system_differences(next(iter(vanilla.values()))[2],
+                                            next(iter(out.values()))[2]), [],
+                        f"{name}: the same system, rebuilt")
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("Unknown block type", "physics constraints PyNifly can't read",
+                   "weren't both imported"))
+def TEST_COLLISION_FO4_COMPOUND_SPHERES():
+    """Spheres in a compound come in where they are, as the compound's children: Dogmeat's
+    skeleton holds a capsule and two spheres in one compound.  The spheres used to come
+    out as bodies of their own, and their instance transform was applied twice."""
+    from io_scene_nifly.pyn.bhk_autounpack import parse_bytes
+    src = os.path.join(TT.FO4_ASSETS, r"Meshes\Actors\Dogmeat\CharacterAssets\skeleton.nif")
+    bpy.ops.import_scene.pynifly(filepath=src, import_animations=False, reference_skel=src)
+    compound = next(o for o in bpy.data.objects if o.get('pynCollisionCompound'))
+    kids = [o for o in bpy.data.objects if o.parent is compound]
+    assert TT.is_eq(sorted(o['pynCollisionShapeType'] for o in kids),
+                    ['capsule', 'sphere', 'sphere'], "a capsule and two spheres")
+    data = next(v for v in _collision_nodes(src).values()
+                if b'hknpDynamicCompoundShape' in v[2])[2]
+    comp = next(s for s in parse_bytes(data) if s.shape_type == 'compound')
+    sf = HAVOC_SCALE_FACTOR
+    want = sorted(tuple(round(x * sf, 2) for x in c.transform.position)
+                  for c in comp.children if c.shape_type == 'sphere')
+    got = []
+    for o in kids:
+        if o['pynCollisionShapeType'] != 'sphere':
+            continue
+        c = sum((o.matrix_parent_inverse @ o.matrix_basis @ v.co for v in o.data.vertices),
+                Vector()) / len(o.data.vertices)
+        got.append(tuple(round(x, 2) for x in c))
+    assert TT.is_equiv(sorted(got), want, "each sphere where its instance puts it", e=0.05)
+
+
+@TT.category('FO4', 'PHYSICS')
+def TEST_COLLISION_FO4_COMPOUND_NEW():
+    """A compound built in Blender exports with a valid bounding-volume tree.
+
+    An empty tagged pynCollisionCompound under a bhkPhysicsSystem empty (the crate root's
+    collision, tied to it as import ties them), two box meshes under it. Export used to write such a compound without its tree, which crashes the
+    game in hknpDynamicCompoundShape::updateAabb.
+    """
+    from io_scene_nifly.pyn.bhk_autounpack import compound_problems, parse_bytes
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_COMPOUND_NEW.nif")
+    root = bpy.data.objects.new('Crate', None)
+    bpy.context.scene.collection.objects.link(root)
+    root['pynRoot'] = True
+    bpy.ops.mesh.primitive_cube_add(size=20.0, location=(0, 0, 10))
+    box = bpy.context.object
+    box.name = 'CrateMesh'
+    box.parent = root
+    system = bpy.data.objects.new('bhkPhysicsSystem', None)
+    bpy.context.scene.collection.objects.link(system)
+    system['pynRigidBody'] = 'bhkPhysicsSystem'
+    # As import ties them: the node copies its collision's transform.
+    c = root.constraints.new('COPY_TRANSFORMS')
+    c.target = system
+    compound = bpy.data.objects.new('bhkCompound', None)
+    bpy.context.scene.collection.objects.link(compound)
+    compound['pynCollisionCompound'] = True
+    compound.parent = system
+    for k, x in enumerate((-5.0, 5.0)):
+        bpy.ops.mesh.primitive_cube_add(size=8.0, location=(x, 0, 10))
+        part = bpy.context.object
+        part.name = f'Part{k}'
+        part['pynCollisionShapeType'] = 'polytope'
+        part['pynRigidBody'] = 'bhkPhysicsSystem'
+        mw = part.matrix_world.copy()
+        part.parent = compound
+        part.matrix_world = mw
+    BD.ObjectSelect([root], active=True)
+    bpy.ops.export_scene.pynifly(filepath=outfile, target_game='FO4')
+    nif = pyn.NifFile(outfile)
+    co = nif.rootNode.collision_object
+    assert TT.is_true(co is not None, "the root has the collision")
+    data = bytes(co.physics_system.data)
+    assert TT.is_eq(compound_problems(data), [], "a valid compound, tree and all")
+    comp = next(s for s in parse_bytes(data) if s.shape_type == 'compound')
+    assert TT.is_eq([c.shape_type for c in comp.children], ['polytope', 'polytope'],
+                    "two polytope children")
+    xs = sorted(c.transform.position[0] * HAVOC_SCALE_FACTOR for c in comp.children)
+    assert TT.is_equiv(xs, [-5.0, 5.0], "placed where they are", e=0.01)
+    zs = [c.transform.position[2] * HAVOC_SCALE_FACTOR for c in comp.children]
+    assert TT.is_equiv(zs, [10.0, 10.0], "at the crate's height", e=0.01)
 
 
 @TT.category('FO4', 'PHYSICS')

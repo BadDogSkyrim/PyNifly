@@ -255,6 +255,8 @@ class BodyTransform:
     # Keep the original so a re-pack reproduces the source exactly; shapes built
     # in Blender have no quaternion and fall back to converting the matrix.
     quaternion: Optional[Tuple[float, float, float, float]] = None
+    # A compound instance's uniform scale (+0x40).  1 but in some SCOL files.
+    scale: float = 1.0
 
 
 # hknpBodyCinfo.motionId when a body does not move.  Anything else indexes the
@@ -370,6 +372,35 @@ def unsupported_shapes(data: bytes) -> List[str]:
     objects = parse_virtual_fixups(data, dh, hdrs["__classnames__"].abs_start)
     return sorted({cls for _, cls in objects
                    if cls.endswith("Shape") and cls not in SUPPORTED_SHAPE_CLASSES})
+
+
+def parse_sphere(data: bytes, shape_abs: int, **kw) -> 'CollisionShape':
+    """An hknpSphereShape: radius at +0x14; at +0x30 its vertex count and the offset to
+    them, every vertex the centre."""
+    return CollisionShape(
+        shape_type="sphere", verts=[], faces=[], convex_radius=0.0, children=[],
+        sphere_radius=f32(data, shape_abs + 0x14),
+        sphere_center=vec3(data, shape_abs + 0x30 + u16(data, shape_abs + 0x32)),
+        **shape_header(data, shape_abs), **kw)
+
+
+def parse_convex_points(data: bytes, shape_abs: int, **kw) -> Optional['CollisionShape']:
+    """An hknpConvexShape: points and a radius, no faces. Read as the polytope they bound:
+    the writer has no use for the class, and the shape is the same. All five vanilla ones
+    are flat quads with radius 0 (panels: a magazine rack, a blood trough, a sight)."""
+    from .convex_hull import hull_triangles
+    n = u16(data, shape_abs + 0x30)
+    base = shape_abs + 0x30 + u16(data, shape_abs + 0x32)
+    pts = [vec3(data, base + 16 * k) for k in range(n)]
+    try:
+        tris = hull_triangles(pts, 1e-6)
+    except ValueError:
+        # Flat: every vanilla one is a quad, its corners in order around it.
+        tris = [(0, k, k + 1) for k in range(1, n - 1)]
+    return CollisionShape(
+        shape_type="polytope", verts=pts, faces=tris,
+        convex_radius=f32(data, shape_abs + 0x14), children=[],
+        **shape_header(data, shape_abs), **kw)
 
 
 def parse_capsule(data: bytes, shape_abs: int, **kw) -> Optional['CollisionShape']:
@@ -1032,7 +1063,8 @@ def compound_instance_map(
             t = vec4(data, inst_abs + 0x30)
             out.setdefault(gf[1], []).append(
                 (comp_rel, i,
-                 BodyTransform(position=(t[0], t[1], t[2]), rotation=rot)))
+                 BodyTransform(position=(t[0], t[1], t[2]), rotation=rot,
+                               scale=f32(data, inst_abs + 0x40))))
     return out
 
 
@@ -1092,6 +1124,7 @@ def extract_compound_polytopes(
             body_index=body_order.get(comp_rel) if body_order else None,
             **shape_header(data, comp_abs),
         )
+        kids: List[Tuple[int, CollisionShape]] = []
 
         for i in range(inst_count):
             inst_abs = inst_arr_abs + i * INST_STRIDE
@@ -1107,40 +1140,46 @@ def extract_compound_polytopes(
                          (r0[2], r1[2], r2[2]))
             t = vec4(data, inst_abs + 0x30)
             trans = (t[0], t[1], t[2])
+            inst_transform = BodyTransform(position=trans, rotation=rot,
+                                           scale=f32(data, inst_abs + 0x40))
 
             gf = gfixups.get(inst_rel + 0x50)
             if gf is None:
                 continue
             shape_rel = gf[1]
             shape_abs = data_start + shape_rel
-            if obj_map.get(shape_rel) == "hknpCapsuleShape":
-                cap = parse_capsule(data, shape_abs, name=f"Capsule_{i}",
-                                    transform=BodyTransform(position=trans, rotation=rot))
-                if cap is not None:
-                    compound_shape.children.append(cap)
-                continue
-            if "ConvexPolytopeShape" not in obj_map.get(shape_rel, ""):
-                continue
+            cls = obj_map.get(shape_rel, "")
+            child = None
+            if cls == "hknpCapsuleShape":
+                child = parse_capsule(data, shape_abs, name=f"Capsule_{i}",
+                                      transform=inst_transform)
+            elif cls == "hknpSphereShape":
+                child = parse_sphere(data, shape_abs, name=f"Sphere_{i}",
+                                     transform=inst_transform)
+            elif cls == "hknpConvexShape":
+                # Points with no faces (5 vanilla files): read as the polytope they bound.
+                child = parse_convex_points(data, shape_abs, name=f"Polytope_{i}",
+                                            transform=inst_transform)
+            elif "ConvexPolytopeShape" in cls:
+                parsed = parse_convex_polytope(data, shape_abs)
+                if parsed is not None:
+                    local_verts, local_tris, convex_radius = parsed
+                    child = CollisionShape(
+                        shape_type="polytope",
+                        name=f"Polytope_{i}",
+                        transform=inst_transform,
+                        verts=local_verts,
+                        faces=local_tris,
+                        convex_radius=convex_radius,
+                        children=[],
+                        **shape_header(data, shape_abs),
+                    )
+            if child is not None:
+                kids.append((i, child))
 
-            parsed = parse_convex_polytope(data, shape_abs)
-            if parsed is None:
-                continue
-            local_verts, local_tris, convex_radius = parsed
-
-            inst_transform = BodyTransform(position=trans, rotation=rot)
-            compound_shape.children.append(CollisionShape(
-                shape_type="polytope",
-                name=f"Polytope_{i}",
-                transform=inst_transform,
-                verts=local_verts,
-                faces=local_tris,
-                convex_radius=convex_radius,
-                children=[],
-                **shape_header(data, shape_abs),
-            ))
-
-        merged = [(n, c) for n, c in enumerate(compound_shape.children)]
-        merged += (extra_children or {}).get(comp_rel, [])
+        # Children in instance order, whichever extractor built them (a compressed mesh
+        # comes from extra_children), keyed by the instance index.
+        merged = kids + (extra_children or {}).get(comp_rel, [])
         merged.sort(key=lambda pair: pair[0])
         compound_shape.children = [c for _, c in merged]
 
@@ -1194,6 +1233,146 @@ def extract_compound_polytopes(
             result.append(cap)
 
     return result
+
+
+# ── compound shapes: the format's rules, as a checker ─────────────────────────
+#
+# hknpDynamicCompoundShape (0xD0) holds its instances inline at +0x60 (0x80 each) and points
+# at an hknpDynamicCompoundShapeData whose Havok dynamic tree the engine walks
+# (hknpDynamicCompoundShape::updateAabb) -- a compound written without one crashes the game.
+# Rules from every vanilla compound (2,138 of them, phase 8 census, 2026-11-26):
+#   header   flags 4, numShapeKeyBits = bit length of N, dispatch 2, -1 at +0x30, +0x58 and
+#            +0x70 (the instance free list), isMutable 1 at +0xA0; the box at +0x80 is the
+#            tree's root box.
+#   instance rotation columns, translation, scale (s, s, s, 1) at +0x40, shape at +0x50,
+#            -1 at +0x58.  The transform's w lanes, each 0x3F000000 | value: flags (0x40,
+#            +0x02 translated, +0x04 rotated, +0x28 scaled), 0, the child's size in bytes
+#            (0x90 for a compressed mesh), the instance's leaf node.
+#   tree     data +0x10 the nodes, +0x20 firstFree, +0x28 numLeaves, +0x2C path 0, +0x30
+#            root 1.  2N+1 nodes of 32 bytes: 0 null, then the tree depth first (a left child
+#            right after its parent), the last one free.  Each is a box: min.w =
+#            0x3F000000 | parent, max.w = two u16s, the children, or (0, instance) for a
+#            leaf.  An inner box is the union of its children's.
+W_HIGH = 0x3F000000
+INSTANCE_FLAGS = {'enabled': 0x40, 'translated': 0x02, 'rotated': 0x04, 'scaled': 0x28}
+
+
+def read_compound_tree(data: bytes, data_start: int, nodes_abs: int, count: int):
+    """[(min, max, parent, child0, child1)] for each node of a compound's tree."""
+    out = []
+    for k in range(count):
+        b = nodes_abs + 32 * k
+        out.append((vec3(data, b), vec3(data, b + 16), u32(data, b + 12),
+                    u16(data, b + 28), u16(data, b + 30)))
+    return out
+
+
+def compound_problems(data: bytes) -> List[str]:
+    """Every way the packfile's compounds break the rules vanilla's all keep (above)."""
+    from .havok_packfile import parse_packfile
+    pf = parse_packfile(data)
+    d = pf.data
+    objs = {o.rel: o for o in pf.objects}
+    out: List[str] = []
+    for o in pf.objects:
+        if o.class_name != 'hknpDynamicCompoundShape':
+            continue
+        a = pf.data_start + o.rel
+        where = f"compound at {o.rel:#x}"
+        inst, n = pf.array(o.rel, 0x60)
+
+        def bad(msg, where=where):
+            out.append(f"{where}: {msg}")
+        if u16(d, a + 0x10) != 4 or d[a + 0x12] != n.bit_length() or d[a + 0x13] != 2:
+            bad(f"header flags {u16(d, a + 0x10)}, key bits {d[a + 0x12]}, dispatch {d[a + 0x13]}")
+        for off in (0x30, 0x58, 0x70):
+            if u32(d, a + off) != 0xFFFFFFFF:
+                bad(f"+{off:#x} is not -1")
+        if d[a + 0xA0] != 1:
+            bad("not mutable")
+        g = pf.gptr(o.rel, 0xC0)
+        if g is None or objs.get(g[1]) is None or \
+                objs[g[1]].class_name != 'hknpDynamicCompoundShapeData':
+            bad("no tree")
+            continue
+        da = pf.data_start + g[1]
+        nodes_abs, nn = pf.array(g[1], 0x10)
+        first_free = u16(d, da + 0x20)
+        leaves, path, root = u32(d, da + 0x28), u32(d, da + 0x2C), u32(d, da + 0x30)
+        if nn != 2 * n + 1 or first_free != nn - 1 or leaves != n or path != 0 or root != 1:
+            bad(f"tree bookkeeping: {nn} nodes, firstFree {first_free}, {leaves} leaves, "
+                f"path {path}, root {root} for {n} instances")
+            continue
+        tree = read_compound_tree(d, pf.data_start, nodes_abs, nn)
+        for k in (0, nn - 1):
+            if any(tree[k][0]) or any(tree[k][1]) or any(tree[k][2:]):
+                bad(f"node {k} isn't empty")
+        leaf_of = {}
+        seen = set()
+        stack = [(1, 0)]
+        nxt = 1
+        while stack:
+            k, parent = stack.pop()
+            if k != nxt:
+                bad(f"node {k} isn't where depth-first order puts it ({nxt})")
+                break
+            nxt += 1
+            seen.add(k)
+            mn, mx, pw, c0, c1 = tree[k]
+            if pw != (W_HIGH | parent):
+                bad(f"node {k}: parent word {pw:#x}, parent is {parent}")
+            if c0 == 0:
+                if c1 in leaf_of:
+                    bad(f"instance {c1} in two leaves")
+                leaf_of[c1] = k
+                continue
+            if c0 != k + 1:
+                bad(f"node {k}: left child {c0} isn't next")
+            u_mn = [min(tree[c0][0][i], tree[c1][0][i]) for i in range(3)]
+            u_mx = [max(tree[c0][1][i], tree[c1][1][i]) for i in range(3)]
+            if max(abs(x - y) for x, y in zip(list(mn) + list(mx), u_mn + u_mx)) > 1e-6:
+                bad(f"node {k}'s box isn't its children's union")
+            stack.append((c1, k))
+            stack.append((c0, k))
+        if seen != set(range(1, nn - 1)):
+            bad("nodes the tree doesn't reach")
+        if set(leaf_of) != set(range(n)):
+            bad(f"leaves hold instances {sorted(leaf_of)[:8]}..., not 0..{n - 1}")
+            continue
+        root_box = list(tree[1][0]) + list(tree[1][1])
+        if max(abs(x - y) for x, y in zip(root_box, list(vec3(d, a + 0x80)) +
+                                          list(vec3(d, a + 0x90)))) > 1e-6:
+            bad("compound box isn't the root box")
+        for k in range(n):
+            ia = inst + 0x80 * k
+            w = [u32(d, ia + 0x0C + 16 * j) for j in range(4)]
+            cols = [vec3(d, ia + 16 * j) for j in range(3)]
+            t = vec3(d, ia + 0x30)
+            sc = f32(d, ia + 0x40)
+            flags = INSTANCE_FLAGS['enabled']
+            if any(abs(x) > 0 for x in t):
+                flags |= INSTANCE_FLAGS['translated']
+            if any(abs(cols[i][j] - (i == j)) > 1e-6 for i in range(3) for j in range(3)):
+                flags |= INSTANCE_FLAGS['rotated']
+            if abs(sc - 1.0) > 1e-6:
+                flags |= INSTANCE_FLAGS['scaled']
+            gs = pf.gptr(ia - pf.data_start, 0x50)
+            child = objs.get(gs[1]) if gs else None
+            if child is None:
+                bad(f"instance {k} has no shape")
+                continue
+            size = {'hknpCapsuleShape': 0x1B0, 'hknpSphereShape': 0x80}.get(
+                child.class_name, child.size)
+            # w1 is 0, or -0.0 (0x80000000) on 161 vanilla rotated instances: float noise.
+            if w[0] != W_HIGH | flags or w[1] not in (0, 0x80000000):
+                bad(f"instance {k}: flags {w[0]:#x}, want {W_HIGH | flags:#x}; w1 {w[1]:#x}")
+            if child.class_name != 'hknpCompressedMeshShape' and w[2] != W_HIGH | size:
+                bad(f"instance {k}: size lane {w[2]:#x}, the shape is {size:#x}")
+            if w[3] != W_HIGH | leaf_of[k]:
+                bad(f"instance {k}: leaf lane {w[3]:#x}, its leaf is node {leaf_of[k]}")
+            if u32(d, ia + 0x58) != 0xFFFFFFFF:
+                bad(f"instance {k}: +0x58 isn't -1")
+    return out
 
 
 # ── main extraction ──────────────────────────────────────────────────────────
@@ -1473,27 +1652,14 @@ def extract_bhk_physics_system(
         extra_children=compound_kids))
 
     # ── extract sphere shapes ──
+    # (A sphere a compound owns is that compound's child, not a body.)
     sphere_objects = [(rel, cls) for rel, cls in objects
-                      if "hknpSphereShape" in cls]
+                      if "hknpSphereShape" in cls and rel not in inst_map]
     for shape_idx, (obj_rel, _) in enumerate(sphere_objects):
-        obj_abs = data_start + obj_rel
-        radius = f32(data, obj_abs + 0x14)
-        sphere_body = body_transforms.get(obj_rel)
         name = "SphereShape" if len(sphere_objects) == 1 else f"SphereShape_{shape_idx}"
-        all_shapes.append(CollisionShape(
-            shape_type="sphere",
-            name=name,
-            transform=sphere_body,
-            verts=[],
-            faces=[],
-            convex_radius=0.0,
-            children=[],
-            sphere_radius=radius,
-            # +0x30: vertex count and the offset to them; every vertex is the centre
-            sphere_center=vec3(data, obj_abs + 0x30 + u16(data, obj_abs + 0x32)),
-            body_index=body_order.get(obj_rel),
-            **shape_header(data, obj_abs),
-        ))
+        all_shapes.append(parse_sphere(
+            data, data_start + obj_rel, name=name,
+            transform=body_transforms.get(obj_rel), body_index=body_order.get(obj_rel)))
 
     if not all_shapes:
         raise RuntimeError("No geometry decoded.")

@@ -1,57 +1,11 @@
 # PyNifly TODO
 
-## FO4 compound collision: regenerate the BVH tree (currently preserved)
+## FO4 compound collision: regenerate the BVH tree -- DONE (phase 8, 2026-11-26)
 
-*(The single-body compound **crash** is fixed and shipped in 28.0.0 — import groups the
-polytopes under `bhkPhysicsSystem` → `bhkCompound`, export writes the original packfile
-back verbatim and sets `body_id`. Covered by `TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP`.
-Regenerating the tree, below, is what remains.)*
-
-**Status:** open (2026-07-17). Compound export currently PRESERVES the original
-packfile (byte-identical) rather than regenerating it — see below. This item is to
-finish true regeneration so edited/new compound collisions can be exported.
-
-**Context:** An FO4 `hknpDynamicCompoundShape` (armor/weapons/cooking workbenches,
-BOSRadarDish, etc.) is one rigid body whose shape is a compound of N convex polytopes.
-The compound object is **0xD0 bytes** (not 0x70) and carries, after the templated
-header: an AABB min (+0x80 vec4) / max (+0x90 vec4), and at +0xC0 a global-fixup
-pointer to a separate **`hknpDynamicCompoundShapeData`** object. That Data object holds
-the **bounding-volume BVH tree** — for the armor bench, 73 nodes × 32 bytes over 36
-leaves. Node layout: `min(vec3,12) + field(4) + max(vec3,12) + link(u16,u16 at +0x1C)`
-where the link encodes child/leaf references (e.g. `02 00 23 00`, `03 00 14 00`). The
-engine walks this tree in `hknpDynamicCompoundShape::updateAabb` at load; without it
-(or with garbage where the +0xC0 pointer should be) it dereferences bad memory and
-crashes. `pack_compound` (bhk_autopack.py) emits the header + instances + polytopes but
-NOT the 0x80-0xD0 bounding region or the Data/tree — so a from-scratch pack crashes the
-game. `_export_compound_body` warns and refuses in that case.
-
-**Current preserve approach (shipped):** import stashes the raw packfile (base64) on the
-`bhkCompound` empty as `pynPhysicsData` plus `pynCollisionBodyID`; export writes those
-bytes back verbatim and sets body_id. Byte-identical to vanilla, loads in game. The
-two-level `bhkPhysicsSystem -> bhkCompound -> polytopes` hierarchy is still built for
-viewing, but editing collision **geometry** in Blender does not round-trip (the stashed
-bytes win). Test `TEST_FO4_COMPOUND_PHYSICS_ROUNDTRIP` asserts byte-identical + tree
-present. `pack_compound` and its round-trip test (`TEST_FO4_COMPOUND_ROUNDTRIP`) remain
-as the geometry-packing half, ready for when the tree is added.
-
-**To finish (regenerate):**
-1. Decode the node link encoding (the `(u16,u16)` at node +0x1C) and the tree's
-   traversal/escape-index scheme. Compare across the 3 vanilla benches (36/33/11 leaves).
-2. Implement BVH construction over the N instance AABBs (median-split/SAH) emitting that
-   node format + the `hknpDynamicCompoundShapeData` object + the compound's +0x80/+0x90
-   AABB and +0xC0 pointer (global fixup). Add `hknpDynamicCompoundShapeData` to the
-   compound classnames (hash `0xF33DC3CC`).
-3. Also revisit `+0x10` (0x02060004 for the benches, 0x02040004 for the 11-leaf stove) —
-   likely encodes tree depth/node count; derive it rather than templating.
-4. Switch `_export_compound_body` to regenerate when geometry changed (keep preserve as
-   the fast path for unmodified collision).
-
-**START HERE — reuse the Skyrim MOPP tree code (Bad Dog's tip, 2026-07-17):** we already
-BUILD BVH bytecode for Skyrim MOPP collisions (`bhkMoppBvTreeShape` — see the MOPP
-compiler and `project_mopp_export`/`project_mopp_output_id_encoding` memories, and the
-`TEST_MOPP_*` pyn tests). The FO4 hknp compound tree format is probably NOT identical but
-very likely similar (both are AABB BVHs over collision shapes). Diff the two node formats
-first; the MOPP builder's spatial-partition logic may port directly.
+Export builds every compound body from Blender, its `hknpDynamicCompoundShapeData` tree
+included (`bhk_autopack.build_compound_tree`, `_write_compound_shape`); the imported bytes
+are no longer kept. The format, from all 2,138 vanilla compounds, is in
+`docs/fo4_havok_packfile_format.md` and checked by `bhk_autounpack.compound_problems`.
 
 ## Constrain imported key times to the animation's time frame
 

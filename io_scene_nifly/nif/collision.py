@@ -3,8 +3,6 @@
 # Copyright © 2024, Bad Dog.
 
 import math
-import base64
-import uuid
 import bpy
 import bmesh
 from mathutils import Matrix, Vector, Quaternion, Euler, geometry
@@ -291,6 +289,23 @@ def follower_collisions(obj):
             and any(c.type == 'COPY_TRANSFORMS' and c.target is obj for c in o.constraints)]
 
 
+def _in_space_of(obj, coll):
+    """obj's matrix in the space of the collision object `coll`, which its node copies: the
+    space a body's geometry is in.  Down the parent chain from coll, each object's own
+    transform as import set it -- not through world matrices, which far from the origin
+    are 1e-3 off, and not through the node as export writes it, which an animated parent
+    can put somewhere other than where Blender shows it (ConstitutionLaunch01's nodes
+    moved 1,800 units).  An object not under coll falls back on the world matrices."""
+    m = Matrix.Identity(4)
+    o = obj
+    while o is not None and o is not coll:
+        m = o.matrix_parent_inverse @ o.matrix_basis @ m
+        o = o.parent
+    if o is None:
+        return coll.matrix_world.inverted() @ obj.matrix_world
+    return m
+
+
 class CollisionHandler(BD.Warns):
     def __init__(self, parent_handler):
         self.root_object = parent_handler.root_object
@@ -502,7 +517,7 @@ class CollisionHandler(BD.Warns):
 
 
     def _create_physics_shape_object(self, s, name, sf, parentxf,
-                                     apply_transform=True):
+                                     apply_transform=True, instance=False):
         """Create a Blender object for one leaf collision shape from a Havok packfile.
 
         For mesh-based shapes (polytope, compressed_mesh) the shape's vertices are
@@ -530,7 +545,9 @@ class CollisionHandler(BD.Warns):
             # The centre is in its body's space: turn it by the body's rotation,
             # then add the body's position.
             c = Vector(s.sphere_center)
-            if s.transform is not None:
+            # A compound's child keeps its centre local: its instance transform goes on
+            # the object.
+            if s.transform is not None and not instance:
                 c = Matrix(s.transform.rotation) @ c + Vector(s.transform.position)
             offset = c * sf
             if offset.length > 0.001:
@@ -675,13 +692,6 @@ class CollisionHandler(BD.Warns):
                           f"{'they' if n > 1 else 'it'} will be lost on export.")
 
         all_shapes = self._physics_system_cache[ps.id]
-        # A system holding a compound is written from its saved bytes, for all its
-        # bodies, until compounds can be rebuilt (see _export_saved_system).  Every
-        # object made from it carries the same key, so export finds them together.
-        saved_key = None
-        if any(s.shape_type == 'compound' for s in all_shapes):
-            saved_key = self._physics_system_cache.setdefault(
-                (ps.id, 'saved_key'), uuid.uuid4().hex)
         body_id = c.body_id
         # A shape knows its body's index.  Look it up by that: a body whose shape
         # the reader skips leaves a gap, and every later list position is off by one.
@@ -708,7 +718,7 @@ class CollisionHandler(BD.Warns):
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[self.nif.game]
 
         # A compound body is one rigid body whose shape is an hknpDynamicCompoundShape
-        # of N convex polytopes. To round-trip it (see pack_compound), keep each
+        # of N convex polytopes. To round-trip it (see _compound_shape), keep each
         # child's verts in local space and carry its instance transform on the
         # Blender object instead of baking it into the verts -- the world placement
         # is identical either way.
@@ -736,7 +746,11 @@ class CollisionHandler(BD.Warns):
 
             if is_compound and compound_mode:
                 # Keep child verts local; the instance transform goes on the object.
-                for child in body_shape.children:
+                for k, child in enumerate(body_shape.children):
+                    child.instance_index = k
+                    # The body's physics (motion, mass, friction...) go on each child:
+                    # they're what Blender shows, and what export reads the body's from.
+                    child.physics = body_shape.physics
                     leaf_entries.append((child, body_xf, False, child.transform))
             else:
                 for s in _leaf_shapes(body_shape):
@@ -746,7 +760,7 @@ class CollisionHandler(BD.Warns):
             return None
 
         # A compound always gets its empties, even with one child: they carry the
-        # child's instance transform and the saved system.
+        # child's instance transform.
         multi = len(leaf_entries) > 1 or compound_mode
 
         # shape_parent is what the shape meshes hang off. For a compound body we
@@ -764,8 +778,8 @@ class CollisionHandler(BD.Warns):
             shape_parent = container
             if compound_mode:
                 # One rigid body whose shape is a compound. Its own empty carries
-                # the compound tag + body_id so export rebuilds it via pack_compound
-                # and points the collision object's body_id at it.
+                # the compound tag + body_id; export builds the compound (tree and
+                # all) from the children under it.
                 compound_obj = bpy.data.objects.new("bhkCompound", None)
                 compound_obj.empty_display_type = 'CUBE'
                 compound_obj.empty_display_size = 0.1
@@ -773,17 +787,6 @@ class CollisionHandler(BD.Warns):
                 # This empty is the body; export finds it as the container's child.
                 compound_obj['pynCollisionCompound'] = True
                 compound_obj['pynCollisionBodyID'] = body_id if single_body else 0
-                # Stash the original packfile bytes. Regenerating a compound would
-                # require rebuilding its Havok AABB BVH tree (hknpDynamicCompoundShapeData),
-                # which we don't do yet; preserving the bytes round-trips the collision
-                # exactly for unmodified geometry (the common case). See TODO.md.
-                _raw = ps.data
-                if _raw:
-                    compound_obj['pynPhysicsData'] = base64.b64encode(_raw).decode('ascii')
-                    compound_obj['pynSavedSystem'] = saved_key
-                    self._physics_system_cache.setdefault(
-                        (ps.id, 'saved_holders'), []).append(compound_obj)
-                    self._note_saved_body(ps.id, compound_obj['pynCollisionBodyID'])
                 self.collection.objects.link(compound_obj)
                 compound_obj.parent = container
                 compound_obj.matrix_local = Matrix.Identity(4)
@@ -804,7 +807,8 @@ class CollisionHandler(BD.Warns):
                                                           f'_{s.shape_type}')
 
             obj = self._create_physics_shape_object(
-                s, name, sf, shape_xf, apply_transform=apply_xf)
+                s, name, sf, shape_xf, apply_transform=apply_xf,
+                instance=instance_xf is not None)
 
             ObjectSelect([obj])
             bpy.ops.rigidbody.object_add(type='PASSIVE')
@@ -818,9 +822,6 @@ class CollisionHandler(BD.Warns):
                 # The body's place in the system: export keeps vanilla's order.
                 obj['pynCollisionBodyID'] = s.body_index
                 body_objs[s.body_index] = obj
-            if saved_key is not None and not compound_mode:
-                obj['pynSavedSystem'] = saved_key
-                self._note_saved_body(ps.id, s.body_index)
 
             from . import pyn_props
             if s.physics is not None:
@@ -864,6 +865,9 @@ class CollisionHandler(BD.Warns):
                     if radius_bl > 0.0:
                         _add_collision_radius_modifiers(obj, radius_bl)
 
+            if getattr(s, 'instance_index', None) is not None:
+                # Its place in the compound: export keeps vanilla's instance order.
+                obj['pynCompoundInstance'] = s.instance_index
             if shape_parent is not None:
                 obj.parent = shape_parent
                 if instance_xf is not None:
@@ -875,8 +879,9 @@ class CollisionHandler(BD.Warns):
                                 instance_xf.position[1]*sf,
                                 instance_xf.position[2]*sf))
                     r = Matrix(instance_xf.rotation).to_4x4()
+                    sc = getattr(instance_xf, 'scale', 1.0)
                     obj.matrix_local = MatrixLocRotScale(t, r.to_quaternion(),
-                                                         Vector((1, 1, 1)))
+                                                         Vector((sc, sc, sc)))
                 else:
                     obj.matrix_local = Matrix.Identity(4)
             else:
@@ -1600,349 +1605,68 @@ class CollisionHandler(BD.Warns):
         return body_node
 
 
-    def _note_saved_body(self, psid, body_id):
-        """Record that import made an object for body_id of saved system psid.
+    def _compound_shape(self, comp, coll, body_xf, sf, physics):
+        """The compound body under the bhkCompound empty `comp`: an hknpDynamicCompoundShape
+        CollisionShape whose children are the meshes under it.  Each child's geometry is
+        its mesh, in its own space; its instance transform is where it sits in the body's
+        space -- the collision object `coll`'s, which its node copies -- with its scale
+        (uniform: a non-uniform scale goes into the geometry).  pack_system builds the
+        shape, its instances and the bounding-volume tree.
 
-        Every compound empty of the system carries the list, so export can tell a
-        body deleted in Blender from one import never made (no node names it, or its
-        node is a bone import doesn't read collision for)."""
-        ids = self._physics_system_cache.setdefault((psid, 'saved_ids'), set())
-        if body_id is not None:
-            ids.add(int(body_id))
-        for holder in self._physics_system_cache.get((psid, 'saved_holders'), []):
-            holder['pynSavedBodies'] = sorted(ids)
-
-
-    @staticmethod
-    def _saved_key(compound):
-        """The key a compound's saved system goes by. A compound imported before keys
-        existed has the bytes but no key: it is a saved system on its own."""
-        return compound.get('pynSavedSystem') or ('compound:' + compound.name)
-
-
-    @staticmethod
-    def _saved_holder(key):
-        """The compound empty holding the saved system `key`, or None if it's gone."""
-        for o in bpy.data.objects:
-            if o.get('pynCollisionCompound') and o.get('pynPhysicsData') \
-                    and CollisionHandler._saved_key(o) == key:
-                return o
-        return None
-
-
-    def _queue_saved(self, holder, targnode, flags, body_id):
-        """Give targnode a collision object naming body_id in the saved system that
-        `holder` carries.  finish_physics writes the system and points it there."""
-        key = self._saved_key(holder)
-        co = targnode.add_collision(
-            None, flags=flags or 0,
-            collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
-            body_id=body_id)
-        entry = self._saved_pending.setdefault(key, dict(holder=holder, cos=[]))
-        entry['cos'].append((co, body_id))
-
-
-    @classmethod
-    def _saved_system_edits(cls, h, key, holder, data, game):
-        """What in Blender differs from the saved system `data`: one message per
-        edited or missing body object.
-
-        Each body is compared with what import made of it: its shapes' points where
-        they sit (as sets, 1e-4 game units), the shape count, and the values import
-        set (motion, mass, friction, ..., material, flags).  A keyless holder (an
-        older import) is checked for its own compound body only.
-        """
-        from mathutils.kdtree import KDTree
-        from ..pyn.bhk_autounpack import parse_bytes
+        See _in_space_of for how the placement is worked out."""
+        from ..pyn.bhk_autounpack import CollisionShape, BodyTransform
         from ..pyn.bhk_autopack import capsule_from_points
-        sf = HAVOC_SCALE_FACTOR * game_collision_sf[game]
-
-        def same_points(a, b):
-            a = {tuple(round(c, 6) for c in p) for p in a}
-            b = {tuple(round(c, 6) for c in p) for p in b}
-            if not a or not b:
-                return a == b
-            for x, y in ((a, b), (b, a)):
-                tree = KDTree(len(y))
-                for i, p in enumerate(y):
-                    tree.insert(p, i)
-                tree.balance()
-                for p in x:
-                    _, _, d = tree.find(p)
-                    if d > 1e-4 + 1e-6 * Vector(p).length:
-                        return False
-            return True
-
-        def close(a, b, tol=1e-4):
-            return abs(a - b) <= tol * max(1.0, abs(b))
-
-        def shape_differs(o, s, points):
-            t = o.get('pynCollisionShapeType')
-            if t != s.shape_type:
-                return "shape type"
-            if t == 'sphere':
-                c = Vector(s.sphere_center)
-                if s.transform is not None:
-                    c = Matrix(s.transform.rotation) @ c + Vector(s.transform.position)
-                n = len(o.data.vertices)
-                mid = sum((v.co for v in o.data.vertices), Vector()) / max(n, 1)
-                # Import puts the centre into the vertices, not the object.
-                if (mid - c * sf).length > 1e-4 * max(1.0, c.length * sf) \
-                        or not close(max(o.dimensions) / 2, s.sphere_radius * sf):
-                    return "shape"
-            elif t == 'capsule':
-                a, b, r = capsule_from_points(points)
-                e0, e1 = (Vector(e) * sf for e in s.capsule_ends)
-                a, b = Vector(a), Vector(b)
-                ends_ok = min(max((a - e0).length, (b - e1).length),
-                              max((a - e1).length, (b - e0).length)) <= 1e-3
-                if not ends_ok or not close(r, s.convex_radius * sf, 1e-3):
-                    return "shape"
-            elif not same_points(points, [Vector(v) * sf for v in s.verts]):
-                # Import leaves a body's own transform off its vertices: the node
-                # places the body.
-                return "shape"
-            return None
-
-        def physics_differs(o, ph):
-            from . import pyn_props
-            if ph is None:
-                return None
-            rb = o.rigid_body
-            gp = pyn_props.get_group(o, 'pyn_fo4phys')
-            if rb is None:
-                return "rigid body"
-            if (rb.type == 'ACTIVE') != ph.is_dynamic:
-                return "motion type"
-            if ph.is_dynamic and rb.kinematic != ph.keyframed:
-                return "animated"
-            if ph.is_dynamic and not ph.keyframed and not close(rb.mass, ph.mass):
-                return "mass"
-            for name, a, b in (
-                    ("friction", rb.friction, ph.friction),
-                    ("restitution", rb.restitution, ph.restitution),
-                    ("linear damping", rb.linear_damping, ph.linear_damping),
-                    ("angular damping", rb.angular_damping, ph.angular_damping),
-                    ("gravity factor", gp.gravity_factor, ph.gravity_factor),
-                    ("max linear velocity", gp.max_lin_vel, ph.max_linear_velocity),
-                    ("max angular velocity", gp.max_ang_vel, ph.max_angular_velocity)):
-                if not close(a, b, 1e-3):
-                    return name
-            if _filter_info(gp) != ph.collision_filter_info:
-                return "collision filter"
-            if gp.trigger != ph.trigger or gp.body_flag_10000 != ph.body_flag_10000:
-                return "body flags"
-            return None
-
-        def header_differs(o, s):
-            hdr = h._fo4_shape_header(o)
-            if s.user_data is not None and hdr.get('user_data', s.user_data) != s.user_data:
-                return "material"
-            if s.shape_flags is not None \
-                    and hdr.get('shape_flags', s.shape_flags) != s.shape_flags:
-                return "shape flags"
-            return None
-
-        def local_points(o, mx):
-            return [mx @ v.co for v in o.data.vertices]
-
-        def same_place(o, x):
-            """The object sits where import put it for instance transform x.
-
-            Compared as transforms, not as placed points: Blender keeps the
-            transform as float32 location and rotation, and placed points pick up
-            that rounding times their distance (4e-4 at 250 units).  Its own
-            transform, not matrix_local, which is worked back from world matrices.
-            Import squares the rotation up through a quaternion; so does this."""
-            m = o.matrix_parent_inverse @ o.matrix_basis
-            t = Vector(x.position) * sf
-            r = Matrix(x.rotation).to_quaternion().to_matrix()
-            if (m.translation - t).length > 1e-4 + 1e-6 * t.length:
-                return False
-            m3 = m.to_3x3()
-            return all(abs(m3[i][j] - r[i][j]) <= 1e-5 for i in range(3) for j in range(3))
-
-        msgs = []
-        tail = ("shares a physics system with a compound body, which PyNifly can't "
-                "rebuild yet. The system is written as imported; the edit is not exported.")
-        keyless = not holder.get('pynSavedSystem')
-        objs = [o for o in bpy.data.objects if not keyless and o.get('pynSavedSystem') == key]
-        # A system can hold several compounds, each with its own empty.
-        compounds = {o.get('pynCollisionBodyID', 0): o
-                     for o in (objs if not keyless else [holder])
-                     if o.get('pynCollisionCompound')}
-        loose = {o.get('pynCollisionBodyID'): o for o in objs
-                 if o.get('pynCollisionShapeType')
-                 and not (o.parent and o.parent.get('pynCollisionCompound'))}
-        imported = set(holder.get('pynSavedBodies', []))
-        for s in parse_bytes(data):
-            if s.body_index is None or (not keyless and s.body_index not in imported):
-                continue    # import made nothing for it, so nothing can be edited
-            if s.shape_type == 'compound':
-                comp = compounds.get(s.body_index)
-                if comp is None:
-                    if not keyless:
-                        msgs.append(f"{holder.name}: compound body {s.body_index} of its "
-                                    f"physics system is missing in Blender, but it {tail}")
-                    continue
-                kids = [o for o in comp.children if o.get('pynCollisionShapeType')]
-                if len(kids) != len(s.children):
-                    msgs.append(f"{comp.name}: shapes added or deleted, but its body {tail}")
-                    continue
-                # A child's vertices are its own; its instance transform is the
-                # object's place under the compound empty.  Compare where they sit.
-                todo = list(s.children)
-                for o in sorted(kids, key=lambda o: o.name):
-                    match = None
-                    for ch in todo:
-                        if o.get('pynCollisionShapeType') != ch.shape_type:
-                            continue
-                        if ch.shape_type in ('sphere', 'capsule'):
-                            ok = shape_differs(
-                                o, ch, local_points(o, Matrix.Identity(4))) is None
-                        else:
-                            ok = same_points(local_points(o, Matrix.Identity(4)),
-                                             [Vector(v) * sf for v in ch.verts]) \
-                                and same_place(o, ch.transform)
-                        if ok:
-                            match = ch
-                            break
-                    if match is None:
-                        msgs.append(f"{o.name}: shape edited, but its body {tail}")
-                        continue
-                    todo.remove(match)
-                    # Import gives a child the physics it reads for it, if any.
-                    what = (physics_differs(o, match.physics)
-                            or header_differs(o, match))
-                    if what:
-                        msgs.append(f"{o.name}: {what} edited, but its body {tail}")
-                continue
-            if keyless:
-                continue
-            o = loose.get(s.body_index)
-            if o is None:
-                msgs.append(f"{holder.name}: body {s.body_index} of its physics system is "
-                            f"missing in Blender, but it {tail}")
-                continue
-            what = (shape_differs(o, s, local_points(o, Matrix.Identity(4)))
-                    or physics_differs(o, s.physics) or header_differs(o, s))
-            if what:
-                msgs.append(f"{o.name}: {what} edited, but its body {tail}")
-        return msgs
-
-
-    @classmethod
-    def _export_saved_systems(cls, parent_handler):
-        """Write each saved system once, point every collision object queued for it
-        at its body, and report edits in Blender that it doesn't carry."""
-        pending = getattr(parent_handler, '_saved_pending', None)
-        if not pending:
-            return
-        h = CollisionHandler(parent_handler)
-        for key, entry in pending.items():
-            holder = entry['holder']
-            data = base64.b64decode(holder['pynPhysicsData'])
-            ps = bhkPhysicsSystem.New(parent_handler.nif, data=data,
-                                      parent=entry['cos'][0][0])
-            for co, body_id in entry['cos']:
-                co.properties.dataID = ps.id
-                co.properties.bodyID = body_id
-                co.write_properties()
-            try:
-                msgs = cls._saved_system_edits(h, key, holder, data, parent_handler.game)
-            except Exception as e:
-                msgs = [f"{holder.name}: could not check its physics system for edits "
-                        f"({e}); it is written as imported."]
-            for m in msgs:
-                h.warn(m)
-        pending.clear()
-
-
-    def _export_compound_body(self, coll, targnode, flags, sf):
-        """Export a single-body compound collision (pynCollisionCompound container).
-
-        The container's child polytope meshes are the compound's instances: each
-        child's mesh verts are the polytope's local geometry and its matrix_local
-        (relative to the container) is the instance transform. Rebuilds one rigid
-        body whose shape is an hknpDynamicCompoundShape and points the collision
-        object's body_id at it.
-        """
-        from ..pyn.bhk_autounpack import PhysicsProps
-        from ..pyn.bhk_autopack import pack_compound
         from . import pyn_props
-
-        body_id = coll.get('pynCollisionBodyID', 0)
-
-        # Preferred path: write back the original packfile bytes. Regenerating a
-        # compound needs its Havok AABB BVH tree rebuilt (not implemented yet), so a
-        # from-scratch pack would crash the game in updateAabb. Preserving the bytes
-        # round-trips unmodified collision exactly; edits are reported, not exported
-        # (_export_saved_system).
-        if coll.get('pynPhysicsData'):
-            self._queue_saved(coll, targnode, flags, body_id)
-            return
-
-        kids = [ch for ch in coll.children
-                if ch.get('pynCollisionShapeType') == 'polytope']
-        if not kids:
-            self.warn(f"Compound collision {coll.name} has no polytope children")
-            return
-
-        # Physics props are shared by the whole body; read them off the first child.
-        ref = kids[0]
-        rb = ref.rigid_body
-        gp = pyn_props.get_group(ref, 'pyn_fo4phys')
-        is_dyn = (rb is not None and rb.type == 'ACTIVE')
-        common = dict(
-            body_props_raw=bytes.fromhex(
-                gp.material_hex or '00ff003f003fcd3e01024c3deeff7f7f'),
-            friction=rb.friction if rb else 0.5,
-            restitution=rb.restitution if rb else 0.4,
-            linear_damping=rb.linear_damping if rb else 0.1,
-            angular_damping=rb.angular_damping if rb else 0.05,
-            gravity_factor=gp.gravity_factor,
-            max_linear_velocity=gp.max_lin_vel,
-            max_angular_velocity=gp.max_ang_vel,
-            collision_filter_info=_filter_info(gp),
-            trigger=gp.trigger,
-            body_flag_10000=gp.body_flag_10000,
-        )
-        if is_dyn:
-            physics = PhysicsProps(is_dynamic=True, mass=rb.mass,
-                                   keyframed=rb.kinematic, **common)
-        else:
-            physics = PhysicsProps(is_dynamic=False, **common)
-
-        # Each child: local polytope geometry + its instance transform (matrix_local,
-        # relative to the compound container).
         children = []
-        for ch in kids:
-            ml = ch.matrix_local
-            rot3 = ml.to_3x3()
-            rotation = tuple(tuple(rot3[r][c] for c in range(3)) for r in range(3))
-            translation = tuple(ml.translation[i] / sf for i in range(3))
-            verts = [tuple(v.co[i] / sf for i in range(3)) for v in ch.data.vertices]
-            faces = [list(p.vertices) for p in ch.data.polygons]
-            children.append((verts, faces, rotation, translation))
-
-        # Reached only for a compound with no preserved packfile (e.g. built from
-        # scratch in Blender). pack_compound emits the shapes but NOT the Havok AABB
-        # BVH tree, so the game crashes in hknpDynamicCompoundShape::updateAabb. Warn
-        # loudly until the tree builder exists (TODO.md).
-        self.warn(f"Compound collision {coll.name} was built without a preserved "
-                  "packfile; the exported physics has no bounding-volume tree and "
-                  "will crash the game. Regenerating compound collision is not yet "
-                  "supported.")
-        try:
-            packed = pack_compound(children, physics)
-        except ValueError as e:
-            self.warn(f"{coll.name}: collision not exported: {e}")
-            return
-        coll_node = targnode.add_collision(
-            None, flags=flags or 0,
-            collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
-            body_id=body_id)
-        bhkPhysicsSystem.New(self.nif, data=packed, parent=coll_node)
+        # In instance order as imported; children added in Blender after, by name.
+        for ch in sorted(comp.children, key=lambda o: (o.get('pynCompoundInstance', 1 << 30),
+                                                        o.name)):
+            kind = ch.get('pynCollisionShapeType')
+            if kind not in ('polytope', 'capsule', 'sphere', 'compressed_mesh'):
+                if kind is not None or ch.type == 'MESH':
+                    self.warn(f"{ch.name}: a compound can't hold a '{kind}' shape; left out")
+                continue
+            loc, rot, scl = _in_space_of(ch, coll).decompose()
+            even = sum(scl) / 3
+            if max(abs(x - even) for x in scl) <= 1e-4 * max(1.0, even):
+                inst_scale, rest = even, Matrix.Identity(3)
+            else:
+                inst_scale, rest = 1.0, Matrix.Diagonal(scl)
+            pts = [tuple(rest @ v.co / sf) for v in ch.data.vertices]
+            xf = BodyTransform(position=tuple(loc / sf),
+                               rotation=tuple(tuple(r) for r in rot.to_matrix()),
+                               scale=inst_scale)
+            hdr = self._fo4_shape_header(ch)
+            common = dict(name=ch.name, transform=xf, children=[], **hdr)
+            if kind == 'sphere':
+                c = tuple(sum(p[i] for p in pts) / len(pts) for i in range(3))
+                r = max(math.dist(p, c) for p in pts)
+                children.append(CollisionShape(shape_type='sphere', verts=[], faces=[],
+                                               convex_radius=0.0, sphere_radius=r,
+                                               sphere_center=c, **common))
+            elif kind == 'capsule':
+                a, b, r = capsule_from_points(pts)
+                children.append(CollisionShape(shape_type='capsule', verts=[], faces=[],
+                                               convex_radius=r, capsule_ends=(a, b),
+                                               **common))
+            else:
+                faces = [list(p.vertices) for p in ch.data.polygons]
+                radius = 0.0
+                if kind == 'polytope':
+                    if ch.rigid_body and ch.rigid_body.use_margin:
+                        radius = ch.rigid_body.collision_margin / sf
+                    else:
+                        radius = pyn_props.get_group(ch, 'pyn_fo4phys').collision_radius / sf
+                        if radius <= 0.0:
+                            radius = None
+                children.append(CollisionShape(shape_type=kind, verts=pts, faces=faces,
+                                               convex_radius=radius, **common))
+        if not children:
+            return None
+        # Vanilla's compound carries its children's user data (their material).
+        return CollisionShape(shape_type='compound', name=comp.name, transform=body_xf,
+                              verts=[], faces=[], convex_radius=0.0, children=children,
+                              physics=physics, user_data=children[0].user_data)
 
 
     def _fo4_shape_header(self, obj):
@@ -2019,21 +1743,6 @@ class CollisionHandler(BD.Warns):
                     if ch.get('pynCollisionCompound'):
                         compound_obj = ch
                         break
-            if compound_obj is not None:
-                self._export_compound_body(compound_obj, targnode, flags, sf)
-                self.objs_written.add(ReprObject(coll, targnode))
-                return
-
-            # A body that shares a saved system with a compound is written with it,
-            # at its own body ID, while the compound is there to carry it.
-            saved = [o for o in [coll] + list(coll.children)
-                     if o.get('pynSavedSystem') and o.get('pynCollisionShapeType')]
-            holder = self._saved_holder(saved[0]['pynSavedSystem']) if saved else None
-            if holder is not None:
-                self._queue_saved(holder, targnode, flags,
-                                  int(saved[0].get('pynCollisionBodyID', 0)))
-                self.objs_written.add(ReprObject(coll, targnode))
-                return
 
             # A body lives in its NIF node's space: the engine puts the body
             # where the node is, so the shape's vertices are node-local and the
@@ -2044,7 +1753,6 @@ class CollisionHandler(BD.Warns):
             # all.  Deriving both from the Blender object also means moving the
             # collision in Blender moves it in game.
             node_mx = transform_to_matrix(targnode.global_transform)
-            node_inv = node_mx.inverted()
             body_xf = BodyTransform(
                 position=tuple(c / sf for c in node_mx.translation),
                 rotation=tuple(tuple(r) for r in node_mx.to_quaternion().to_matrix()))
@@ -2064,7 +1772,7 @@ class CollisionHandler(BD.Warns):
             for o in unknown:
                 self.warn(f"{o.name}: collision shape type '{o['pynCollisionShapeType']}' "
                           "isn't supported for export; it is left out.")
-            if unknown and not shape_objs:
+            if unknown and not shape_objs and compound_obj is None:
                 self.objs_written.add(ReprObject(coll, targnode))
                 return
 
@@ -2079,12 +1787,15 @@ class CollisionHandler(BD.Warns):
                     collision_type=PynBufferTypes.bhkNPCollisionObjectBufType,
                     body_id=0)
                 self._np_pending.append(dict(co=co, objs=body_objs, shapes=shapes,
-                                             node_inv=node_inv))
+                                             coll=coll))
 
-            if shape_objs:
+            # A compound's physics settings are on its children.
+            compound_kids = [o for o in (compound_obj.children if compound_obj else ())
+                             if o.get('pynCollisionShapeType')]
+            if shape_objs or compound_kids:
                 # Build physics properties from the first shape object's
                 # custom properties (all shapes in one system share the same body).
-                ref = shape_objs[0]
+                ref = (shape_objs or compound_kids)[0]
                 rb = ref.rigid_body
                 is_dyn = (rb is not None and rb.type == 'ACTIVE')
                 gp = pyn_props.get_group(ref, 'pyn_fo4phys')
@@ -2129,7 +1840,7 @@ class CollisionHandler(BD.Warns):
                         # sphere has no vertices of its own, so its centre is
                         # all the body transform has to carry -- node-local,
                         # like every other shape's geometry.
-                        local_mat = node_inv @ self.export_xf @ obj.matrix_world
+                        local_mat = _in_space_of(obj, coll)
                         vsum = Vector((0, 0, 0))
                         for v in obj.data.vertices:
                             vsum += local_mat @ v.co
@@ -2152,7 +1863,7 @@ class CollisionHandler(BD.Warns):
                     elif shape_type == 'capsule':
                         # The capsule mesh is the authority: its ends and radius
                         # are read off it, in node space like any shape's verts.
-                        local_mat = node_inv @ self.export_xf @ obj.matrix_world
+                        local_mat = _in_space_of(obj, coll)
                         a, b, r = capsule_from_points(
                             [tuple(local_mat @ v.co / sf) for v in obj.data.vertices])
                         shapes.append(CollisionShape(
@@ -2168,7 +1879,7 @@ class CollisionHandler(BD.Warns):
                             **self._fo4_shape_header(obj),
                         ))
                     else:
-                        local_mat = node_inv @ self.export_xf @ obj.matrix_world
+                        local_mat = _in_space_of(obj, coll)
                         verts = [tuple(local_mat @ v.co / sf) for v in obj.data.vertices]
                         faces = [list(p.vertices) for p in obj.data.polygons]
                         # convex_radius: the rigid body margin, else the custom prop,
@@ -2190,6 +1901,14 @@ class CollisionHandler(BD.Warns):
                             physics=physics,
                             **self._fo4_shape_header(obj),
                         ))
+                if compound_obj is not None:
+                    comp = self._compound_shape(compound_obj, coll, body_xf, sf, physics)
+                    if comp is not None:
+                        shapes.append(comp)
+                        shape_objs.append(compound_obj)
+                if not shapes:
+                    self.objs_written.add(ReprObject(coll, targnode))
+                    return
                 # Pack these bodies on their own first, so one the packer can't
                 # build is left out here and never gets a collision object.
                 try:
@@ -2206,7 +1925,7 @@ class CollisionHandler(BD.Warns):
             else:
                 # Legacy path: no pynCollisionShapeType tag — treat the whole
                 # mesh as a single convex polytope (pre-existing behaviour).
-                local_mat = node_inv @ self.export_xf @ coll.matrix_world
+                local_mat = _in_space_of(coll, coll)
                 verts = [(*(local_mat @ v.co / sf),) for v in coll.data.vertices]
                 faces = [list(p.vertices) for p in coll.data.polygons]
                 legacy = CollisionShape(shape_type='polytope', name=coll.name,
@@ -2248,13 +1967,11 @@ class CollisionHandler(BD.Warns):
         from ..pyn.bhk_autopack import pack_system
         from ..pyn.bhk_autounpack import Constraint
         from . import pyn_props
-        cls._export_saved_systems(parent_handler)
         pending = getattr(parent_handler, '_np_pending', None)
         if not pending:
             return
         h = CollisionHandler(parent_handler)
         sf = HAVOC_SCALE_FACTOR * game_collision_sf[parent_handler.game]
-        export_xf = parent_handler.export_xf
 
         bodies = []
         for seq, item in enumerate(pending):
@@ -2266,7 +1983,8 @@ class CollisionHandler(BD.Warns):
         index_of = {b[3].name: i for i, b in enumerate(bodies)}
 
         def frame(e, i):
-            m = bodies[i][5]['node_inv'] @ export_xf @ e.matrix_world
+            # In the body's space, as its geometry is (_in_space_of).
+            m = bodies[i][5]['coll'].matrix_world.inverted() @ e.matrix_world
             r = m.to_3x3().normalized()
             rot = tuple((r[k][2], r[k][0], r[k][1]) for k in range(3))
             return rot, tuple(m.translation / sf)
@@ -2330,9 +2048,6 @@ class CollisionHandler(BD.Warns):
         if not hasattr(parent_handler, '_np_pending'):
             parent_handler._np_pending = []
         exporter._np_pending = parent_handler._np_pending
-        if not hasattr(parent_handler, '_saved_pending'):
-            parent_handler._saved_pending = {}
-        exporter._saved_pending = parent_handler._saved_pending
 
         targobj = obj
         if obj.type == 'ARMATURE':

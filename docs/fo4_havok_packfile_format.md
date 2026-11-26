@@ -331,78 +331,64 @@ shape object itself.
 
 ### hknpDynamicCompoundShape (0xD0 bytes) + instance array + Data
 
-One rigid body whose shape is a *compound* of N child shapes (typically
-`hknpConvexPolytopeShape`), each placed by a per-instance transform. Used by
-furniture with lots of collision detail — the armor/weapons/cooking workbenches are
-one compound body of dozens of polytopes (armor bench = 36).
+One rigid body whose shape is a *compound* of N child shapes, each placed by an instance
+transform: polytopes (the workbenches have dozens), compressed meshes (buildings),
+capsules and spheres (creature skeletons), and flat four-point `hknpConvexShape`s. The
+rules below hold in every one of the 2,138 vanilla compounds (phase 8 census, 2026-11-26);
+`bhk_autounpack.compound_problems` checks a packfile against them, and PyNifly's writer
+(`bhk_autopack._write_compound_shape`) follows them.
 
-The compound object itself is **0xD0 bytes** (longer than the 0x30 shared by simple
-shapes — the extra region carries the compound's own AABB and a pointer to its
-bounding-volume tree):
+Object order: the compound with its instances inline, each child shape followed by its
+own property objects (a polytope's mass properties, a compressed mesh's material chain),
+then the tree's `hknpDynamicCompoundShapeData`.
 
-| Offset | Size | Field |
-|--------|------|-------|
-| 0x00 | 16 | vtable/parent pointers (zeros) |
-| 0x10 | 4 | flags — `0x02060004` (armor/weapons benches), `0x02040004` (11-leaf cooking stove). *Likely encodes tree size/depth; not fully decoded.* |
-| 0x14 | 4 | zeros |
-| 0x18 | 8 | `m_userData` (see polytope note; shared with all children) |
-| 0x30 | 4 | `0xFFFFFFFF` sentinel |
-| 0x40 | 16 | empty `hkArray` (size 0) |
-| 0x50 | 8 | empty `hkArray` (size 0) |
-| 0x58 | 4 | `0xFFFFFFFF` sentinel |
-| 0x60 | 16 | **instances** `hkArray`: `u64 ptr` (local fixup), `u32 size = N`, `u32 cap = 0x80000000 \| N` |
-| 0x70 | 4 | `0xFFFFFFFF` sentinel |
-| 0x80 | 16 | AABB min — `float x, y, z, w` (compound's world bounds, Havok space) |
-| 0x90 | 16 | AABB max — `float x, y, z, w` |
-| 0xA0 | 4 | `0x00000001` (count?) then zeros |
-| 0xC0 | 8 | `u64 ptr` (global fixup) → `hknpDynamicCompoundShapeData` |
+| Offset | Field |
+|--------|-------|
+| 0x10 | u16 flags 4; u8 numShapeKeyBits = bit length of N; u8 dispatch type 2 |
+| 0x18 | u64 user data (a material, as on the children) |
+| 0x30 | -1 |
+| 0x38, 0x48 | empty hkArrays (capacity word 0x80000000) |
+| 0x58 | -1 |
+| 0x60 | instances hkArray (local fixup to +0xD0, count N, capacity 0x80000000 \| N) |
+| 0x70 | -1: the instances' free list (none free) |
+| 0x80, 0x90 | the compound's box: the tree's root box. min.w = the first leaf's min.w |
+| 0xA0 | u8 isMutable = 1 |
+| 0xC0 | pointer (global fixup) to the hknpDynamicCompoundShapeData |
 
-**Instance (0x80 bytes each, in the +0x60 array):**
+**Instance (0x80 bytes):** rotation as three columns (0x00, 0x10, 0x20), translation
+(0x30), scale (0x40: s, s, s, 1; 1 except in some SCOL files), the child shape pointer
+(0x50, global fixup), -1 at 0x58, zeros. The transform's four w lanes each hold
+`0x3F000000 | value`:
 
-```
-+0x00: rotation column 0 (float x,y,z)   +0x0C: w = 0.5
-+0x10: rotation column 1 (float x,y,z)   +0x1C: w = 0.0
-+0x20: rotation column 2 (float x,y,z)   +0x2C: w = 0.5
-+0x30: translation      (float x,y,z)    +0x3C: w = 0.5
-+0x40: 1.0, 1.0, 1.0, 1.0               (scale? constant)
-+0x50: u64 shape ptr (global fixup → child hknpConvexPolytopeShape)
-+0x58: 0xFFFFFFFF sentinel
-+0x60..0x7F: zeros
-```
+| Lane | Value |
+|------|-------|
+| 0x0C | flags: 0x40, +0x02 translated, +0x04 rotated, +0x28 scaled |
+| 0x1C | 0 (-0.0 on 161 vanilla rotated instances: float noise) |
+| 0x2C | the child shape's size in bytes (capsule 0x1B0, sphere 0x80, polytope its block; a compressed mesh 0x90) |
+| 0x3C | the tree node of the instance's leaf |
 
-The 3×3 rotation is stored **column-major** (three column vectors); transpose for
-row-major `M*v`. The w-lanes (0.5 / 0.0 / 0.5 / 0.5) and the +0x40 vector are constant
-metadata the decoder ignores. Translation is in Havok units (÷ scale factor for Blender).
+### hknpDynamicCompoundShapeData (the bounding-volume tree)
 
-### hknpDynamicCompoundShapeData (bounding-volume BVH tree)
+A Havok dynamic tree (`hkcdDynamicTree`, 32-byte `Codec32` nodes) the engine walks in
+`hknpDynamicCompoundShape::updateAabb`. A compound written without one crashes the game.
 
-A separate object the compound points to (`+0xC0`). It holds an **AABB bounding-volume
-hierarchy** over the child shapes, which the engine walks in
-`hknpDynamicCompoundShape::updateAabb` at load. For the armor bench: **73 nodes over 36
-leaves**.
+| Offset | Field |
+|--------|-------|
+| 0x10 | nodes hkArray (local fixup to +0x40), 2N+1 of them |
+| 0x20 | u16 firstFree = the last node |
+| 0x28 | u32 numLeaves = N |
+| 0x2C | u32 path = 0 |
+| 0x30 | u32 root = 1 |
 
-| Offset | Size | Field |
-|--------|------|-------|
-| 0x10 | 16 | nodes `hkArray`: `u64 ptr` (local fixup), `u32 size` (node count), `u32 cap` |
-| 0x20 | 8 | `u32` (0x48?), `u32` = N (leaf count) — *needs confirmation* |
-| 0x30 | 4 | `0x00000001` |
+Nodes: 0 is null, 1 .. 2N-1 the tree laid out depth first (a left child right after its
+parent), the last one free. Each node is a box: min xyz, then min.w = `0x3F000000 |
+parent`; max xyz, then max.w as two u16s: the two children, or `(0, instance)` for a leaf.
+An inner box is exactly the union of its children's; a leaf box is the child shape's
+points, placed by its instance, grown by its convex radius.
 
-**Tree node (32 bytes each):**
-
-```
-+0x00: aabb_min (float x, y, z)
-+0x0C: (float/field)
-+0x10: aabb_max (float x, y, z)
-+0x1C: u16 link_a, u16 link_b   (child/leaf references — encoding NOT fully decoded)
-```
-
-!!! note
-    The BVH tree is a spatial function of the child shapes' positions, so it must be
-    rebuilt whenever they move. A compound written *without* a valid tree (dangling
-    `+0xC0` pointer) crashes the game in `hknpDynamicCompoundShape::updateAabb`.
-    PyNifly currently **preserves the original packfile bytes** for compounds rather
-    than regenerating the tree; a from-scratch tree builder is future work (the Skyrim
-    MOPP BVH compiler is a likely starting point — similar AABB-tree problem).
+Havok builds the tree by inserting leaves one at a time, and that order can't be
+recovered from the file. The game only queries the tree, so any valid tree works:
+PyNifly's splits top down at the median along the longest axis of the boxes' centres.
 
 ## Fixup Tables
 

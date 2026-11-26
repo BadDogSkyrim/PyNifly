@@ -70,22 +70,6 @@ _CLASS_ENTRIES: List[Tuple[int, str]] = [
     (0xE9191728, 'hknpShapeMassProperties'),
 ]
 
-# Class entries for a single-body compound (one hknpDynamicCompoundShape whose
-# instances reference N hknpConvexPolytopeShapes). Same as the polytope set plus
-# the compound class. Kept separate so the existing packers' output is unchanged.
-_COMPOUND_CLASS_ENTRIES: List[Tuple[int, str]] = [
-    (0x33D42383, 'hkClass'),
-    (0xB0EFA719, 'hkClassMember'),
-    (0x8A3609CF, 'hkClassEnum'),
-    (0xCE6F8A6C, 'hkClassEnumItem'),
-    (0xB857718B, 'hknpPhysicsSystemData'),
-    (0x4620D11C, 'hknpDynamicCompoundShape'),
-    (0x3CE9B3E3, 'hknpConvexPolytopeShape'),
-    (0x7C574867, 'hkRefCountedProperties'),
-    (0xE9191728, 'hknpShapeMassProperties'),
-]
-
-
 # The capsule's class entry; a packfile lists it only when it holds a capsule.
 _CAPSULE_CLASS = (0x60A75F4C, 'hknpCapsuleShape')
 
@@ -1231,8 +1215,9 @@ def _write_cm_shape(data: bytearray, fx: '_FixupBuilder',
         CM_USER_DATA if hdr.get('user_data') is None else hdr['user_data'])
 
     fx.add_virtual(shape_rel, 0, name_offs['hknpCompressedMeshShape'])
-    fx.add_global(body_cinfo_rel + 0x00, 2, shape_rel)
-    fx.add_global(shape_entry_rel + 0x00, 2, shape_rel)
+    for ref in (body_cinfo_rel, shape_entry_rel):   # None: a compound's child has one
+        if ref is not None:
+            fx.add_global(ref, 2, shape_rel)
     shape_refprop_ptr_rel = shape_rel + 0x20   # → hkRefCountedProperties
     shape_data_ptr_rel    = shape_rel + 0x60   # → hknpCompressedMeshShapeData
 
@@ -1481,11 +1466,6 @@ def _write_cm_shape(data: bytearray, fx: '_FixupBuilder',
 
 # ── Classnames section ────────────────────────────────────────────────────────
 
-def _build_classnames_compound() -> Tuple[bytes, Dict[str, int]]:
-    """Build __classnames__ section for a single-body compound packfile."""
-    return _build_classnames_from(_COMPOUND_CLASS_ENTRIES)
-
-
 def _build_classnames_from(entries) -> Tuple[bytes, Dict[str, int]]:
     """Build a __classnames__ section listing exactly these (hash, name) entries."""
     data = b''
@@ -1597,169 +1577,7 @@ def _with_physics(shapes, physics):
 # matching vanilla's invariant that they share one value.
 _SHAPE_USER_DATA = 0x7DFA6E05
 
-# hknpDynamicCompoundShape header (0x70 bytes), templated from vanilla
-# WorkstationArmorB01. Opaque except: the instance hkArray at +0x60 (ptr via local
-# fixup, size/cap patched per pack); m_userData at +0x18 (set below to match the
-# children); and +0x10 (0x02060004) an opaque flag that matches both vanilla
-# workbenches (the 11-shape cooking stove uses 0x02040004).
-_COMPOUND_HEADER = bytearray.fromhex(
-    "00000000000000000000000000000000"   # +0x00
-    "04000602000000000000000000000000"   # +0x10  (+0x18 = m_userData, patched below)
-    "00000000000000000000000000000000"   # +0x20
-    "ffffffff000000000000000000000000"   # +0x30
-    "00000000000000800000000000000000"   # +0x40  (empty hkArray)
-    "0000000000000080ffffffff00000000"   # +0x50  (empty hkArray, +0x58 sentinel)
-    "00000000000000000000000000000000"   # +0x60  (instance hkArray, patched)
-)
-struct.pack_into('<Q', _COMPOUND_HEADER, 0x18, _SHAPE_USER_DATA)
-_COMPOUND_HEADER = bytes(_COMPOUND_HEADER)
-assert len(_COMPOUND_HEADER) == 0x70
-
-
-def _build_compound_instance(rotation, translation) -> bytes:
-    """One hknpDynamicCompoundShape instance (0x80 bytes).
-
-    rotation is a row-major 3x3; Havok stores it as three column vectors. The
-    w-lane of each row and the +0x40 vector are constant metadata the decoder
-    ignores (templated from vanilla). The shape pointer at +0x50 is left null for
-    a global fixup to patch.
-    """
-    b = bytearray(0x80)
-
-    def col(j):
-        return (rotation[0][j], rotation[1][j], rotation[2][j])
-
-    struct.pack_into('<3f', b, 0x00, *col(0)); struct.pack_into('<f', b, 0x0C, 0.5)
-    struct.pack_into('<3f', b, 0x10, *col(1)); struct.pack_into('<f', b, 0x1C, 0.0)
-    struct.pack_into('<3f', b, 0x20, *col(2)); struct.pack_into('<f', b, 0x2C, 0.5)
-    struct.pack_into('<3f', b, 0x30, *translation); struct.pack_into('<f', b, 0x3C, 0.5)
-    struct.pack_into('<4f', b, 0x40, 1.0, 1.0, 1.0, 1.0)
-    # +0x50: shape pointer (global fixup patches it)
-    struct.pack_into('<I', b, 0x58, 0xFFFFFFFF)
-    return bytes(b)
-
-
 _IDENT3 = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
-
-
-def _build_compound_data_section(
-        children, name_offs: Dict[str, int],
-        physics=None) -> Tuple[bytes, '_FixupBuilder']:
-    """Build the __data__ section for a single-body compound packfile.
-
-    One rigid body whose shape is an hknpDynamicCompoundShape referencing N
-    hknpConvexPolytopeShape children, each placed by a per-instance transform.
-
-    children: list of (verts, faces, rotation3x3, translation) tuples. rotation
-    and translation are in Havok space; translation already divided by the
-    collision scale factor.
-    """
-    N = len(children)
-    assert N >= 1
-
-    fx = _FixupBuilder()
-    data = bytearray()
-
-    def rel():
-        return len(data)
-
-    def write(b):
-        off = len(data)
-        data.extend(b)
-        return off
-
-    def align16():
-        while len(data) % 16:
-            data.append(0)
-
-    # Each child's mass, and the body's: the children as placed, together.
-    child_mass = [_polytope_mass(verts, faces) for (verts, faces, _r, _t) in children]
-    body_mass = MP.combined([MP.transformed(mp, rot or _IDENT3, trans)
-                             for mp, (_v, _f, rot, trans) in zip(child_mass, children)])
-
-    # ── PSD prefix: one body (body_props/BodyCInfo/ShapeEntry all size 1) ──
-    body_cinfo_rel, shape_entry_rel, _ = _build_psd_prefix(
-        data, fx, name_offs['hknpPhysicsSystemData'], physics=physics, num_bodies=1,
-        shape_mass=[body_mass])
-
-    # ── hknpDynamicCompoundShape (the single body's shape) ──
-    comp_rel = write(_COMPOUND_HEADER)
-    fx.add_virtual(comp_rel, 0, name_offs['hknpDynamicCompoundShape'])
-    fx.add_global(body_cinfo_rel + 0x00, 2, comp_rel)   # BodyCInfo.shape → compound
-    fx.add_global(shape_entry_rel + 0x00, 2, comp_rel)  # ShapeEntry.shape → compound
-    struct.pack_into('<I', data, comp_rel + 0x68, N)                 # instance count
-    struct.pack_into('<I', data, comp_rel + 0x6C, 0x80000000 | N)    # capacity flags
-    # hknpShape::numShapeKeyBits — the same rule as the compressed mesh: enough
-    # bits to cover the largest key this shape can hand out, whose maximum is
-    # N-1, so N.bit_length().  Verified against 1200/1200 vanilla compounds.
-    # A fixed value here lets the engine decode an instance that isn't there.
-    data[comp_rel + 0x12] = N.bit_length()
-    align16()
-
-    # ── Instance array (N × 0x80) ──
-    inst_arr_rel = rel()
-    fx.add_local(comp_rel + 0x60, inst_arr_rel)         # compound → instance array
-    inst_rels = []
-    for (_verts, _faces, rot, trans) in children:
-        inst_rels.append(write(_build_compound_instance(rot or _IDENT3, trans)))
-    align16()
-
-    # ── Polytope child shapes (one per instance) ──
-    for i, (verts, faces, _rot, _trans) in enumerate(children):
-        shape_rel = rel()
-        write(_build_convex_polytope_shape(verts, faces, user_data=_SHAPE_USER_DATA))
-        align16()
-        fx.add_virtual(shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
-        fx.add_global(inst_rels[i] + 0x50, 2, shape_rel)  # instance → its polytope
-        _write_mass_chain(data, fx, name_offs, shape_rel, child_mass[i])
-
-    return bytes(data), fx
-
-
-def pack_compound(children, physics=None) -> bytes:
-    """Pack a single-body compound: one rigid body whose shape is an
-    hknpDynamicCompoundShape of N convex-polytope instances.
-
-    children: list of (verts, faces, rotation3x3, translation). This is the
-    inverse of the "compound" CollisionShape the decoder produces; it round-trips
-    the FO4 armor/weapons workbenches, whose collision is one such compound body.
-    """
-    if not children:
-        raise ValueError("pack_compound requires at least one child shape")
-
-    cn_data, name_offs = _build_classnames_compound()
-    cn_name_off = name_offs['hknpPhysicsSystemData']
-
-    obj_data, fx = _build_compound_data_section(children, name_offs, physics=physics)
-
-    local_tbl = fx.build_local_table()
-    global_tbl = fx.build_global_table()
-    virt_tbl = fx.build_virtual_table()
-
-    data_section = obj_data + local_tbl + global_tbl + virt_tbl
-
-    cn_start = 0x100
-    cn_end = cn_start + len(cn_data)
-    data_start = cn_end
-    local_fix_abs = data_start + len(obj_data)
-    global_fix_abs = local_fix_abs + len(local_tbl)
-    virt_fix_abs = global_fix_abs + len(global_tbl)
-    data_end = virt_fix_abs + len(virt_tbl)
-
-    hdr = _file_header(cn_name_off)
-    shdr0 = _section_header(
-        '__classnames__', cn_start,
-        local_fix=cn_start + len(cn_data), global_fix=cn_start + len(cn_data),
-        virt_fix=cn_start + len(cn_data), exports=cn_start + len(cn_data))
-    shdr1 = _section_header(
-        '__types__', cn_end,
-        local_fix=cn_end, global_fix=cn_end, virt_fix=cn_end, exports=cn_end)
-    shdr2 = _section_header(
-        '__data__', data_start,
-        local_fix=local_fix_abs, global_fix=global_fix_abs,
-        virt_fix=virt_fix_abs, exports=data_end)
-
-    return hdr + shdr0 + shdr1 + shdr2 + cn_data + data_section
 
 
 def pack_multi_polytope(poly_shapes, physics=None) -> bytes:
@@ -1823,8 +1641,9 @@ def _write_sphere_shape(data: bytearray, fx: '_FixupBuilder', name_offs: Dict[st
         struct.pack_into('<4f', buf, 0x40 + 16 * k, *center, 0.5)
     data.extend(buf)
     fx.add_virtual(shape_rel, 0, name_offs['hknpSphereShape'])
-    fx.add_global(body_cinfo_rel, 2, shape_rel)
-    fx.add_global(shape_entry_rel, 2, shape_rel)
+    for ref in (body_cinfo_rel, shape_entry_rel):   # None: a compound's child has one
+        if ref is not None:
+            fx.add_global(ref, 2, shape_rel)
 
 
 def _system_classes(shapes, constraints) -> List[Tuple[int, str]]:
@@ -1835,12 +1654,21 @@ def _system_classes(shapes, constraints) -> List[Tuple[int, str]]:
         'capsule': [_CAPSULE_CLASS],
         'sphere': [(0x741E9012, 'hknpSphereShape')],
         'compressed_mesh': _CM_CLASS_ENTRIES[5:],
+        'compound': [_COMPOUND_CLASS, _COMPOUND_DATA_CLASS],
     }
     out = list(_CLASS_ENTRIES[:5])
-    for s in shapes:
-        for e in per_kind[s.shape_type]:
+
+    def add(s):
+        kinds = per_kind[s.shape_type]
+        if s.shape_type == 'polytope' and _is_flat(s.verts):
+            kinds = _CLASS_ENTRIES[6:] + [_CONVEX_CLASS]     # its mass chain, and the class
+        for e in kinds:
             if e not in out:
                 out.append(e)
+        for ch in s.children if s.shape_type == 'compound' else ():
+            add(ch)
+    for s in shapes:
+        add(s)
     if constraints:
         out.append(_HINGE_CLASS)
     return out
@@ -1875,6 +1703,300 @@ def _assemble_packfile(cn_data: bytes, name_offs: Dict[str, int], obj_data: byte
             + local_tbl + global_tbl + virt_tbl)
 
 
+# ── Compound bodies ──────────────────────────────────────────────────────────
+#
+# An hknpDynamicCompoundShape places child shapes by instance transforms, and points at an
+# hknpDynamicCompoundShapeData: a Havok dynamic tree over the children's boxes, which the
+# engine walks (updateAabb) -- a compound without one crashes the game.  The layout and its
+# rules are in bhk_autounpack (compound_problems, which checks every one we write); the
+# census of all 2,138 vanilla compounds is in the phase 8 notes.  Havok grows the tree by
+# inserting leaves one at a time, and that order can't be recovered; the game only queries
+# it, so any valid tree serves.  This one splits top down at the median along the longest
+# axis of the boxes' centres.
+_COMPOUND_CLASS = (0x4620D11C, 'hknpDynamicCompoundShape')
+_COMPOUND_DATA_CLASS = (0xF33DC3CC, 'hknpDynamicCompoundShapeData')
+_CHILD_KINDS = ('polytope', 'capsule', 'sphere', 'compressed_mesh')
+_W_HIGH = 0x3F000000                       # high bits of every w lane that holds a value
+_CM_CHILD_SIZE = 0x90                      # a compressed-mesh child's size lane (896 of 904)
+_CONVEX_CLASS = (0xC8F7C10D, 'hknpConvexShape')
+
+
+def _is_flat(verts: List[Vert3], eps: float = 1e-6) -> bool:
+    """All the points in one plane (or fewer than 4)."""
+    if len(verts) < 4:
+        return True
+    p0 = verts[0]
+    far = max(verts, key=lambda p: sum((p[i] - p0[i]) ** 2 for i in range(3)))
+    d1 = tuple(far[i] - p0[i] for i in range(3))
+
+    def cross(a, b):
+        return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    n = max((cross(d1, tuple(p[i] - p0[i] for i in range(3))) for p in verts),
+            key=lambda v: v[0] ** 2 + v[1] ** 2 + v[2] ** 2)
+    ln = math.sqrt(sum(x * x for x in n))
+    if ln == 0:
+        return True
+    return all(abs(sum(n[i] * (p[i] - p0[i]) for i in range(3))) / ln <= eps for p in verts)
+
+
+def _build_convex_shape(verts: List[Vert3], radius: float, header: dict) -> bytes:
+    """An hknpConvexShape: points and a radius, no faces -- how vanilla stores a flat shape
+    (all five are four-point panels): flags 1, dispatch 1, at +0x30 the vertex count and
+    the offset to them (0x10), each vertex w = 0x3F000000 | its index."""
+    n = len(verts)
+    buf = bytearray(0x40 + 16 * n)
+    struct.pack_into('<HBB', buf, 0x10, 0x0001 if header.get('shape_flags') is None
+                     else header['shape_flags'], 0, 1)
+    struct.pack_into('<f', buf, 0x14, radius)
+    struct.pack_into('<I', buf, 0x18, _SHAPE_USER_DATA if header.get('user_data') is None
+                     else header['user_data'])
+    struct.pack_into('<HH', buf, 0x30, n, 0x10)
+    for k, v in enumerate(verts):
+        struct.pack_into('<3fI', buf, 0x40 + 16 * k, *v, 0x3F000000 | k)
+    return bytes(buf)
+
+
+def _f32(x: float) -> float:
+    return struct.unpack('<f', struct.pack('<f', x))[0]
+
+
+def build_compound_tree(boxes):
+    """A tree over the boxes [(min xyz, max xyz)], one leaf each, as the compound stores it:
+    (nodes, leaf_node).  nodes[k] is (min, max, parent, child0, child1) -- a leaf's children
+    are (0, its box's index); node 0 is null and the last node free, so there are 2N+1, and
+    the tree is laid out depth first from node 1.  leaf_node[i] is box i's leaf.  Boxes are
+    rounded to float32 first, so each inner box is exactly its children's union."""
+    boxes = [(tuple(_f32(x) for x in mn), tuple(_f32(x) for x in mx)) for mn, mx in boxes]
+    if not boxes:
+        raise ValueError("a compound needs at least one child")
+    nodes = [((0.0,) * 3, (0.0,) * 3, 0, 0, 0)]
+    leaf_node = [0] * len(boxes)
+
+    def build(items, parent):
+        k = len(nodes)
+        nodes.append(None)
+        if len(items) == 1:
+            i = items[0]
+            nodes[k] = (boxes[i][0], boxes[i][1], parent, 0, i)
+            leaf_node[i] = k
+            return k
+        cen = {i: [(boxes[i][0][a] + boxes[i][1][a]) / 2 for a in range(3)] for i in items}
+        spread = [max(cen[i][a] for i in items) - min(cen[i][a] for i in items)
+                  for a in range(3)]
+        axis = spread.index(max(spread))
+        items = sorted(items, key=lambda i: (cen[i][axis], i))
+        half = len(items) // 2
+        left = build(items[:half], k)
+        right = build(items[half:], k)
+        mn = tuple(min(nodes[left][0][a], nodes[right][0][a]) for a in range(3))
+        mx = tuple(max(nodes[left][1][a], nodes[right][1][a]) for a in range(3))
+        nodes[k] = (mn, mx, parent, left, right)
+        return k
+    build(list(range(len(boxes))), 0)
+    nodes.append(((0.0,) * 3, (0.0,) * 3, 0, 0, 0))
+    return nodes, leaf_node
+
+
+def _scaled(p: Vert3, sc: float) -> Vert3:
+    return (p[0] * sc, p[1] * sc, p[2] * sc)
+
+
+def _placed(xf, p: Vert3) -> Vert3:
+    """A child's point in the compound's space: scaled, turned, moved by its instance."""
+    sc = getattr(xf, 'scale', 1.0) if xf is not None else 1.0
+    p = _scaled(p, sc)
+    if xf is None:
+        return p
+    r, t = xf.rotation, xf.position
+    return tuple(r[i][0] * p[0] + r[i][1] * p[1] + r[i][2] * p[2] + t[i] for i in range(3))
+
+
+def _child_box(ch):
+    """A child's box in the compound's space: its points, placed, grown by its radius."""
+    xf = ch.transform
+    sc = getattr(xf, 'scale', 1.0) if xf is not None else 1.0
+    if ch.shape_type == 'sphere':
+        pts, r = [ch.sphere_center], ch.sphere_radius
+    elif ch.shape_type == 'capsule':
+        pts, r = list(ch.capsule_ends), ch.convex_radius
+    else:
+        # None: a new shape, which the writer gives the default radius.
+        pts = ch.verts
+        r = DEFAULT_CONVEX_RADIUS if ch.convex_radius is None else ch.convex_radius
+    pts = [_placed(xf, p) for p in pts]
+    r *= sc
+    return (tuple(min(p[a] for p in pts) - r for a in range(3)),
+            tuple(max(p[a] for p in pts) + r for a in range(3)))
+
+
+def _scaled_child(ch):
+    """The child with its instance scale applied to its geometry (for its mass)."""
+    from dataclasses import replace
+    sc = getattr(ch.transform, 'scale', 1.0) if ch.transform is not None else 1.0
+    if abs(sc - 1.0) < 1e-9:
+        return ch
+    return replace(ch, verts=[_scaled(v, sc) for v in ch.verts],
+                   convex_radius=(None if ch.convex_radius is None else ch.convex_radius * sc),
+                   sphere_radius=ch.sphere_radius * sc,
+                   sphere_center=_scaled(ch.sphere_center, sc),
+                   capsule_ends=(tuple(_scaled(e, sc) for e in ch.capsule_ends)
+                                 if ch.capsule_ends else None))
+
+
+def _shape_mass(s) -> 'MP.MassProps':
+    """A body's mass properties at density 1, in its own space."""
+    if s.shape_type == 'polytope' and _is_flat(s.verts):
+        return MP.mesh_mass(s.verts, s.faces)
+    if s.shape_type == 'polytope':
+        return _polytope_mass(s.verts, s.faces, _shape_header(s))
+    if s.shape_type == 'capsule':
+        return MP.capsule_mass(*s.capsule_ends, s.convex_radius)
+    if s.shape_type == 'sphere':
+        return MP.sphere_mass(s.sphere_radius, tuple(s.sphere_center))
+    if s.shape_type == 'compound':
+        parts = []
+        for ch in s.children:
+            mp = _shape_mass(_scaled_child(ch))
+            xf = ch.transform
+            parts.append(MP.transformed(mp, xf.rotation, xf.position) if xf is not None else mp)
+        solid = [p for p in parts if p.volume > 0]
+        return MP.combined(solid or parts)
+    return MP.mesh_mass(s.verts, s.faces)
+
+
+def _write_shape(data: bytearray, fx: '_FixupBuilder', name_offs: Dict[str, int], s,
+                 bc: Optional[int], se: Optional[int], mass=None) -> int:
+    """Append shape s, pointed at from bc and se (either may be None), with what hangs off
+    it; return the size of the shape object itself (a compound instance records it)."""
+    start = len(data)
+    if s.shape_type == 'compressed_mesh':
+        _write_cm_shape(data, fx, name_offs, s.verts, s.faces, bc, se,
+                        header=shape_header_args(s))
+        size = _CM_CHILD_SIZE
+    elif s.shape_type == 'sphere':
+        _write_sphere_shape(data, fx, name_offs, s.sphere_radius, shape_header_args(s),
+                            bc, se, tuple(s.sphere_center))
+        size = len(data) - start
+    elif s.shape_type == 'capsule':
+        data.extend(_build_capsule_shape(s.capsule_ends, s.convex_radius,
+                                         s.shape_flags, s.user_data))
+        fx.add_virtual(start, 0, name_offs['hknpCapsuleShape'])
+        size = len(data) - start
+        for ref in (bc, se):
+            if ref is not None:
+                fx.add_global(ref, 2, start)
+    elif _is_flat(s.verts):
+        # A flat polytope has no inside to build planes for: vanilla's are hknpConvexShape.
+        data.extend(_build_convex_shape(s.verts, s.convex_radius, shape_header_args(s)))
+        fx.add_virtual(start, 0, name_offs['hknpConvexShape'])
+        for ref in (bc, se):
+            if ref is not None:
+                fx.add_global(ref, 2, start)
+        while len(data) % 16:
+            data.append(0)
+        size = len(data) - start
+        _write_mass_chain(data, fx, name_offs, start,
+                          mass if mass is not None else _shape_mass(s))
+    else:
+        data.extend(_build_convex_polytope_shape(s.verts, s.faces, **_shape_header(s)))
+        fx.add_virtual(start, 0, name_offs['hknpConvexPolytopeShape'])
+        for ref in (bc, se):
+            if ref is not None:
+                fx.add_global(ref, 2, start)
+        while len(data) % 16:
+            data.append(0)
+        size = len(data) - start
+        _write_mass_chain(data, fx, name_offs, start,
+                          mass if mass is not None else _shape_mass(s))
+    while len(data) % 16:
+        data.append(0)
+    return size
+
+
+def _instance_flags(xf) -> int:
+    flags = 0x40
+    if xf is None:
+        return flags
+    if any(abs(x) > 0 for x in xf.position):
+        flags |= 0x02
+    if any(abs(xf.rotation[i][j] - (i == j)) > 1e-6 for i in range(3) for j in range(3)):
+        flags |= 0x04
+    if abs(getattr(xf, 'scale', 1.0) - 1.0) > 1e-6:
+        flags |= 0x28
+    return flags
+
+
+def _write_compound_shape(data: bytearray, fx: '_FixupBuilder', name_offs: Dict[str, int],
+                          s, bc: int, se: int) -> None:
+    """Append an hknpDynamicCompoundShape body: the shape with its instances inline, each
+    child shape, then the tree (hknpDynamicCompoundShapeData)."""
+    kids = s.children
+    n = len(kids)
+    nodes, leaf_node = build_compound_tree([_child_box(ch) for ch in kids])
+    comp_rel = len(data)
+    buf = bytearray(0xD0 + 0x80 * n)
+    hdr = shape_header_args(s)
+    struct.pack_into('<HBB', buf, 0x10, 4 if hdr.get('shape_flags') is None
+                     else hdr['shape_flags'], n.bit_length(), 2)
+    struct.pack_into('<Q', buf, 0x18, _SHAPE_USER_DATA if hdr.get('user_data') is None
+                     else hdr['user_data'])
+    struct.pack_into('<I', buf, 0x30, 0xFFFFFFFF)
+    struct.pack_into('<I', buf, 0x44, 0x80000000)          # two empty arrays
+    struct.pack_into('<I', buf, 0x54, 0x80000000)
+    struct.pack_into('<I', buf, 0x58, 0xFFFFFFFF)
+    struct.pack_into('<II', buf, 0x68, n, 0x80000000 | n)  # the instances
+    struct.pack_into('<i', buf, 0x70, -1)                  # their free list: none free
+    root_mn, root_mx = nodes[1][0], nodes[1][1]
+    first_leaf = next(k for k in range(1, len(nodes) - 1) if nodes[k][3] == 0)
+    struct.pack_into('<3fI', buf, 0x80, *root_mn, _W_HIGH | nodes[first_leaf][2])
+    struct.pack_into('<3f', buf, 0x90, *root_mx)
+    buf[0xA0] = 1                                          # isMutable
+    for k, ch in enumerate(kids):
+        b = 0xD0 + 0x80 * k
+        xf = ch.transform
+        rot = xf.rotation if xf is not None else _IDENT3
+        pos = xf.position if xf is not None else (0.0, 0.0, 0.0)
+        sc = getattr(xf, 'scale', 1.0) if xf is not None else 1.0
+        for j in range(3):
+            struct.pack_into('<3f', buf, b + 16 * j, rot[0][j], rot[1][j], rot[2][j])
+        struct.pack_into('<3f', buf, b + 0x30, *pos)
+        struct.pack_into('<I', buf, b + 0x0C, _W_HIGH | _instance_flags(xf))
+        struct.pack_into('<I', buf, b + 0x3C, _W_HIGH | leaf_node[k])
+        struct.pack_into('<4f', buf, b + 0x40, sc, sc, sc, 1.0)
+        struct.pack_into('<I', buf, b + 0x58, 0xFFFFFFFF)
+    data.extend(buf)
+    fx.add_virtual(comp_rel, 0, name_offs['hknpDynamicCompoundShape'])
+    fx.add_global(bc, 2, comp_rel)
+    fx.add_global(se, 2, comp_rel)
+    fx.add_local(comp_rel + 0x60, comp_rel + 0xD0)
+    while len(data) % 16:
+        data.append(0)
+
+    for k, ch in enumerate(kids):
+        inst = comp_rel + 0xD0 + 0x80 * k
+        # A child's own mass record is its unscaled shape's (instances may share it).
+        size = _write_shape(data, fx, name_offs, ch, inst + 0x50, None)
+        struct.pack_into('<I', data, inst + 0x2C, _W_HIGH | size)
+
+    tree_rel = len(data)
+    count = len(nodes)
+    tbuf = bytearray(0x40 + 32 * count)
+    struct.pack_into('<II', tbuf, 0x18, count, 0x80000000 | count)
+    struct.pack_into('<H', tbuf, 0x20, count - 1)          # firstFree: the last node
+    struct.pack_into('<III', tbuf, 0x28, n, 0, 1)          # numLeaves, path, root
+    for k, (mn, mx, parent, c0, c1) in enumerate(nodes):
+        b = 0x40 + 32 * k
+        if 0 < k < count - 1:
+            struct.pack_into('<3fI', tbuf, b, *mn, _W_HIGH | parent)
+            struct.pack_into('<3fHH', tbuf, b + 16, *mx, c0, c1)
+    data.extend(tbuf)
+    fx.add_virtual(tree_rel, 0, name_offs['hknpDynamicCompoundShapeData'])
+    fx.add_local(tree_rel + 0x10, tree_rel + 0x40)
+    fx.add_global(comp_rel + 0xC0, 2, tree_rel)
+    while len(data) % 16:
+        data.append(0)
+
+
 def pack_system(shapes, constraints=()) -> bytes:
     """Pack one physics system: every body in shapes, in order, and constraints
     between them.
@@ -1890,8 +2012,13 @@ def pack_system(shapes, constraints=()) -> bytes:
     shapes = list(shapes)
     constraints = list(constraints)
     for s in shapes:
-        if s.shape_type not in ('polytope', 'capsule', 'sphere', 'compressed_mesh'):
+        if s.shape_type not in ('polytope', 'capsule', 'sphere', 'compressed_mesh',
+                                'compound'):
             raise NotImplementedError(f"pack_system: can't pack a {s.shape_type} body")
+        for ch in s.children if s.shape_type == 'compound' else ():
+            if ch.shape_type not in _CHILD_KINDS:
+                raise NotImplementedError(f"pack_system: a compound can't hold a "
+                                          f"{ch.shape_type}")
     for c in constraints:
         if c.kind != 'limited_hinge':
             raise NotImplementedError(f"pack_system: can't pack a {c.kind} constraint")
@@ -1900,16 +2027,7 @@ def pack_system(shapes, constraints=()) -> bytes:
                 raise ValueError(f"constraint joins body {b}; the system has {len(shapes)}")
     cn_data, name_offs = _build_classnames_from(_system_classes(shapes, constraints))
 
-    masses = []
-    for s in shapes:
-        if s.shape_type == 'polytope':
-            masses.append(_polytope_mass(s.verts, s.faces, _shape_header(s)))
-        elif s.shape_type == 'capsule':
-            masses.append(MP.capsule_mass(*s.capsule_ends, s.convex_radius))
-        elif s.shape_type == 'sphere':
-            masses.append(MP.sphere_mass(s.sphere_radius, tuple(s.sphere_center)))
-        else:
-            masses.append(MP.mesh_mass(s.verts, s.faces))
+    masses = [_shape_mass(s) for s in shapes]
 
     fx = _FixupBuilder()
     data = bytearray()
@@ -1925,30 +2043,10 @@ def pack_system(shapes, constraints=()) -> bytes:
     for i, s in enumerate(shapes):
         bc = body_cinfo_rel + i * 0x60
         se = shape_entry_rel + i * _REF_OBJ_SIZE
-        if s.shape_type == 'compressed_mesh':
-            _write_cm_shape(data, fx, name_offs, s.verts, s.faces, bc, se,
-                            header=shape_header_args(s))
-        elif s.shape_type == 'sphere':
-            _write_sphere_shape(data, fx, name_offs, s.sphere_radius, shape_header_args(s),
-                                bc, se, tuple(s.sphere_center))
-        elif s.shape_type == 'capsule':
-            shape_rel = len(data)
-            data.extend(_build_capsule_shape(s.capsule_ends, s.convex_radius,
-                                             s.shape_flags, s.user_data))
-            fx.add_virtual(shape_rel, 0, name_offs['hknpCapsuleShape'])
-            fx.add_global(bc, 2, shape_rel)
-            fx.add_global(se, 2, shape_rel)
+        if s.shape_type == 'compound':
+            _write_compound_shape(data, fx, name_offs, s, bc, se)
         else:
-            shape_rel = len(data)
-            data.extend(_build_convex_polytope_shape(s.verts, s.faces, **_shape_header(s)))
-            fx.add_virtual(shape_rel, 0, name_offs['hknpConvexPolytopeShape'])
-            fx.add_global(bc, 2, shape_rel)
-            fx.add_global(se, 2, shape_rel)
-            while len(data) % 16:
-                data.append(0)
-            _write_mass_chain(data, fx, name_offs, shape_rel, masses[i])
-        while len(data) % 16:
-            data.append(0)
+            _write_shape(data, fx, name_offs, s, bc, se, masses[i])
 
     for k, c in enumerate(constraints):
         rel = len(data)
@@ -1970,8 +2068,8 @@ def _one_body(shape_type, verts, faces, physics, transform, header, **kw):
 
 def pack_shapes(shapes, constraints=()) -> bytes:
     """Pack a list of CollisionShape objects -- one per body, in body order, any mix
-    of polytope, capsule, sphere and compressed mesh -- into one physics system.
-    See pack_system.  A compound body is packed on its own, by pack_compound."""
+    of polytope, capsule, sphere, compressed mesh and compound -- into one physics system.
+    See pack_system: compound bodies too."""
     return pack_system(shapes, constraints)
 
 

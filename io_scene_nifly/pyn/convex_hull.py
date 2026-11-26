@@ -96,9 +96,27 @@ def hull_triangles(pts: Sequence[Vec3], eps: float) -> List[Tuple[int, int, int]
     rest = [i for i in range(n) if i not in (i0, i1, i2, i3)]
     rest.sort(key=lambda i: -_len(_sub(pts[i], centre)))
     for p in rest:
-        visible = [fid for fid, (t, nn, d) in faces.items() if _dot(nn, pts[p]) + d > eps]
-        if not visible:
+        # The faces p sees, grown from the one it's farthest above through neighbouring
+        # faces, so they're one piece and the hole they leave has one edge loop. Taking
+        # every face it sees by a hair can leave disconnected patches where many faces are
+        # nearly coplanar (round shapes: the Nuka-World teacups), and no closed hull.
+        dist = {fid: _dot(nn, pts[p]) + d for fid, (t, nn, d) in faces.items()}
+        seed = max(dist, key=dist.get)
+        if dist[seed] <= eps:
             continue
+        face_of = {}
+        for fid, (t, _nn, _d) in faces.items():
+            for e in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+                face_of[e] = fid
+        visible = {seed}
+        stack = [seed]
+        while stack:
+            t = faces[stack.pop()][0]
+            for a, b in ((t[0], t[1]), (t[1], t[2]), (t[2], t[0])):
+                g = face_of.get((b, a))
+                if g is not None and g not in visible and dist[g] > eps:
+                    visible.add(g)
+                    stack.append(g)
         edges = set()
         for fid in visible:
             t = faces[fid][0]

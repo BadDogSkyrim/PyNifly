@@ -7931,16 +7931,222 @@ def TEST_FO4_MULTI_POLYTOPE_ROUNDTRIP():
 
 
 @test_category("FO4", "PHYSICS")
+def TEST_FO4_COMPOUND_CHILDREN():
+    """A compound's children come back one per instance, in instance order, each with its
+    instance's placement and scale.
+
+    Checked against the instance records read straight from the packfile, on vanilla
+    compounds that hold every kind of child: Dogmeat (a capsule and two spheres), a brick
+    building (a compressed mesh among polytopes), the magazine rack (an hknpConvexShape:
+    four points, no faces), a SCOL with scaled instances, and the .308 ammo box. Spheres in
+    a compound used to come out as bodies of their own, children after a compressed mesh
+    out of order, and scale not at all (phase 8 census, 2026-11-26).
+    """
+    import struct
+    from pyn.bhk_autounpack import parse_bytes
+    from pyn.havok_packfile import parse_packfile
+
+    KIND = {'hknpConvexPolytopeShape': 'polytope', 'hknpCompressedMeshShape': 'compressed_mesh',
+            'hknpCapsuleShape': 'capsule', 'hknpSphereShape': 'sphere',
+            'hknpConvexShape': 'polytope'}
+    files = [r"Actors\Dogmeat\CharacterAssets\skeleton.nif",
+             r"Architecture\Buildings\BldgBrick3Story6x2ResCustomEntA.nif",
+             r"SetDressing\Shelving\MagazineRack.nif",
+             r"SCOL\Fallout4.esm\CM0022B988.NIF",
+             r"Ammo\308\308Ammo.nif"]
+    for rel in files:
+        nif = NifFile(os.path.join(TT.FO4_ASSETS, "Meshes", rel))
+        systems = {}
+        for n in nif.nodes.values():
+            co = n.collision_object
+            if co is not None and co.blockname == 'bhkNPCollisionObject' \
+                    and co.physics_system is not None:
+                systems[co.physics_system.id] = bytes(co.physics_system.data)
+        checked = 0
+        for data in systems.values():
+            if b'hknpDynamicCompoundShape' not in data:
+                continue
+            pf = parse_packfile(data)
+            d = pf.data
+            cls = {o.rel: o.class_name for o in pf.objects}
+            want = []
+            for o in pf.objects:
+                if o.class_name != 'hknpDynamicCompoundShape':
+                    continue
+                inst, count = pf.array(o.rel, 0x60)
+                kids = []
+                for k in range(count):
+                    ia = inst + 0x80 * k
+                    cols = [struct.unpack_from('<3f', d, ia + 16 * j) for j in range(3)]
+                    rot = [[cols[j][i] for j in range(3)] for i in range(3)]
+                    g = pf.gptr(ia - pf.data_start, 0x50)
+                    kids.append((KIND[cls[g[1]]], struct.unpack_from('<3f', d, ia + 0x30), rot,
+                                 struct.unpack_from('<f', d, ia + 0x40)[0]))
+                want.append(kids)
+            shapes = parse_bytes(data)
+            got = [s for s in shapes if s.shape_type == 'compound']
+            TT.assert_eq(len(got), len(want), f"{rel}: compounds")
+            # Every shape is a body or a compound's child, never both.
+            TT.assert_eq(len([s for s in shapes if s.body_index is None]), 0,
+                         f"{rel}: no compound child comes out as a body of its own")
+            for comp, kids in zip(got, want):
+                TT.assert_eq([c.shape_type for c in comp.children], [k[0] for k in kids],
+                             f"{rel}: children in instance order")
+                for c, (kind, pos, rot, scale) in zip(comp.children, kids):
+                    TT.assert_equiv(c.transform.position, pos, f"{rel} {kind} position")
+                    TT.assert_equiv(c.transform.rotation, rot, f"{rel} {kind} rotation")
+                    TT.assert_equiv(c.transform.scale, scale, f"{rel} {kind} scale")
+                    if kind == 'polytope':
+                        TT.assert_eq(len(c.faces) > 0, True, f"{rel}: the polytope has faces")
+                checked += 1
+        TT.assert_eq(checked > 0, True, f"{rel}: has a compound")
+
+
+def _fo4_systems(rel):
+    """{system id: packfile bytes} for a vanilla FO4 nif's physics systems."""
+    nif = NifFile(os.path.join(TT.FO4_ASSETS, "Meshes", rel))
+    out = {}
+    for n in nif.nodes.values():
+        co = n.collision_object
+        if co is not None and co.blockname == 'bhkNPCollisionObject' \
+                and co.physics_system is not None:
+            out[co.physics_system.id] = bytes(co.physics_system.data)
+    return out
+
+
+# Vanilla compounds covering every kind of child and layout: polytopes (ammo, the armor
+# bench's 36), capsule and spheres (Dogmeat), a compressed mesh among polytopes (a brick
+# building), a flat four-point hknpConvexShape (the magazine rack), scaled instances (a SCOL),
+# and round 64-point polytopes the hull builder used to give up on (the Nuka-World teacups).
+FO4_COMPOUND_FIXTURES = [
+    r"Ammo\308\308Ammo.nif",
+    r"Furniture\Workstations\WorkbenchArmor\WorkstationArmorB01.nif",
+    r"Actors\Dogmeat\CharacterAssets\skeleton.nif",
+    r"Architecture\Buildings\BldgBrick3Story6x2ResCustomEntA.nif",
+    r"SetDressing\Shelving\MagazineRack.nif",
+    r"SCOL\Fallout4.esm\CM0022B988.NIF",
+    r"DLC04\SetDressing\Rides\KidRides\DLC04RideTeacupsDiscCups01.nif",
+]
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_COMPOUND_TREE():
+    """The compound tree: the checker holds vanilla to the rules every vanilla compound keeps,
+    catches a broken tree, and passes the trees build_compound_tree makes.
+
+    compound_problems is the census of all 2,138 vanilla compounds as a checker: the tree's
+    bookkeeping and depth-first layout, parent and child links, inner boxes as unions, every
+    instance in one leaf, the compound's header and box, each instance's w lanes.
+    """
+    import struct
+    from pyn.bhk_autounpack import compound_problems
+    from pyn.bhk_autopack import build_compound_tree
+    from pyn.havok_packfile import parse_packfile
+
+    for rel in FO4_COMPOUND_FIXTURES:
+        for data in _fo4_systems(rel).values():
+            if b'hknpDynamicCompoundShape' in data:
+                TT.assert_eq(compound_problems(data), [], f"{rel}: vanilla keeps the rules")
+
+    # A broken tree is caught: one leaf box shrunk.
+    data = next(d for d in _fo4_systems(FO4_COMPOUND_FIXTURES[1]).values()
+                if b'hknpDynamicCompoundShape' in d)
+    pf = parse_packfile(data)
+    comp = next(o for o in pf.objects if o.class_name == 'hknpDynamicCompoundShape')
+    nodes_abs, _n = pf.array(pf.gptr(comp.rel, 0xC0)[1], 0x10)
+    bad = bytearray(data)
+    struct.pack_into('<f', bad, nodes_abs + 32 * 7 + 16, 99.0)      # a leaf's max x
+    TT.assert_eq(any("union" in p for p in compound_problems(bytes(bad))), True,
+                 "a box that isn't its children's union is caught")
+
+    # Ours: leaves cover every box, inner boxes are unions, laid out depth first.
+    import random
+    rng = random.Random(1)
+    for count in (1, 2, 3, 7, 36, 100):
+        boxes = []
+        for _ in range(count):
+            c = [rng.uniform(-5, 5) for _ in range(3)]
+            h = [rng.uniform(0.01, 1) for _ in range(3)]
+            boxes.append((tuple(c[i] - h[i] for i in range(3)), tuple(c[i] + h[i] for i in range(3))))
+        nodes, leaf = build_compound_tree(boxes)
+        TT.assert_eq(len(nodes), 2 * count + 1, f"{count}: 2N+1 nodes")
+        TT.assert_eq(sorted(leaf), sorted(set(leaf)), f"{count}: a leaf each")
+        for k, (mn, mx, parent, c0, c1) in enumerate(nodes[1:-1], 1):
+            if c0:
+                TT.assert_eq(c0, k + 1, f"{count}: left child next")
+                TT.assert_eq(nodes[c0][2] == k and nodes[c1][2] == k, True, f"{count}: parents")
+                TT.assert_eq(mn, tuple(min(nodes[c0][0][a], nodes[c1][0][a]) for a in range(3)),
+                             f"{count}: union min")
+            else:
+                TT.assert_eq(leaf[c1], k, f"{count}: leaf {c1}")
+                TT.assert_equiv(mn, boxes[c1][0], f"{count}: leaf box", e=1e-6)
+
+
+@test_category("FO4", "PHYSICS")
+def TEST_FO4_COMPOUND_REBUILD():
+    """Vanilla compound bodies rebuilt from their model: every rule vanilla's compounds keep,
+    the children back as they were, each leaf box holding its child.
+
+    pack_system writes the compound, its instances, each child and the tree (vanilla's own
+    tree can't be recovered; any valid one serves). The fixtures cover every child kind and
+    the two shapes the writer used to refuse: a flat four-point shape (written as the
+    hknpConvexShape vanilla has), and round polytopes the hull builder gave up on.
+    """
+    import struct
+    from pyn.bhk_autounpack import compound_problems, parse_bytes
+    from pyn.bhk_autopack import pack_system, _child_box
+    from pyn.havok_packfile import parse_packfile
+
+    for rel in FO4_COMPOUND_FIXTURES:
+        for data in _fo4_systems(rel).values():
+            if b'hknpDynamicCompoundShape' not in data:
+                continue
+            shapes = parse_bytes(data)
+            out = pack_system(shapes)
+            TT.assert_eq(compound_problems(out), [], f"{rel}: ours keeps the rules")
+            back = parse_bytes(out)
+            TT.assert_eq([s.shape_type for s in back], [s.shape_type for s in shapes],
+                         f"{rel}: bodies")
+            for a, b in zip(shapes, back):
+                if a.shape_type != 'compound':
+                    continue
+                TT.assert_eq([c.shape_type for c in b.children],
+                             [c.shape_type for c in a.children], f"{rel}: children")
+                for x, y in zip(a.children, b.children):
+                    TT.assert_equiv(y.transform.position, x.transform.position, f"{rel}: placed")
+                    TT.assert_equiv(y.transform.rotation, x.transform.rotation, f"{rel}: turned")
+                    TT.assert_equiv(y.transform.scale, x.transform.scale, f"{rel}: scaled")
+                    TT.assert_equiv(_child_box(y), _child_box(x), f"{rel}: the same shape",
+                                    e=1e-3)
+            # Each leaf box holds its child.
+            pf = parse_packfile(out)
+            kids = [s for s in back if s.shape_type == 'compound']
+            comps = [o for o in pf.objects if o.class_name == 'hknpDynamicCompoundShape']
+            for comp, s in zip(comps, kids):
+                nodes_abs, nn = pf.array(pf.gptr(comp.rel, 0xC0)[1], 0x10)
+                for k in range(1, nn - 1):
+                    b = nodes_abs + 32 * k
+                    c0, c1 = struct.unpack_from('<HH', pf.data, b + 28)
+                    if c0:
+                        continue
+                    mn = struct.unpack_from('<3f', pf.data, b)
+                    mx = struct.unpack_from('<3f', pf.data, b + 16)
+                    cmn, cmx = _child_box(s.children[c1])
+                    TT.assert_eq(all(mn[i] <= cmn[i] + 1e-5 and mx[i] >= cmx[i] - 1e-5
+                                     for i in range(3)), True, f"{rel}: leaf {c1} holds it")
+
+
+@test_category("FO4", "PHYSICS")
 def TEST_FO4_COMPOUND_ROUNDTRIP():
-    """pack_compound round-trips the vanilla armor workbench's compound body.
+    """pack_system round-trips the vanilla armor workbench's compound body.
 
     The workbench collision is one rigid body whose shape is an
     hknpDynamicCompoundShape of 36 convex polytopes. The decoder produces a
     'compound' CollisionShape with 36 children carrying per-instance transforms;
-    pack_compound must produce a single-body compound the decoder reads back
+    pack_system must produce a single-body compound the decoder reads back
     identically (geometry + each instance's rotation and translation).
     """
-    from pyn.bhk_autopack import pack_compound
+    from pyn.bhk_autopack import pack_system
     from pyn.bhk_autounpack import parse_bytes
 
     nif = NifFile(r"tests/FO4/WorkstationArmorB01.nif")
@@ -7952,13 +8158,8 @@ def TEST_FO4_COMPOUND_ROUNDTRIP():
     src = compounds[0]
     assert TT.is_eq(len(src.children), 36, "compound has 36 children")
 
-    children = [(c.verts, c.faces,
-                 c.transform.rotation if c.transform else None,
-                 c.transform.position if c.transform else (0, 0, 0))
-                for c in src.children]
-
-    packed = pack_compound(children)
-    assert TT.is_gt(len(packed), 0, "pack_compound produced non-empty bytes")
+    packed = pack_system([src])
+    assert TT.is_gt(len(packed), 0, "pack_system produced non-empty bytes")
 
     out = parse_bytes(packed)
     out_comp = [s for s in out if s.shape_type == 'compound']
