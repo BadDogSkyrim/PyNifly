@@ -317,17 +317,24 @@ y = section.base_y + qy * section.scale_y
 z = section.base_z + qz * section.scale_z
 ```
 
-### hknpSphereShape (0x50 bytes)
+### hknpSphereShape (0x80 bytes, all 175 vanilla spheres)
 
 | Offset | Size | Field |
 |--------|------|-------|
 | 0x10 | 4 | flags (0x01000111) |
 | 0x14 | 4 | radius (float32, Havok space) |
-| 0x30 | 4 | flags2 (0x00100004) |
-| 0x4C | 4 | value (0.5) |
+| 0x18 | 8 | userData: the material |
+| 0x30 | 4 | vertex array: u16 count 4, u16 offset 0x10 |
+| 0x40 | 0x40 | four vertices, each the sphere's centre in the body's space, w = 0.5 |
 
-The sphere center is stored in the BodyCInfo position field, not in the
-shape object itself.
+The centre is in the shape, not the body: 32 vanilla centres are off the origin
+(the Mr Handy's centre-of-mass sphere sits 0.0633 Havok units off). Havok reads all
+four vertices; a 0x50-byte sphere claiming four had three read from the next object,
+and a Mr Handy built that way ignored bullets and hung the game when it died.
+
+The full measured write-up of FO4 physics (mass properties, the polytope layout,
+capsules, hinges, body flags) is in the Bethesda Library:
+https://baddogskyrim.github.io/BethesdaLibrary/file-formats/physics-collision/
 
 ### hknpDynamicCompoundShape (0xD0 bytes) + instance array + Data
 
