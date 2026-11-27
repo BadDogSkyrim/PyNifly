@@ -1,3 +1,80 @@
+# PyNifly 30.4.0 Release Notes
+
+Fallout 4 physics, rebuilt. Collision and cloth exported from Blender now come out the way
+Bethesda's own tools write them: mass, hulls, materials, hinges and compound bodies are worked
+out from what is in Blender instead of copied from a template. **Re-export your FO4 collision**:
+nifs exported by earlier versions can have pieces that freeze in mid-air, sink, jitter, sound
+like plastic, lose their hinges, or crash the game.
+
+Thanks to AlunnyBunny (#450, and a long list of tested fixes) and kohta-v (#444) for the
+reports.
+
+## Fallout 4 collision
+
+- **Each shape keeps its own material, flags and convex radius.** Shapes no longer all come out
+  as plastic. The material shows by name on the collision object (Metal, MetalLight, Wood...);
+  a new shape is set from the Blender object, with Metal as the fallback.
+- **Convex hulls are built like Havok's**: quads stay quads, faces of up to 16 vertices, planes
+  pushed out to contain every vertex. A triangulated box exports as 6 faces, not 12. A mesh that
+  isn't convex exports as its hull, and a flat one as a flat panel, as vanilla's windows are. A
+  mesh with more than 255 vertices warns and is left out.
+- **Mass properties are worked out from the shape**: volume, centre of mass and inertia, as
+  vanilla does. Set the mass with the rigid body's Mass. A piece moved or resized in Blender
+  tumbles about its new centre. A body moved by animation is an Active rigid body with
+  **Animated** on, Blender's own switch.
+- **Capsules** import and export, alone or inside compound bodies. Most creature skeletons and
+  some furniture use them; they used to lose their collision.
+- **Hinges.** A limited hinge imports as a Blender Rigid Body Constraint of type Hinge between
+  the two bodies, placed at the pivot with its limits. Move or turn the constraint and the hinge
+  moves in game; add one by hand and it exports. Other constraint types (ball-and-socket,
+  ragdoll...) are still not supported: import warns that they will be lost.
+- **One physics system per nif**, holding every body, as vanilla does. Each collision object
+  keeps its own body number.
+- **Compound bodies** (workbenches, the vault elevator, the gear door) are rebuilt from Blender,
+  bounding-volume tree and all. Edits to them now export (#444); before, they were written as
+  imported and the edit was lost.
+- **Trigger volumes** (a skeleton's character bumper) and body flags are kept.
+- **Spheres** are written correctly. A skeleton exported with a sphere could ignore bullets and
+  hang the game when the creature died.
+- Collision on a node that import makes a bone (under a skin bone) now imports and exports.
+- A collision bone with no weighted vertices no longer fails the export.
+- The empty `bhkCompound` grouping node is no longer exported as a node of its own.
+- A shape type PyNifly can't read gets a warning naming it, and the rest of the nif exports.
+
+## Fallout 4 cloth
+
+FO4 cloth (`BSClothExtraData`) now works like Starfield's: import draws the cloth in Blender,
+you can edit it, and export rebuilds it from what's there. Cloth made from scratch exports too.
+
+## Fallout 4 animation
+
+- **Visibility animation no longer crashes the game.** Exported visibility keys were written in
+  a form the game can't read, and a nif with them crashed on load.
+- A shader animation PyNifly can't represent (a heat shimmer's refraction strength) is warned
+  about and skipped, instead of failing the export of every sequence's shader animation.
+
+## Starfield
+
+- **Female reference skeleton.** Import picks the bundled male or female skeleton, whichever
+  fits the file's bind pose; female body parts no longer misfit by about 1.6 units.
+- Cloth: re-posing the cloth's bones in Blender re-poses its rest pose (a re-posed tail no
+  longer stays straight in game).
+- LODs: each LOD slot of a body-type nif (`_thin`...) takes its own shape key; LOD sets are
+  matched by object name, so copies of an imported shape each export.
+- Export warns when a shape's weights per vertex would drop weights, and says how to keep them.
+- The "not weighted to the armature" check counts only the armature's bone groups.
+- A material previewed through a node with no emission inputs exports.
+- A morph.dat whose shape keys move nothing is written, with a warning.
+
+## Other fixes
+
+- Empty grouping nodes are written parents first; a `BSValueNode` could crash the export.
+
+## Moved
+
+The Starfield helper scripts (sf_racecheck, sf_tintbake, uv_transfer, sf_texconv) are no longer
+in the PyNifly repository. They now live at https://github.com/BadDogSkyrim/Furrifier-Starfield.
+
 # PyNifly 30.3.0 Release Notes
 
 HKX animation support for features previous versions did not implement or got wrong:
