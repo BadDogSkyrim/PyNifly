@@ -2173,7 +2173,8 @@ def _import_LSPColorController(ctlr:BSLightingShaderPropertyColorController,
             importer.nif.game,
             BSLightingShaderPropertyColorController, 
             ctlr.properties.controlledVariable)
-        importer.path_name = \
+        if nodename is not None:
+            importer.path_name = \
                 f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
     except Exception:
         pass
@@ -2218,13 +2219,22 @@ def _import_LSPFloatController(ctlr:BSLightingShaderPropertyFloatController,
             importer.nif.game,
             BSLightingShaderPropertyFloatController, 
             ctlr.properties.controlledVariable)
-        importer.path_name = \
-            f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
+        # A variable PyNifly has no shader socket for (the vault gear door's heat
+        # shimmer animates Refraction_Strength) gets no path: a nodes["None"] one
+        # failed export.
+        if nodename is not None:
+            importer.path_name = \
+                f'nodes["{nodename}"].{in_out}["{inputname}"].default_value'
     except Exception:
         pass
 
-    if not importer.path_name: 
-        importer.warn(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: {ctlr.properties.controlledVariable} on {ctlr.id}") 
+    if not importer.path_name:
+        try:
+            var = LightingShaderControlledVariable(ctlr.properties.controlledVariable).name
+        except ValueError:
+            var = ctlr.properties.controlledVariable
+        importer.warn(f"NYI: Cannot handle controlled variable on controller {ctlr.id}: "
+                      f"{var}; its animation is skipped")
     else:    
         
         td = interp.data
@@ -2898,8 +2908,10 @@ def _export_bool_curves(exporter, fcurves, target_obj=None):
     bip.value = keys[0][1]
     bi = NiBoolInterpolator(file=exporter.nif, properties=bip)
     if len(keys) > 1:
-        # The value changes: a NiBoolData of the keys, linked to the interpolator.
-        NiBoolData.New(exporter.nif, interpolation=NiKeyType.LINEAR_KEY, keys=keys, parent=bi)
+        # The value changes: a NiBoolData of the keys, linked to the interpolator. Constant
+        # keys, as vanilla's all are: the game has no reader for linear bool keys and crashed
+        # loading a nif with them (the vault gear door).
+        NiBoolData.New(exporter.nif, interpolation=NiKeyType.CONST_KEY, keys=keys, parent=bi)
     return target_obj.name, bi
 
 NiVisController.fcurve_exporter = _export_bool_curves

@@ -1139,6 +1139,8 @@ def TEST_COLLISION_FO4_BOSRADARDISH():
 
 @TT.category('FO4', 'PHYSICS')
 @TT.expect_errors( ("Target of controller not found",
+                    # The heat shimmer animates refraction strength, which has no shader socket.
+                    "Refraction_Strength; its animation is skipped",
                     "Unknown block type: NiBoolData",
                     "Unknown block type: BSPositionData", # We don't yet handle particle systems
                     # The vanilla gear door really carries 16,097 duplicate tris (every tri
@@ -1481,6 +1483,9 @@ def TEST_COLLISION_FO4_COMPOUND_SYSTEMS():
     - 308Ammo, Res01ModernDoor01: a dynamic compound, and a keyframed one (the screen
       door).  Rebuilt, they came out static (their physics weren't on the children export
       reads them from): the box couldn't be kicked, the screen door didn't open.
+    - VltElevator, EatOTronic01, WorkbenchCookingC: collision on nodes under skin bones,
+      which import makes bones.  Their collision wasn't imported, so export dropped it
+      (phase 8b).
     """
     for rel in (r"Meshes\Interiors\HighTech\LgRooms\HitLgRmMidCorOut02DST.nif",
                 r"Meshes\SetDressing\Hospital\Gurney01.nif",
@@ -1489,7 +1494,10 @@ def TEST_COLLISION_FO4_COMPOUND_SYSTEMS():
                 r"Meshes\SetDressing\Workshop\Workshop_WindmillGenerator01.nif",
                 r"Meshes\Architecture\Buildings\BldgBrick3Story6x2ResCustomEntA.nif",
                 r"Meshes\Ammo\308\308Ammo.nif",
-                r"Meshes\Architecture\Buildings\Residential\Res01ModernDoor01.nif"):
+                r"Meshes\Architecture\Buildings\Residential\Res01ModernDoor01.nif",
+                r"Meshes\Interiors\Vault\Rooms\VltElevator\VltElevator.nif",
+                r"Meshes\SetDressing\FoodVendingMachines\EatOTronic01.nif",
+                r"Meshes\Furniture\Workstations\WorkbenchCookingC\WorkbenchCookingC.nif"):
         src = os.path.join(TT.FO4_ASSETS, rel)
         outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_COMPOUND_SYSTEMS.nif")
         name = os.path.basename(rel)
@@ -1503,6 +1511,63 @@ def TEST_COLLISION_FO4_COMPOUND_SYSTEMS():
         assert TT.is_eq(_system_differences(next(iter(vanilla.values()))[2],
                                             next(iter(out.values()))[2]), [],
                         f"{name}: the same system, rebuilt")
+
+
+def _shader_controls(path, shapes=None):
+    """{(sequence, node, controller type, controlled variable)} of a nif's keyed shader
+    animation, on the shapes named (default all).  Constant interpolators (a value, no keys)
+    aren't counted: import doesn't read them."""
+    nif = pyn.NifFile(path)
+    found = set()
+    for name, seq in nif.root.controller.sequences.items():
+        for cb in seq.controlled_blocks:
+            if ('Shader' in cb.controller_type and cb.controller is not None
+                    and cb.interpolator is not None and cb.interpolator.data is not None
+                    and (shapes is None or cb.node_name in shapes)):
+                found.add((name, cb.node_name, cb.controller_type,
+                           int(cb.controller.properties.controlledVariable)))
+    return found
+
+
+@TT.category('FO4', 'PHYSICS')
+@TT.expect_errors(("Target of controller not found",       # particle systems
+                   "Unknown block type: BSPositionData",
+                   "Refraction_Strength; its animation is skipped",
+                   "Dropped 16097 duplicate triangle(s)",
+                   "Path animation (NiPathInterpolator) is not supported"))
+def TEST_COLLISION_FO4_GEARDOOR_ROUNDTRIP():
+    """The vault gear door's collision comes back whole (phase 8b): one system of 24 bodies,
+    each of its 24 nodes naming its own, the bodies as they were.
+
+    19 of the nodes (the walkway rails and bases, the Box00x blocks, the supports) sit
+    under skin bones, so import makes them bones -- and returned before importing their
+    collision, which export then dropped.
+
+    And it exports without errors: the heat shimmer animates Refraction_Strength, which
+    PyNifly has no shader socket for.  Import gave it a nodes["None"] path, which failed
+    export of every sequence's shader animation; now it is warned about and skipped, and
+    the rest of the shader animation comes back.
+    """
+    src = os.path.join(TT.FO4_ASSETS, r"Meshes\Interiors\Vault\Doors\VltGearDoor\VltGearDoor01.nif")
+    outfile = TTB.test_file(r"tests\Out\TEST_COLLISION_FO4_GEARDOOR_ROUNDTRIP.nif")
+    bpy.ops.import_scene.pynifly(filepath=src)
+    _export_all(outfile)
+    vanilla, out = _collision_nodes(src), _collision_nodes(outfile)
+    assert TT.is_eq(len(vanilla), 24, "vanilla: 24 collision nodes")
+    assert TT.is_eq({n: v[0] for n, v in out.items()}, {n: v[0] for n, v in vanilla.items()},
+                    "every node keeps its collision and its body")
+    assert TT.is_eq(len({v[1] for v in out.values()}), 1, "one system")
+    assert TT.is_eq(_system_differences(next(iter(vanilla.values()))[2],
+                                        next(iter(out.values()))[2]), [],
+                    "the same system, rebuilt")
+    # Particle systems (p_Dust...) aren't exported, so their animation isn't either.
+    refraction = 0          # LightingShaderControlledVariable.Refraction_Strength
+    shapes = {s.name for s in pyn.NifFile(outfile).shapes}
+    want = {c for c in _shader_controls(src, shapes)
+            if not (c[2] == 'BSLightingShaderPropertyFloatController' and c[3] == refraction)}
+    assert TT.is_eq(len(want), 37, "the vanilla shader animation we expect back")
+    assert TT.is_eq(_shader_controls(outfile), want,
+                    "the shader animation, but for the refraction strength")
 
 
 @TT.category('FO4', 'PHYSICS')

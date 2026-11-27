@@ -1000,6 +1000,10 @@ def TEST_ANIMATRON_2():
     data = interps['clothesOff'].data
     assert TT.is_true(data is not None and {k.value for k in data.keys} == {0, 1},
                       "'clothesOff' exports its visibility keys")
+    # As constant (step) keys, as every vanilla NiBoolData has them. Written linear, the game
+    # has no reader for them and crashes loading the nif (the vault gear door, 11-27).
+    assert TT.is_eq(data.properties.keys.interpolation, pyn.NiKeyType.CONST_KEY,
+                    "visibility keys are constant keys")
 
 
 @TT.category('SKYRIM', 'HKX', 'ARMATURE')
@@ -2095,6 +2099,7 @@ def TEST_BANNER_BONE_ANIM():
                    "Unknown block type: NiBoolData",
                    "Unknown block type: BSPositionData",
                    "NiPathInterpolator",
+                   "Refraction_Strength; its animation is skipped",
                    "Dropped 16097 duplicate triangle(s)"))
 def TEST_ANIM_STATIC_CHANNEL_PRETTY_BONES():
     """A bone animated in rotation only is still posed where its node is.

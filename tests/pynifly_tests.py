@@ -1983,11 +1983,14 @@ def TEST_NIBOOLDATA():
     nif2 = NifFile()
     nif2.initialize('FO4', os.path.abspath(r"tests/Out/TEST_NIBOOLDATA.nif"))
     interp = NiBoolInterpolator.New(nif2, value=1)
-    NiBoolData.New(nif2, interpolation=NiKeyType.LINEAR_KEY,
-                   keys=[(0.0, 1), (0.5, 0), (1.0, 1)], parent=interp)
+    NiBoolData.New(nif2, keys=[(0.0, 1), (0.5, 0), (1.0, 1)], parent=interp)
     back = NiBoolInterpolator(file=nif2, id=interp.id)
     assert TT.is_eq(back.properties.value, 1, "the fixed value as written")
     assert TT.is_true(back.data is not None, "linked to its data")
+    # Constant keys by default: the game reads no other kind for bools (linear ones crashed
+    # it loading the vault gear door).
+    assert TT.is_eq(back.data.properties.keys.interpolation, NiKeyType.CONST_KEY,
+                    "constant keys")
     assert TT.is_eq([(round(k.time, 3), k.value) for k in back.data.keys],
                     [(0.0, 1), (0.5, 0), (1.0, 1)], "and the keys")
 

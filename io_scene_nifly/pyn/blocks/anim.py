@@ -560,8 +560,9 @@ class NiBoolInterpolator(NiKeyBasedInterpolator):
 
 
 class NiBoolData(NiObject):
-    """Keys for a bool interpolator (visibility): time and a 0/1 value each. Read and written
-    as linear float keys; the DLL turns the values to and from its bytes."""
+    """Keys for a bool interpolator (visibility): time and a 0/1 value each, constant (step)
+    keys -- the only kind the game reads for bools. They're read and written through the
+    linear-key calls (the same time and value); the DLL turns the values to and from bytes."""
     buffer_type = PynBufferTypes.NiBoolDataBufType
 
     @classmethod
@@ -587,7 +588,7 @@ class NiBoolData(NiObject):
         nifly.addAnimKeyLinear(self.file._handle, self.id, buf)
 
     @classmethod
-    def New(cls, file, interpolation=NiKeyType.LINEAR_KEY, keys=(), parent=None):
+    def New(cls, file, interpolation=NiKeyType.CONST_KEY, keys=(), parent=None):
         """A NiBoolData with (time, value) keys; set as `parent`'s data if given."""
         p = cls.getbuf()
         p.keys.interpolation = interpolation

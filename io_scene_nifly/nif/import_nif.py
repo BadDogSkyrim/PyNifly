@@ -993,6 +993,15 @@ class NifImporter(BD.Warns):
             if bn is not None and parent_editbone is not None:
                 bn.parent = parent_editbone
             bpy.ops.object.mode_set(mode = 'OBJECT')
+            # Its collision, as connect_armature imports a bone's: a node under a skin bone
+            # can carry one (the vault gear door's walkway rails, the EatOTronics' windows),
+            # and returning here without it lost it on export.
+            if ninode.collision_object and self.settings.import_collisions:
+                try:
+                    collision.CollisionHandler.import_collision_obj(
+                        self, ninode.collision_object, arma, ninode)
+                except Exception:
+                    log.exception(f"Error importing collisions {ninode.name}")
             # Return the Bone, not the EditBone--that one goes invalid on leaving edit
             # mode, and callers pass it back as the parent of the next node down.
             return arma.data.bones.get(blname)
